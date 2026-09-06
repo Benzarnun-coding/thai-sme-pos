@@ -252,57 +252,57 @@ const CH = {
   line:    { name:'LINE OA',  short:'LN', cls:'line', var:'--line-ch' },
 };
 const STORES = {
-  benz:{ name:'Benz Cafe', type:'คาเฟ่ · เบเกอรี่', factor:1, mix:{facebook:1,tiktok:1,shopee:1}, base:12400,
-    accounts:{facebook:'Benz Cafe (Page) · Ad acct 8841',tiktok:'@benzcafe · TikTok Shop TH',shopee:'benzcafe.official · Shop 2291'},
+  benz:{ name:'Benz Denim', type:'กางเกงยีนส์ · ร้านหลัก + ออนไลน์', factor:1, mix:{facebook:1,tiktok:1,shopee:1}, base:12400,
+    accounts:{facebook:'Benz Denim (Page) · Ad acct 8841',tiktok:'@benzdenim · TikTok Shop TH',shopee:'benzdenim.official · Shop 2291'},
     products:[
-      { id:'c3', name:'DIRTY COFFEE', price:95, cat:'Coffee', sales7:412, stock:'ok', trend:+18 },
-      { id:'d1', name:'DUBAI TART', price:185, cat:'Dessert', sales7:298, stock:'ok', trend:+41 },
-      { id:'b1', name:'ALMOND CROISSANT', price:125, cat:'Bakery', sales7:355, stock:'high', trend:+6 },
-      { id:'b3', name:'CHOCO LAVA CAKE', price:145, cat:'Bakery', sales7:171, stock:'ok', trend:-12 },
-      { id:'t1', name:'THAI MILK TEA', price:50, cat:'Drinks', sales7:503, stock:'ok', trend:+3 },
-      { id:'p1', name:'DRIP BAG SET (10 ซอง)', price:290, cat:'Retail', sales7:64, stock:'high', trend:+9 },
-      { id:'p2', name:'CROISSANT BOX (6 ชิ้น)', price:420, cat:'Retail', sales7:38, stock:'ok', trend:+22 },
+      { id:'j1', name:'ทรงกระบอกเล็ก ฟอกกลาง', price:590, cat:'ผู้ชาย · ขายาว', sizes:'28-38', sales7:214, stock:'ok', note:'ครบไซส์', trend:+24 },
+      { id:'j2', name:'มัมยีนส์เอวสูง สีเข้ม', price:650, cat:'ผู้หญิง · ขายาว', sizes:'25-32', sales7:187, stock:'low', note:'ขาดไซส์ 27, 28', trend:+38 },
+      { id:'j3', name:'ขาม้าเอวสูง ฟอกอ่อน', price:690, cat:'ผู้หญิง · ขายาว', sizes:'25-32', sales7:96, stock:'ok', note:'ครบไซส์', trend:+11 },
+      { id:'j4', name:'ทรงเดฟยืด สีดำ', price:490, cat:'ผู้ชาย · ขายาว', sizes:'28-36', sales7:158, stock:'high', note:'เหลือเยอะไซส์ 34-36', trend:-6 },
+      { id:'j5', name:'ขาสั้นยีนส์ ปลายพับ', price:350, cat:'ยูนิเซ็กซ์ · ขาสั้น', sizes:'26-36', sales7:243, stock:'ok', note:'ครบไซส์', trend:+3 },
+      { id:'j6', name:'ทรงบอย ทรงหลวม สีฟอกขาว', price:620, cat:'ผู้หญิง · ขายาว', sizes:'25-32', sales7:71, stock:'high', note:'เหลือเยอะทุกไซส์', trend:+9 },
+      { id:'j7', name:'แจ็คเก็ตยีนส์ ทรงครอป', price:890, cat:'เสื้อ', sizes:'S-XL', sales7:44, stock:'ok', note:'ครบไซส์', trend:+27 },
     ],
     kb:[
-      { rule:'Hook แบบคำถามได้ CTR สูงกว่าแบบบอกราคา 31% สำหรับหมวด Drinks บน Facebook', ev:'exp-0903-01 · n=2 · 3 วัน', date:'05 ก.ย.' },
-      { rule:'TikTok มุม POV ทำ CPA ต่ำกว่า ASMR 42% กับสินค้า Dessert', ev:'exp-0904-02 · 2 วัน', date:'06 ก.ย.' },
-      { rule:'Shopee Ads คำค้น generic ("กาแฟดริป") CPA เกินเป้า 2 เท่า ควรใช้คำค้น long-tail', ev:'exp-0901-05 · 5 วัน', date:'04 ก.ย.' },
-      { rule:'โพสต์ช่วง 13:30 ได้ reach สูงกว่า 09:00 อยู่ 18% (organic FB)', ev:'14 โพสต์ · ส.ค.', date:'31 ส.ค.' },
+      { rule:'คลิป TikTok ที่โชว์ "ใส่จริง เดินจริง" กับคนสูง 155 / 165 / 175 ได้ CPA ต่ำกว่า flat-lay 46%', ev:'exp-0904-02 · 2 วัน', date:'06 ก.ย.' },
+      { rule:'Hook แบบคำถาม ("หาทรงที่ใส่แล้วขาเรียวอยู่ใช่ไหม?") CTR สูงกว่าบอกราคา 29% บน Facebook หมวดผู้หญิง', ev:'exp-0903-01 · n=2 · 3 วัน', date:'05 ก.ย.' },
+      { rule:'ห้ามยิงแอดสินค้าที่ขาดไซส์ 27-30 (ไซส์ขายดี) CPA พุ่ง 2.1 เท่าและมีรีวิวลบเรื่องของหมด', ev:'exp-0828-04 · 4 วัน', date:'01 ก.ย.' },
+      { rule:'Shopee Ads คำค้น "กางเกงยีนส์เอวสูง" แข่งสูง CPA เกินเป้า ใช้ "มัมยีนส์ เอวสูง สีเข้ม" long-tail แทนได้ CPA ต่ำกว่า 35%', ev:'exp-0901-05 · 5 วัน', date:'04 ก.ย.' },
+      { rule:'โพสต์ FB ช่วง 20:30 ได้ reach สูงกว่า 12:00 อยู่ 22% (organic)', ev:'14 โพสต์ · ส.ค.', date:'31 ส.ค.' },
     ]},
-  nara:{ name:'Nara Skin', type:'สกินแคร์ · ขายออนไลน์', factor:2.4, mix:{facebook:0.8,tiktok:1.6,shopee:2.2}, base:31000,
-    accounts:{facebook:'Nara Skin Official (Page) · Ad acct 5120',tiktok:'@naraskin.th · TikTok Shop TH',shopee:'naraskin_official · Shop Mall 7734'},
+  branch2:{ name:'Benz Denim สาขา 2', type:'กางเกงยีนส์ · หน้าร้านตลาดนัด', factor:0.55, mix:{facebook:1.4,tiktok:0.7,shopee:0.3}, base:6800,
+    accounts:{facebook:'Benz Denim สาขา 2 (Page) · Ad acct 8842',tiktok:'@benzdenim.b2 · ยังไม่มี Shop',shopee:'ใช้ร้านหลักร่วมกัน'},
     products:[
-      { id:'n1', name:'VIT-C SERUM 30ml', price:590, cat:'Serum', sales7:186, stock:'ok', trend:+27 },
-      { id:'n2', name:'SUNSCREEN SPF50', price:390, cat:'Sun', sales7:241, stock:'high', trend:+8 },
-      { id:'n3', name:'GENTLE CLEANSER', price:290, cat:'Cleanse', sales7:132, stock:'ok', trend:-4 },
-      { id:'n4', name:'NIGHT CREAM', price:690, cat:'Moist', sales7:74, stock:'ok', trend:+15 },
-      { id:'n5', name:'SHEET MASK ×5', price:250, cat:'Mask', sales7:310, stock:'high', trend:+2 },
-      { id:'n6', name:'STARTER SET', price:990, cat:'Set', sales7:58, stock:'ok', trend:+33 },
-      { id:'n7', name:'TONER 200ml', price:350, cat:'Toner', sales7:96, stock:'ok', trend:+5 },
+      { id:'k1', name:'ทรงกระบอกเล็ก ฟอกกลาง', price:590, cat:'ผู้ชาย · ขายาว', sizes:'28-38', sales7:88, stock:'ok', note:'ครบไซส์', trend:+12 },
+      { id:'k2', name:'มัมยีนส์เอวสูง สีเข้ม', price:650, cat:'ผู้หญิง · ขายาว', sizes:'25-32', sales7:64, stock:'ok', note:'ครบไซส์', trend:+19 },
+      { id:'k3', name:'ขาสั้นยีนส์ ปลายพับ', price:350, cat:'ยูนิเซ็กซ์ · ขาสั้น', sizes:'26-36', sales7:131, stock:'ok', note:'ครบไซส์', trend:+6 },
+      { id:'k4', name:'ทรงเดฟยืด สีดำ', price:490, cat:'ผู้ชาย · ขายาว', sizes:'28-36', sales7:57, stock:'high', note:'เหลือเยอะไซส์ 34-36', trend:-3 },
+      { id:'k5', name:'ยีนส์เด็ก ทรงกระบอก', price:290, cat:'เด็ก', sizes:'4-12 ปี', sales7:72, stock:'ok', note:'ครบไซส์', trend:+15 },
+      { id:'k6', name:'ทรงบอย ทรงหลวม สีฟอกขาว', price:620, cat:'ผู้หญิง · ขายาว', sizes:'25-32', sales7:23, stock:'high', note:'เหลือเยอะทุกไซส์', trend:+2 },
+      { id:'k7', name:'เข็มขัดหนัง', price:250, cat:'ของแถม/แอคเซสซอรี่', sizes:'S-L', sales7:41, stock:'ok', note:'ครบ', trend:+8 },
     ],
     kb:[
-      { rule:'คลิป before/after 7 วัน บน TikTok ได้ CPA ต่ำสุดในหมวด Serum', ev:'exp-0902-01 · 3 วัน', date:'05 ก.ย.' },
-      { rule:'Shopee Ads ช่วง 9.9 ต้องเพิ่ม bid 30% ถึงจะได้ impression เท่าเดิม', ev:'exp-0904-02 · 2 วัน', date:'06 ก.ย.' },
-      { rule:'คำว่า "ผิวกระจ่างใสใน 3 วัน" ถูก QA ตีตกทุกครั้ง (เกินจริง) ใช้ "ผิวดูสดใสขึ้น" แทน', ev:'QA log · 12 ครั้ง', date:'02 ก.ย.' },
+      { rule:'โพสต์ "วันนี้ออกบูธที่…" พร้อมแผนที่ ได้คนทักถามเส้นทางเฉลี่ย 14 คน/โพสต์ ควรโพสต์ทุกเช้าวันออกบูธ', ev:'9 โพสต์ · ส.ค.', date:'02 ก.ย.' },
+      { rule:'Boost งบ 150/วัน รัศมี 5 กม. รอบตลาดนัด คุ้มกว่ายิงทั้งจังหวัด (ROAS 3.9x vs 1.7x)', ev:'exp-0830-01 · 3 วัน', date:'03 ก.ย.' },
     ]},
-  somchai:{ name:'Somchai Streetwear', type:'เสื้อผ้า · TikTok Shop', factor:1.6, mix:{facebook:0.6,tiktok:2.6,shopee:1.4}, base:19800,
-    accounts:{facebook:'Somchai Streetwear (Page) · Ad acct 9903',tiktok:'@somchai.wear · TikTok Shop TH',shopee:'somchaiwear · Shop 4410'},
+  wholesale:{ name:'Benz Denim ขายส่ง', type:'กางเกงยีนส์ · ยกโหล B2B', factor:1.8, mix:{facebook:1.6,tiktok:0.4,shopee:0.6}, base:22300,
+    accounts:{facebook:'Benz Denim Wholesale (Page) · Ad acct 8843',tiktok:'@benzdenim.wholesale',shopee:'benzdenim.wholesale · Shop 5518'},
     products:[
-      { id:'s1', name:'OVERSIZED TEE "BKK"', price:390, cat:'Tee', sales7:288, stock:'ok', trend:+35 },
-      { id:'s2', name:'CARGO PANTS', price:890, cat:'Pants', sales7:97, stock:'ok', trend:+12 },
-      { id:'s3', name:'BUCKET HAT', price:350, cat:'Hat', sales7:143, stock:'high', trend:-9 },
-      { id:'s4', name:'HOODIE FLEECE', price:1190, cat:'Hoodie', sales7:41, stock:'ok', trend:+4 },
-      { id:'s5', name:'SOCKS 3-PACK', price:190, cat:'Acc', sales7:362, stock:'ok', trend:+6 },
-      { id:'s6', name:'TOTE BAG CANVAS', price:290, cat:'Acc', sales7:120, stock:'high', trend:+2 },
-      { id:'s7', name:'CAP "SMC" LOGO', price:450, cat:'Hat', sales7:76, stock:'ok', trend:+19 },
+      { id:'w1', name:'ทรงกระบอกเล็ก ฟอกกลาง (โหล)', price:4800, cat:'ผู้ชาย · ยกโหล', sizes:'คละ 28-38', sales7:31, stock:'ok', note:'ครบ', trend:+14 },
+      { id:'w2', name:'มัมยีนส์เอวสูง สีเข้ม (โหล)', price:5400, cat:'ผู้หญิง · ยกโหล', sizes:'คละ 25-32', sales7:27, stock:'low', note:'รอผ้าล็อตใหม่ 12 ก.ย.', trend:+31 },
+      { id:'w3', name:'ขาม้าเอวสูง ฟอกอ่อน (โหล)', price:5600, cat:'ผู้หญิง · ยกโหล', sizes:'คละ 25-32', sales7:12, stock:'ok', note:'ครบ', trend:+5 },
+      { id:'w4', name:'ทรงเดฟยืด สีดำ (โหล)', price:4200, cat:'ผู้ชาย · ยกโหล', sizes:'คละ 28-36', sales7:19, stock:'high', note:'เหลือ 40 โหล', trend:-8 },
+      { id:'w5', name:'ขาสั้นยีนส์ (โหล)', price:3000, cat:'ยูนิเซ็กซ์ · ยกโหล', sizes:'คละ 26-36', sales7:35, stock:'ok', note:'ครบ', trend:+2 },
+      { id:'w6', name:'ทรงบอย ฟอกขาว (โหล)', price:5200, cat:'ผู้หญิง · ยกโหล', sizes:'คละ 25-32', sales7:9, stock:'high', note:'เหลือ 55 โหล', trend:+4 },
+      { id:'w7', name:'แจ็คเก็ตยีนส์ ครอป (โหล)', price:7800, cat:'เสื้อ · ยกโหล', sizes:'คละ S-XL', sales7:6, stock:'ok', note:'ครบ', trend:+20 },
     ],
     kb:[
-      { rule:'TikTok LIVE ช่วง 20:00-22:00 ทำยอดสั่งซื้อ 3 เท่าของคลิปปกติ ควรตั้งแอดหนุน LIVE', ev:'6 LIVE · ส.ค.', date:'01 ก.ย.' },
-      { rule:'รูป flat-lay พื้นขาวบน Shopee CTR ต่ำกว่ารูปคนใส่ 44%', ev:'exp-0829-03 · 5 วัน', date:'03 ก.ย.' },
-      { rule:'Facebook ยังคุ้มสำหรับ retarget คนที่ทักแชทแต่ยังไม่ซื้อ (ROAS 4.8x)', ev:'exp-0901-02 · 4 วัน', date:'05 ก.ย.' },
+      { rule:'ลูกค้าขายส่งทักผ่าน Facebook Messenger 80% ควรใช้ objective "ส่งข้อความ" ไม่ใช่ "ยอดขาย"', ev:'exp-0829-02 · 5 วัน', date:'03 ก.ย.' },
+      { rule:'โพสต์ราคาต่อตัวเมื่อซื้อยกโหล (เช่น "ตกตัวละ 400") ได้ inbox มากกว่าโพสต์ราคาต่อโหล 2.3 เท่า', ev:'8 โพสต์ · ส.ค.', date:'01 ก.ย.' },
+      { rule:'TikTok ไม่คุ้มสำหรับกลุ่มขายส่ง (CPA 4x ของ Facebook) ลดงบเหลือ organic อย่างเดียว', ev:'exp-0825-01 · 7 วัน', date:'30 ส.ค.' },
     ]},
 };
-const BASE_PIDS = ['d1','c3','p1','b1','t1','p2','b3']; // ลำดับที่ inbox/placements อ้างถึง ใช้ map ไปยังสินค้าของร้านอื่น
+const BASE_PIDS = ['j2','j1','j6','j4','j5','j7','j3']; // ลำดับที่ inbox/placements อ้างถึง ใช้ map ไปยังสินค้าของร้านอื่น
 const DEFAULTS = {
   storeId:'benz',
   view:'overview',
@@ -317,13 +317,13 @@ const DEFAULTS = {
     killCpaMult:1.5, killDays:2,
     testDays:3, variants:3,
     targetRoas:2.5, targetCpa:60,
-    brandVoice:'พูดเหมือนเพื่อนบาริสต้า เป็นกันเอง สั้น กระชับ ใช้ "เรา" ไม่ใช้ "ทางร้าน" ใส่ emoji ได้ไม่เกิน 2 ตัว ห้ามใช้คำว่า "ดีที่สุด" "ถูกที่สุด" "รักษา"',
-    forbidden:'ดีที่สุด, ถูกที่สุด, รักษา, ลดน้ำหนัก, การันตี',
+    brandVoice:'พูดเหมือนเพื่อนที่รู้เรื่องยีนส์ ตรงไปตรงมา บอกทรง เอว ความยืด และไซส์ที่มีเสมอ ใช้ "เรา" ไม่ใช้ "ทางร้าน" บอกส่วนสูง/น้ำหนักของนางแบบทุกครั้งที่มีรูปคนใส่ ใส่ emoji ได้ไม่เกิน 1 ตัว ห้ามอ้างว่า "ใส่แล้วผอม" หรือเทียบกับแบรนด์อื่น',
+    forbidden:'ใส่แล้วผอม, ขาเรียวทันที, ถูกที่สุด, ของแท้ 100%, Levi\'s, ลดราคาต่ำสุด',
     notifyLine:true, notifyEmail:false, dailyDigestTime:'22:00',
     lang:'th', currency:'THB', timezone:'Asia/Bangkok',
   },
   channels:{
-    facebook:{ enabled:true, connected:true, account:'Benz Cafe (Page) · Ad acct 8841', tokenDays:58,
+    facebook:{ enabled:true, connected:true, account:'Benz Denim (Page) · Ad acct 8841', tokenDays:58,
       caps:{ post:true, ads:true, insights:true, messages:false }, sync:6 },
     tiktok:{ enabled:true, connected:true, account:'@benzcafe · TikTok Shop TH', tokenDays:21,
       caps:{ post:true, ads:true, insights:true, shop:true }, sync:6 },
@@ -343,48 +343,43 @@ const DEFAULTS = {
   ],
   agents:[
     { id:'strategist', name:'Strategist', th:'วางแผนว่าจะโปรโมทอะไร', model:'llm-large', temp:0.4, tools:['pos_sql','kb_search','meta_insights','tiktok_insights','shopee_insights'], enabled:true,
-      prompt:'คุณคือนักวางแผนการตลาดของร้านกาแฟ อ่านยอดขาย 7/30 วัน สต็อก และผลแอดล่าสุด แล้วเลือกสินค้าไม่เกิน 3 รายการที่ควรโปรโมทวันนี้ ระบุช่องทาง (Facebook/TikTok/Shopee) เหตุผล กลุ่มเป้าหมาย งบต่อวัน และระดับความเสี่ยง ตอบเป็น JSON ตาม schema Brief' },
+      prompt:'คุณคือนักวางแผนการตลาดของร้านกางเกงยีนส์ อ่านยอดขาย 7/30 วันแยกทรง/สี/ไซส์ สต็อกคงเหลือรายไซส์ และผลแอดล่าสุด แล้วเลือกสินค้าไม่เกิน 3 รายการที่ควรโปรโมทวันนี้ ห้ามเลือกสินค้าที่ขาดไซส์ขายดี (27-30 หญิง / 30-32 ชาย) ระบุช่องทาง (Facebook/TikTok/Shopee) เหตุผล กลุ่มเป้าหมาย งบต่อวัน และระดับความเสี่ยง ตอบเป็น JSON ตาม schema Brief' },
     { id:'copywriter', name:'Copywriter', th:'เขียน caption / headline', model:'llm-large', temp:0.9, tools:['kb_search','brand_voice'], enabled:true,
-      prompt:'เขียนคอนเทนต์ภาษาไทยตาม Brief จำนวน {variants} แบบ แต่ละแบบต้องใช้ hook คนละประเภท (คำถาม / บอกราคา / เล่าเรื่อง) ปรับความยาวและโทนตามช่องทาง: Facebook เล่าได้ยาว, TikTok สั้นเป็น script 15 วินาที, Shopee เน้นชื่อสินค้า+จุดขาย+โปร' },
+      prompt:'เขียนคอนเทนต์ภาษาไทยตาม Brief จำนวน {variants} แบบ แต่ละแบบต้องใช้ hook คนละประเภท (คำถาม / บอกราคา / เล่าเรื่อง) ปรับความยาวและโทนตามช่องทาง: Facebook เล่าได้ยาว, TikTok สั้นเป็น script 15 วินาที, Shopee เน้นชื่อสินค้า+ทรง+เอว+ไซส์ที่มี+โปร ทุกชิ้นต้องระบุทรง ช่วงไซส์ และส่วนสูง/น้ำหนักนางแบบถ้ามีรูปคนใส่' },
     { id:'creative', name:'Creative', th:'ทำภาพ 1:1 / 4:5 / 9:16', model:'image-gen', temp:0.7, tools:['template_render','product_photos','video_render'], enabled:true,
-      prompt:'เลือก template ตามประเภท (เมนู / โปรโมชั่น / เปิดตัว) ใส่รูปสินค้าจาก POS ราคา และ hook สั้น เรนเดอร์ 1:1 กับ 4:5 สำหรับ Facebook, 9:16 สำหรับ TikTok, 1:1 พื้นขาวสำหรับ Shopee' },
+      prompt:'เลือก template ตามประเภท (สินค้าใหม่ / โปรโมชั่น / ไซส์ครบ / ใส่จริง) ใช้รูปคนใส่จริงเป็นหลัก flat-lay เป็นรอง ใส่ราคา ทรง และช่วงไซส์ เรนเดอร์ 1:1 กับ 4:5 สำหรับ Facebook, 9:16 สำหรับ TikTok, 1:1 พื้นขาวตามกฎ Shopee' },
     { id:'qa', name:'QA + Policy', th:'เช็คราคา นโยบาย ความซ้ำ', model:'llm-small', temp:0.0, tools:['pos_sql','policy_rules','similarity'], enabled:true,
-      prompt:'ตรวจทุกชิ้นงาน: (1) ชื่อและราคาตรงกับ POS (2) ไม่มีคำต้องห้าม (3) ไม่ผิดนโยบายโฆษณาของแต่ละแพลตฟอร์ม (4) ไม่ซ้ำโพสต์ 14 วันล่าสุด ตอบ passed:true/false พร้อม issues[]' },
+      prompt:'ตรวจทุกชิ้นงาน: (1) ชื่อ ราคา และไซส์ที่บอกว่ามี ตรงกับสต็อก POS จริง (2) ไม่มีคำต้องห้าม / ไม่อ้างผลต่อรูปร่าง (3) ไม่ผิดนโยบายโฆษณาของแต่ละแพลตฟอร์ม (4) ไม่ซ้ำโพสต์ 14 วันล่าสุด ตอบ passed:true/false พร้อม issues[]' },
     { id:'analyst', name:'Analyst', th:'สรุปผล + เรียนรู้', model:'llm-large', temp:0.2, tools:['pos_sql','meta_insights','tiktok_insights','shopee_insights','kb_write'], enabled:true,
       prompt:'อ่านผลทุก placement ที่ครบ {testDays} วัน เทียบกับยอดขาย POS ตัดสิน scale/kill/iterate ตามกฎที่ตั้งไว้ และเขียน learned rule 1 ข้อพร้อมหลักฐานลง Knowledge Base สรุปให้เจ้าของร้านไม่เกิน 5 บรรทัด' },
   ],
   inbox:[
-    { id:'br-0906-01A', ch:'facebook', type:'boosted_post', product:'d1', variant:'A', risk:'high', budget:350, days:3, ratio:'4:5', hookType:'คำถาม',
-      copy:'เคยกินทาร์ตที่ข้างในเป็นพิสตาชิโอไหลเยิ้มมั้ย? 🥐\nDUBAI TART ของเรา ทำสดทุกเช้า ชิ้นละ 185.-\nสัปดาห์นี้ขายดีอันดับ 1 ใครยังไม่ลอง มาเลย',
-      reason:'ยอดขายขึ้น +41% ใน 7 วัน สต็อกพิสตาชิโอเพียงพอ', qa:['ราคาตรง POS','ไม่มีคำต้องห้าม','ไม่ซ้ำ 14 วัน'], status:'pending' },
-    { id:'br-0906-01B', ch:'facebook', type:'boosted_post', product:'d1', variant:'B', risk:'high', budget:350, days:3, ratio:'1:1', hookType:'บอกราคา',
-      copy:'185 บาท กับความฟินระดับดูไบ 🇦🇪\nDUBAI TART พิสตาชิโอแท้ + คาดาอีฟกรอบ อบสดวันต่อวัน\nมีจำนวนจำกัดต่อวัน หมดแล้วหมดเลย',
-      reason:'variant B ของ experiment เดียวกัน', qa:['ราคาตรง POS','ไม่มีคำต้องห้าม','ไม่ซ้ำ 14 วัน'], status:'pending' },
-    { id:'br-0906-02A', ch:'tiktok', type:'organic_video', product:'c3', variant:'A', risk:'low', budget:0, days:0, ratio:'9:16', hookType:'เล่าเรื่อง',
-      copy:'[Script 15s]\n0-3s: "อย่าเพิ่งคน!" (มือกำลังจะคนแก้ว)\n3-8s: เทช็อตร้อนลงนมเย็น เห็นชั้นแยก\n8-12s: จิบ 3 จิบ ชั้นละรส\n12-15s: DIRTY COFFEE 95.- ที่ Benz Cafe #dirtycoffee #คาเฟ่',
-      reason:'ยอดขายขึ้น 3 วันติด เหมาะกับคลิปสั้น', qa:['ราคาตรง POS','ไม่มีคำต้องห้าม','ยาว 15s ตามกฎ'], status:'pending' },
-    { id:'br-0906-03A', ch:'shopee', type:'ad_campaign', product:'p1', variant:'A', risk:'medium', budget:200, days:5, ratio:'1:1', hookType:'บอกราคา',
-      copy:'ชื่อสินค้า: Drip Bag Set 10 ซอง คั่วกลาง Benz Cafe\nจุดขาย: คั่วใหม่ทุกสัปดาห์ · ชงง่ายไม่ต้องมีเครื่อง · ส่งฟรีเมื่อซื้อ 2 ชุด\nโปร: 290.- (ปกติ 320.-) ถึง 12 ก.ย.',
-      reason:'สต็อกเมล็ดคั่วเหลือเยอะ ใกล้ครบ 2 สัปดาห์', qa:['ราคาตรง POS','ไม่มีคำต้องห้าม','รูปพื้นขาวตามกฎ Shopee'], status:'pending' },
-    { id:'br-0906-04A', ch:'facebook', type:'organic_post', product:'b1', variant:'A', risk:'low', budget:0, days:0, ratio:'1:1', hookType:'เล่าเรื่อง',
-      copy:'บ่ายสองแล้ว ☕\nครัวซองต์อัลมอนด์อบใหม่เพิ่งออกจากเตา ชั้นแป้งกรอบ อัลมอนด์หนา 125.-\nแวะมารับได้ถึง 6 โมงเย็นนะ',
-      reason:'ยอดขายช่วงบ่ายตกต่อเนื่อง 4 วัน', qa:['ราคาตรง POS','ไม่มีคำต้องห้าม','ไม่ซ้ำ 14 วัน'], status:'pending' },
+    { id:'br-0906-01A', ch:'facebook', type:'boosted_post', product:'j2', variant:'A', risk:'high', budget:350, days:3, ratio:'4:5', hookType:'คำถาม',
+      copy:'หามัมยีนส์เอวสูงที่ใส่แล้วไม่ต้องดึงขึ้นทั้งวันอยู่ใช่ไหม? 👖\nทรงนี้เอวสูงจริง 30 ซม. ผ้าหนา 12 oz ไม่บาง ไม่ย้วย\nสีเข้มซักไม่ตก ตัวละ 650.- ไซส์ 25-32\nนางแบบสูง 160 / 48 กก. ใส่ไซส์ 26',
+      reason:'ยอดขายขึ้น +38% ใน 7 วัน · ⚠ ขาดไซส์ 27, 28 รอเข้า 8 ก.ย. ระบบเสนอให้ตั้งเวลาโพสต์หลังของเข้า', qa:['ราคาตรง POS','ไซส์ตรงสต็อก (มีเงื่อนไข)','ไม่มีคำต้องห้าม'], status:'pending' },
+    { id:'br-0906-01B', ch:'facebook', type:'boosted_post', product:'j2', variant:'B', risk:'high', budget:350, days:3, ratio:'1:1', hookType:'บอกราคา',
+      copy:'650 บาท มัมยีนส์เอวสูง สีเข้ม ผ้า 12 oz\nทรงที่ขายดีสุดของเราสัปดาห์นี้ เอวสูง สะโพกพอดี ปลายขาตรง\nไซส์ 25-32 · ส่งฟรีเมื่อซื้อ 2 ตัว · เปลี่ยนไซส์ได้ใน 7 วัน',
+      reason:'variant B ของ experiment เดียวกัน', qa:['ราคาตรง POS','ไซส์ตรงสต็อก (มีเงื่อนไข)','ไม่มีคำต้องห้าม'], status:'pending' },
+    { id:'br-0906-02A', ch:'tiktok', type:'organic_video', product:'j1', variant:'A', risk:'low', budget:0, days:0, ratio:'9:16', hookType:'เล่าเรื่อง',
+      copy:'[Script 15s]\n0-3s: "ผู้ชายสูง 170 ใส่กระบอกเล็กแล้วขาสั้นไหม?" (ยืนข้างสายวัด)\n3-9s: ใส่จริง เดิน นั่ง ย่อ โชว์ว่าเข่าไม่ตึง\n9-13s: เทียบ 3 ส่วนสูง 165 / 170 / 178 ทรงเดียวกัน\n13-15s: ทรงกระบอกเล็ก ฟอกกลาง 590.- ไซส์ 28-38 กดตะกร้า #ยีนส์ผู้ชาย #benzdenim',
+      reason:'ยอดขายขึ้น 3 วันติด ครบทุกไซส์ เหมาะกับคลิป "ใส่จริง" ตามกฎที่เรียนรู้', qa:['ราคาตรง POS','ไซส์ครบ','ยาว 15s ตามกฎ'], status:'pending' },
+    { id:'br-0906-03A', ch:'shopee', type:'ad_campaign', product:'j6', variant:'A', risk:'medium', budget:200, days:5, ratio:'1:1', hookType:'บอกราคา',
+      copy:'ชื่อสินค้า: กางเกงยีนส์ทรงบอย ทรงหลวม สีฟอกขาว เอวสูง ผู้หญิง ไซส์ 25-32 Benz Denim\nจุดขาย: ผ้าไม่ยืด ทรงหลวมสบาย ปลายขาพับได้ · ครบทุกไซส์ · เปลี่ยนไซส์ฟรี\nโปร: 620.- เหลือ 549.- ถึง 12 ก.ย. (สต็อกเหลือเยอะ)\nคำค้นแอด: ยีนส์ทรงบอย เอวสูง, กางเกงยีนส์ทรงหลวม ผู้หญิง',
+      reason:'สต็อกเหลือเยอะทุกไซส์ ยอดขายนิ่ง เหมาะทำโปรระบายสต็อก', qa:['ราคาตรง POS','ไซส์ครบ','รูปพื้นขาวตามกฎ Shopee'], status:'pending' },
+    { id:'br-0906-04A', ch:'facebook', type:'organic_post', product:'j7', variant:'A', risk:'low', budget:0, days:0, ratio:'1:1', hookType:'เล่าเรื่อง',
+      copy:'แจ็คเก็ตยีนส์ทรงครอปตัวนี้ เราทำจากผ้าล็อตเดียวกับมัมยีนส์สีเข้ม\nใส่คู่กันได้เป็นเซ็ต หรือใส่กับเดรสก็ได้\n890.- ไซส์ S-XL · นางแบบสูง 165 ใส่ M\nมีหน้าร้านให้ลองก่อนซื้อ ทักมาถามไซส์ได้เลย',
+      reason:'สินค้าใหม่ ยอดขึ้น +27% ยังไม่เคยโพสต์แยก', qa:['ราคาตรง POS','ไซส์ครบ','ไม่ซ้ำ 14 วัน'], status:'pending' },
   ],
   placements:[
-    { id:'ad-0903-01A', ch:'facebook', product:'t1', name:'[AI][0903-01][A] Thai Milk Tea · คำถาม', status:'active', spend:612, imp:38400, clicks:1210, cpa:41, roas:3.4, lift:+12, day:3, decision:'scale' },
-    { id:'ad-0903-01B', ch:'facebook', product:'t1', name:'[AI][0903-01][B] Thai Milk Tea · บอกราคา', status:'active', spend:598, imp:36100, clicks:820, cpa:73, roas:1.9, lift:+4, day:3, decision:'kill' },
-    { id:'ad-0904-02A', ch:'tiktok', product:'d1', name:'[AI][0904-02][A] Dubai Tart · POV', status:'active', spend:450, imp:91200, clicks:2380, cpa:38, roas:4.1, lift:+27, day:2, decision:'scale' },
-    { id:'ad-0904-02B', ch:'tiktok', product:'d1', name:'[AI][0904-02][B] Dubai Tart · ASMR', status:'active', spend:445, imp:64800, clicks:1120, cpa:66, roas:2.2, lift:+9, day:2, decision:'iterate' },
-    { id:'ad-0902-03A', ch:'shopee', product:'p2', name:'[AI][0902-03][A] Croissant Box · ส่งฟรี', status:'active', spend:380, imp:12300, clicks:410, cpa:95, roas:2.6, lift:+22, day:4, decision:'hold' },
-    { id:'ad-0901-05A', ch:'shopee', product:'p1', name:'[AI][0901-05][A] Drip Bag · คำค้น "กาแฟดริป"', status:'paused', spend:510, imp:9800, clicks:260, cpa:128, roas:1.3, lift:+1, day:5, decision:'kill' },
-    { id:'po-0905-06A', ch:'facebook', product:'b3', name:'[AI][0905-06][A] Lava Cake · organic', status:'organic', spend:0, imp:4200, clicks:96, cpa:0, roas:0, lift:-2, day:1, decision:'—' },
+    { id:'ad-0903-01A', ch:'facebook', product:'j3', name:'[AI][0903-01][A] ขาม้าเอวสูง · คำถาม', status:'active', spend:612, imp:38400, clicks:1210, cpa:41, roas:3.4, lift:+12, day:3, decision:'scale' },
+    { id:'ad-0903-01B', ch:'facebook', product:'j3', name:'[AI][0903-01][B] ขาม้าเอวสูง · บอกราคา', status:'active', spend:598, imp:36100, clicks:820, cpa:73, roas:1.9, lift:+4, day:3, decision:'kill' },
+    { id:'ad-0904-02A', ch:'tiktok', product:'j1', name:'[AI][0904-02][A] กระบอกเล็ก · ใส่จริง 3 ส่วนสูง', status:'active', spend:450, imp:91200, clicks:2380, cpa:38, roas:4.1, lift:+27, day:2, decision:'scale' },
+    { id:'ad-0904-02B', ch:'tiktok', product:'j1', name:'[AI][0904-02][B] กระบอกเล็ก · flat-lay', status:'active', spend:445, imp:64800, clicks:1120, cpa:66, roas:2.2, lift:+9, day:2, decision:'iterate' },
+    { id:'ad-0902-03A', ch:'shopee', product:'j5', name:'[AI][0902-03][A] ขาสั้นยีนส์ · ซื้อ 2 ส่งฟรี', status:'active', spend:380, imp:12300, clicks:410, cpa:95, roas:2.6, lift:+22, day:4, decision:'hold' },
+    { id:'ad-0901-05A', ch:'shopee', product:'j2', name:'[AI][0901-05][A] มัมยีนส์ · คำค้น "ยีนส์เอวสูง"', status:'paused', spend:510, imp:9800, clicks:260, cpa:128, roas:1.3, lift:+1, day:5, decision:'kill' },
+    { id:'po-0905-06A', ch:'facebook', product:'j4', name:'[AI][0905-06][A] เดฟยืดดำ · organic', status:'organic', spend:0, imp:4200, clicks:96, cpa:0, roas:0, lift:-2, day:1, decision:'—' },
   ],
-  kb:[
-    { rule:'Hook แบบคำถามได้ CTR สูงกว่าแบบบอกราคา 31% สำหรับหมวด Drinks บน Facebook', ev:'exp-0903-01 · n=2 · 3 วัน', date:'05 ก.ย.' },
-    { rule:'TikTok มุม POV ทำ CPA ต่ำกว่า ASMR 42% กับสินค้า Dessert', ev:'exp-0904-02 · 2 วัน', date:'06 ก.ย.' },
-    { rule:'Shopee Ads คำค้น generic ("กาแฟดริป") CPA เกินเป้า 2 เท่า ควรใช้คำค้น long-tail', ev:'exp-0901-05 · 5 วัน', date:'04 ก.ย.' },
-    { rule:'โพสต์ช่วง 13:30 ได้ reach สูงกว่า 09:00 อยู่ 18% (organic FB)', ev:'14 โพสต์ · ส.ค.', date:'31 ส.ค.' },
-  ],
+  kb:[],
 };
 
 /* 14-day series (deterministic mock) */
@@ -405,18 +400,19 @@ function applyStore(){
 /* =========================================================
    STATE
    ========================================================= */
-const KEY='loopdesk.v2';
+const KEY='loopdesk.v3';
 let ALL = loadAll(); let S = ALL.stores[ALL.current];
 function storeDefaults(id){
   const st=STORES[id]; const d=clone(DEFAULTS); d.storeId=id; d.kb=clone(st.kb);
   for(const c of ['facebook','tiktok','shopee']) d.channels[c].account=st.accounts[c];
   if(id!=='benz'){
     const map={}; BASE_PIDS.forEach((b,i)=>map[b]=st.products[i].id);
-    const HOOK={'คำถาม':p=>`${p.name} ทำไมคนรีวิวเยอะขนาดนี้? 👀\nลองแล้วจะรู้ ราคา ${p.price}.- สั่งได้เลยที่ลิงก์`,'บอกราคา':p=>`${p.price} บาท กับ ${p.name} ที่ขายดีสุดสัปดาห์นี้\nส่งฟรีเมื่อสั่ง 2 ชิ้น ถึงวันอาทิตย์นี้`,'เล่าเรื่อง':p=>`[Script 15s]\n0-3s: hook เปิดกล่อง ${p.name}\n3-10s: ใช้จริง / ใส่จริง ให้เห็นรายละเอียด\n10-15s: ${p.price}.- กดตะกร้าได้เลย`};
+    const HOOK={'คำถาม':p=>`หา${p.name}ที่ใส่แล้วพอดีตัวจริง ๆ อยู่ใช่ไหม? 👖\nไซส์ ${p.sizes} ${p.note} ตัวละ ${p.price}.-\nทักมาบอกส่วนสูง/น้ำหนัก เราช่วยเลือกไซส์ให้`,'บอกราคา':p=>`${p.price} บาท ${p.name}\nไซส์ ${p.sizes} · ${p.note} · เปลี่ยนไซส์ได้ใน 7 วัน\nซื้อ 2 ตัวส่งฟรี ถึงวันอาทิตย์นี้`,'เล่าเรื่อง':p=>`[Script 15s]\n0-3s: hook "ทรงนี้คนสูง 160 ใส่แล้วเป็นยังไง?"\n3-10s: ใส่จริง เดิน นั่ง โชว์เอวและปลายขา\n10-15s: ${p.name} ${p.price}.- ไซส์ ${p.sizes} กดตะกร้า`};
     d.inbox.forEach(i=>{ i.product=map[i.product]; const p=st.products.find(x=>x.id===i.product); i.copy=HOOK[i.hookType](p); i.reason=`ยอดขาย ${p.trend>=0?'+':''}${p.trend}% ใน 7 วัน · สต็อก ${p.stock==='high'?'เหลือเยอะ':'ปกติ'}`; i.budget=i.budget?Math.round(i.budget*st.factor/10)*10:0; });
     d.placements.forEach(pl=>{ pl.product=map[pl.product]; const p=st.products.find(x=>x.id===pl.product); pl.name=pl.name.replace(/\] [^·]+ ·/,'] '+p.name+' ·'); pl.spend=Math.round(pl.spend*st.factor/10)*10; pl.imp=Math.round(pl.imp*st.factor); pl.clicks=Math.round(pl.clicks*st.factor); });
     d.settings.dailyCap=Math.round(1500*st.factor/100)*100; d.settings.monthlyCap=d.settings.dailyCap*20;
-    d.settings.brandVoice = id==='nara' ? 'โทนอ่อนโยน น่าเชื่อถือ ใช้คำว่า "ผิวดู…" ไม่ใช้คำอ้างผลลัพธ์แน่นอน ไม่พูดถึงโรค อ้างอิงส่วนผสมได้ ใส่ emoji ได้ 1 ตัว' : 'โทนสตรีท ห้วน มั่นใจ ใช้คำแสลงได้ ภาษาไทยปนอังกฤษ ไม่ต้องมี emoji ห้ามใช้คำว่า "ของแท้ 100%"';
+    if(id==='branch2') d.settings.brandVoice='โทนเป็นกันเองแบบพ่อค้าตลาดนัด บอกวันและจุดออกบูธทุกโพสต์ ชวนมาลองไซส์ที่ร้าน ใส่ emoji ได้ 1 ตัว';
+    if(id==='wholesale') d.settings.brandVoice='โทนมืออาชีพ ตรงประเด็น บอกราคาต่อตัวเมื่อซื้อยกโหล ขั้นต่ำ และรอบส่งของ ไม่ใช้ emoji ปิดท้ายด้วย "ทักแชทขอแคตตาล็อก"';
   }
   return d;
 }
@@ -426,6 +422,7 @@ function loadAll(){
   for(const id in STORES){ if(!a.stores[id]) a.stores[id]=storeDefaults(id); else a.stores[id]=merge(storeDefaults(id),a.stores[id]); }
   for(const id in a.stores){ if(!STORES[id]){ if(a.stores[id]._custom) STORES[id]=a.stores[id]._custom; else delete a.stores[id]; } }
   if(!a.stores[a.current]) a.current='benz';
+  for(const id of ['nara','somchai']) delete a.stores[id];
   return a;
 }
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(ALL)); }catch(e){} }
@@ -482,7 +479,7 @@ function vOverview(){
       <div class="v">${thb(sp)} <small>/ ${thb(cap)}</small></div>
       <div class="meter ${meterCls}"><i style="width:${pct}%"></i></div>
       <div class="d">${pct>=100?'ถึง cap แล้ว ระบบหยุดสร้างแอดใหม่':pct>=80?'ใกล้ cap · จะไม่ scale เพิ่มวันนี้':'ใช้ไป '+Math.round(pct)+'% · เหลือ '+thb(cap-sp)}</div></div>
-    <div class="panel kpi"><span class="eyebrow">ยอดขาย POS วันนี้ (ถึง 09:40)</span>
+    <div class="panel kpi"><span class="eyebrow">ยอดขายรวมวันนี้ (หน้าร้าน + ออนไลน์ · ถึง 09:40)</span>
       <div class="v">${thb(SALES[13])}</div>
       <div class="d">เทียบ baseline 7 วัน <span style="color:var(--good)">+${Math.round((SALES[13]/ (SALES_BASE*0.72) -1)*100)}%</span> ช่วงเวลาเดียวกัน</div></div>
     <div class="panel kpi"><span class="eyebrow">ROAS รวมแอดที่ยัง active</span>
@@ -511,12 +508,12 @@ function vOverview(){
 
   <div class="grid g2">
     <div class="panel">
-      <div class="panel-h"><h3>สินค้าที่ AI กำลังจับตา (จาก POS)</h3></div>
+      <div class="panel-h"><h3>สินค้าที่ AI กำลังจับตา (จาก POS)</h3><div class="r small muted">AI จะไม่ยิงแอดสินค้าที่ขาดไซส์ขายดี</div></div>
       <div class="tbl-wrap"><table>
-        <tr><th>สินค้า</th><th class="num">ราคา</th><th class="num">ขาย 7 วัน</th><th class="num">แนวโน้ม</th><th>สต็อก</th></tr>
-        ${PRODUCTS.slice(0,5).map(p=>`<tr><td><b>${p.name}</b><div class="small muted">${p.cat}</div></td><td class="num">${p.price}</td><td class="num">${p.sales7}</td>
+        <tr><th>สินค้า</th><th>ไซส์</th><th class="num">ราคา</th><th class="num">ขาย 7 วัน</th><th class="num">แนวโน้ม</th><th>สต็อกรายไซส์</th></tr>
+        ${PRODUCTS.slice(0,6).map(p=>`<tr><td><b>${p.name}</b><div class="small muted">${p.cat}</div></td><td class="mono small">${p.sizes||''}</td><td class="num">${p.price}</td><td class="num">${p.sales7}</td>
           <td class="num" style="color:${p.trend>=0?'var(--good)':'var(--crit)'}">${p.trend>=0?'+':''}${p.trend}%</td>
-          <td>${p.stock==='high'?'<span class="chip warn">เหลือเยอะ</span>':'<span class="chip good">ปกติ</span>'}</td></tr>`).join('')}
+          <td>${p.stock==='high'?'<span class="chip warn">'+p.note+'</span>':p.stock==='low'?'<span class="chip crit">'+p.note+'</span>':'<span class="chip good">'+p.note+'</span>'}</td></tr>`).join('')}
       </table></div>
     </div>
     <div class="panel">
@@ -567,22 +564,20 @@ function vLoop(){
     <div class="panel-h"><h3>Brief ที่ Strategist ออกเช้านี้</h3><div class="r muted small">07:01 · 3 briefs</div></div>
     <div class="tbl-wrap"><table>
       <tr><th>Brief</th><th>ช่องทาง</th><th>สินค้า</th><th>เหตุผล</th><th>มุมเล่า</th><th class="num">งบ/วัน</th><th>ความเสี่ยง</th></tr>
-      <tr><td class="mono">0906-01</td><td>${chip('facebook')}</td><td>DUBAI TART</td><td>ขายดีอันดับ 1 · +41% ใน 7 วัน</td><td>ของหวานที่ต้องลองสักครั้ง</td><td class="num">350</td><td><span class="chip crit">high</span></td></tr>
-      <tr><td class="mono">0906-02</td><td>${chip('tiktok')}</td><td>DIRTY COFFEE</td><td>ขึ้น 3 วันติด เหมาะกับคลิปเห็นชั้น</td><td>อย่าเพิ่งคน</td><td class="num">0</td><td><span class="chip good">low</span></td></tr>
-      <tr><td class="mono">0906-03</td><td>${chip('shopee')}</td><td>DRIP BAG SET</td><td>สต็อกเมล็ดคั่วเหลือเยอะ</td><td>ชงง่ายไม่ต้องมีเครื่อง</td><td class="num">200</td><td><span class="chip warn">medium</span></td></tr>
+      ${[['0906-01','facebook',0,'ขายดีอันดับ 1 · +38% ใน 7 วัน (รอไซส์ 27-28 เข้า)','เอวสูงที่ไม่ต้องดึงทั้งวัน',350,'crit','high'],['0906-02','tiktok',1,'ขึ้น 3 วันติด · ครบทุกไซส์','ใส่จริง 3 ส่วนสูง',0,'good','low'],['0906-03','shopee',2,'สต็อกเหลือเยอะทุกไซส์ ยอดนิ่ง','โปรระบายสต็อก',200,'warn','medium']].map(b=>{const p=prod(BASE_PIDS[b[2]])||PRODUCTS[b[2]];return `<tr><td class="mono">${b[0]}</td><td>${chip(b[1])}</td><td>${esc(p.name)}</td><td>${b[3]}</td><td>${b[4]}</td><td class="num">${b[5]}</td><td><span class="chip ${b[6]}">${b[7]}</span></td></tr>`}).join('')}
     </table></div>
   </div>`;
 }
 const LOGS=[
   ['09:00:03','ok','MEASURE · ดึง insights FB 4 ads, TikTok 2 ads, Shopee 2 ads สำเร็จ'],
-  ['09:00:41','ok','MEASURE · จับคู่ยอดขาย POS 05 ก.ย. → lift Dubai Tart +27% (TikTok POV)'],
+  ['09:00:41','ok','MEASURE · จับคู่ยอดขาย POS 05 ก.ย. → lift กระบอกเล็ก +27% (TikTok ใส่จริง 3 ส่วนสูง)'],
   ['07:21:10','wn','REVIEW · 4 ชิ้นรอคนอนุมัติ (2 high, 1 medium, 1 low ที่ตั้งเป็น notify)'],
-  ['07:20:52','ok','QA · 5/5 ผ่าน · ราคาตรง POS · ไม่พบคำต้องห้าม'],
+  ['07:20:52','wn','QA · 5/5 ผ่าน · มัมยีนส์ขาดไซส์ 27-28 → ตั้งเงื่อนไขโพสต์หลังของเข้า 8 ก.ย.'],
   ['07:16:30','ok','CREATE · เรนเดอร์ภาพ 8 ไฟล์ (4:5 ×2, 1:1 ×4, 9:16 ×2) · 3m 40s'],
-  ['07:01:12','ok','PLAN · Strategist ออก 3 briefs · อ่าน KB 4 rules'],
-  ['06:02:05','ok','SENSE · POS 7d ok · FB ok · TikTok ok · Shopee ok (token เหลือ 9 วัน ⚠)'],
+  ['07:01:12','ok','PLAN · Strategist ออก 3 briefs · อ่าน KB 5 rules · ข้ามทรงเดฟดำ (ขาดไซส์ 30-32)'],
+  ['06:02:05','ok','SENSE · POS 7d (แยกทรง/สี/ไซส์) ok · FB ok · TikTok ok · Shopee ok (token เหลือ 9 วัน ⚠)'],
   ['เมื่อวาน 22:00','ok','LEARN · ตัดสิน exp-0903-01: A=scale, B=kill · เขียน rule ใหม่ 1 ข้อ'],
-  ['เมื่อวาน 13:30','ok','PUBLISH · FB organic "Lava Cake" post id 1029…'],
+  ['เมื่อวาน 20:30','ok','PUBLISH · FB organic "เดฟยืดดำ" post id 1029…'],
   ['เมื่อวาน 06:00','er','SENSE · Shopee API 429 rate limit · retry สำเร็จรอบที่ 2'],
 ];
 const logLine = l => `<div><span class="t">${l[0]}</span>  <span class="${l[1]}">${l[1]==='ok'?'OK ':l[1]==='wn'?'WARN':'ERR '}</span>  ${esc(l[2])}</div>`;
@@ -606,7 +601,7 @@ function cardInbox(i){
   const isDone = i.status!=='pending';
   return `<div class="card" style="${isDone?'opacity:.55':''}">
     <div>
-      <div class="thumb ${i.ratio==='9:16'?'v':''}"><span class="ratio">${i.ratio}</span><span class="price">${p.price}.-</span><span class="nm">${p.name}</span></div>
+      <div class="thumb ${i.ratio==='9:16'?'v':''}"><span class="ratio">${i.ratio}</span><span class="price">${p.price}.-</span><span class="nm">${p.name}</span><span class="small mono" style="opacity:.8">ไซส์ ${p.sizes||''}</span></div>
       <div class="small muted" style="margin-top:6px">ภาพจาก template · แก้ได้</div>
       <select class="in" style="margin-top:6px;font-size:12px;padding:4px 8px" data-bind="inbox.${S.inbox.indexOf(i)}.ratio"><option ${i.ratio==='1:1'?'selected':''}>1:1</option><option ${i.ratio==='4:5'?'selected':''}>4:5</option><option ${i.ratio==='9:16'?'selected':''}>9:16</option></select>
     </div>
@@ -784,7 +779,7 @@ function vSettings(){
       <tr><th>ร้าน</th><th>ประเภท</th><th>ช่องทางที่เปิด</th><th class="num">งบ/วัน</th><th>Autopilot</th><th class="num">รออนุมัติ</th><th></th></tr>
       ${Object.keys(ALL.stores).map(id=>{ const st=STORES[id], d=ALL.stores[id]; const chs=Object.keys(CH).filter(k=>k!=='line'&&d.channels[k].enabled); const pend=d.inbox.filter(i=>i.status==='pending').length;
         return `<tr style="${id===ALL.current?'background:var(--accent-soft)':''}"><td><b>${esc(st.name)}</b>${id===ALL.current?' <span class="chip acc">กำลังดู</span>':''}</td><td>${esc(st.type)}</td><td class="row" style="gap:4px">${chs.map(chip).join('')}</td><td class="num">${thb(d.settings.dailyCap)}</td><td>${d.settings.autopilot?'<span class="chip acc">ON</span>':'<span class="chip">off</span>'}</td><td class="num">${pend}</td>
-        <td class="row" style="gap:6px">${id!==ALL.current?`<button class="btn sm" data-action="switchstore" data-id="${id}">เปิดดู</button>`:''}${['benz','nara','somchai'].includes(id)?'':`<button class="btn sm ghost" data-action="delstore" data-id="${id}">ลบ</button>`}</td></tr>`; }).join('')}
+        <td class="row" style="gap:6px">${id!==ALL.current?`<button class="btn sm" data-action="switchstore" data-id="${id}">เปิดดู</button>`:''}${['benz','branch2','wholesale'].includes(id)?'':`<button class="btn sm ghost" data-action="delstore" data-id="${id}">ลบ</button>`}</td></tr>`; }).join('')}
     </table></div></div>
 
   <div class="row" style="justify-content:space-between">
@@ -819,9 +814,10 @@ function chartBars(){
 }
 function chartLine(){
   const W=560,H=220,L=44,R=8,T=10,B=26;
-  const min=10000,max=18000; const y=v=>T+(H-T-B)*(1-(v-min)/(max-min)); const x=i=>L+i*(W-L-R)/13;
-  let g='';
-  [10000,12000,14000,16000,18000].forEach(t=>{ g+=`<line x1="${L}" x2="${W-R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--grid)"/><text x="${L-6}" y="${y(t)+4}" text-anchor="end" font-size="10" fill="var(--muted)" font-family="IBM Plex Mono">${t/1000}k</text>`; });
+  const lo=Math.min(...SALES,SALES_BASE), hi=Math.max(...SALES,SALES_BASE); const step=Math.pow(10,Math.floor(Math.log10(hi-lo)))*((hi-lo)/Math.pow(10,Math.floor(Math.log10(hi-lo)))>5?2:1);
+  const min=Math.floor(lo/step)*step, max=Math.ceil(hi/step)*step; const y=v=>T+(H-T-B)*(1-(v-min)/(max-min)); const x=i=>L+i*(W-L-R)/13;
+  let g=''; const ticks=[]; for(let t=min;t<=max;t+=step) ticks.push(t);
+  ticks.forEach(t=>{ g+=`<line x1="${L}" x2="${W-R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--grid)"/><text x="${L-6}" y="${y(t)+4}" text-anchor="end" font-size="10" fill="var(--muted)" font-family="IBM Plex Mono">${(t/1000).toFixed(t%1000?1:0)}k</text>`; });
   g+=`<line x1="${L}" x2="${W-R}" y1="${y(SALES_BASE)}" y2="${y(SALES_BASE)}" stroke="var(--muted)" stroke-dasharray="4 3"/>`;
   const pts=SALES.slice(0,13).map((v,i)=>`${x(i)},${y(v)}`).join(' ');
   g+=`<polygon points="${x(0)},${y(min)} ${pts} ${x(12)},${y(min)}" fill="var(--accent)" opacity=".18"/>`;
