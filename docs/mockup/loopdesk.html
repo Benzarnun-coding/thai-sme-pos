@@ -252,59 +252,47 @@ const CH = {
   line:    { name:'LINE OA',  short:'LN', cls:'line', var:'--line-ch' },
 };
 const STORES = {
-  benz:{ name:'Benz Denim', type:'กางเกงยีนส์ · ร้านหลัก + ออนไลน์', factor:1, mix:{facebook:1,tiktok:1,shopee:1}, base:12400,
-    accounts:{facebook:'Benz Denim (Page) · Ad acct 8841',tiktok:'@benzdenim · TikTok Shop TH',shopee:'benzdenim.official · Shop 2291'},
+  climax:{ name:'Climax by PKjeans', type:'กางเกงยีนส์ชาย · ปลีก (เพจหลัก)', factor:1, mix:{facebook:1.5,tiktok:0.7,shopee:0.6}, base:12400,
+    page:{ name:'กางเกงยีนส์ชาย Climax by PKjeans', followers:44000, category:'การช้อปปิ้งและค้าปลีก', usp:['เก็บเงินปลายทาง','ส่งฟรีเมื่อซื้อเซ็ต','ไซส์ 28-44','สินค้าพร้อมส่ง','เคลมได้','คละแบบ/ไซส์ได้'] },
+    accounts:{facebook:'กางเกงยีนส์ชาย Climax by PKjeans · ผู้ติดตาม 44,000 · Ad acct (รอเชื่อม)',tiktok:'@climax.pkjeans (ตัวอย่าง)',shopee:'pkjeans.official (ตัวอย่าง)'},
     products:[
-      { id:'j1', name:'ทรงกระบอกเล็ก ฟอกกลาง', price:590, cat:'ผู้ชาย · ขายาว', sizes:'28-38', sales7:214, stock:'ok', note:'ครบไซส์', trend:+24 },
-      { id:'j2', name:'มัมยีนส์เอวสูง สีเข้ม', price:650, cat:'ผู้หญิง · ขายาว', sizes:'25-32', sales7:187, stock:'low', note:'ขาดไซส์ 27, 28', trend:+38 },
-      { id:'j3', name:'ขาม้าเอวสูง ฟอกอ่อน', price:690, cat:'ผู้หญิง · ขายาว', sizes:'25-32', sales7:96, stock:'ok', note:'ครบไซส์', trend:+11 },
-      { id:'j4', name:'ทรงเดฟยืด สีดำ', price:490, cat:'ผู้ชาย · ขายาว', sizes:'28-36', sales7:158, stock:'high', note:'เหลือเยอะไซส์ 34-36', trend:-6 },
-      { id:'j5', name:'ขาสั้นยีนส์ ปลายพับ', price:350, cat:'ยูนิเซ็กซ์ · ขาสั้น', sizes:'26-36', sales7:243, stock:'ok', note:'ครบไซส์', trend:+3 },
-      { id:'j6', name:'ทรงบอย ทรงหลวม สีฟอกขาว', price:620, cat:'ผู้หญิง · ขายาว', sizes:'25-32', sales7:71, stock:'high', note:'เหลือเยอะทุกไซส์', trend:+9 },
-      { id:'j7', name:'แจ็คเก็ตยีนส์ ทรงครอป', price:890, cat:'เสื้อ', sizes:'S-XL', sales7:44, stock:'ok', note:'ครบไซส์', trend:+27 },
+      { id:'pk1', name:'ยีนส์ทรงกระบอกเล็ก สีดำ', price:199, set:'3 ตัว 550', cat:'ผู้ชาย · ขายาว', sizes:'28-44', sales7:486, stock:'ok', note:'ครบไซส์', trend:+21 },
+      { id:'pk2', name:'ยีนส์ผ้ายืด ใส่สบาย', price:299, set:'4 ตัว 990 ส่งฟรี', cat:'ผู้ชาย · ขายาว', sizes:'28-44', sales7:372, stock:'low', note:'ขาดไซส์ 30, 32', trend:+34 },
+      { id:'pk3', name:'ชิโน่สไตล์เกาหลี', price:199, set:'3 ตัว 550', cat:'ผู้ชาย · ขายาว', sizes:'28-40', sales7:254, stock:'ok', note:'ครบไซส์', trend:+8 },
+      { id:'pk4', name:'ทรงเดฟเอวสูง', price:249, set:'3 ตัว 699', cat:'ผู้หญิง · ขายาว', sizes:'26-36', sales7:198, stock:'high', note:'เหลือเยอะไซส์ 34-36', trend:-5 },
+      { id:'pk5', name:'กางเกงผ้ายืดสปอร์ต', price:166, set:'3 ตัว 499', cat:'ยูนิเซ็กซ์ · ขายาว', sizes:'FREESIZE 28-36', sales7:311, stock:'ok', note:'ครบ', trend:+12 },
+      { id:'pk6', name:'ขาสั้นผ้าสี', price:189, set:'3 ตัว 499', cat:'ผู้ชาย · ขาสั้น', sizes:'28-44', sales7:428, stock:'ok', note:'ครบไซส์', trend:+3 },
+      { id:'pk7', name:'ยีนส์ฟอก โปร 1 แถม 1', price:490, set:'1 แถม 1', cat:'โปรโมชั่น', sizes:'28-44', sales7:143, stock:'high', note:'เหลือเยอะทุกไซส์', trend:+17 },
+      { id:'pk8', name:'ชุดขายส่งเริ่มต้น 20 ตัว คละแบบ', price:4000, set:'ตกตัวละ 200', cat:'ขายส่ง · พ่อค้าแม่ค้า', sizes:'คละ 28-44', sales7:11, stock:'ok', note:'ครบ', trend:+27 },
     ],
     kb:[
-      { rule:'คลิป TikTok ที่โชว์ "ใส่จริง เดินจริง" กับคนสูง 155 / 165 / 175 ได้ CPA ต่ำกว่า flat-lay 46%', ev:'exp-0904-02 · 2 วัน', date:'06 ก.ย.' },
-      { rule:'Hook แบบคำถาม ("หาทรงที่ใส่แล้วขาเรียวอยู่ใช่ไหม?") CTR สูงกว่าบอกราคา 29% บน Facebook หมวดผู้หญิง', ev:'exp-0903-01 · n=2 · 3 วัน', date:'05 ก.ย.' },
-      { rule:'ห้ามยิงแอดสินค้าที่ขาดไซส์ 27-30 (ไซส์ขายดี) CPA พุ่ง 2.1 เท่าและมีรีวิวลบเรื่องของหมด', ev:'exp-0828-04 · 4 วัน', date:'01 ก.ย.' },
-      { rule:'Shopee Ads คำค้น "กางเกงยีนส์เอวสูง" แข่งสูง CPA เกินเป้า ใช้ "มัมยีนส์ เอวสูง สีเข้ม" long-tail แทนได้ CPA ต่ำกว่า 35%', ev:'exp-0901-05 · 5 วัน', date:'04 ก.ย.' },
-      { rule:'โพสต์ FB ช่วง 20:30 ได้ reach สูงกว่า 12:00 อยู่ 22% (organic)', ev:'14 โพสต์ · ส.ค.', date:'31 ส.ค.' },
+      { rule:'โพสต์ราคาเซ็ต ("3 ตัว 700", "1 แถม 1") ได้ยอดสั่งต่อโพสต์สูงกว่าโพสต์ราคาเดี่ยว 199 อยู่ 2.4 เท่า แม้ CTR ต่ำกว่า', ev:'exp-0903-01 · n=2 · 3 วัน', date:'05 ก.ย.' },
+      { rule:'Hook "อ้วนผอมใส่ได้ ไซส์ 28-44" เพิ่ม CTR 27% ในกลุ่มอายุ 35-54 ซึ่งเป็นกลุ่มซื้อหลักของเพจ', ev:'exp-0901-02 · 4 วัน', date:'04 ก.ย.' },
+      { rule:'ห้ามยิงแอดสินค้าที่ขาดไซส์ 30-34 (ไซส์ขายดีสุดของเพจ) CPA พุ่ง 2.1 เท่าและมีคอมเมนต์ลบเรื่องไซส์หมด', ev:'exp-0828-04 · 4 วัน', date:'01 ก.ย.' },
+      { rule:'ใส่ "เก็บเงินปลายทาง" ใน 2 บรรทัดแรก ลดคนทักแล้วหายไป 18%', ev:'20 โพสต์ · ส.ค.', date:'31 ส.ค.' },
+      { rule:'โพสต์รับพ่อค้าแม่ค้า (20 ตัว 4,000) ได้ inbox ดีสุดวันจันทร์ 09:00 ควรโพสต์สัปดาห์ละ 1 ครั้งตอนนั้น', ev:'8 โพสต์ · ก.ค.-ส.ค.', date:'25 ส.ค.' },
     ]},
-  branch2:{ name:'Benz Denim สาขา 2', type:'กางเกงยีนส์ · หน้าร้านตลาดนัด', factor:0.55, mix:{facebook:1.4,tiktok:0.7,shopee:0.3}, base:6800,
-    accounts:{facebook:'Benz Denim สาขา 2 (Page) · Ad acct 8842',tiktok:'@benzdenim.b2 · ยังไม่มี Shop',shopee:'ใช้ร้านหลักร่วมกัน'},
+  wholesale:{ name:'PKjeans ขายส่ง', type:'กางเกงยีนส์ · ขายส่งพ่อค้าแม่ค้า', factor:1.4, mix:{facebook:1.8,tiktok:0.3,shopee:0.4}, base:17400,
+    page:{ name:'PKjeans ขายส่ง (ใช้เพจเดียวกัน)', followers:44000, category:'ขายส่ง', usp:['เริ่มต้น 20 ตัว 4,000','คละแบบ/ไซส์ได้','สินค้ามากกว่า 40 แบบ','ขายได้ทั้งออนไลน์และหน้าร้าน','เคลมได้'] },
+    accounts:{facebook:'กางเกงยีนส์ชาย Climax by PKjeans · โพสต์ขายส่ง',tiktok:'@climax.pkjeans (ตัวอย่าง)',shopee:'pkjeans.wholesale (ตัวอย่าง)'},
     products:[
-      { id:'k1', name:'ทรงกระบอกเล็ก ฟอกกลาง', price:590, cat:'ผู้ชาย · ขายาว', sizes:'28-38', sales7:88, stock:'ok', note:'ครบไซส์', trend:+12 },
-      { id:'k2', name:'มัมยีนส์เอวสูง สีเข้ม', price:650, cat:'ผู้หญิง · ขายาว', sizes:'25-32', sales7:64, stock:'ok', note:'ครบไซส์', trend:+19 },
-      { id:'k3', name:'ขาสั้นยีนส์ ปลายพับ', price:350, cat:'ยูนิเซ็กซ์ · ขาสั้น', sizes:'26-36', sales7:131, stock:'ok', note:'ครบไซส์', trend:+6 },
-      { id:'k4', name:'ทรงเดฟยืด สีดำ', price:490, cat:'ผู้ชาย · ขายาว', sizes:'28-36', sales7:57, stock:'high', note:'เหลือเยอะไซส์ 34-36', trend:-3 },
-      { id:'k5', name:'ยีนส์เด็ก ทรงกระบอก', price:290, cat:'เด็ก', sizes:'4-12 ปี', sales7:72, stock:'ok', note:'ครบไซส์', trend:+15 },
-      { id:'k6', name:'ทรงบอย ทรงหลวม สีฟอกขาว', price:620, cat:'ผู้หญิง · ขายาว', sizes:'25-32', sales7:23, stock:'high', note:'เหลือเยอะทุกไซส์', trend:+2 },
-      { id:'k7', name:'เข็มขัดหนัง', price:250, cat:'ของแถม/แอคเซสซอรี่', sizes:'S-L', sales7:41, stock:'ok', note:'ครบ', trend:+8 },
+      { id:'w1', name:'ชุดเริ่มต้น 20 ตัว คละแบบ', price:4000, set:'ตกตัวละ 200', cat:'ชุดขายส่ง', sizes:'คละ 28-44', sales7:11, stock:'ok', note:'ครบ', trend:+27 },
+      { id:'w2', name:'ชุด 50 ตัว คละแบบ', price:9500, set:'ตกตัวละ 190 (ตัวอย่างราคา)', cat:'ชุดขายส่ง', sizes:'คละ 28-44', sales7:6, stock:'ok', note:'ครบ', trend:+9 },
+      { id:'w3', name:'ชุด 100 ตัว คละแบบ', price:18000, set:'ตกตัวละ 180 (ตัวอย่างราคา)', cat:'ชุดขายส่ง', sizes:'คละ 28-44', sales7:3, stock:'ok', note:'ครบ', trend:+2 },
+      { id:'w4', name:'กระบอกเล็ก สีดำ ยกโหล', price:1990, set:'12 ตัว (ตัวอย่างราคา)', cat:'ยกโหล', sizes:'คละ 28-44', sales7:14, stock:'low', note:'ขาดไซส์ 30-32', trend:+18 },
+      { id:'w5', name:'ขาสั้นผ้าสี ยกโหล', price:1690, set:'12 ตัว (ตัวอย่างราคา)', cat:'ยกโหล', sizes:'คละ 28-44', sales7:9, stock:'ok', note:'ครบ', trend:+4 },
+      { id:'w6', name:'ผ้ายืดสปอร์ต ยกโหล', price:1590, set:'12 ตัว (ตัวอย่างราคา)', cat:'ยกโหล', sizes:'FREESIZE', sales7:7, stock:'high', note:'เหลือ 60 โหล', trend:-6 },
+      { id:'w7', name:'ชุด 300 ตัว คละแบบ', price:51000, set:'ตกตัวละ 170 (ตัวอย่างราคา)', cat:'ชุดขายส่ง', sizes:'คละ 28-44', sales7:1, stock:'ok', note:'สั่งผลิต 7 วัน', trend:0 },
     ],
     kb:[
-      { rule:'โพสต์ "วันนี้ออกบูธที่…" พร้อมแผนที่ ได้คนทักถามเส้นทางเฉลี่ย 14 คน/โพสต์ ควรโพสต์ทุกเช้าวันออกบูธ', ev:'9 โพสต์ · ส.ค.', date:'02 ก.ย.' },
-      { rule:'Boost งบ 150/วัน รัศมี 5 กม. รอบตลาดนัด คุ้มกว่ายิงทั้งจังหวัด (ROAS 3.9x vs 1.7x)', ev:'exp-0830-01 · 3 วัน', date:'03 ก.ย.' },
-    ]},
-  wholesale:{ name:'Benz Denim ขายส่ง', type:'กางเกงยีนส์ · ยกโหล B2B', factor:1.8, mix:{facebook:1.6,tiktok:0.4,shopee:0.6}, base:22300,
-    accounts:{facebook:'Benz Denim Wholesale (Page) · Ad acct 8843',tiktok:'@benzdenim.wholesale',shopee:'benzdenim.wholesale · Shop 5518'},
-    products:[
-      { id:'w1', name:'ทรงกระบอกเล็ก ฟอกกลาง (โหล)', price:4800, cat:'ผู้ชาย · ยกโหล', sizes:'คละ 28-38', sales7:31, stock:'ok', note:'ครบ', trend:+14 },
-      { id:'w2', name:'มัมยีนส์เอวสูง สีเข้ม (โหล)', price:5400, cat:'ผู้หญิง · ยกโหล', sizes:'คละ 25-32', sales7:27, stock:'low', note:'รอผ้าล็อตใหม่ 12 ก.ย.', trend:+31 },
-      { id:'w3', name:'ขาม้าเอวสูง ฟอกอ่อน (โหล)', price:5600, cat:'ผู้หญิง · ยกโหล', sizes:'คละ 25-32', sales7:12, stock:'ok', note:'ครบ', trend:+5 },
-      { id:'w4', name:'ทรงเดฟยืด สีดำ (โหล)', price:4200, cat:'ผู้ชาย · ยกโหล', sizes:'คละ 28-36', sales7:19, stock:'high', note:'เหลือ 40 โหล', trend:-8 },
-      { id:'w5', name:'ขาสั้นยีนส์ (โหล)', price:3000, cat:'ยูนิเซ็กซ์ · ยกโหล', sizes:'คละ 26-36', sales7:35, stock:'ok', note:'ครบ', trend:+2 },
-      { id:'w6', name:'ทรงบอย ฟอกขาว (โหล)', price:5200, cat:'ผู้หญิง · ยกโหล', sizes:'คละ 25-32', sales7:9, stock:'high', note:'เหลือ 55 โหล', trend:+4 },
-      { id:'w7', name:'แจ็คเก็ตยีนส์ ครอป (โหล)', price:7800, cat:'เสื้อ · ยกโหล', sizes:'คละ S-XL', sales7:6, stock:'ok', note:'ครบ', trend:+20 },
-    ],
-    kb:[
-      { rule:'ลูกค้าขายส่งทักผ่าน Facebook Messenger 80% ควรใช้ objective "ส่งข้อความ" ไม่ใช่ "ยอดขาย"', ev:'exp-0829-02 · 5 วัน', date:'03 ก.ย.' },
-      { rule:'โพสต์ราคาต่อตัวเมื่อซื้อยกโหล (เช่น "ตกตัวละ 400") ได้ inbox มากกว่าโพสต์ราคาต่อโหล 2.3 เท่า', ev:'8 โพสต์ · ส.ค.', date:'01 ก.ย.' },
-      { rule:'TikTok ไม่คุ้มสำหรับกลุ่มขายส่ง (CPA 4x ของ Facebook) ลดงบเหลือ organic อย่างเดียว', ev:'exp-0825-01 · 7 วัน', date:'30 ส.ค.' },
+      { rule:'ลูกค้าขายส่งทักผ่าน Messenger 85% ควรใช้ objective "ส่งข้อความ" ไม่ใช่ "ยอดขาย"', ev:'exp-0829-02 · 5 วัน', date:'03 ก.ย.' },
+      { rule:'โพสต์ "ตกตัวละ 200" ได้ inbox มากกว่าโพสต์ "20 ตัว 4,000" อยู่ 2.3 เท่า', ev:'8 โพสต์ · ส.ค.', date:'01 ก.ย.' },
+      { rule:'TikTok ไม่คุ้มสำหรับกลุ่มขายส่ง (CPA 4x ของ Facebook) ใช้ organic อย่างเดียว', ev:'exp-0825-01 · 7 วัน', date:'30 ส.ค.' },
     ]},
 };
-const BASE_PIDS = ['j2','j1','j6','j4','j5','j7','j3']; // ลำดับที่ inbox/placements อ้างถึง ใช้ map ไปยังสินค้าของร้านอื่น
+const BASE_PIDS = ['pk2','pk1','pk4','pk6','pk5','pk7','pk3','pk8']; // ลำดับที่ inbox/placements อ้างถึง ใช้ map ไปยังสินค้าของร้านอื่น
 const DEFAULTS = {
-  storeId:'benz',
+  storeId:'climax',
   view:'overview',
   inboxFilter:'all',
   settings:{
@@ -317,17 +305,17 @@ const DEFAULTS = {
     killCpaMult:1.5, killDays:2,
     testDays:3, variants:3,
     targetRoas:2.5, targetCpa:60,
-    brandVoice:'พูดเหมือนเพื่อนที่รู้เรื่องยีนส์ ตรงไปตรงมา บอกทรง เอว ความยืด และไซส์ที่มีเสมอ ใช้ "เรา" ไม่ใช้ "ทางร้าน" บอกส่วนสูง/น้ำหนักของนางแบบทุกครั้งที่มีรูปคนใส่ ใส่ emoji ได้ไม่เกิน 1 ตัว ห้ามอ้างว่า "ใส่แล้วผอม" หรือเทียบกับแบรนด์อื่น',
-    forbidden:'ใส่แล้วผอม, ขาเรียวทันที, ถูกที่สุด, ของแท้ 100%, Levi\'s, ลดราคาต่ำสุด',
+    brandVoice:'โทนพ่อค้าโปรแรง ราคาชัดตั้งแต่บรรทัดแรก ใช้ emoji นำหน้าแต่ละบรรทัดแบบที่เพจใช้ (👖 ⭐ 🔥 🚚) ทุกโพสต์ต้องมี: ราคาเดี่ยว + ราคาเซ็ต, ไซส์ 28-44 / อ้วนผอมใส่ได้, ส่งฟรีหรือเก็บเงินปลายทาง, ปิดท้าย "ทักแชทสั่งได้เลย" ห้ามอ้าง "ของแท้ 100%" หรือเทียบแบรนด์อื่น',
+    forbidden:'ของแท้ 100%, Levi\'s, ถูกที่สุดในไทย, ใส่แล้วผอม, การันตี, ขาเรียวทันที',
     notifyLine:true, notifyEmail:false, dailyDigestTime:'22:00',
     lang:'th', currency:'THB', timezone:'Asia/Bangkok',
   },
   channels:{
-    facebook:{ enabled:true, connected:true, account:'Benz Denim (Page) · Ad acct 8841', tokenDays:58,
-      caps:{ post:true, ads:true, insights:true, messages:false }, sync:6 },
-    tiktok:{ enabled:true, connected:true, account:'@benzcafe · TikTok Shop TH', tokenDays:21,
+    facebook:{ enabled:true, connected:true, account:'กางเกงยีนส์ชาย Climax by PKjeans', tokenDays:58,
+      caps:{ post:true, ads:true, insights:true, messages:false }, sync:6, followers:44000 },
+    tiktok:{ enabled:true, connected:true, account:'@climax.pkjeans (ตัวอย่าง)', tokenDays:21,
       caps:{ post:true, ads:true, insights:true, shop:true }, sync:6 },
-    shopee:{ enabled:true, connected:true, account:'benzcafe.official · Shop 2291', tokenDays:9,
+    shopee:{ enabled:true, connected:true, account:'pkjeans.official (ตัวอย่าง)', tokenDays:9,
       caps:{ listing:true, ads:true, insights:true, orders:true }, sync:12 },
     line:{ enabled:true, connected:false, account:'ยังไม่เชื่อมต่อ', tokenDays:0,
       caps:{ broadcast:false, approve:true, digest:true }, sync:0 },
@@ -343,7 +331,7 @@ const DEFAULTS = {
   ],
   agents:[
     { id:'strategist', name:'Strategist', th:'วางแผนว่าจะโปรโมทอะไร', model:'llm-large', temp:0.4, tools:['pos_sql','kb_search','meta_insights','tiktok_insights','shopee_insights'], enabled:true,
-      prompt:'คุณคือนักวางแผนการตลาดของร้านกางเกงยีนส์ อ่านยอดขาย 7/30 วันแยกทรง/สี/ไซส์ สต็อกคงเหลือรายไซส์ และผลแอดล่าสุด แล้วเลือกสินค้าไม่เกิน 3 รายการที่ควรโปรโมทวันนี้ ห้ามเลือกสินค้าที่ขาดไซส์ขายดี (27-30 หญิง / 30-32 ชาย) ระบุช่องทาง (Facebook/TikTok/Shopee) เหตุผล กลุ่มเป้าหมาย งบต่อวัน และระดับความเสี่ยง ตอบเป็น JSON ตาม schema Brief' },
+      prompt:'คุณคือนักวางแผนการตลาดของร้านกางเกงยีนส์ อ่านยอดขาย 7/30 วันแยกทรง/สี/ไซส์ สต็อกคงเหลือรายไซส์ และผลแอดล่าสุด แล้วเลือกสินค้าไม่เกิน 3 รายการที่ควรโปรโมทวันนี้ ห้ามเลือกสินค้าที่ขาดไซส์ขายดีของเพจ (30-34) และให้เสนอเป็นราคาเซ็ต (3 ตัว / 4 ตัว / 1 แถม 1) เป็นหลัก ระบุช่องทาง (Facebook/TikTok/Shopee) เหตุผล กลุ่มเป้าหมาย งบต่อวัน และระดับความเสี่ยง ตอบเป็น JSON ตาม schema Brief' },
     { id:'copywriter', name:'Copywriter', th:'เขียน caption / headline', model:'llm-large', temp:0.9, tools:['kb_search','brand_voice'], enabled:true,
       prompt:'เขียนคอนเทนต์ภาษาไทยตาม Brief จำนวน {variants} แบบ แต่ละแบบต้องใช้ hook คนละประเภท (คำถาม / บอกราคา / เล่าเรื่อง) ปรับความยาวและโทนตามช่องทาง: Facebook เล่าได้ยาว, TikTok สั้นเป็น script 15 วินาที, Shopee เน้นชื่อสินค้า+ทรง+เอว+ไซส์ที่มี+โปร ทุกชิ้นต้องระบุทรง ช่วงไซส์ และส่วนสูง/น้ำหนักนางแบบถ้ามีรูปคนใส่' },
     { id:'creative', name:'Creative', th:'ทำภาพ 1:1 / 4:5 / 9:16', model:'image-gen', temp:0.7, tools:['template_render','product_photos','video_render'], enabled:true,
@@ -354,30 +342,30 @@ const DEFAULTS = {
       prompt:'อ่านผลทุก placement ที่ครบ {testDays} วัน เทียบกับยอดขาย POS ตัดสิน scale/kill/iterate ตามกฎที่ตั้งไว้ และเขียน learned rule 1 ข้อพร้อมหลักฐานลง Knowledge Base สรุปให้เจ้าของร้านไม่เกิน 5 บรรทัด' },
   ],
   inbox:[
-    { id:'br-0906-01A', ch:'facebook', type:'boosted_post', product:'j2', variant:'A', risk:'high', budget:350, days:3, ratio:'4:5', hookType:'คำถาม',
-      copy:'หามัมยีนส์เอวสูงที่ใส่แล้วไม่ต้องดึงขึ้นทั้งวันอยู่ใช่ไหม? 👖\nทรงนี้เอวสูงจริง 30 ซม. ผ้าหนา 12 oz ไม่บาง ไม่ย้วย\nสีเข้มซักไม่ตก ตัวละ 650.- ไซส์ 25-32\nนางแบบสูง 160 / 48 กก. ใส่ไซส์ 26',
-      reason:'ยอดขายขึ้น +38% ใน 7 วัน · ⚠ ขาดไซส์ 27, 28 รอเข้า 8 ก.ย. ระบบเสนอให้ตั้งเวลาโพสต์หลังของเข้า', qa:['ราคาตรง POS','ไซส์ตรงสต็อก (มีเงื่อนไข)','ไม่มีคำต้องห้าม'], status:'pending' },
-    { id:'br-0906-01B', ch:'facebook', type:'boosted_post', product:'j2', variant:'B', risk:'high', budget:350, days:3, ratio:'1:1', hookType:'บอกราคา',
-      copy:'650 บาท มัมยีนส์เอวสูง สีเข้ม ผ้า 12 oz\nทรงที่ขายดีสุดของเราสัปดาห์นี้ เอวสูง สะโพกพอดี ปลายขาตรง\nไซส์ 25-32 · ส่งฟรีเมื่อซื้อ 2 ตัว · เปลี่ยนไซส์ได้ใน 7 วัน',
-      reason:'variant B ของ experiment เดียวกัน', qa:['ราคาตรง POS','ไซส์ตรงสต็อก (มีเงื่อนไข)','ไม่มีคำต้องห้าม'], status:'pending' },
-    { id:'br-0906-02A', ch:'tiktok', type:'organic_video', product:'j1', variant:'A', risk:'low', budget:0, days:0, ratio:'9:16', hookType:'เล่าเรื่อง',
-      copy:'[Script 15s]\n0-3s: "ผู้ชายสูง 170 ใส่กระบอกเล็กแล้วขาสั้นไหม?" (ยืนข้างสายวัด)\n3-9s: ใส่จริง เดิน นั่ง ย่อ โชว์ว่าเข่าไม่ตึง\n9-13s: เทียบ 3 ส่วนสูง 165 / 170 / 178 ทรงเดียวกัน\n13-15s: ทรงกระบอกเล็ก ฟอกกลาง 590.- ไซส์ 28-38 กดตะกร้า #ยีนส์ผู้ชาย #benzdenim',
-      reason:'ยอดขายขึ้น 3 วันติด ครบทุกไซส์ เหมาะกับคลิป "ใส่จริง" ตามกฎที่เรียนรู้', qa:['ราคาตรง POS','ไซส์ครบ','ยาว 15s ตามกฎ'], status:'pending' },
-    { id:'br-0906-03A', ch:'shopee', type:'ad_campaign', product:'j6', variant:'A', risk:'medium', budget:200, days:5, ratio:'1:1', hookType:'บอกราคา',
-      copy:'ชื่อสินค้า: กางเกงยีนส์ทรงบอย ทรงหลวม สีฟอกขาว เอวสูง ผู้หญิง ไซส์ 25-32 Benz Denim\nจุดขาย: ผ้าไม่ยืด ทรงหลวมสบาย ปลายขาพับได้ · ครบทุกไซส์ · เปลี่ยนไซส์ฟรี\nโปร: 620.- เหลือ 549.- ถึง 12 ก.ย. (สต็อกเหลือเยอะ)\nคำค้นแอด: ยีนส์ทรงบอย เอวสูง, กางเกงยีนส์ทรงหลวม ผู้หญิง',
-      reason:'สต็อกเหลือเยอะทุกไซส์ ยอดขายนิ่ง เหมาะทำโปรระบายสต็อก', qa:['ราคาตรง POS','ไซส์ครบ','รูปพื้นขาวตามกฎ Shopee'], status:'pending' },
-    { id:'br-0906-04A', ch:'facebook', type:'organic_post', product:'j7', variant:'A', risk:'low', budget:0, days:0, ratio:'1:1', hookType:'เล่าเรื่อง',
-      copy:'แจ็คเก็ตยีนส์ทรงครอปตัวนี้ เราทำจากผ้าล็อตเดียวกับมัมยีนส์สีเข้ม\nใส่คู่กันได้เป็นเซ็ต หรือใส่กับเดรสก็ได้\n890.- ไซส์ S-XL · นางแบบสูง 165 ใส่ M\nมีหน้าร้านให้ลองก่อนซื้อ ทักมาถามไซส์ได้เลย',
-      reason:'สินค้าใหม่ ยอดขึ้น +27% ยังไม่เคยโพสต์แยก', qa:['ราคาตรง POS','ไซส์ครบ','ไม่ซ้ำ 14 วัน'], status:'pending' },
+    { id:'br-0906-01A', ch:'facebook', type:'boosted_post', product:'pk2', variant:'A', risk:'high', budget:350, days:3, ratio:'4:5', hookType:'คำถาม',
+      copy:'หายีนส์ที่ใส่แล้วนั่งสบาย ไม่รัดขาอยู่ใช่ไหม? 👖\n⭐ ยีนส์ผ้ายืด 1 ตัว 299.- / 4 ตัว 990.- ส่งฟรี!\n🔥 ไซส์ 28-44 อ้วนผอมใส่ได้ สินค้าพร้อมส่ง\n🚚 เก็บเงินปลายทาง เคลมได้\nทักแชทสั่งได้เลย',
+      reason:'ยอดขายขึ้น +34% ใน 7 วัน · ⚠ ขาดไซส์ 30, 32 (ไซส์ขายดี) รอเข้า 8 ก.ย. ระบบเสนอตั้งเวลาโพสต์หลังของเข้า', qa:['ราคาตรง POS','ไซส์ตรงสต็อก (มีเงื่อนไข)','ไม่มีคำต้องห้าม'], status:'pending' },
+    { id:'br-0906-01B', ch:'facebook', type:'boosted_post', product:'pk2', variant:'B', risk:'high', budget:350, days:3, ratio:'1:1', hookType:'บอกราคา',
+      copy:'👖 ยีนส์ผ้ายืด 4 ตัว 990.- ตกตัวละ 247!\n⭐ ซื้อตัวเดียว 299.- ยืดตามตัว ใส่ทำงาน ใส่เที่ยวได้\n🔥 ไซส์ 28-44 มีครบ\n🚚 ส่งฟรี + เก็บเงินปลายทาง\nทักแชทสั่งได้เลย',
+      reason:'variant B ของ experiment เดียวกัน (เน้นราคาเซ็ตตามกฎที่เรียนรู้)', qa:['ราคาตรง POS','ไซส์ตรงสต็อก (มีเงื่อนไข)','ไม่มีคำต้องห้าม'], status:'pending' },
+    { id:'br-0906-02A', ch:'tiktok', type:'organic_video', product:'pk1', variant:'A', risk:'low', budget:0, days:0, ratio:'9:16', hookType:'เล่าเรื่อง',
+      copy:'[Script 15s]\n0-3s: "ยีนส์ 199 บาท ใส่จริงเป็นยังไง?" (ถือกางเกงหน้ากล้อง)\n3-9s: ใส่จริง เดิน นั่ง ย่อ ดึงผ้าให้ดูความหนา\n9-13s: เทียบคนสูง 165 / 172 / 180 ทรงเดียวกัน\n13-15s: กระบอกเล็ก สีดำ 199.- ไซส์ 28-44 กดตะกร้า #ยีนส์ผู้ชาย #pkjeans',
+      reason:'ขายดีอันดับ 1 ครบทุกไซส์ เหมาะกับคลิป "ใส่จริง" ตามกฎที่เรียนรู้', qa:['ราคาตรง POS','ไซส์ครบ','ยาว 15s ตามกฎ'], status:'pending' },
+    { id:'br-0906-03A', ch:'shopee', type:'ad_campaign', product:'pk4', variant:'A', risk:'medium', budget:200, days:5, ratio:'1:1', hookType:'บอกราคา',
+      copy:'ชื่อสินค้า: กางเกงยีนส์ทรงเดฟ เอวสูง ผู้หญิง ผ้ายืด ไซส์ 26-36 PKjeans\nจุดขาย: เอวสูงเก็บพุง ผ้ายืดใส่สบาย · ครบทุกไซส์ · เคลมได้\nโปร: 1 ตัว 249.- / 3 ตัว 699.- ถึง 12 ก.ย. (ระบายสต็อกไซส์ 34-36)\nคำค้นแอด: ยีนส์เดฟเอวสูง ผู้หญิง, กางเกงยีนส์เอวสูง ผ้ายืด ไซส์ใหญ่',
+      reason:'สต็อกเหลือเยอะไซส์ 34-36 ยอดขายตก -5% เหมาะทำโปรระบายสต็อก', qa:['ราคาตรง POS','ไซส์ครบ','รูปพื้นขาวตามกฎ Shopee'], status:'pending' },
+    { id:'br-0906-04A', ch:'facebook', type:'organic_post', product:'pk8', variant:'A', risk:'low', budget:0, days:0, ratio:'1:1', hookType:'เล่าเรื่อง',
+      copy:'📣 รับพ่อค้า/แม่ค้า อยากมีร้านยีนส์เป็นของตัวเอง\n⭐ เริ่มต้น 20 ตัว 4,000.- ตกตัวละ 200\n👖 คละแบบ คละไซส์ได้ 28-44 มีมากกว่า 40 แบบ\n🚚 สินค้าพร้อมส่ง เคลมได้ ขายได้ทั้งออนไลน์และหน้าร้าน\nทักแชทขอแคตตาล็อกได้เลย',
+      reason:'ตามกฎ KB: โพสต์ขายส่งได้ inbox ดีสุดวันจันทร์ 09:00 · ตั้งเวลาโพสต์ 8 ก.ย. 09:00', qa:['ราคาตรง POS','ไม่มีคำต้องห้าม','ไม่ซ้ำ 14 วัน'], status:'pending' },
   ],
   placements:[
-    { id:'ad-0903-01A', ch:'facebook', product:'j3', name:'[AI][0903-01][A] ขาม้าเอวสูง · คำถาม', status:'active', spend:612, imp:38400, clicks:1210, cpa:41, roas:3.4, lift:+12, day:3, decision:'scale' },
-    { id:'ad-0903-01B', ch:'facebook', product:'j3', name:'[AI][0903-01][B] ขาม้าเอวสูง · บอกราคา', status:'active', spend:598, imp:36100, clicks:820, cpa:73, roas:1.9, lift:+4, day:3, decision:'kill' },
-    { id:'ad-0904-02A', ch:'tiktok', product:'j1', name:'[AI][0904-02][A] กระบอกเล็ก · ใส่จริง 3 ส่วนสูง', status:'active', spend:450, imp:91200, clicks:2380, cpa:38, roas:4.1, lift:+27, day:2, decision:'scale' },
-    { id:'ad-0904-02B', ch:'tiktok', product:'j1', name:'[AI][0904-02][B] กระบอกเล็ก · flat-lay', status:'active', spend:445, imp:64800, clicks:1120, cpa:66, roas:2.2, lift:+9, day:2, decision:'iterate' },
-    { id:'ad-0902-03A', ch:'shopee', product:'j5', name:'[AI][0902-03][A] ขาสั้นยีนส์ · ซื้อ 2 ส่งฟรี', status:'active', spend:380, imp:12300, clicks:410, cpa:95, roas:2.6, lift:+22, day:4, decision:'hold' },
-    { id:'ad-0901-05A', ch:'shopee', product:'j2', name:'[AI][0901-05][A] มัมยีนส์ · คำค้น "ยีนส์เอวสูง"', status:'paused', spend:510, imp:9800, clicks:260, cpa:128, roas:1.3, lift:+1, day:5, decision:'kill' },
-    { id:'po-0905-06A', ch:'facebook', product:'j4', name:'[AI][0905-06][A] เดฟยืดดำ · organic', status:'organic', spend:0, imp:4200, clicks:96, cpa:0, roas:0, lift:-2, day:1, decision:'—' },
+    { id:'ad-0903-01A', ch:'facebook', product:'pk1', name:'[AI][0903-01][A] กระบอกเล็ก · เซ็ต 3 ตัว 550', status:'active', spend:612, imp:38400, clicks:1210, cpa:41, roas:3.4, lift:+12, day:3, decision:'scale' },
+    { id:'ad-0903-01B', ch:'facebook', product:'pk1', name:'[AI][0903-01][B] กระบอกเล็ก · ราคาเดี่ยว 199', status:'active', spend:598, imp:36100, clicks:820, cpa:73, roas:1.9, lift:+4, day:3, decision:'kill' },
+    { id:'ad-0904-02A', ch:'tiktok', product:'pk5', name:'[AI][0904-02][A] ผ้ายืดสปอร์ต · ใส่จริง 3 ส่วนสูง', status:'active', spend:450, imp:91200, clicks:2380, cpa:38, roas:4.1, lift:+27, day:2, decision:'scale' },
+    { id:'ad-0904-02B', ch:'tiktok', product:'pk5', name:'[AI][0904-02][B] ผ้ายืดสปอร์ต · flat-lay', status:'active', spend:445, imp:64800, clicks:1120, cpa:66, roas:2.2, lift:+9, day:2, decision:'iterate' },
+    { id:'ad-0902-03A', ch:'shopee', product:'pk6', name:'[AI][0902-03][A] ขาสั้นผ้าสี · 3 ตัว 499', status:'active', spend:380, imp:12300, clicks:410, cpa:95, roas:2.6, lift:+22, day:4, decision:'hold' },
+    { id:'ad-0901-05A', ch:'shopee', product:'pk2', name:'[AI][0901-05][A] ผ้ายืด · คำค้น "กางเกงยีนส์ชาย"', status:'paused', spend:510, imp:9800, clicks:260, cpa:128, roas:1.3, lift:+1, day:5, decision:'kill' },
+    { id:'po-0905-06A', ch:'facebook', product:'pk7', name:'[AI][0905-06][A] โปร 1 แถม 1 · organic', status:'organic', spend:0, imp:4200, clicks:96, cpa:0, roas:0, lift:-2, day:1, decision:'—' },
   ],
   kb:[],
 };
@@ -392,7 +380,7 @@ const SPEND_RAW = {
 const SALES_RAW = [12100,12600,12300,13100,13400,13900,14300,14100,14800,15600,15900,15400,16700,11200];
 let SPEND=SPEND_RAW, SALES=SALES_RAW, SALES_BASE=12400, PRODUCTS=[];
 function applyStore(){
-  const st=STORES[S.storeId]||STORES.benz;
+  const st=STORES[S.storeId]||STORES.climax;
   SPEND={}; for(const c in SPEND_RAW) SPEND[c]=SPEND_RAW[c].map(v=>Math.round(v*st.factor*st.mix[c]/10)*10);
   SALES=SALES_RAW.map(v=>Math.round(v*st.factor/100)*100); SALES_BASE=st.base; PRODUCTS=st.products;
 }
@@ -400,29 +388,28 @@ function applyStore(){
 /* =========================================================
    STATE
    ========================================================= */
-const KEY='loopdesk.v3';
+const KEY='loopdesk.v4';
 let ALL = loadAll(); let S = ALL.stores[ALL.current];
 function storeDefaults(id){
   const st=STORES[id]; const d=clone(DEFAULTS); d.storeId=id; d.kb=clone(st.kb);
   for(const c of ['facebook','tiktok','shopee']) d.channels[c].account=st.accounts[c];
-  if(id!=='benz'){
-    const map={}; BASE_PIDS.forEach((b,i)=>map[b]=st.products[i].id);
+  if(id!=='climax'){
+    const map={}; BASE_PIDS.forEach((b,i)=>map[b]=(st.products[i]||st.products[0]).id);
     const HOOK={'คำถาม':p=>`หา${p.name}ที่ใส่แล้วพอดีตัวจริง ๆ อยู่ใช่ไหม? 👖\nไซส์ ${p.sizes} ${p.note} ตัวละ ${p.price}.-\nทักมาบอกส่วนสูง/น้ำหนัก เราช่วยเลือกไซส์ให้`,'บอกราคา':p=>`${p.price} บาท ${p.name}\nไซส์ ${p.sizes} · ${p.note} · เปลี่ยนไซส์ได้ใน 7 วัน\nซื้อ 2 ตัวส่งฟรี ถึงวันอาทิตย์นี้`,'เล่าเรื่อง':p=>`[Script 15s]\n0-3s: hook "ทรงนี้คนสูง 160 ใส่แล้วเป็นยังไง?"\n3-10s: ใส่จริง เดิน นั่ง โชว์เอวและปลายขา\n10-15s: ${p.name} ${p.price}.- ไซส์ ${p.sizes} กดตะกร้า`};
     d.inbox.forEach(i=>{ i.product=map[i.product]; const p=st.products.find(x=>x.id===i.product); i.copy=HOOK[i.hookType](p); i.reason=`ยอดขาย ${p.trend>=0?'+':''}${p.trend}% ใน 7 วัน · สต็อก ${p.stock==='high'?'เหลือเยอะ':'ปกติ'}`; i.budget=i.budget?Math.round(i.budget*st.factor/10)*10:0; });
     d.placements.forEach(pl=>{ pl.product=map[pl.product]; const p=st.products.find(x=>x.id===pl.product); pl.name=pl.name.replace(/\] [^·]+ ·/,'] '+p.name+' ·'); pl.spend=Math.round(pl.spend*st.factor/10)*10; pl.imp=Math.round(pl.imp*st.factor); pl.clicks=Math.round(pl.clicks*st.factor); });
     d.settings.dailyCap=Math.round(1500*st.factor/100)*100; d.settings.monthlyCap=d.settings.dailyCap*20;
-    if(id==='branch2') d.settings.brandVoice='โทนเป็นกันเองแบบพ่อค้าตลาดนัด บอกวันและจุดออกบูธทุกโพสต์ ชวนมาลองไซส์ที่ร้าน ใส่ emoji ได้ 1 ตัว';
     if(id==='wholesale') d.settings.brandVoice='โทนมืออาชีพ ตรงประเด็น บอกราคาต่อตัวเมื่อซื้อยกโหล ขั้นต่ำ และรอบส่งของ ไม่ใช้ emoji ปิดท้ายด้วย "ทักแชทขอแคตตาล็อก"';
   }
   return d;
 }
 function loadAll(){
   let a=null; try{ const j=localStorage.getItem(KEY); if(j) a=JSON.parse(j);}catch(e){}
-  if(!a||!a.stores){ a={current:'benz',stores:{}}; }
+  if(!a||!a.stores){ a={current:'climax',stores:{}}; }
   for(const id in STORES){ if(!a.stores[id]) a.stores[id]=storeDefaults(id); else a.stores[id]=merge(storeDefaults(id),a.stores[id]); }
   for(const id in a.stores){ if(!STORES[id]){ if(a.stores[id]._custom) STORES[id]=a.stores[id]._custom; else delete a.stores[id]; } }
-  if(!a.stores[a.current]) a.current='benz';
-  for(const id of ['nara','somchai']) delete a.stores[id];
+  if(!a.stores[a.current]) a.current='climax';
+  for(const id of ['nara','somchai','benz','branch2']) delete a.stores[id];
   return a;
 }
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(ALL)); }catch(e){} }
@@ -430,7 +417,7 @@ function clone(o){ return JSON.parse(JSON.stringify(o)); }
 function merge(a,b){ for(const k in b){ if(b[k]&&typeof b[k]==='object'&&!Array.isArray(b[k])&&a[k]&&typeof a[k]==='object'){ merge(a[k],b[k]); } else a[k]=b[k]; } return a; }
 function switchStore(id){ ALL.current=id; S=ALL.stores[id]; applyStore(); save(); render(); }
 function addStore(name,type){
-  const id='s'+Date.now().toString(36); const tpl=clone(STORES.benz); tpl.name=name; tpl.type=type||'ร้านใหม่'; tpl.kb=[];
+  const id='s'+Date.now().toString(36); const tpl=clone(STORES.climax); tpl.name=name; tpl.type=type||'ร้านใหม่'; tpl.kb=[];
   tpl.accounts={facebook:name+' (Page)',tiktok:'@'+name.toLowerCase().replace(/\s+/g,''),shopee:name.toLowerCase().replace(/\s+/g,'')+'.shop'};
   STORES[id]=tpl; const d=storeDefaults(id); d._custom=tpl; d.inbox=[]; d.placements=[]; d.kb=[];
   for(const c in d.channels) d.channels[c].connected=false;
@@ -511,11 +498,19 @@ function vOverview(){
       <div class="panel-h"><h3>สินค้าที่ AI กำลังจับตา (จาก POS)</h3><div class="r small muted">AI จะไม่ยิงแอดสินค้าที่ขาดไซส์ขายดี</div></div>
       <div class="tbl-wrap"><table>
         <tr><th>สินค้า</th><th>ไซส์</th><th class="num">ราคา</th><th class="num">ขาย 7 วัน</th><th class="num">แนวโน้ม</th><th>สต็อกรายไซส์</th></tr>
-        ${PRODUCTS.slice(0,6).map(p=>`<tr><td><b>${p.name}</b><div class="small muted">${p.cat}</div></td><td class="mono small">${p.sizes||''}</td><td class="num">${p.price}</td><td class="num">${p.sales7}</td>
+        ${PRODUCTS.slice(0,6).map(p=>`<tr><td><b>${p.name}</b><div class="small muted">${p.cat}</div></td><td class="mono small">${p.sizes||''}</td><td class="num">${fmt(p.price)}<div class="small muted" style="font-family:'IBM Plex Sans Thai'">${p.set||''}</div></td><td class="num">${p.sales7}</td>
           <td class="num" style="color:${p.trend>=0?'var(--good)':'var(--crit)'}">${p.trend>=0?'+':''}${p.trend}%</td>
           <td>${p.stock==='high'?'<span class="chip warn">'+p.note+'</span>':p.stock==='low'?'<span class="chip crit">'+p.note+'</span>':'<span class="chip good">'+p.note+'</span>'}</td></tr>`).join('')}
       </table></div>
     </div>
+    <div class="panel">
+      <div class="panel-h"><h3>ข้อมูลเพจ / จุดขายที่ AI ใช้ทุกโพสต์</h3><div class="r muted small">จากเพจ Facebook</div></div>
+      <div class="panel-b stack" style="gap:8px">
+        ${(()=>{const pg=STORES[ALL.current].page; return pg?`<div><b>${esc(pg.name)}</b><div class="small muted">${esc(pg.category)} · ผู้ติดตาม <span class="mono">${fmt(pg.followers)}</span></div></div><div class="row" style="gap:6px">${pg.usp.map(u=>`<span class="chip acc">${esc(u)}</span>`).join('')}</div>`:'<div class="muted small">ยังไม่ได้เชื่อมเพจ</div>'})()}
+      </div>
+    </div>
+  </div>
+  <div class="grid g2">
     <div class="panel">
       <div class="panel-h"><h3>สิ่งที่ระบบเรียนรู้ล่าสุด</h3><div class="r muted small">Knowledge Base</div></div>
       <div class="panel-b stack">
@@ -564,20 +559,20 @@ function vLoop(){
     <div class="panel-h"><h3>Brief ที่ Strategist ออกเช้านี้</h3><div class="r muted small">07:01 · 3 briefs</div></div>
     <div class="tbl-wrap"><table>
       <tr><th>Brief</th><th>ช่องทาง</th><th>สินค้า</th><th>เหตุผล</th><th>มุมเล่า</th><th class="num">งบ/วัน</th><th>ความเสี่ยง</th></tr>
-      ${[['0906-01','facebook',0,'ขายดีอันดับ 1 · +38% ใน 7 วัน (รอไซส์ 27-28 เข้า)','เอวสูงที่ไม่ต้องดึงทั้งวัน',350,'crit','high'],['0906-02','tiktok',1,'ขึ้น 3 วันติด · ครบทุกไซส์','ใส่จริง 3 ส่วนสูง',0,'good','low'],['0906-03','shopee',2,'สต็อกเหลือเยอะทุกไซส์ ยอดนิ่ง','โปรระบายสต็อก',200,'warn','medium']].map(b=>{const p=prod(BASE_PIDS[b[2]])||PRODUCTS[b[2]];return `<tr><td class="mono">${b[0]}</td><td>${chip(b[1])}</td><td>${esc(p.name)}</td><td>${b[3]}</td><td>${b[4]}</td><td class="num">${b[5]}</td><td><span class="chip ${b[6]}">${b[7]}</span></td></tr>`}).join('')}
+      ${[['0906-01','facebook',0,'ยอดขึ้น +34% ใน 7 วัน (รอไซส์ 30, 32 เข้า)','นั่งสบาย ไม่รัดขา · เซ็ต 4 ตัว 990',350,'crit','high'],['0906-02','tiktok',1,'ขายดีอันดับ 1 · ครบทุกไซส์','ยีนส์ 199 ใส่จริงเป็นยังไง',0,'good','low'],['0906-03','shopee',2,'เหลือเยอะไซส์ 34-36 ยอดตก','โปร 3 ตัว 699 ระบายสต็อก',200,'warn','medium']].map(b=>{const p=prod(BASE_PIDS[b[2]])||PRODUCTS[b[2]];return `<tr><td class="mono">${b[0]}</td><td>${chip(b[1])}</td><td>${esc(p.name)}</td><td>${b[3]}</td><td>${b[4]}</td><td class="num">${b[5]}</td><td><span class="chip ${b[6]}">${b[7]}</span></td></tr>`}).join('')}
     </table></div>
   </div>`;
 }
 const LOGS=[
   ['09:00:03','ok','MEASURE · ดึง insights FB 4 ads, TikTok 2 ads, Shopee 2 ads สำเร็จ'],
-  ['09:00:41','ok','MEASURE · จับคู่ยอดขาย POS 05 ก.ย. → lift กระบอกเล็ก +27% (TikTok ใส่จริง 3 ส่วนสูง)'],
+  ['09:00:41','ok','MEASURE · จับคู่ยอดขาย POS 05 ก.ย. → lift ผ้ายืดสปอร์ต +27% (TikTok ใส่จริง 3 ส่วนสูง)'],
   ['07:21:10','wn','REVIEW · 4 ชิ้นรอคนอนุมัติ (2 high, 1 medium, 1 low ที่ตั้งเป็น notify)'],
-  ['07:20:52','wn','QA · 5/5 ผ่าน · มัมยีนส์ขาดไซส์ 27-28 → ตั้งเงื่อนไขโพสต์หลังของเข้า 8 ก.ย.'],
+  ['07:20:52','wn','QA · 5/5 ผ่าน · ยีนส์ผ้ายืดขาดไซส์ 30, 32 → ตั้งเงื่อนไขโพสต์หลังของเข้า 8 ก.ย.'],
   ['07:16:30','ok','CREATE · เรนเดอร์ภาพ 8 ไฟล์ (4:5 ×2, 1:1 ×4, 9:16 ×2) · 3m 40s'],
-  ['07:01:12','ok','PLAN · Strategist ออก 3 briefs · อ่าน KB 5 rules · ข้ามทรงเดฟดำ (ขาดไซส์ 30-32)'],
+  ['07:01:12','ok','PLAN · Strategist ออก 3 briefs · อ่าน KB 5 rules · เพิ่มโพสต์ขายส่งวันจันทร์ 09:00 ตามกฎ'],
   ['06:02:05','ok','SENSE · POS 7d (แยกทรง/สี/ไซส์) ok · FB ok · TikTok ok · Shopee ok (token เหลือ 9 วัน ⚠)'],
   ['เมื่อวาน 22:00','ok','LEARN · ตัดสิน exp-0903-01: A=scale, B=kill · เขียน rule ใหม่ 1 ข้อ'],
-  ['เมื่อวาน 20:30','ok','PUBLISH · FB organic "เดฟยืดดำ" post id 1029…'],
+  ['เมื่อวาน 20:30','ok','PUBLISH · FB organic "โปร 1 แถม 1" post id 1029…'],
   ['เมื่อวาน 06:00','er','SENSE · Shopee API 429 rate limit · retry สำเร็จรอบที่ 2'],
 ];
 const logLine = l => `<div><span class="t">${l[0]}</span>  <span class="${l[1]}">${l[1]==='ok'?'OK ':l[1]==='wn'?'WARN':'ERR '}</span>  ${esc(l[2])}</div>`;
@@ -601,7 +596,7 @@ function cardInbox(i){
   const isDone = i.status!=='pending';
   return `<div class="card" style="${isDone?'opacity:.55':''}">
     <div>
-      <div class="thumb ${i.ratio==='9:16'?'v':''}"><span class="ratio">${i.ratio}</span><span class="price">${p.price}.-</span><span class="nm">${p.name}</span><span class="small mono" style="opacity:.8">ไซส์ ${p.sizes||''}</span></div>
+      <div class="thumb ${i.ratio==='9:16'?'v':''}"><span class="ratio">${i.ratio}</span><span class="price">${fmt(p.price)}.-</span><span class="nm">${p.name}</span><span class="small" style="opacity:.85">${p.set?p.set+' · ':''}ไซส์ ${p.sizes||''}</span></div>
       <div class="small muted" style="margin-top:6px">ภาพจาก template · แก้ได้</div>
       <select class="in" style="margin-top:6px;font-size:12px;padding:4px 8px" data-bind="inbox.${S.inbox.indexOf(i)}.ratio"><option ${i.ratio==='1:1'?'selected':''}>1:1</option><option ${i.ratio==='4:5'?'selected':''}>4:5</option><option ${i.ratio==='9:16'?'selected':''}>9:16</option></select>
     </div>
@@ -659,7 +654,7 @@ function vChannels(){
     const tokCls = !c.connected?'':c.tokenDays<=14?'crit':c.tokenDays<=30?'warn':'good';
     return `<div class="panel conn">
       <div class="top"><div class="ico" style="background:var(${m.var})">${m.short}</div>
-        <div><div class="display" style="font-weight:700">${m.name}</div><div class="small muted">${esc(c.account)}</div></div>
+        <div><div class="display" style="font-weight:700">${m.name}</div><div class="small muted">${esc(c.account)}</div>${c.followers?`<div class="small"><b class="mono">${fmt(c.followers)}</b> ผู้ติดตาม</div>`:''}</div>
         <div style="margin-left:auto" class="row">
           ${c.connected?`<span class="chip ${tokCls}">token เหลือ ${c.tokenDays} วัน</span>`:'<span class="chip crit">ยังไม่เชื่อมต่อ</span>'}
           <label class="tog"><input type="checkbox" ${c.enabled?'checked':''} data-bind="channels.${k}.enabled" data-rerender="1"><span class="sw"></span></label>
@@ -779,7 +774,7 @@ function vSettings(){
       <tr><th>ร้าน</th><th>ประเภท</th><th>ช่องทางที่เปิด</th><th class="num">งบ/วัน</th><th>Autopilot</th><th class="num">รออนุมัติ</th><th></th></tr>
       ${Object.keys(ALL.stores).map(id=>{ const st=STORES[id], d=ALL.stores[id]; const chs=Object.keys(CH).filter(k=>k!=='line'&&d.channels[k].enabled); const pend=d.inbox.filter(i=>i.status==='pending').length;
         return `<tr style="${id===ALL.current?'background:var(--accent-soft)':''}"><td><b>${esc(st.name)}</b>${id===ALL.current?' <span class="chip acc">กำลังดู</span>':''}</td><td>${esc(st.type)}</td><td class="row" style="gap:4px">${chs.map(chip).join('')}</td><td class="num">${thb(d.settings.dailyCap)}</td><td>${d.settings.autopilot?'<span class="chip acc">ON</span>':'<span class="chip">off</span>'}</td><td class="num">${pend}</td>
-        <td class="row" style="gap:6px">${id!==ALL.current?`<button class="btn sm" data-action="switchstore" data-id="${id}">เปิดดู</button>`:''}${['benz','branch2','wholesale'].includes(id)?'':`<button class="btn sm ghost" data-action="delstore" data-id="${id}">ลบ</button>`}</td></tr>`; }).join('')}
+        <td class="row" style="gap:6px">${id!==ALL.current?`<button class="btn sm" data-action="switchstore" data-id="${id}">เปิดดู</button>`:''}${['climax','wholesale'].includes(id)?'':`<button class="btn sm ghost" data-action="delstore" data-id="${id}">ลบ</button>`}</td></tr>`; }).join('')}
     </table></div></div>
 
   <div class="row" style="justify-content:space-between">
@@ -882,11 +877,11 @@ document.addEventListener('click',e=>{
   else if(a==='kill'){ if(confirm('หยุดแอดทุกตัวในทุกช่องทางทันที?')){ S.placements.forEach(p=>{ if(p.status==='active') p.status='paused'; }); S.settings.autopilot=false; save(); render(); toast('หยุดทุกแอดแล้ว · Autopilot ปิด'); } }
   else if(a==='pause'){ const p=S.placements[+el.dataset.i]; p.status=p.status==='active'?'paused':'active'; save(); render(); }
   else if(a==='applydec'){ const p=S.placements[+el.dataset.i]; if(p.decision==='kill'){p.status='paused';} else {p.spend=Math.round(p.spend*(1+S.settings.scalePct/100));} p.decision='hold'; save(); render(); toast('ทำตามข้อเสนอ AI แล้ว'); }
-  else if(a==='connect'){ const c=S.channels[el.dataset.k]; c.connected=true; c.tokenDays=90; c.account='benzcafe · เชื่อมต่อแล้ว (mock)'; save(); render(); toast('เชื่อมต่อสำเร็จ (mock)'); }
+  else if(a==='connect'){ const c=S.channels[el.dataset.k]; c.connected=true; c.tokenDays=90; c.account='เชื่อมต่อแล้ว (mock)'; save(); render(); toast('เชื่อมต่อสำเร็จ (mock)'); }
   else if(a==='toast'){ toast(el.dataset.msg); }
   else if(a==='addstore'){ const n=prompt('ชื่อร้านใหม่'); if(n) addStore(n.trim(), prompt('ประเภทร้าน (เช่น ร้านอาหาร, เสื้อผ้า)')||''); }
   else if(a==='switchstore'){ switchStore(el.dataset.id); }
-  else if(a==='delstore'){ if(confirm('ลบร้านนี้?')){ delete ALL.stores[el.dataset.id]; delete STORES[el.dataset.id]; switchStore('benz'); } }
+  else if(a==='delstore'){ if(confirm('ลบร้านนี้?')){ delete ALL.stores[el.dataset.id]; delete STORES[el.dataset.id]; switchStore('climax'); } }
   else if(a==='runloop'){ toast('เริ่มรัน loop ทั้ง 7 ขั้น (mock)'); S.steps.forEach(s=>s.status='run'); render(); setTimeout(()=>{ S.steps.forEach((s,i)=>s.status=i<3?'done':i===3?'hold':'wait'); render(); },1500); }
   else if(a==='runstep'){ const s=S.steps[+el.dataset.i]; s.status='run'; render(); setTimeout(()=>{ s.status='done'; s.last='ตอนนี้'; save(); render(); toast(s.name+' เสร็จแล้ว (mock)'); },1200); }
   else if(a==='tooltoggle'){ const ag=S.agents[+el.dataset.i], t=el.dataset.t; const k=ag.tools.indexOf(t); k>=0?ag.tools.splice(k,1):ag.tools.push(t); save(); render(); }
