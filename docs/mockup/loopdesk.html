@@ -1,0 +1,905 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LoopDesk</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  color-scheme:light;
+  --bg:#EDECE5; --panel:#FFFFFF; --panel-2:#F6F5F0; --ink:#141414; --ink-2:#4A4944; --muted:#87857C;
+  --line:#141414; --line-soft:#D9D7CE; --shadow:#141414;
+  --accent:#F2C216; --accent-ink:#141414; --accent-soft:#FBF0BE;
+  --fb:#2a78d6; --shopee:#eb6834; --tiktok:#1baf7a; --line-ch:#3fbf5f;
+  --good:#008300; --warn:#eda100; --crit:#e34948;
+  --good-soft:#E3F3E3; --warn-soft:#FBEFD2; --crit-soft:#FBE1E1;
+  --grid:#E5E3DA;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#151514; --panel:#1E1E1C; --panel-2:#262624; --ink:#F2F1EA; --ink-2:#C3C2B7; --muted:#8B8A82;
+    --line:#5A5955; --line-soft:#333330; --shadow:#0A0A09;
+    --accent:#F2C216; --accent-ink:#141414; --accent-soft:#3D3410;
+    --fb:#3987e5; --shopee:#d95926; --tiktok:#199e70; --line-ch:#3fbf5f;
+    --good:#4FB84F; --warn:#c98500; --crit:#e66767;
+    --good-soft:#1C2E1C; --warn-soft:#332A12; --crit-soft:#3A1F1F;
+    --grid:#2C2C29;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#151514; --panel:#1E1E1C; --panel-2:#262624; --ink:#F2F1EA; --ink-2:#C3C2B7; --muted:#8B8A82;
+  --line:#5A5955; --line-soft:#333330; --shadow:#0A0A09;
+  --accent:#F2C216; --accent-ink:#141414; --accent-soft:#3D3410;
+  --fb:#3987e5; --shopee:#d95926; --tiktok:#199e70; --line-ch:#3fbf5f;
+  --good:#4FB84F; --warn:#c98500; --crit:#e66767;
+  --good-soft:#1C2E1C; --warn-soft:#332A12; --crit-soft:#3A1F1F;
+  --grid:#2C2C29;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans Thai',system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:1.5}
+h1,h2,h3,h4,.display{font-family:'Chakra Petch','IBM Plex Sans Thai',sans-serif;text-wrap:balance;margin:0}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+a{color:inherit}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+/* ---- shell ---- */
+.app{display:grid;grid-template-columns:224px 1fr;min-height:100vh}
+.rail{border-right:3px solid var(--line);background:var(--panel);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.brand{padding:18px 18px 14px;border-bottom:3px solid var(--line);display:flex;align-items:center;gap:10px}
+.brand .logo{width:34px;height:34px;background:var(--accent);border:3px solid var(--line);box-shadow:3px 3px 0 var(--shadow);display:grid;place-items:center;font-family:'Chakra Petch';font-weight:700;font-size:15px;color:var(--accent-ink)}
+.brand h1{font-size:18px;font-weight:700;letter-spacing:.02em}
+.brand small{display:block;color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-family:'IBM Plex Mono'}
+.store{padding:12px 12px 4px;display:flex;flex-direction:column;gap:4px}
+.store select{padding:6px 8px;font-weight:600;font-family:'Chakra Petch'}
+.nav{display:flex;flex-direction:column;padding:10px;gap:4px}
+.nav button{display:flex;align-items:center;gap:10px;text-align:left;background:transparent;border:3px solid transparent;padding:9px 10px;font-weight:500;color:var(--ink-2)}
+.nav button .k{font-family:'IBM Plex Mono';font-size:11px;color:var(--muted);width:18px}
+.nav button:hover{background:var(--panel-2);color:var(--ink)}
+.nav button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--line);box-shadow:3px 3px 0 var(--shadow)}
+.nav button.on .k{color:var(--accent-ink)}
+.nav .badge{margin-left:auto;font-family:'IBM Plex Mono';font-size:11px;background:var(--crit);color:#fff;padding:0 6px;border:2px solid var(--line)}
+.rail-foot{margin-top:auto;padding:14px;border-top:3px solid var(--line);font-size:12px;color:var(--muted)}
+.rail-foot b{color:var(--ink);font-family:'IBM Plex Mono';font-weight:500}
+
+.main{min-width:0}
+.topbar{display:flex;align-items:center;gap:14px;padding:14px 24px;border-bottom:3px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+.topbar h2{font-size:20px;font-weight:700}
+.topbar .sub{color:var(--muted);font-size:12px}
+.topbar .grow{flex:1}
+.content{padding:22px 24px 60px;display:flex;flex-direction:column;gap:20px;max-width:1380px}
+
+/* ---- primitives ---- */
+.panel{background:var(--panel);border:3px solid var(--line);box-shadow:4px 4px 0 var(--shadow)}
+.panel-h{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:3px solid var(--line)}
+.panel-h h3{font-size:15px;font-weight:600}
+.panel-h .r{margin-left:auto;display:flex;gap:8px;align-items:center}
+.panel-b{padding:16px}
+.eyebrow{font-family:'IBM Plex Mono';font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.btn{background:var(--panel);border:3px solid var(--line);padding:7px 12px;font-weight:600;box-shadow:3px 3px 0 var(--shadow);transition:transform .08s,box-shadow .08s;white-space:nowrap}
+.btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--shadow)}
+.btn.primary{background:var(--accent);color:var(--accent-ink)}
+.btn.danger{background:var(--crit);color:#fff}
+.btn.good{background:var(--good);color:#fff}
+.btn.sm{padding:4px 9px;font-size:12px;box-shadow:2px 2px 0 var(--shadow)}
+.btn.ghost{box-shadow:none;background:transparent}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.chip{display:inline-flex;align-items:center;gap:6px;font-family:'IBM Plex Mono';font-size:11px;padding:2px 8px;border:2px solid var(--line);background:var(--panel-2);white-space:nowrap}
+.chip.fb{background:var(--fb);color:#fff;border-color:transparent}
+.chip.shopee{background:var(--shopee);color:#fff;border-color:transparent}
+.chip.tiktok{background:var(--tiktok);color:#fff;border-color:transparent}
+.chip.line{background:var(--line-ch);color:#fff;border-color:transparent}
+.chip.good{background:var(--good-soft);color:var(--good)}
+.chip.warn{background:var(--warn-soft);color:var(--warn)}
+.chip.crit{background:var(--crit-soft);color:var(--crit)}
+.chip.acc{background:var(--accent);color:var(--accent-ink)}
+.dot{width:8px;height:8px;display:inline-block;background:currentColor}
+.grid{display:grid;gap:18px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.kpi{padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.kpi .v{font-family:'IBM Plex Mono';font-size:28px;font-weight:500;line-height:1.1}
+.kpi .v small{font-size:14px;color:var(--muted)}
+.kpi .d{font-size:12px;color:var(--ink-2)}
+.meter{height:10px;border:2px solid var(--line);background:var(--panel-2);position:relative}
+.meter i{position:absolute;inset:0;right:auto;background:var(--accent)}
+.meter.warn i{background:var(--warn)}.meter.crit i{background:var(--crit)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-family:'IBM Plex Mono';font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:8px 10px;border-bottom:3px solid var(--line);font-weight:500}
+td{padding:9px 10px;border-bottom:1px solid var(--line-soft);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right;font-family:'IBM Plex Mono';font-variant-numeric:tabular-nums}
+.tbl-wrap{overflow-x:auto}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:12px;font-weight:600;color:var(--ink-2)}
+.field .hint{font-size:11px;color:var(--muted)}
+.in{background:var(--panel);border:3px solid var(--line);padding:7px 10px;width:100%;min-width:0}
+.in:focus{outline:none;box-shadow:inset 0 0 0 2px var(--accent)}
+textarea.in{min-height:96px;resize:vertical;line-height:1.5}
+select.in{appearance:none;background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);background-position:calc(100% - 16px) 50%,calc(100% - 11px) 50%;background-size:5px 5px;background-repeat:no-repeat;padding-right:30px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.tog{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+.tog input{position:absolute;opacity:0;width:0;height:0}
+.tog .sw{width:40px;height:22px;border:3px solid var(--line);background:var(--panel-2);position:relative;flex:none}
+.tog .sw::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;background:var(--line)}
+.tog input:checked + .sw{background:var(--accent)}
+.tog input:checked + .sw::after{left:auto;right:2px;background:var(--accent-ink)}
+.tog input:focus-visible + .sw{outline:3px solid var(--accent);outline-offset:2px}
+.tog.big .sw{width:56px;height:30px}.tog.big .sw::after{width:18px;height:18px;top:3px;left:3px}.tog.big input:checked + .sw::after{right:3px}
+.range{display:flex;align-items:center;gap:10px}
+input[type=range]{flex:1;accent-color:var(--accent)}
+.stack{display:flex;flex-direction:column;gap:12px}
+.hr{border:0;border-top:3px solid var(--line);margin:0}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+.tabs{display:flex;gap:0;border:3px solid var(--line);width:max-content;max-width:100%;overflow-x:auto}
+.tabs button{background:var(--panel);border:0;border-right:3px solid var(--line);padding:6px 12px;font-weight:600;font-size:12px}
+.tabs button:last-child{border-right:0}
+.tabs button.on{background:var(--ink);color:var(--bg)}
+.log{font-family:'IBM Plex Mono';font-size:12px;background:var(--ink);color:var(--bg);padding:12px 14px;line-height:1.7;max-height:260px;overflow:auto}
+.log .t{color:#9A9890}.log .ok{color:#7FD67F}.log .wn{color:#F2C216}.log .er{color:#FF8A8A}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border:3px solid var(--accent);box-shadow:4px 4px 0 var(--shadow);font-weight:600;z-index:20;opacity:0;pointer-events:none;transition:opacity .15s}
+.toast.show{opacity:1}
+
+/* loop pipeline */
+.pipe{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:0;border:3px solid var(--line);background:var(--panel)}
+.step{padding:12px;border-right:3px solid var(--line);display:flex;flex-direction:column;gap:6px;min-height:150px;position:relative}
+.step:last-child{border-right:0}
+.step .n{font-family:'Chakra Petch';font-weight:700;font-size:13px;letter-spacing:.04em}
+.step .th{font-size:12px;color:var(--ink-2)}
+.step .st{margin-top:auto}
+.step.done{background:var(--good-soft)}
+.step.run{background:var(--accent-soft)}
+.step.wait{background:var(--panel)}
+.step.hold{background:var(--warn-soft)}
+.step.done::before,.step.run::before,.step.hold::before{content:"";position:absolute;left:0;right:0;top:0;height:5px}
+.step.done::before{background:var(--good)}.step.run::before{background:var(--accent)}.step.hold::before{background:var(--warn)}
+
+/* inbox cards */
+.card{display:grid;grid-template-columns:150px 1fr auto;gap:16px;padding:16px;border-bottom:3px solid var(--line)}
+.card:last-child{border-bottom:0}
+.thumb{aspect-ratio:1;border:3px solid var(--line);background:var(--panel-2);display:flex;flex-direction:column;justify-content:flex-end;padding:8px;position:relative;overflow:hidden}
+.thumb .price{font-family:'Chakra Petch';font-weight:700;font-size:20px;background:var(--accent);color:var(--accent-ink);padding:0 6px;width:max-content;border:2px solid var(--line)}
+.thumb .nm{font-family:'Chakra Petch';font-weight:600;font-size:12px;margin-top:4px}
+.thumb .ratio{position:absolute;top:6px;right:6px;font-family:'IBM Plex Mono';font-size:10px;background:var(--panel);border:2px solid var(--line);padding:0 4px}
+.thumb.v{aspect-ratio:9/16;max-height:160px}
+.copy{width:100%;min-height:80px;background:var(--panel-2);border:3px solid var(--line);padding:8px 10px;line-height:1.55;resize:vertical}
+.acts{display:flex;flex-direction:column;gap:8px;min-width:120px}
+.qa{display:flex;gap:6px;flex-wrap:wrap}
+
+/* connectors */
+.conn{display:flex;flex-direction:column}
+.conn .top{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:3px solid var(--line)}
+.conn .ico{width:38px;height:38px;border:3px solid var(--line);display:grid;place-items:center;font-family:'Chakra Petch';font-weight:700;color:#fff;font-size:13px}
+.conn .caps{display:grid;grid-template-columns:1fr auto;gap:8px 12px;padding:14px 16px;align-items:center}
+.conn .caps .cn{font-size:13px}
+.conn .caps .cd{font-size:11px;color:var(--muted)}
+
+/* chart */
+.chart{position:relative}
+.chart svg{display:block;width:100%;height:auto}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--bg);font-family:'IBM Plex Mono';font-size:11px;padding:6px 8px;border:2px solid var(--accent);white-space:nowrap;display:none;z-index:3;line-height:1.5}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink-2)}
+.legend i{width:10px;height:10px;display:inline-block;margin-right:6px;vertical-align:-1px}
+
+/* matrix */
+.matrix{display:grid;grid-template-columns:1.4fr repeat(3,1fr);border:3px solid var(--line)}
+.matrix > div{padding:10px 12px;border-bottom:2px solid var(--line-soft);border-right:2px solid var(--line-soft);display:flex;align-items:center}
+.matrix > div:nth-child(4n){border-right:0}
+.matrix > .h{background:var(--panel-2);font-family:'IBM Plex Mono';font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+
+@media (max-width:980px){
+  .app{grid-template-columns:1fr}
+  .rail{position:static;height:auto;border-right:0;border-bottom:3px solid var(--line)}
+  .nav{flex-direction:row;overflow-x:auto}
+  .nav button{white-space:nowrap}
+  .rail-foot{display:none}
+  .g4{grid-template-columns:repeat(2,1fr)}
+  .g3,.g2{grid-template-columns:1fr}
+  .pipe{grid-template-columns:repeat(2,1fr)}
+  .step{border-bottom:3px solid var(--line)}
+  .card{grid-template-columns:1fr}
+  .thumb{max-width:160px}
+  .matrix{grid-template-columns:1fr}
+  .matrix > div{border-right:0}
+  .content{padding:16px 14px 60px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <aside class="rail">
+    <div class="brand">
+      <div class="logo">LD</div>
+      <div><h1>LoopDesk</h1><small>AI Marketing Loop</small></div>
+    </div>
+    <div class="store"><span class="eyebrow">ร้านค้า</span><select class="in" id="store-sel" data-action="store"></select></div>
+    <nav class="nav" id="nav"></nav>
+    <div class="rail-foot"><b id="foot-store"></b><br>ข้อมูลตัวอย่าง (mock) · <span id="foot-date"></span></div>
+  </aside>
+  <main class="main">
+    <div class="topbar">
+      <div><h2 id="ttl"></h2><div class="sub" id="sub"></div></div>
+      <div class="grow"></div>
+      <label class="tog big" title="เปิดแล้วระบบจะโพสต์และยิงแอดเองตามกฎที่ตั้งไว้">
+        <span class="eyebrow">Autopilot</span>
+        <input type="checkbox" data-bind="settings.autopilot" data-rerender="1">
+        <span class="sw"></span>
+      </label>
+      <button class="btn danger" data-action="kill">■ หยุดทุกแอด</button>
+    </div>
+    <div class="content" id="content"></div>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================
+   MOCK DATA + DEFAULT SETTINGS  (ทุกอย่างปรับได้จากหน้า UI)
+   ========================================================= */
+const TODAY = new Date('2026-09-06T09:40:00+07:00');
+const CH = {
+  facebook:{ name:'Facebook', short:'FB', cls:'fb', var:'--fb' },
+  tiktok:  { name:'TikTok',   short:'TT', cls:'tiktok', var:'--tiktok' },
+  shopee:  { name:'Shopee',   short:'SP', cls:'shopee', var:'--shopee' },
+  line:    { name:'LINE OA',  short:'LN', cls:'line', var:'--line-ch' },
+};
+const STORES = {
+  benz:{ name:'Benz Cafe', type:'คาเฟ่ · เบเกอรี่', factor:1, mix:{facebook:1,tiktok:1,shopee:1}, base:12400,
+    accounts:{facebook:'Benz Cafe (Page) · Ad acct 8841',tiktok:'@benzcafe · TikTok Shop TH',shopee:'benzcafe.official · Shop 2291'},
+    products:[
+      { id:'c3', name:'DIRTY COFFEE', price:95, cat:'Coffee', sales7:412, stock:'ok', trend:+18 },
+      { id:'d1', name:'DUBAI TART', price:185, cat:'Dessert', sales7:298, stock:'ok', trend:+41 },
+      { id:'b1', name:'ALMOND CROISSANT', price:125, cat:'Bakery', sales7:355, stock:'high', trend:+6 },
+      { id:'b3', name:'CHOCO LAVA CAKE', price:145, cat:'Bakery', sales7:171, stock:'ok', trend:-12 },
+      { id:'t1', name:'THAI MILK TEA', price:50, cat:'Drinks', sales7:503, stock:'ok', trend:+3 },
+      { id:'p1', name:'DRIP BAG SET (10 ซอง)', price:290, cat:'Retail', sales7:64, stock:'high', trend:+9 },
+      { id:'p2', name:'CROISSANT BOX (6 ชิ้น)', price:420, cat:'Retail', sales7:38, stock:'ok', trend:+22 },
+    ],
+    kb:[
+      { rule:'Hook แบบคำถามได้ CTR สูงกว่าแบบบอกราคา 31% สำหรับหมวด Drinks บน Facebook', ev:'exp-0903-01 · n=2 · 3 วัน', date:'05 ก.ย.' },
+      { rule:'TikTok มุม POV ทำ CPA ต่ำกว่า ASMR 42% กับสินค้า Dessert', ev:'exp-0904-02 · 2 วัน', date:'06 ก.ย.' },
+      { rule:'Shopee Ads คำค้น generic ("กาแฟดริป") CPA เกินเป้า 2 เท่า ควรใช้คำค้น long-tail', ev:'exp-0901-05 · 5 วัน', date:'04 ก.ย.' },
+      { rule:'โพสต์ช่วง 13:30 ได้ reach สูงกว่า 09:00 อยู่ 18% (organic FB)', ev:'14 โพสต์ · ส.ค.', date:'31 ส.ค.' },
+    ]},
+  nara:{ name:'Nara Skin', type:'สกินแคร์ · ขายออนไลน์', factor:2.4, mix:{facebook:0.8,tiktok:1.6,shopee:2.2}, base:31000,
+    accounts:{facebook:'Nara Skin Official (Page) · Ad acct 5120',tiktok:'@naraskin.th · TikTok Shop TH',shopee:'naraskin_official · Shop Mall 7734'},
+    products:[
+      { id:'n1', name:'VIT-C SERUM 30ml', price:590, cat:'Serum', sales7:186, stock:'ok', trend:+27 },
+      { id:'n2', name:'SUNSCREEN SPF50', price:390, cat:'Sun', sales7:241, stock:'high', trend:+8 },
+      { id:'n3', name:'GENTLE CLEANSER', price:290, cat:'Cleanse', sales7:132, stock:'ok', trend:-4 },
+      { id:'n4', name:'NIGHT CREAM', price:690, cat:'Moist', sales7:74, stock:'ok', trend:+15 },
+      { id:'n5', name:'SHEET MASK ×5', price:250, cat:'Mask', sales7:310, stock:'high', trend:+2 },
+      { id:'n6', name:'STARTER SET', price:990, cat:'Set', sales7:58, stock:'ok', trend:+33 },
+      { id:'n7', name:'TONER 200ml', price:350, cat:'Toner', sales7:96, stock:'ok', trend:+5 },
+    ],
+    kb:[
+      { rule:'คลิป before/after 7 วัน บน TikTok ได้ CPA ต่ำสุดในหมวด Serum', ev:'exp-0902-01 · 3 วัน', date:'05 ก.ย.' },
+      { rule:'Shopee Ads ช่วง 9.9 ต้องเพิ่ม bid 30% ถึงจะได้ impression เท่าเดิม', ev:'exp-0904-02 · 2 วัน', date:'06 ก.ย.' },
+      { rule:'คำว่า "ผิวกระจ่างใสใน 3 วัน" ถูก QA ตีตกทุกครั้ง (เกินจริง) ใช้ "ผิวดูสดใสขึ้น" แทน', ev:'QA log · 12 ครั้ง', date:'02 ก.ย.' },
+    ]},
+  somchai:{ name:'Somchai Streetwear', type:'เสื้อผ้า · TikTok Shop', factor:1.6, mix:{facebook:0.6,tiktok:2.6,shopee:1.4}, base:19800,
+    accounts:{facebook:'Somchai Streetwear (Page) · Ad acct 9903',tiktok:'@somchai.wear · TikTok Shop TH',shopee:'somchaiwear · Shop 4410'},
+    products:[
+      { id:'s1', name:'OVERSIZED TEE "BKK"', price:390, cat:'Tee', sales7:288, stock:'ok', trend:+35 },
+      { id:'s2', name:'CARGO PANTS', price:890, cat:'Pants', sales7:97, stock:'ok', trend:+12 },
+      { id:'s3', name:'BUCKET HAT', price:350, cat:'Hat', sales7:143, stock:'high', trend:-9 },
+      { id:'s4', name:'HOODIE FLEECE', price:1190, cat:'Hoodie', sales7:41, stock:'ok', trend:+4 },
+      { id:'s5', name:'SOCKS 3-PACK', price:190, cat:'Acc', sales7:362, stock:'ok', trend:+6 },
+      { id:'s6', name:'TOTE BAG CANVAS', price:290, cat:'Acc', sales7:120, stock:'high', trend:+2 },
+      { id:'s7', name:'CAP "SMC" LOGO', price:450, cat:'Hat', sales7:76, stock:'ok', trend:+19 },
+    ],
+    kb:[
+      { rule:'TikTok LIVE ช่วง 20:00-22:00 ทำยอดสั่งซื้อ 3 เท่าของคลิปปกติ ควรตั้งแอดหนุน LIVE', ev:'6 LIVE · ส.ค.', date:'01 ก.ย.' },
+      { rule:'รูป flat-lay พื้นขาวบน Shopee CTR ต่ำกว่ารูปคนใส่ 44%', ev:'exp-0829-03 · 5 วัน', date:'03 ก.ย.' },
+      { rule:'Facebook ยังคุ้มสำหรับ retarget คนที่ทักแชทแต่ยังไม่ซื้อ (ROAS 4.8x)', ev:'exp-0901-02 · 4 วัน', date:'05 ก.ย.' },
+    ]},
+};
+const BASE_PIDS = ['d1','c3','p1','b1','t1','p2','b3']; // ลำดับที่ inbox/placements อ้างถึง ใช้ map ไปยังสินค้าของร้านอื่น
+const DEFAULTS = {
+  storeId:'benz',
+  view:'overview',
+  inboxFilter:'all',
+  settings:{
+    autopilot:false,
+    dailyCap:1500, monthlyCap:30000,
+    maxPostsPerDay:2, maxAdsLive:6,
+    approval:{ low:'auto', medium:'notify', high:'require' },
+    boostThreshold:300,
+    scaleRoas:3.0, scaleDays:2, scalePct:20,
+    killCpaMult:1.5, killDays:2,
+    testDays:3, variants:3,
+    targetRoas:2.5, targetCpa:60,
+    brandVoice:'พูดเหมือนเพื่อนบาริสต้า เป็นกันเอง สั้น กระชับ ใช้ "เรา" ไม่ใช้ "ทางร้าน" ใส่ emoji ได้ไม่เกิน 2 ตัว ห้ามใช้คำว่า "ดีที่สุด" "ถูกที่สุด" "รักษา"',
+    forbidden:'ดีที่สุด, ถูกที่สุด, รักษา, ลดน้ำหนัก, การันตี',
+    notifyLine:true, notifyEmail:false, dailyDigestTime:'22:00',
+    lang:'th', currency:'THB', timezone:'Asia/Bangkok',
+  },
+  channels:{
+    facebook:{ enabled:true, connected:true, account:'Benz Cafe (Page) · Ad acct 8841', tokenDays:58,
+      caps:{ post:true, ads:true, insights:true, messages:false }, sync:6 },
+    tiktok:{ enabled:true, connected:true, account:'@benzcafe · TikTok Shop TH', tokenDays:21,
+      caps:{ post:true, ads:true, insights:true, shop:true }, sync:6 },
+    shopee:{ enabled:true, connected:true, account:'benzcafe.official · Shop 2291', tokenDays:9,
+      caps:{ listing:true, ads:true, insights:true, orders:true }, sync:12 },
+    line:{ enabled:true, connected:false, account:'ยังไม่เชื่อมต่อ', tokenDays:0,
+      caps:{ broadcast:false, approve:true, digest:true }, sync:0 },
+  },
+  steps:[
+    { id:'sense',   name:'SENSE',   th:'ดึงข้อมูล POS + Insights', time:'06:00', status:'done', last:'06:02', dur:'41s' },
+    { id:'plan',    name:'PLAN',    th:'Strategist ออก Brief', time:'07:00', status:'done', last:'07:01', dur:'1m 12s' },
+    { id:'create',  name:'CREATE',  th:'เขียน copy + ทำภาพ/วิดีโอ', time:'07:15', status:'done', last:'07:16', dur:'3m 40s' },
+    { id:'review',  name:'REVIEW',  th:'QA + รอคนอนุมัติ', time:'07:30', status:'hold', last:'07:21', dur:'รอ 4 ชิ้น' },
+    { id:'publish', name:'PUBLISH', th:'โพสต์ / สร้างแอด', time:'ตามคิว', status:'wait', last:'เมื่อวาน 13:30', dur:'' },
+    { id:'measure', name:'MEASURE', th:'ดึงผล + จับคู่ยอดขาย', time:'ทุก 6 ชม.', status:'run', last:'09:00', dur:'กำลังรัน' },
+    { id:'learn',   name:'LEARN',   th:'ตัดสิน scale/kill + อัปเดต KB', time:'22:00', status:'wait', last:'เมื่อวาน 22:00', dur:'' },
+  ],
+  agents:[
+    { id:'strategist', name:'Strategist', th:'วางแผนว่าจะโปรโมทอะไร', model:'llm-large', temp:0.4, tools:['pos_sql','kb_search','meta_insights','tiktok_insights','shopee_insights'], enabled:true,
+      prompt:'คุณคือนักวางแผนการตลาดของร้านกาแฟ อ่านยอดขาย 7/30 วัน สต็อก และผลแอดล่าสุด แล้วเลือกสินค้าไม่เกิน 3 รายการที่ควรโปรโมทวันนี้ ระบุช่องทาง (Facebook/TikTok/Shopee) เหตุผล กลุ่มเป้าหมาย งบต่อวัน และระดับความเสี่ยง ตอบเป็น JSON ตาม schema Brief' },
+    { id:'copywriter', name:'Copywriter', th:'เขียน caption / headline', model:'llm-large', temp:0.9, tools:['kb_search','brand_voice'], enabled:true,
+      prompt:'เขียนคอนเทนต์ภาษาไทยตาม Brief จำนวน {variants} แบบ แต่ละแบบต้องใช้ hook คนละประเภท (คำถาม / บอกราคา / เล่าเรื่อง) ปรับความยาวและโทนตามช่องทาง: Facebook เล่าได้ยาว, TikTok สั้นเป็น script 15 วินาที, Shopee เน้นชื่อสินค้า+จุดขาย+โปร' },
+    { id:'creative', name:'Creative', th:'ทำภาพ 1:1 / 4:5 / 9:16', model:'image-gen', temp:0.7, tools:['template_render','product_photos','video_render'], enabled:true,
+      prompt:'เลือก template ตามประเภท (เมนู / โปรโมชั่น / เปิดตัว) ใส่รูปสินค้าจาก POS ราคา และ hook สั้น เรนเดอร์ 1:1 กับ 4:5 สำหรับ Facebook, 9:16 สำหรับ TikTok, 1:1 พื้นขาวสำหรับ Shopee' },
+    { id:'qa', name:'QA + Policy', th:'เช็คราคา นโยบาย ความซ้ำ', model:'llm-small', temp:0.0, tools:['pos_sql','policy_rules','similarity'], enabled:true,
+      prompt:'ตรวจทุกชิ้นงาน: (1) ชื่อและราคาตรงกับ POS (2) ไม่มีคำต้องห้าม (3) ไม่ผิดนโยบายโฆษณาของแต่ละแพลตฟอร์ม (4) ไม่ซ้ำโพสต์ 14 วันล่าสุด ตอบ passed:true/false พร้อม issues[]' },
+    { id:'analyst', name:'Analyst', th:'สรุปผล + เรียนรู้', model:'llm-large', temp:0.2, tools:['pos_sql','meta_insights','tiktok_insights','shopee_insights','kb_write'], enabled:true,
+      prompt:'อ่านผลทุก placement ที่ครบ {testDays} วัน เทียบกับยอดขาย POS ตัดสิน scale/kill/iterate ตามกฎที่ตั้งไว้ และเขียน learned rule 1 ข้อพร้อมหลักฐานลง Knowledge Base สรุปให้เจ้าของร้านไม่เกิน 5 บรรทัด' },
+  ],
+  inbox:[
+    { id:'br-0906-01A', ch:'facebook', type:'boosted_post', product:'d1', variant:'A', risk:'high', budget:350, days:3, ratio:'4:5', hookType:'คำถาม',
+      copy:'เคยกินทาร์ตที่ข้างในเป็นพิสตาชิโอไหลเยิ้มมั้ย? 🥐\nDUBAI TART ของเรา ทำสดทุกเช้า ชิ้นละ 185.-\nสัปดาห์นี้ขายดีอันดับ 1 ใครยังไม่ลอง มาเลย',
+      reason:'ยอดขายขึ้น +41% ใน 7 วัน สต็อกพิสตาชิโอเพียงพอ', qa:['ราคาตรง POS','ไม่มีคำต้องห้าม','ไม่ซ้ำ 14 วัน'], status:'pending' },
+    { id:'br-0906-01B', ch:'facebook', type:'boosted_post', product:'d1', variant:'B', risk:'high', budget:350, days:3, ratio:'1:1', hookType:'บอกราคา',
+      copy:'185 บาท กับความฟินระดับดูไบ 🇦🇪\nDUBAI TART พิสตาชิโอแท้ + คาดาอีฟกรอบ อบสดวันต่อวัน\nมีจำนวนจำกัดต่อวัน หมดแล้วหมดเลย',
+      reason:'variant B ของ experiment เดียวกัน', qa:['ราคาตรง POS','ไม่มีคำต้องห้าม','ไม่ซ้ำ 14 วัน'], status:'pending' },
+    { id:'br-0906-02A', ch:'tiktok', type:'organic_video', product:'c3', variant:'A', risk:'low', budget:0, days:0, ratio:'9:16', hookType:'เล่าเรื่อง',
+      copy:'[Script 15s]\n0-3s: "อย่าเพิ่งคน!" (มือกำลังจะคนแก้ว)\n3-8s: เทช็อตร้อนลงนมเย็น เห็นชั้นแยก\n8-12s: จิบ 3 จิบ ชั้นละรส\n12-15s: DIRTY COFFEE 95.- ที่ Benz Cafe #dirtycoffee #คาเฟ่',
+      reason:'ยอดขายขึ้น 3 วันติด เหมาะกับคลิปสั้น', qa:['ราคาตรง POS','ไม่มีคำต้องห้าม','ยาว 15s ตามกฎ'], status:'pending' },
+    { id:'br-0906-03A', ch:'shopee', type:'ad_campaign', product:'p1', variant:'A', risk:'medium', budget:200, days:5, ratio:'1:1', hookType:'บอกราคา',
+      copy:'ชื่อสินค้า: Drip Bag Set 10 ซอง คั่วกลาง Benz Cafe\nจุดขาย: คั่วใหม่ทุกสัปดาห์ · ชงง่ายไม่ต้องมีเครื่อง · ส่งฟรีเมื่อซื้อ 2 ชุด\nโปร: 290.- (ปกติ 320.-) ถึง 12 ก.ย.',
+      reason:'สต็อกเมล็ดคั่วเหลือเยอะ ใกล้ครบ 2 สัปดาห์', qa:['ราคาตรง POS','ไม่มีคำต้องห้าม','รูปพื้นขาวตามกฎ Shopee'], status:'pending' },
+    { id:'br-0906-04A', ch:'facebook', type:'organic_post', product:'b1', variant:'A', risk:'low', budget:0, days:0, ratio:'1:1', hookType:'เล่าเรื่อง',
+      copy:'บ่ายสองแล้ว ☕\nครัวซองต์อัลมอนด์อบใหม่เพิ่งออกจากเตา ชั้นแป้งกรอบ อัลมอนด์หนา 125.-\nแวะมารับได้ถึง 6 โมงเย็นนะ',
+      reason:'ยอดขายช่วงบ่ายตกต่อเนื่อง 4 วัน', qa:['ราคาตรง POS','ไม่มีคำต้องห้าม','ไม่ซ้ำ 14 วัน'], status:'pending' },
+  ],
+  placements:[
+    { id:'ad-0903-01A', ch:'facebook', product:'t1', name:'[AI][0903-01][A] Thai Milk Tea · คำถาม', status:'active', spend:612, imp:38400, clicks:1210, cpa:41, roas:3.4, lift:+12, day:3, decision:'scale' },
+    { id:'ad-0903-01B', ch:'facebook', product:'t1', name:'[AI][0903-01][B] Thai Milk Tea · บอกราคา', status:'active', spend:598, imp:36100, clicks:820, cpa:73, roas:1.9, lift:+4, day:3, decision:'kill' },
+    { id:'ad-0904-02A', ch:'tiktok', product:'d1', name:'[AI][0904-02][A] Dubai Tart · POV', status:'active', spend:450, imp:91200, clicks:2380, cpa:38, roas:4.1, lift:+27, day:2, decision:'scale' },
+    { id:'ad-0904-02B', ch:'tiktok', product:'d1', name:'[AI][0904-02][B] Dubai Tart · ASMR', status:'active', spend:445, imp:64800, clicks:1120, cpa:66, roas:2.2, lift:+9, day:2, decision:'iterate' },
+    { id:'ad-0902-03A', ch:'shopee', product:'p2', name:'[AI][0902-03][A] Croissant Box · ส่งฟรี', status:'active', spend:380, imp:12300, clicks:410, cpa:95, roas:2.6, lift:+22, day:4, decision:'hold' },
+    { id:'ad-0901-05A', ch:'shopee', product:'p1', name:'[AI][0901-05][A] Drip Bag · คำค้น "กาแฟดริป"', status:'paused', spend:510, imp:9800, clicks:260, cpa:128, roas:1.3, lift:+1, day:5, decision:'kill' },
+    { id:'po-0905-06A', ch:'facebook', product:'b3', name:'[AI][0905-06][A] Lava Cake · organic', status:'organic', spend:0, imp:4200, clicks:96, cpa:0, roas:0, lift:-2, day:1, decision:'—' },
+  ],
+  kb:[
+    { rule:'Hook แบบคำถามได้ CTR สูงกว่าแบบบอกราคา 31% สำหรับหมวด Drinks บน Facebook', ev:'exp-0903-01 · n=2 · 3 วัน', date:'05 ก.ย.' },
+    { rule:'TikTok มุม POV ทำ CPA ต่ำกว่า ASMR 42% กับสินค้า Dessert', ev:'exp-0904-02 · 2 วัน', date:'06 ก.ย.' },
+    { rule:'Shopee Ads คำค้น generic ("กาแฟดริป") CPA เกินเป้า 2 เท่า ควรใช้คำค้น long-tail', ev:'exp-0901-05 · 5 วัน', date:'04 ก.ย.' },
+    { rule:'โพสต์ช่วง 13:30 ได้ reach สูงกว่า 09:00 อยู่ 18% (organic FB)', ev:'14 โพสต์ · ส.ค.', date:'31 ส.ค.' },
+  ],
+};
+
+/* 14-day series (deterministic mock) */
+const DAYS = Array.from({length:14},(_,i)=>{ const d=new Date(TODAY); d.setDate(d.getDate()-13+i); return d; });
+const SPEND_RAW = {
+  facebook:[420,460,380,510,540,600,610,590,640,700,720,690,760,540],
+  tiktok:  [0,0,120,180,220,260,300,340,380,420,450,470,520,410],
+  shopee:  [150,160,140,170,190,210,200,230,260,240,280,300,290,210],
+};
+const SALES_RAW = [12100,12600,12300,13100,13400,13900,14300,14100,14800,15600,15900,15400,16700,11200];
+let SPEND=SPEND_RAW, SALES=SALES_RAW, SALES_BASE=12400, PRODUCTS=[];
+function applyStore(){
+  const st=STORES[S.storeId]||STORES.benz;
+  SPEND={}; for(const c in SPEND_RAW) SPEND[c]=SPEND_RAW[c].map(v=>Math.round(v*st.factor*st.mix[c]/10)*10);
+  SALES=SALES_RAW.map(v=>Math.round(v*st.factor/100)*100); SALES_BASE=st.base; PRODUCTS=st.products;
+}
+
+/* =========================================================
+   STATE
+   ========================================================= */
+const KEY='loopdesk.v2';
+let ALL = loadAll(); let S = ALL.stores[ALL.current];
+function storeDefaults(id){
+  const st=STORES[id]; const d=clone(DEFAULTS); d.storeId=id; d.kb=clone(st.kb);
+  for(const c of ['facebook','tiktok','shopee']) d.channels[c].account=st.accounts[c];
+  if(id!=='benz'){
+    const map={}; BASE_PIDS.forEach((b,i)=>map[b]=st.products[i].id);
+    const HOOK={'คำถาม':p=>`${p.name} ทำไมคนรีวิวเยอะขนาดนี้? 👀\nลองแล้วจะรู้ ราคา ${p.price}.- สั่งได้เลยที่ลิงก์`,'บอกราคา':p=>`${p.price} บาท กับ ${p.name} ที่ขายดีสุดสัปดาห์นี้\nส่งฟรีเมื่อสั่ง 2 ชิ้น ถึงวันอาทิตย์นี้`,'เล่าเรื่อง':p=>`[Script 15s]\n0-3s: hook เปิดกล่อง ${p.name}\n3-10s: ใช้จริง / ใส่จริง ให้เห็นรายละเอียด\n10-15s: ${p.price}.- กดตะกร้าได้เลย`};
+    d.inbox.forEach(i=>{ i.product=map[i.product]; const p=st.products.find(x=>x.id===i.product); i.copy=HOOK[i.hookType](p); i.reason=`ยอดขาย ${p.trend>=0?'+':''}${p.trend}% ใน 7 วัน · สต็อก ${p.stock==='high'?'เหลือเยอะ':'ปกติ'}`; i.budget=i.budget?Math.round(i.budget*st.factor/10)*10:0; });
+    d.placements.forEach(pl=>{ pl.product=map[pl.product]; const p=st.products.find(x=>x.id===pl.product); pl.name=pl.name.replace(/\] [^·]+ ·/,'] '+p.name+' ·'); pl.spend=Math.round(pl.spend*st.factor/10)*10; pl.imp=Math.round(pl.imp*st.factor); pl.clicks=Math.round(pl.clicks*st.factor); });
+    d.settings.dailyCap=Math.round(1500*st.factor/100)*100; d.settings.monthlyCap=d.settings.dailyCap*20;
+    d.settings.brandVoice = id==='nara' ? 'โทนอ่อนโยน น่าเชื่อถือ ใช้คำว่า "ผิวดู…" ไม่ใช้คำอ้างผลลัพธ์แน่นอน ไม่พูดถึงโรค อ้างอิงส่วนผสมได้ ใส่ emoji ได้ 1 ตัว' : 'โทนสตรีท ห้วน มั่นใจ ใช้คำแสลงได้ ภาษาไทยปนอังกฤษ ไม่ต้องมี emoji ห้ามใช้คำว่า "ของแท้ 100%"';
+  }
+  return d;
+}
+function loadAll(){
+  let a=null; try{ const j=localStorage.getItem(KEY); if(j) a=JSON.parse(j);}catch(e){}
+  if(!a||!a.stores){ a={current:'benz',stores:{}}; }
+  for(const id in STORES){ if(!a.stores[id]) a.stores[id]=storeDefaults(id); else a.stores[id]=merge(storeDefaults(id),a.stores[id]); }
+  for(const id in a.stores){ if(!STORES[id]){ if(a.stores[id]._custom) STORES[id]=a.stores[id]._custom; else delete a.stores[id]; } }
+  if(!a.stores[a.current]) a.current='benz';
+  return a;
+}
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(ALL)); }catch(e){} }
+function clone(o){ return JSON.parse(JSON.stringify(o)); }
+function merge(a,b){ for(const k in b){ if(b[k]&&typeof b[k]==='object'&&!Array.isArray(b[k])&&a[k]&&typeof a[k]==='object'){ merge(a[k],b[k]); } else a[k]=b[k]; } return a; }
+function switchStore(id){ ALL.current=id; S=ALL.stores[id]; applyStore(); save(); render(); }
+function addStore(name,type){
+  const id='s'+Date.now().toString(36); const tpl=clone(STORES.benz); tpl.name=name; tpl.type=type||'ร้านใหม่'; tpl.kb=[];
+  tpl.accounts={facebook:name+' (Page)',tiktok:'@'+name.toLowerCase().replace(/\s+/g,''),shopee:name.toLowerCase().replace(/\s+/g,'')+'.shop'};
+  STORES[id]=tpl; const d=storeDefaults(id); d._custom=tpl; d.inbox=[]; d.placements=[]; d.kb=[];
+  for(const c in d.channels) d.channels[c].connected=false;
+  ALL.stores[id]=d; switchStore(id); toast('เพิ่มร้าน '+name+' แล้ว · เชื่อมต่อช่องทางได้ที่หน้า "ช่องทาง"');
+}
+function get(path){ return path.split('.').reduce((o,k)=>o?.[k],S); }
+function set(path,v){ const ks=path.split('.'); const last=ks.pop(); const o=ks.reduce((o,k)=>o[k],S); o[last]=v; save(); }
+const fmt = n => Number(n).toLocaleString('th-TH');
+const thb = n => '฿' + fmt(Math.round(n));
+const prod = id => PRODUCTS.find(p=>p.id===id);
+const esc = s => String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const activeCh = () => Object.keys(CH).filter(k=>S.channels[k].enabled && k!=='line');
+const chip = ch => `<span class="chip ${CH[ch].cls}">${CH[ch].name}</span>`;
+
+function approvalMode(risk){ return S.settings.approval[risk]; }
+function pending(){ return S.inbox.filter(i=>i.status==='pending' && S.channels[i.ch].enabled); }
+function todaySpend(){ return activeCh().reduce((s,c)=>s+SPEND[c][13],0); }
+
+/* =========================================================
+   VIEWS
+   ========================================================= */
+const NAV = [
+  ['overview','ภาพรวม','1'],['loop','Loop','2'],['inbox','คิวอนุมัติ','3'],['campaigns','แคมเปญ','4'],
+  ['channels','ช่องทาง','5'],['agents','AI Agents','6'],['settings','ตั้งค่า','7'],
+];
+const TITLES = {
+  overview:['ภาพรวมวันนี้','เสาร์ 6 ก.ย. 2569 · ข้อมูลรวมทุกช่องทางที่เปิดใช้ของร้านที่เลือก'],
+  loop:['Loop ประจำวัน','7 ขั้นที่วนอัตโนมัติ · แก้เวลาแต่ละขั้นได้ที่นี่'],
+  inbox:['คิวอนุมัติ','ชิ้นงานที่ AI ทำเสร็จแล้ว รอคุณดูก่อนออก'],
+  campaigns:['แคมเปญ & โพสต์ที่ออกไปแล้ว','ผลจริงจากทุกช่องทาง จับคู่กับยอดขาย POS'],
+  channels:['ช่องทางที่เชื่อมต่อ','เปิด/ปิด และกำหนดว่าให้ AI ทำอะไรได้บ้างในแต่ละที่'],
+  agents:['AI Agents','ปรับโมเดล prompt และเครื่องมือของแต่ละ agent'],
+  settings:['ตั้งค่าระบบ','งบ กฎอนุมัติ กฎ scale/kill เสียงแบรนด์ การแจ้งเตือน'],
+};
+
+function vOverview(){
+  const cap=S.settings.dailyCap, sp=todaySpend(), pct=Math.min(100,sp/cap*100);
+  const meterCls = pct>=100?'crit':pct>=80?'warn':'';
+  const live = S.placements.filter(p=>p.status==='active'&&S.channels[p.ch].enabled);
+  const spendAll = live.reduce((s,p)=>s+p.spend,0), rev = live.reduce((s,p)=>s+p.spend*p.roas,0);
+  const roas = spendAll? rev/spendAll : 0;
+  const pend = pending();
+  return `
+  <div class="grid g4">
+    <div class="panel kpi"><span class="eyebrow">งบวันนี้ / cap</span>
+      <div class="v">${thb(sp)} <small>/ ${thb(cap)}</small></div>
+      <div class="meter ${meterCls}"><i style="width:${pct}%"></i></div>
+      <div class="d">${pct>=100?'ถึง cap แล้ว ระบบหยุดสร้างแอดใหม่':pct>=80?'ใกล้ cap · จะไม่ scale เพิ่มวันนี้':'ใช้ไป '+Math.round(pct)+'% · เหลือ '+thb(cap-sp)}</div></div>
+    <div class="panel kpi"><span class="eyebrow">ยอดขาย POS วันนี้ (ถึง 09:40)</span>
+      <div class="v">${thb(SALES[13])}</div>
+      <div class="d">เทียบ baseline 7 วัน <span style="color:var(--good)">+${Math.round((SALES[13]/ (SALES_BASE*0.72) -1)*100)}%</span> ช่วงเวลาเดียวกัน</div></div>
+    <div class="panel kpi"><span class="eyebrow">ROAS รวมแอดที่ยัง active</span>
+      <div class="v">${roas.toFixed(1)}<small>x</small></div>
+      <div class="d">เป้า ${S.settings.targetRoas.toFixed(1)}x · ${roas>=S.settings.targetRoas?'<span style="color:var(--good)">ผ่านเป้า</span>':'<span style="color:var(--warn)">ต่ำกว่าเป้า</span>'} · ${live.length} แอด</div></div>
+    <div class="panel kpi"><span class="eyebrow">รออนุมัติ</span>
+      <div class="v">${pend.length} <small>ชิ้น</small></div>
+      <div class="d">${pend.filter(i=>i.risk==='high').length} ชิ้นความเสี่ยงสูง · <a href="#" data-action="go" data-view="inbox">ไปที่คิว</a></div></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-h"><h3>สถานะ Loop วันนี้</h3><div class="r"><span class="chip ${S.settings.autopilot?'acc':''}">${S.settings.autopilot?'AUTOPILOT ON':'MANUAL · คนอนุมัติทุกชิ้นเสี่ยงสูง'}</span></div></div>
+    <div class="panel-b" style="padding:0">${pipeline(true)}</div>
+  </div>
+
+  <div class="grid g2">
+    <div class="panel">
+      <div class="panel-h"><h3>งบโฆษณาต่อวัน แยกช่องทาง</h3><div class="r muted small">14 วัน · บาท</div></div>
+      <div class="panel-b">${chartBars()}</div>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h3>ยอดขาย POS ต่อวัน</h3><div class="r muted small">14 วัน · เส้นประ = baseline</div></div>
+      <div class="panel-b">${chartLine()}</div>
+    </div>
+  </div>
+
+  <div class="grid g2">
+    <div class="panel">
+      <div class="panel-h"><h3>สินค้าที่ AI กำลังจับตา (จาก POS)</h3></div>
+      <div class="tbl-wrap"><table>
+        <tr><th>สินค้า</th><th class="num">ราคา</th><th class="num">ขาย 7 วัน</th><th class="num">แนวโน้ม</th><th>สต็อก</th></tr>
+        ${PRODUCTS.slice(0,5).map(p=>`<tr><td><b>${p.name}</b><div class="small muted">${p.cat}</div></td><td class="num">${p.price}</td><td class="num">${p.sales7}</td>
+          <td class="num" style="color:${p.trend>=0?'var(--good)':'var(--crit)'}">${p.trend>=0?'+':''}${p.trend}%</td>
+          <td>${p.stock==='high'?'<span class="chip warn">เหลือเยอะ</span>':'<span class="chip good">ปกติ</span>'}</td></tr>`).join('')}
+      </table></div>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h3>สิ่งที่ระบบเรียนรู้ล่าสุด</h3><div class="r muted small">Knowledge Base</div></div>
+      <div class="panel-b stack">
+        ${S.kb.map(k=>`<div style="display:grid;grid-template-columns:1fr auto;gap:10px;padding-bottom:10px;border-bottom:1px solid var(--line-soft)"><div>${esc(k.rule)}<div class="small muted mono">หลักฐาน: ${k.ev}</div></div><div class="small muted mono">${k.date}</div></div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+function pipeline(compact){
+  return `<div class="pipe">${S.steps.map((s,i)=>`
+    <div class="step ${s.status}">
+      <div class="n">${i+1}. ${s.name}</div>
+      <div class="th">${s.th}</div>
+      <div class="small mono muted">${compact?'':'เวลา: '}${esc(s.time)}</div>
+      <div class="st">${statusChip(s)}</div>
+    </div>`).join('')}</div>`;
+}
+function statusChip(s){
+  const m={done:['good','เสร็จ '+s.last+' · '+s.dur],run:['acc','กำลังรัน · '+s.last],hold:['warn','รอคนอนุมัติ · '+s.dur],wait:['','รอรอบถัดไป']};
+  const [c,t]=m[s.status]; return `<span class="chip ${c}">${t}</span>`;
+}
+
+function vLoop(){
+  return `
+  <div class="panel"><div class="panel-h"><h3>Pipeline</h3><div class="r"><button class="btn sm" data-action="runloop">▶ รันทั้ง loop ตอนนี้</button></div></div>
+    <div class="panel-b" style="padding:0">${pipeline(false)}</div></div>
+  <div class="grid g2">
+    <div class="panel">
+      <div class="panel-h"><h3>ตารางเวลาแต่ละขั้น</h3><div class="r muted small">แก้แล้วมีผลรอบถัดไป</div></div>
+      <div class="tbl-wrap"><table>
+        <tr><th>ขั้น</th><th>เวลา / ความถี่</th><th>รอบล่าสุด</th><th></th></tr>
+        ${S.steps.map((s,i)=>`<tr>
+          <td><b>${s.name}</b><div class="small muted">${s.th}</div></td>
+          <td><input class="in" style="max-width:130px" value="${esc(s.time)}" data-bind="steps.${i}.time"></td>
+          <td class="mono small">${esc(s.last)}</td>
+          <td><button class="btn sm" data-action="runstep" data-i="${i}">รันเดี๋ยวนี้</button></td></tr>`).join('')}
+      </table></div>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h3>Log ล่าสุด</h3><div class="r muted small">audit trail ทุกการตัดสินใจ</div></div>
+      <div class="panel-b"><div class="log" id="log">${LOGS.map(l=>logLine(l)).join('')}</div></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-h"><h3>Brief ที่ Strategist ออกเช้านี้</h3><div class="r muted small">07:01 · 3 briefs</div></div>
+    <div class="tbl-wrap"><table>
+      <tr><th>Brief</th><th>ช่องทาง</th><th>สินค้า</th><th>เหตุผล</th><th>มุมเล่า</th><th class="num">งบ/วัน</th><th>ความเสี่ยง</th></tr>
+      <tr><td class="mono">0906-01</td><td>${chip('facebook')}</td><td>DUBAI TART</td><td>ขายดีอันดับ 1 · +41% ใน 7 วัน</td><td>ของหวานที่ต้องลองสักครั้ง</td><td class="num">350</td><td><span class="chip crit">high</span></td></tr>
+      <tr><td class="mono">0906-02</td><td>${chip('tiktok')}</td><td>DIRTY COFFEE</td><td>ขึ้น 3 วันติด เหมาะกับคลิปเห็นชั้น</td><td>อย่าเพิ่งคน</td><td class="num">0</td><td><span class="chip good">low</span></td></tr>
+      <tr><td class="mono">0906-03</td><td>${chip('shopee')}</td><td>DRIP BAG SET</td><td>สต็อกเมล็ดคั่วเหลือเยอะ</td><td>ชงง่ายไม่ต้องมีเครื่อง</td><td class="num">200</td><td><span class="chip warn">medium</span></td></tr>
+    </table></div>
+  </div>`;
+}
+const LOGS=[
+  ['09:00:03','ok','MEASURE · ดึง insights FB 4 ads, TikTok 2 ads, Shopee 2 ads สำเร็จ'],
+  ['09:00:41','ok','MEASURE · จับคู่ยอดขาย POS 05 ก.ย. → lift Dubai Tart +27% (TikTok POV)'],
+  ['07:21:10','wn','REVIEW · 4 ชิ้นรอคนอนุมัติ (2 high, 1 medium, 1 low ที่ตั้งเป็น notify)'],
+  ['07:20:52','ok','QA · 5/5 ผ่าน · ราคาตรง POS · ไม่พบคำต้องห้าม'],
+  ['07:16:30','ok','CREATE · เรนเดอร์ภาพ 8 ไฟล์ (4:5 ×2, 1:1 ×4, 9:16 ×2) · 3m 40s'],
+  ['07:01:12','ok','PLAN · Strategist ออก 3 briefs · อ่าน KB 4 rules'],
+  ['06:02:05','ok','SENSE · POS 7d ok · FB ok · TikTok ok · Shopee ok (token เหลือ 9 วัน ⚠)'],
+  ['เมื่อวาน 22:00','ok','LEARN · ตัดสิน exp-0903-01: A=scale, B=kill · เขียน rule ใหม่ 1 ข้อ'],
+  ['เมื่อวาน 13:30','ok','PUBLISH · FB organic "Lava Cake" post id 1029…'],
+  ['เมื่อวาน 06:00','er','SENSE · Shopee API 429 rate limit · retry สำเร็จรอบที่ 2'],
+];
+const logLine = l => `<div><span class="t">${l[0]}</span>  <span class="${l[1]}">${l[1]==='ok'?'OK ':l[1]==='wn'?'WARN':'ERR '}</span>  ${esc(l[2])}</div>`;
+
+function vInbox(){
+  const f=S.inboxFilter;
+  const items = S.inbox.filter(i=>S.channels[i.ch].enabled && (f==='all'||i.ch===f));
+  const tabs = ['all',...activeCh()].map(k=>`<button class="${f===k?'on':''}" data-action="inboxfilter" data-f="${k}">${k==='all'?'ทั้งหมด':CH[k].name}</button>`).join('');
+  return `
+  <div class="row" style="justify-content:space-between">
+    <div class="tabs">${tabs}</div>
+    <div class="row"><span class="small muted">กฎอนุมัติ: low=${S.settings.approval.low} · medium=${S.settings.approval.medium} · high=${S.settings.approval.high}</span>
+      <button class="btn sm good" data-action="approveall">✓ อนุมัติทุกชิ้นที่ผ่าน QA</button></div>
+  </div>
+  <div class="panel">${items.length? items.map(cardInbox).join('') : '<div class="panel-b muted">ไม่มีชิ้นงานในคิว</div>'}</div>`;
+}
+function cardInbox(i){
+  const p=prod(i.product), mode=approvalMode(i.risk);
+  const riskCls={low:'good',medium:'warn',high:'crit'}[i.risk];
+  const typeTh={organic_post:'โพสต์ธรรมดา',boosted_post:'โพสต์ + boost',organic_video:'วิดีโอสั้น',ad_campaign:'แอดแคมเปญ',listing_promo:'โปรสินค้า'}[i.type];
+  const isDone = i.status!=='pending';
+  return `<div class="card" style="${isDone?'opacity:.55':''}">
+    <div>
+      <div class="thumb ${i.ratio==='9:16'?'v':''}"><span class="ratio">${i.ratio}</span><span class="price">${p.price}.-</span><span class="nm">${p.name}</span></div>
+      <div class="small muted" style="margin-top:6px">ภาพจาก template · แก้ได้</div>
+      <select class="in" style="margin-top:6px;font-size:12px;padding:4px 8px" data-bind="inbox.${S.inbox.indexOf(i)}.ratio"><option ${i.ratio==='1:1'?'selected':''}>1:1</option><option ${i.ratio==='4:5'?'selected':''}>4:5</option><option ${i.ratio==='9:16'?'selected':''}>9:16</option></select>
+    </div>
+    <div class="stack" style="gap:8px">
+      <div class="row">${chip(i.ch)}<span class="chip">${typeTh}</span><span class="chip">variant ${i.variant} · hook ${i.hookType}</span><span class="chip ${riskCls}">risk ${i.risk}</span>
+        ${i.budget?`<span class="chip mono">฿${i.budget}/วัน × ${i.days} วัน</span>`:''}
+        <span class="chip ${mode==='auto'?'acc':''}">${mode==='auto'?'จะออกอัตโนมัติ':mode==='notify'?'แจ้งเตือน · ออกเองถ้าไม่ปฏิเสธใน 2 ชม.':'ต้องกดอนุมัติ'}</span></div>
+      <textarea class="copy" data-bind="inbox.${S.inbox.indexOf(i)}.copy" ${isDone?'disabled':''}>${esc(i.copy)}</textarea>
+      <div class="small"><b>ทำไม AI เลือกอันนี้:</b> ${esc(i.reason)}</div>
+      <div class="qa">${i.qa.map(q=>`<span class="chip good">✓ ${q}</span>`).join('')}</div>
+    </div>
+    <div class="acts">
+      ${isDone? `<span class="chip ${i.status==='approved'?'good':'crit'}">${i.status==='approved'?'อนุมัติแล้ว':'ปฏิเสธแล้ว'}</span>`:`
+      <button class="btn good" data-action="approve" data-id="${i.id}">✓ อนุมัติ</button>
+      <button class="btn" data-action="regen" data-id="${i.id}">↻ ให้ AI เขียนใหม่</button>
+      <button class="btn ghost" data-action="reject" data-id="${i.id}">✕ ปฏิเสธ</button>`}
+      <div class="small muted mono">${i.id}</div>
+    </div>
+  </div>`;
+}
+
+function vCampaigns(){
+  const rows = S.placements.filter(p=>S.channels[p.ch].enabled);
+  const dec = d => ({scale:'<span class="chip good">↑ scale +'+S.settings.scalePct+'%</span>',kill:'<span class="chip crit">✕ kill</span>',iterate:'<span class="chip warn">↻ iterate</span>',hold:'<span class="chip">รอครบ '+S.settings.testDays+' วัน</span>','—':'<span class="chip">—</span>'}[d]);
+  return `
+  <div class="panel">
+    <div class="panel-h"><h3>ทุก placement</h3><div class="r"><span class="small muted">กฎ: scale เมื่อ ROAS ≥ ${S.settings.scaleRoas}x ${S.settings.scaleDays} วันติด · kill เมื่อ CPA > ${Math.round(S.settings.targetCpa*S.settings.killCpaMult)} บาท ${S.settings.killDays} วันติด</span></div></div>
+    <div class="tbl-wrap"><table>
+      <tr><th>ชื่อ</th><th>ช่องทาง</th><th>สถานะ</th><th class="num">ใช้ไป</th><th class="num">Impr.</th><th class="num">CTR</th><th class="num">CPA</th><th class="num">ROAS</th><th class="num">POS lift</th><th>วัน</th><th>ข้อเสนอ AI</th><th></th></tr>
+      ${rows.map(p=>{
+        const ctr=(p.clicks/p.imp*100).toFixed(2);
+        const cpaBad = p.cpa>S.settings.targetCpa*S.settings.killCpaMult, roasGood=p.roas>=S.settings.scaleRoas;
+        const idx=S.placements.indexOf(p);
+        return `<tr>
+          <td><b>${esc(p.name)}</b><div class="small muted mono">${p.id}</div></td>
+          <td>${chip(p.ch)}</td>
+          <td>${p.status==='active'?'<span class="chip good">active</span>':p.status==='paused'?'<span class="chip warn">paused</span>':'<span class="chip">organic</span>'}</td>
+          <td class="num">${p.spend?thb(p.spend):'—'}</td><td class="num">${fmt(p.imp)}</td><td class="num">${ctr}%</td>
+          <td class="num" style="${cpaBad?'color:var(--crit)':''}">${p.cpa?p.cpa:'—'}</td>
+          <td class="num" style="${roasGood?'color:var(--good)':''}">${p.roas?p.roas.toFixed(1)+'x':'—'}</td>
+          <td class="num" style="color:${p.lift>=0?'var(--good)':'var(--crit)'}">${p.lift>=0?'+':''}${p.lift}%</td>
+          <td class="mono small">${p.day}/${S.settings.testDays}</td>
+          <td>${dec(p.decision)}</td>
+          <td>${p.status==='organic'?'':`<div class="row" style="gap:6px"><button class="btn sm" data-action="pause" data-i="${idx}">${p.status==='active'?'พัก':'เปิด'}</button>${p.decision==='scale'||p.decision==='kill'?`<button class="btn sm primary" data-action="applydec" data-i="${idx}">ทำตาม AI</button>`:''}</div>`}</td>
+        </tr>`}).join('')}
+    </table></div>
+  </div>`;
+}
+
+function vChannels(){
+  const CAPN={post:['โพสต์ลงเพจ/โปรไฟล์','pages_manage_posts'],ads:['สร้างและปรับแอด','ads_management'],insights:['อ่านผล / insights','ads_read'],messages:['ตอบแชทลูกค้า','pages_messaging'],
+    shop:['จัดการ TikTok Shop','shop.product'],listing:['แก้รายละเอียดสินค้า / โปร','product.write'],orders:['ดึงยอดสั่งซื้อไปเทียบ POS','order.read'],
+    broadcast:['ส่ง broadcast หาลูกค้า','message.push'],approve:['รับคำขออนุมัติ + ตอบกลับ','webhook'],digest:['รับสรุปรายวัน','message.push']};
+  const connectorCard = k => { const c=S.channels[k], m=CH[k];
+    const tokCls = !c.connected?'':c.tokenDays<=14?'crit':c.tokenDays<=30?'warn':'good';
+    return `<div class="panel conn">
+      <div class="top"><div class="ico" style="background:var(${m.var})">${m.short}</div>
+        <div><div class="display" style="font-weight:700">${m.name}</div><div class="small muted">${esc(c.account)}</div></div>
+        <div style="margin-left:auto" class="row">
+          ${c.connected?`<span class="chip ${tokCls}">token เหลือ ${c.tokenDays} วัน</span>`:'<span class="chip crit">ยังไม่เชื่อมต่อ</span>'}
+          <label class="tog"><input type="checkbox" ${c.enabled?'checked':''} data-bind="channels.${k}.enabled" data-rerender="1"><span class="sw"></span></label>
+        </div></div>
+      <div class="caps" style="${c.enabled?'':'opacity:.45'}">
+        ${Object.keys(c.caps).map(cp=>`<div><div class="cn">${CAPN[cp][0]}</div><div class="cd mono">${CAPN[cp][1]}</div></div>
+          <label class="tog"><input type="checkbox" ${c.caps[cp]?'checked':''} data-bind="channels.${k}.caps.${cp}"><span class="sw"></span></label>`).join('')}
+        ${k!=='line'?`<div><div class="cn">ดึงข้อมูลทุก</div><div class="cd">ชั่วโมง</div></div><input class="in" type="number" min="1" max="24" style="width:80px" value="${c.sync}" data-bind="channels.${k}.sync" data-num="1">`:''}
+        <div style="grid-column:1/-1;display:flex;gap:8px;padding-top:6px">
+          ${c.connected?`<button class="btn sm" data-action="toast" data-msg="ต่ออายุ token สำเร็จ (mock)">ต่ออายุ token</button><button class="btn sm ghost" data-action="toast" data-msg="ทดสอบการเชื่อมต่อ ${m.name}: OK (mock)">ทดสอบ</button>`
+          :`<button class="btn sm primary" data-action="connect" data-k="${k}">เชื่อมต่อ ${m.name}</button>`}
+        </div>
+      </div>
+    </div>`; };
+  return `
+  <div class="grid g2">${Object.keys(CH).map(connectorCard).join('')}</div>
+  <div class="panel"><div class="panel-h"><h3>แหล่งข้อมูลอื่น</h3></div>
+    <div class="tbl-wrap"><table>
+      <tr><th>แหล่ง</th><th>ใช้ทำอะไร</th><th>สถานะ</th><th></th></tr>
+      <tr><td><b>POS (thai-sme-pos)</b></td><td>ยอดขาย สต็อก เมนู · ตัววัดสุดท้ายของ loop</td><td><span class="chip good">เชื่อมแล้ว · sync ทุก 15 นาที</span></td><td></td></tr>
+      <tr><td><b>Knowledge Base</b></td><td>brand voice · กฎที่เรียนรู้ · โพสต์ที่เคย work</td><td><span class="chip good">${S.kb.length} rules</span></td><td></td></tr>
+      <tr><td><b>Meta Pixel / Conversions API</b></td><td>วัด conversion ออนไลน์ (ถ้ามีหน้าเว็บ)</td><td><span class="chip">ไม่ได้ใช้ · ใช้ POS lift แทน</span></td><td><button class="btn sm ghost" data-action="toast" data-msg="เพิ่ม Pixel (mock)">เพิ่ม</button></td></tr>
+      <tr><td><b>Google Sheets export</b></td><td>สำรองผลรายวันให้บัญชี</td><td><span class="chip">ปิด</span></td><td><button class="btn sm ghost" data-action="toast" data-msg="เปิด export (mock)">เปิด</button></td></tr>
+    </table></div></div>`;
+}
+
+function vAgents(){
+  const TOOLS=['pos_sql','kb_search','kb_write','brand_voice','meta_insights','tiktok_insights','shopee_insights','policy_rules','similarity','template_render','product_photos','video_render'];
+  return `<div class="grid g2">${S.agents.map((a,i)=>`
+  <div class="panel">
+    <div class="panel-h"><h3>${a.name}</h3><span class="small muted">${a.th}</span><div class="r"><label class="tog"><input type="checkbox" ${a.enabled?'checked':''} data-bind="agents.${i}.enabled"><span class="sw"></span></label></div></div>
+    <div class="panel-b stack">
+      <div class="grid g2" style="gap:12px">
+        <div class="field"><label>โมเดล</label><select class="in" data-bind="agents.${i}.model">
+          ${[['llm-large','LLM ตัวใหญ่ (คิดเก่ง ช้า แพง)'],['llm-medium','LLM ตัวกลาง'],['llm-small','LLM ตัวเล็ก (เร็ว ถูก)'],['image-gen','Image / Video generator']].map(([v,l])=>`<option value="${v}" ${a.model===v?'selected':''}>${l}</option>`).join('')}
+        </select></div>
+        <div class="field"><label>ความสร้างสรรค์ (temperature) <span class="mono" id="t-${a.id}">${a.temp.toFixed(1)}</span></label>
+          <div class="range"><input type="range" min="0" max="1" step="0.1" value="${a.temp}" data-bind="agents.${i}.temp" data-num="1" data-out="t-${a.id}"></div></div>
+      </div>
+      <div class="field"><label>System prompt</label><textarea class="in" data-bind="agents.${i}.prompt">${esc(a.prompt)}</textarea><div class="hint">ตัวแปรที่ใช้ได้: {variants} {testDays} {brandVoice} {forbidden}</div></div>
+      <div class="field"><label>เครื่องมือที่ให้ใช้</label><div class="row" style="gap:6px">${TOOLS.map(t=>`<label class="chip" style="cursor:pointer;${a.tools.includes(t)?'background:var(--accent);color:var(--accent-ink)':''}"><input type="checkbox" style="display:none" ${a.tools.includes(t)?'checked':''} data-action="tooltoggle" data-i="${i}" data-t="${t}">${t}</label>`).join('')}</div></div>
+      <div class="row"><button class="btn sm" data-action="toast" data-msg="ทดสอบ ${a.name} กับข้อมูลวันนี้ (mock) · ผลลัพธ์แสดงในคิว">▶ ทดลองรัน</button><button class="btn sm ghost" data-action="resetagent" data-i="${i}">คืนค่าเริ่มต้น</button></div>
+    </div>
+  </div>`).join('')}</div>`;
+}
+
+function vSettings(){
+  const s=S.settings;
+  const num=(p,label,hint,attrs='')=>`<div class="field"><label>${label}</label><input class="in" type="number" ${attrs} value="${get(p)}" data-bind="${p}" data-num="1" data-rerender="1"><div class="hint">${hint}</div></div>`;
+  const opt=(p,vals)=>`<select class="in" data-bind="${p}" data-rerender="1">${vals.map(([v,l])=>`<option value="${v}" ${get(p)===v?'selected':''}>${l}</option>`).join('')}</select>`;
+  const APR=[['auto','ออกอัตโนมัติ'],['notify','แจ้งเตือน · ออกเองใน 2 ชม.'],['require','ต้องกดอนุมัติ']];
+  return `
+  <div class="grid g2">
+    <div class="panel"><div class="panel-h"><h3>งบประมาณ (hard cap)</h3><span class="small muted">AI เสนอเกินไม่ได้ไม่ว่ากรณีใด</span></div>
+      <div class="panel-b grid g2" style="gap:12px">
+        ${num('settings.dailyCap','งบรวมต่อวัน (บาท)','รวมทุกช่องทาง')}
+        ${num('settings.monthlyCap','งบรวมต่อเดือน (บาท)','ถึงแล้วหยุดสร้างแอดใหม่ทั้งเดือน')}
+        ${num('settings.boostThreshold','เกณฑ์ "medium" (บาท/วัน)','งบต่อวันเกินนี้ถือเป็น high')}
+        ${num('settings.maxAdsLive','แอดที่ active พร้อมกันสูงสุด','กันงบกระจายเกินไป')}
+      </div></div>
+    <div class="panel"><div class="panel-h"><h3>ขีดจำกัดการโพสต์</h3></div>
+      <div class="panel-b grid g2" style="gap:12px">
+        ${num('settings.maxPostsPerDay','โพสต์ต่อวันต่อช่องทาง','organic + boosted')}
+        ${num('settings.variants','จำนวน variant ต่อ brief','A/B/C … ยิ่งมากยิ่งเรียนรู้เร็ว แต่ใช้งบทดสอบมาก','min="1" max="5"')}
+        ${num('settings.testDays','วันทดสอบก่อนตัดสิน','ครบแล้ว Analyst จะ scale/kill','min="1" max="14"')}
+        <div class="field"><label>Time zone</label>${opt('settings.timezone',[['Asia/Bangkok','Asia/Bangkok (UTC+7)']])}</div>
+      </div></div>
+  </div>
+
+  <div class="panel"><div class="panel-h"><h3>กฎการอนุมัติ</h3><span class="small muted">ตามระดับความเสี่ยง · เมื่อ Autopilot ปิด ทุกอย่างจะเป็น "ต้องกดอนุมัติ" ยกเว้น low</span></div>
+    <div class="panel-b">
+      <div class="matrix">
+        <div class="h">ระดับความเสี่ยง</div><div class="h">เงื่อนไข</div><div class="h">ช่องทาง</div><div class="h">การอนุมัติ</div>
+        <div><span class="chip good">low</span></div><div class="small">โพสต์ธรรมดา ไม่พูดถึงราคาโปร ไม่มีงบ</div><div class="small">ทุกช่องทาง</div><div>${opt('settings.approval.low',APR)}</div>
+        <div><span class="chip warn">medium</span></div><div class="small">boost / แอด งบ ≤ ${s.boostThreshold} บาท/วัน</div><div class="small">ทุกช่องทาง</div><div>${opt('settings.approval.medium',APR)}</div>
+        <div><span class="chip crit">high</span></div><div class="small">โปรราคา · งบ > ${s.boostThreshold}/วัน · เมนูใหม่ · แก้รายการสินค้า Shopee</div><div class="small">ทุกช่องทาง</div><div>${opt('settings.approval.high',APR)}</div>
+      </div>
+    </div></div>
+
+  <div class="grid g2">
+    <div class="panel"><div class="panel-h"><h3>กฎ Scale / Kill อัตโนมัติ</h3></div>
+      <div class="panel-b grid g2" style="gap:12px">
+        ${num('settings.targetRoas','เป้า ROAS (x)','','step="0.1"')}
+        ${num('settings.targetCpa','เป้า CPA (บาท)','ต้นทุนต่อ 1 การซื้อ/ทัก')}
+        ${num('settings.scaleRoas','scale เมื่อ ROAS ≥ (x)','','step="0.1"')}
+        ${num('settings.scaleDays','… ติดต่อกัน (วัน)','')}
+        ${num('settings.scalePct','เพิ่มงบครั้งละ (%)','ไม่เกิน cap รวม')}
+        ${num('settings.killCpaMult','kill เมื่อ CPA > เป้า × ','เช่น 1.5 = แย่กว่าเป้า 50%','step="0.1"')}
+        ${num('settings.killDays','… ติดต่อกัน (วัน)','')}
+      </div></div>
+    <div class="panel"><div class="panel-h"><h3>การแจ้งเตือน</h3></div>
+      <div class="panel-b stack">
+        <label class="tog"><input type="checkbox" ${s.notifyLine?'checked':''} data-bind="settings.notifyLine"><span class="sw"></span> ส่งคำขออนุมัติและสรุปผ่าน LINE</label>
+        <label class="tog"><input type="checkbox" ${s.notifyEmail?'checked':''} data-bind="settings.notifyEmail"><span class="sw"></span> ส่งสรุปรายวันทางอีเมล</label>
+        <div class="field" style="max-width:200px"><label>เวลาส่งสรุปรายวัน</label><input class="in" type="time" value="${s.dailyDigestTime}" data-bind="settings.dailyDigestTime"></div>
+        <div class="field"><label>แจ้งเตือนทันทีเมื่อ</label>
+          <div class="stack" style="gap:6px">
+            <label class="tog"><input type="checkbox" checked><span class="sw"></span> งบถึง 80% ของ cap</label>
+            <label class="tog"><input type="checkbox" checked><span class="sw"></span> token ช่องทางไหนเหลือ < 14 วัน</label>
+            <label class="tog"><input type="checkbox" checked><span class="sw"></span> API ล้มเหลวเกิน 2 ครั้งติด</label>
+            <label class="tog"><input type="checkbox"><span class="sw"></span> ทุกครั้งที่ AI โพสต์อัตโนมัติ</label>
+          </div></div>
+      </div></div>
+  </div>
+
+  <div class="panel"><div class="panel-h"><h3>เสียงของแบรนด์</h3><span class="small muted">Copywriter และ QA อ่านทุกครั้ง</span></div>
+    <div class="panel-b grid g2" style="gap:12px">
+      <div class="field"><label>Brand voice</label><textarea class="in" data-bind="settings.brandVoice">${esc(s.brandVoice)}</textarea></div>
+      <div class="stack" style="gap:12px">
+        <div class="field"><label>คำต้องห้าม (คั่นด้วย ,)</label><textarea class="in" style="min-height:60px" data-bind="settings.forbidden">${esc(s.forbidden)}</textarea><div class="hint">QA จะไม่ปล่อยชิ้นงานที่มีคำเหล่านี้</div></div>
+        <div class="field"><label>ภาษาหลัก</label>${opt('settings.lang',[['th','ไทย'],['th-en','ไทย + อังกฤษปน'],['en','English']])}</div>
+      </div>
+    </div></div>
+
+  <div class="panel"><div class="panel-h"><h3>ร้านค้าทั้งหมด</h3><span class="small muted">แต่ละร้านมีงบ กฎ ช่องทาง และ Knowledge Base แยกกัน</span><div class="r"><button class="btn sm primary" data-action="addstore">＋ เพิ่มร้าน</button></div></div>
+    <div class="tbl-wrap"><table>
+      <tr><th>ร้าน</th><th>ประเภท</th><th>ช่องทางที่เปิด</th><th class="num">งบ/วัน</th><th>Autopilot</th><th class="num">รออนุมัติ</th><th></th></tr>
+      ${Object.keys(ALL.stores).map(id=>{ const st=STORES[id], d=ALL.stores[id]; const chs=Object.keys(CH).filter(k=>k!=='line'&&d.channels[k].enabled); const pend=d.inbox.filter(i=>i.status==='pending').length;
+        return `<tr style="${id===ALL.current?'background:var(--accent-soft)':''}"><td><b>${esc(st.name)}</b>${id===ALL.current?' <span class="chip acc">กำลังดู</span>':''}</td><td>${esc(st.type)}</td><td class="row" style="gap:4px">${chs.map(chip).join('')}</td><td class="num">${thb(d.settings.dailyCap)}</td><td>${d.settings.autopilot?'<span class="chip acc">ON</span>':'<span class="chip">off</span>'}</td><td class="num">${pend}</td>
+        <td class="row" style="gap:6px">${id!==ALL.current?`<button class="btn sm" data-action="switchstore" data-id="${id}">เปิดดู</button>`:''}${['benz','nara','somchai'].includes(id)?'':`<button class="btn sm ghost" data-action="delstore" data-id="${id}">ลบ</button>`}</td></tr>`; }).join('')}
+    </table></div></div>
+
+  <div class="row" style="justify-content:space-between">
+    <span class="small muted">ค่าทั้งหมดบันทึกในเบราว์เซอร์นี้อัตโนมัติ (mock)</span>
+    <button class="btn ghost" data-action="resetall">คืนค่าเริ่มต้นทั้งหมด</button>
+  </div>`;
+}
+
+/* =========================================================
+   CHARTS (inline SVG, single scale, hover tooltip)
+   ========================================================= */
+const dayLbl = d => d.getDate()+' '+['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'][d.getMonth()];
+function chartBars(){
+  const chs=activeCh(); const W=560,H=220,L=44,R=8,T=10,B=26;
+  const tot=DAYS.map((_,i)=>chs.reduce((s,c)=>s+SPEND[c][i],0));
+  const max=Math.max(S.settings.dailyCap, ...tot)*1.05;
+  const y=v=>T+(H-T-B)*(1-v/max); const bw=(W-L-R)/14;
+  const ticks=[0,0.25,0.5,0.75,1].map(f=>Math.round(max*f/100)*100);
+  let g='';
+  ticks.forEach(t=>{ g+=`<line x1="${L}" x2="${W-R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--grid)"/><text x="${L-6}" y="${y(t)+4}" text-anchor="end" font-size="10" fill="var(--muted)" font-family="IBM Plex Mono">${t>=1000?(t/1000)+'k':t}</text>`; });
+  const capY=y(S.settings.dailyCap);
+  g+=`<line x1="${L}" x2="${W-R}" y1="${capY}" y2="${capY}" stroke="var(--crit)" stroke-dasharray="4 3" stroke-width="1.5"/><text x="${W-R}" y="${capY-4}" text-anchor="end" font-size="10" fill="var(--crit)" font-family="IBM Plex Mono">cap ${fmt(S.settings.dailyCap)}</text>`;
+  DAYS.forEach((d,i)=>{ let acc=0; const x=L+i*bw+bw*0.2, w=bw*0.6;
+    chs.forEach(c=>{ const v=SPEND[c][i]; if(!v) return; const y1=y(acc+v), y0=y(acc);
+      g+=`<rect x="${x}" y="${y1}" width="${w}" height="${Math.max(0,y0-y1-2)}" fill="var(${CH[c].var})"/>`; acc+=v; });
+    if(i%2===1) g+=`<text x="${x+w/2}" y="${H-8}" text-anchor="middle" font-size="10" fill="var(--muted)" font-family="IBM Plex Mono">${d.getDate()}</text>`;
+    g+=`<rect class="hit" data-i="${i}" x="${L+i*bw}" y="${T}" width="${bw}" height="${H-T-B}" fill="transparent"/>`;
+  });
+  const data=DAYS.map((d,i)=>({l:dayLbl(d),rows:chs.map(c=>[CH[c].name,thb(SPEND[c][i])]).concat([['รวม',thb(tot[i])]])}));
+  return `<div class="chart" data-chart='${esc(JSON.stringify(data))}'><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="งบโฆษณาต่อวันแยกช่องทาง 14 วัน">${g}</svg><div class="tip"></div></div>
+  <div class="legend" style="margin-top:8px">${chs.map(c=>`<span><i style="background:var(${CH[c].var})"></i>${CH[c].name}</span>`).join('')}<span><i style="background:transparent;border-top:2px dashed var(--crit);height:0"></i>cap ต่อวัน</span></div>`;
+}
+function chartLine(){
+  const W=560,H=220,L=44,R=8,T=10,B=26;
+  const min=10000,max=18000; const y=v=>T+(H-T-B)*(1-(v-min)/(max-min)); const x=i=>L+i*(W-L-R)/13;
+  let g='';
+  [10000,12000,14000,16000,18000].forEach(t=>{ g+=`<line x1="${L}" x2="${W-R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--grid)"/><text x="${L-6}" y="${y(t)+4}" text-anchor="end" font-size="10" fill="var(--muted)" font-family="IBM Plex Mono">${t/1000}k</text>`; });
+  g+=`<line x1="${L}" x2="${W-R}" y1="${y(SALES_BASE)}" y2="${y(SALES_BASE)}" stroke="var(--muted)" stroke-dasharray="4 3"/>`;
+  const pts=SALES.slice(0,13).map((v,i)=>`${x(i)},${y(v)}`).join(' ');
+  g+=`<polygon points="${x(0)},${y(min)} ${pts} ${x(12)},${y(min)}" fill="var(--accent)" opacity=".18"/>`;
+  g+=`<polyline points="${pts}" fill="none" stroke="var(--ink)" stroke-width="2" stroke-linejoin="round"/>`;
+  g+=`<line x1="${x(12)}" y1="${y(SALES[12])}" x2="${x(13)}" y2="${y(SALES[13])}" stroke="var(--ink)" stroke-width="2" stroke-dasharray="3 3"/>`;
+  g+=`<circle cx="${x(12)}" cy="${y(SALES[12])}" r="4.5" fill="var(--accent)" stroke="var(--ink)" stroke-width="2"/>`;
+  g+=`<text x="${x(12)}" y="${y(SALES[12])-10}" text-anchor="middle" font-size="11" font-family="IBM Plex Mono" fill="var(--ink)">${fmt(SALES[12])}</text>`;
+  g+=`<text x="${x(13)}" y="${y(SALES[13])+14}" text-anchor="end" font-size="10" font-family="IBM Plex Mono" fill="var(--muted)">วันนี้ (บางส่วน)</text>`;
+  DAYS.forEach((d,i)=>{ if(i%2===1) g+=`<text x="${x(i)}" y="${H-8}" text-anchor="middle" font-size="10" fill="var(--muted)" font-family="IBM Plex Mono">${d.getDate()}</text>`;
+    const hw=(W-L-R)/13; g+=`<rect class="hit" data-i="${i}" x="${x(i)-hw/2}" y="${T}" width="${hw}" height="${H-T-B}" fill="transparent"/>`; });
+  const data=DAYS.map((d,i)=>({l:dayLbl(d),rows:[['ยอดขาย',thb(SALES[i])],['เทียบ baseline',(SALES[i]>=SALES_BASE?'+':'')+Math.round((SALES[i]/SALES_BASE-1)*100)+'%']]}));
+  return `<div class="chart" data-chart='${esc(JSON.stringify(data))}'><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="ยอดขาย POS ต่อวัน 14 วัน">${g}</svg><div class="tip"></div></div>
+  <div class="legend" style="margin-top:8px"><span><i style="background:var(--ink)"></i>ยอดขายรวมทุกช่องทาง (หน้าร้าน + Shopee + TikTok Shop)</span><span><i style="background:transparent;border-top:2px dashed var(--muted);height:0"></i>baseline ${thb(SALES_BASE)}</span></div>`;
+}
+function bindCharts(){
+  document.querySelectorAll('.chart').forEach(ch=>{
+    const data=JSON.parse(ch.dataset.chart); const tip=ch.querySelector('.tip');
+    ch.querySelectorAll('.hit').forEach(h=>{
+      h.addEventListener('mouseenter',e=>{ const d=data[+h.dataset.i]; tip.innerHTML=`<b>${d.l}</b><br>${d.rows.map(r=>r[0]+': '+r[1]).join('<br>')}`; tip.style.display='block'; });
+      h.addEventListener('mousemove',e=>{ const r=ch.getBoundingClientRect(); let lx=e.clientX-r.left+12, ly=e.clientY-r.top-10; if(lx+tip.offsetWidth>r.width) lx-=tip.offsetWidth+24; tip.style.left=lx+'px'; tip.style.top=ly+'px'; });
+      h.addEventListener('mouseleave',()=>tip.style.display='none');
+    });
+  });
+}
+
+/* =========================================================
+   RENDER + EVENTS
+   ========================================================= */
+const VIEWS={overview:vOverview,loop:vLoop,inbox:vInbox,campaigns:vCampaigns,channels:vChannels,agents:vAgents,settings:vSettings};
+function render(){
+  const pend=pending().length;
+  document.getElementById('nav').innerHTML=NAV.map(([k,l,n])=>`<button class="${S.view===k?'on':''}" data-action="go" data-view="${k}"><span class="k">${n}</span>${l}${k==='inbox'&&pend?`<span class="badge">${pend}</span>`:''}</button>`).join('');
+  const sel=document.getElementById('store-sel');
+  sel.innerHTML=Object.keys(ALL.stores).map(id=>`<option value="${id}" ${ALL.current===id?'selected':''}>${esc(STORES[id].name)}</option>`).join('')+'<option value="__add">＋ เพิ่มร้านใหม่…</option>';
+  document.getElementById('foot-store').textContent=STORES[ALL.current].name+' · '+STORES[ALL.current].type;
+  const [t,sub]=TITLES[S.view]; document.getElementById('ttl').textContent=t; document.getElementById('sub').textContent=sub;
+  document.querySelector('[data-bind="settings.autopilot"]').checked=S.settings.autopilot;
+  document.getElementById('content').innerHTML=VIEWS[S.view]();
+  bindCharts();
+}
+function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),2200); }
+
+document.addEventListener('input',e=>{
+  const el=e.target; const p=el.dataset.bind; if(!p) return;
+  let v = el.type==='checkbox'?el.checked : el.dataset.num? Number(el.value) : el.value;
+  set(p,v);
+  if(el.dataset.out) document.getElementById(el.dataset.out).textContent=Number(v).toFixed(1);
+  if(el.type==='checkbox' && el.dataset.rerender) render();
+});
+document.addEventListener('change',e=>{
+  const el=e.target;
+  if(el.id==='store-sel'){ if(el.value==='__add'){ const n=prompt('ชื่อร้านใหม่'); if(n){ addStore(n.trim(), prompt('ประเภทร้าน (เช่น ร้านอาหาร, เสื้อผ้า)')||''); } else { el.value=ALL.current; } } else switchStore(el.value); return; } if(el.dataset.bind && el.dataset.rerender && el.type!=='checkbox') render();
+});
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-action]'); if(!el) return;
+  const a=el.dataset.action;
+  if(a==='go'){ e.preventDefault(); S.view=el.dataset.view; save(); render(); window.scrollTo(0,0); }
+  else if(a==='inboxfilter'){ S.inboxFilter=el.dataset.f; save(); render(); }
+  else if(a==='approve'||a==='reject'){ const it=S.inbox.find(i=>i.id===el.dataset.id); it.status=a==='approve'?'approved':'rejected'; save(); render(); toast(a==='approve'?'อนุมัติแล้ว · เข้าคิว PUBLISH':'ปฏิเสธแล้ว · ส่ง feedback ให้ AI'); }
+  else if(a==='approveall'){ pending().forEach(i=>i.status='approved'); save(); render(); toast('อนุมัติทั้งหมดแล้ว · เข้าคิว PUBLISH'); }
+  else if(a==='regen'){ toast('ส่งให้ Copywriter เขียนใหม่ · ประมาณ 40 วินาที (mock)'); }
+  else if(a==='kill'){ if(confirm('หยุดแอดทุกตัวในทุกช่องทางทันที?')){ S.placements.forEach(p=>{ if(p.status==='active') p.status='paused'; }); S.settings.autopilot=false; save(); render(); toast('หยุดทุกแอดแล้ว · Autopilot ปิด'); } }
+  else if(a==='pause'){ const p=S.placements[+el.dataset.i]; p.status=p.status==='active'?'paused':'active'; save(); render(); }
+  else if(a==='applydec'){ const p=S.placements[+el.dataset.i]; if(p.decision==='kill'){p.status='paused';} else {p.spend=Math.round(p.spend*(1+S.settings.scalePct/100));} p.decision='hold'; save(); render(); toast('ทำตามข้อเสนอ AI แล้ว'); }
+  else if(a==='connect'){ const c=S.channels[el.dataset.k]; c.connected=true; c.tokenDays=90; c.account='benzcafe · เชื่อมต่อแล้ว (mock)'; save(); render(); toast('เชื่อมต่อสำเร็จ (mock)'); }
+  else if(a==='toast'){ toast(el.dataset.msg); }
+  else if(a==='addstore'){ const n=prompt('ชื่อร้านใหม่'); if(n) addStore(n.trim(), prompt('ประเภทร้าน (เช่น ร้านอาหาร, เสื้อผ้า)')||''); }
+  else if(a==='switchstore'){ switchStore(el.dataset.id); }
+  else if(a==='delstore'){ if(confirm('ลบร้านนี้?')){ delete ALL.stores[el.dataset.id]; delete STORES[el.dataset.id]; switchStore('benz'); } }
+  else if(a==='runloop'){ toast('เริ่มรัน loop ทั้ง 7 ขั้น (mock)'); S.steps.forEach(s=>s.status='run'); render(); setTimeout(()=>{ S.steps.forEach((s,i)=>s.status=i<3?'done':i===3?'hold':'wait'); render(); },1500); }
+  else if(a==='runstep'){ const s=S.steps[+el.dataset.i]; s.status='run'; render(); setTimeout(()=>{ s.status='done'; s.last='ตอนนี้'; save(); render(); toast(s.name+' เสร็จแล้ว (mock)'); },1200); }
+  else if(a==='tooltoggle'){ const ag=S.agents[+el.dataset.i], t=el.dataset.t; const k=ag.tools.indexOf(t); k>=0?ag.tools.splice(k,1):ag.tools.push(t); save(); render(); }
+  else if(a==='resetagent'){ S.agents[+el.dataset.i]=clone(DEFAULTS.agents[+el.dataset.i]); save(); render(); toast('คืนค่าเริ่มต้นแล้ว'); }
+  else if(a==='resetall'){ if(confirm('คืนค่าร้านนี้เป็นค่าเริ่มต้น?')){ const id=ALL.current; ALL.stores[id]=storeDefaults(id); if(!STORES[id].kb) ALL.stores[id]._custom=STORES[id]; ALL.stores[id].view='settings'; switchStore(id); toast('คืนค่าเริ่มต้นแล้ว'); } }
+});
+document.getElementById('foot-date').textContent='6 ก.ย. 2569';
+applyStore();
+render();
+</script>
+</body>
+</html>

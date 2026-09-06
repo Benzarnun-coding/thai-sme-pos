@@ -317,3 +317,10 @@ thai-sme-pos/
 ```
 
 ขั้นถัดไปที่แนะนำให้เริ่มก่อน: Phase 0 (ย้าย POS data ลง DB + ต่อ Meta API ให้ดึง insights ได้) เพราะเป็นฐานของทุก loop
+
+---
+
+## 11. Mockup UI
+
+หน้าจอต้นแบบแบบ interactive (mock data, หลายร้านค้า, ปรับได้ทุกค่า) อยู่ที่ `docs/mockup/loopdesk.html`
+เปิดไฟล์ในเบราว์เซอร์ได้โดยตรง ไม่ต้อง build มี 7 หน้า: ภาพรวม / Loop / คิวอนุมัติ / แคมเปญ / ช่องทาง (Facebook, TikTok, Shopee, LINE) / AI Agents / ตั้งค่า
