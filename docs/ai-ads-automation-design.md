@@ -324,3 +324,61 @@ thai-sme-pos/
 
 หน้าจอต้นแบบแบบ interactive (mock data, หลายร้านค้า, ปรับได้ทุกค่า) อยู่ที่ `docs/mockup/loopdesk.html`
 เปิดไฟล์ในเบราว์เซอร์ได้โดยตรง ไม่ต้อง build มี 7 หน้า: ภาพรวม / Loop / คิวอนุมัติ / แคมเปญ / ช่องทาง (Facebook, TikTok, Shopee, LINE) / AI Agents / ตั้งค่า
+
+---
+
+## 12. Module Map (จาก research เครื่องมือในตลาด)
+
+เทียบจาก 3 กลุ่มเครื่องมือ: Ads automation (Madgicx, Revealbot), Social management (Metricool, Vista Social) และ Chat commerce (Manychat) รวมกับ GMV Max ของ TikTok Shop / Shopee ได้โมดูลทั้งหมด 15 ตัว แบ่ง 3 กลุ่ม
+
+### กลุ่ม A · ฐานราก (ต้องมีก่อนทุกอย่าง)
+
+| # | โมดูล | ทำอะไร | ข้อมูลหลัก | อ้างอิงจาก |
+|---|---|---|---|---|
+| 1 | Store & Team | หลายร้าน หลายผู้ใช้ บทบาท (เจ้าของ / แอดมิน / ทีมขายส่ง) audit log แพ็กเกจ | Store, User, Role, AuditEvent | Vista Social (team), Revealbot (audit log) |
+| 2 | Connectors | เชื่อม Facebook Page + Ads, TikTok + Shop, Shopee, LINE OA, POS/Bigseller · token, สิทธิ์รายความสามารถ | Connection, Token, Capability | ทุกแพลตฟอร์ม |
+| 3 | Catalog & Stock | SKU แยกทรง/สี/ไซส์ sync ไป FB Catalog, TikTok Shop, Shopee · กฎ "ไซส์ขายดีหมด = หยุดโฆษณา" | Product, Variant(size,color), StockLevel, SyncStatus | Bigseller + GMV Max ต้องใช้ catalog |
+| 4 | Knowledge Base | brand voice, USP ของเพจ, คำต้องห้าม, กฎที่เรียนรู้พร้อมหลักฐาน, โพสต์ที่เคย work | BrandDoc, LearnedRule, PastPost(embedding) | ไม่มีในตลาดแบบตรง ๆ เป็นจุดต่างของเรา |
+
+### กลุ่ม B · Loop ประจำวัน
+
+| # | โมดูล | ทำอะไร | อ้างอิงจาก |
+|---|---|---|---|
+| 5 | Data Hub (SENSE) | ดึงยอดขาย POS, insights แอด/เพจ ทุกช่องทาง ทุก 6 ชม. | Metricool (รวม paid + organic ในที่เดียว) |
+| 6 | Strategist (PLAN) | ออก Brief วันละ 1-3 ชิ้น จากยอดขาย สต็อกรายไซส์ และ KB | Madgicx AI (แต่เราผูกกับ POS) |
+| 7 | Creative Studio (CREATE) | copy หลาย hook + template ภาพ/วิดีโอ + คลังไฟล์ + Creative Cockpit ดูว่า hook ไหน work | Madgicx Creative Cockpit, Predis |
+| 8 | Review & Approval | QA ราคา/ไซส์/นโยบาย + คิวอนุมัติตามความเสี่ยง | ไม่มีในตลาด (จุดต่าง) |
+| 9 | Publisher & Calendar | ตั้งเวลาโพสต์ ปฏิทินรายสัปดาห์ เวลาที่ reach ดี โควตาโพสต์ | Metricool / Vista Social calendar |
+| 10 | Campaign Manager & Rules | สร้าง/พัก/scale แอด · กฎ if-then (ROAS, CPA, frequency, วันที่รัน) · ต่อ GMV Max | Revealbot rules, TikTok GMV Max, Shopee GMV Max ROI |
+| 11 | Analyst & Reports | จับคู่แอดกับยอดขาย POS (lift), digest LINE รายวัน, รายงานสัปดาห์ PDF/Excel | Metricool reports |
+
+### กลุ่ม C · เติบโต
+
+| # | โมดูล | ทำอะไร | อ้างอิงจาก |
+|---|---|---|---|
+| 12 | Chat & Comment Automation | คอมเมนต์ → ทักแชท → ตอบไซส์/ราคา/COD → เปิดออเดอร์ → ส่งต่อคนเมื่อเคลม/ขายส่ง | Manychat comment trigger + Messenger flow (ไทยซื้อผ่านแชทเป็นหลัก) |
+| 13 | Audience & CRM | segment จากแชท/ออเดอร์ (ทักแล้วไม่ซื้อ, เคยซื้อ, พ่อค้าแม่ค้า) sync เป็น custom audience / lookalike · PDPA | Madgicx AI Audiences |
+| 14 | Competitor Watch | ติดตามเพจยีนส์อื่นจาก Ad Library: จำนวนแอด hook ราคา → AI เสนอ Brief โต้ | Metricool / Vista competitor tracking |
+| 15 | Experiments Lab | A/B/C ต่อ Brief, ตัดสินอัตโนมัติเมื่อครบวันทดสอบ (ฝังอยู่ใน 10 + 11) | Madgicx |
+
+## 13. ลำดับการสร้าง (ทำอะไรก่อนหลัง)
+
+หลักคิด: สร้างสิ่งที่ **เห็นข้อมูลจริงและลดงานเจ้าของร้านได้เร็วที่สุด** ก่อน และให้ AI ลงมือทำเองทีหลังสุด
+
+| ลำดับ | สัปดาห์ | สร้าง | ได้อะไร | ยังไม่ทำ |
+|---|---|---|---|---|
+| 1 | 1-2 | Connectors (Facebook Page + Ads อ่านอย่างเดียว) + Catalog & Stock (นำเข้าจาก Bigseller/POS) + Knowledge Base (เอกสาร brand 1 หน้า) | Dashboard เห็นยอดขาย สต็อกรายไซส์ และผลแอดจริงในที่เดียว | ยังไม่โพสต์ ไม่ยิงแอด |
+| 2 | 3-4 | Data Hub + Analyst (digest LINE รายคืน + attribution กับ POS) | ทุกคืนรู้ว่าแอดตัวไหนคุ้ม สินค้าไหนขาดไซส์ ใช้เวลา 0 นาที | ยังไม่สร้างคอนเทนต์ |
+| 3 | 5-6 | Creative Studio + Review & Approval + Publisher (organic เท่านั้น) | AI ร่างโพสต์ตามสไตล์เพจ คนกดอนุมัติจากมือถือ ระบบโพสต์ให้ | ยังไม่ใช้งบ |
+| 4 | 7-9 | Campaign Manager & Rules + Strategist | boost/แอดงบเล็ก มีกฎ scale/kill และ cap · loop ปิดครบ 7 ขั้น | ยังไม่ตอบแชท |
+| 5 | 10-12 | Chat & Comment Automation + Audience & CRM | คอมเมนต์ถูกทักแชทและตอบไซส์อัตโนมัติ เปิดออเดอร์ COD retarget คนทักแล้วไม่ซื้อ | |
+| 6 | 13+ | TikTok Shop + Shopee connectors (GMV Max), Competitor Watch, Calendar เต็มรูปแบบ, Store & Team หลายร้าน + แพ็กเกจ | ขยายไปทุกช่องทางและขายเป็น SaaS ให้ร้านอื่น | |
+
+ทำไมเรียงแบบนี้
+
+- **Catalog & Stock ต้องมาก่อน Creative** เพราะร้านยีนส์ล้มเหลวที่ "ยิงแอดสินค้าที่ไซส์หมด" กฎนี้ต้องมีตั้งแต่โพสต์แรก
+- **Analyst มาก่อน Strategist** เพราะ AI ต้องมีข้อมูลผลจริงและ learned rule ก่อนถึงจะวางแผนได้ดีกว่าคน
+- **Organic ก่อน Paid** เพื่อสร้างความไว้ใจในสไตล์การเขียนของ AI โดยไม่เสียเงิน แล้วค่อยเปิดงบ
+- **Chat ทีหลัง Loop** แม้จะมีค่ามาก เพราะต้องขอสิทธิ์ Messenger เพิ่มและผ่าน App Review ทำคู่ขนานกับข้อ 3-4 ได้ถ้ามีคนสองคน
+
+Mockup ทุกโมดูลอยู่ที่ `docs/mockup/loopdesk.html` เมนูแบ่ง 3 กลุ่มตามตารางด้านบน

@@ -60,7 +60,7 @@ a{color:var(--brand-text)}
 /* ---- shell ---- */
 .app{display:grid;grid-template-columns:236px 1fr;min-height:100vh}
 .rail{background:var(--panel);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;border-right:1px solid var(--line)}
-.brand{padding:22px 20px 16px;display:flex;align-items:center;gap:12px}
+.brand{padding:16px 20px 10px;display:flex;align-items:center;gap:12px}
 .brand .logo{width:42px;height:42px;border-radius:13px;background:var(--brand);color:#fff;display:grid;place-items:center;font-family:'Mitr';font-weight:600;font-size:15px;position:relative;flex:none}
 .brand .logo::after{content:"";position:absolute;inset:4px;border:1.5px dashed var(--thread);border-radius:9px;opacity:.9}
 .brand h1{font-size:20px;font-weight:600;line-height:1.1}
@@ -68,8 +68,10 @@ a{color:var(--brand-text)}
 .store{padding:4px 14px 10px;display:flex;flex-direction:column;gap:4px}
 .store .eyebrow{padding-left:6px}
 .store select{padding:9px 34px 9px 12px;font-weight:500;font-family:'Mitr';border-radius:var(--r-sm)}
-.nav{display:flex;flex-direction:column;padding:8px 12px;gap:2px}
-.nav button{display:flex;align-items:center;gap:12px;text-align:left;background:transparent;border:0;padding:10px 12px;font-weight:500;color:var(--ink-2);border-radius:12px;transition:background .12s,color .12s,transform .12s}
+.nav{display:flex;flex-direction:column;padding:4px 12px 8px;gap:2px;overflow-y:auto}
+.nav-sec{font-size:11px;letter-spacing:.06em;color:var(--muted);padding:8px 12px 2px;font-family:'Mitr';font-weight:500}
+.nav-sec:first-child{padding-top:4px}
+.nav button{display:flex;align-items:center;gap:12px;text-align:left;background:transparent;border:0;padding:7px 12px;font-size:14px;font-weight:500;color:var(--ink-2);border-radius:12px;transition:background .12s,color .12s,transform .12s}
 .nav button svg{width:20px;height:20px;flex:none;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;opacity:.85}
 .nav button .k{display:none}
 .nav button:hover{background:var(--panel-2);color:var(--ink)}
@@ -77,7 +79,7 @@ a{color:var(--brand-text)}
 .nav button.on svg{opacity:1}
 .nav .badge{margin-left:auto;font-family:'IBM Plex Mono';font-size:11px;background:var(--crit);color:#fff;padding:1px 8px;border-radius:999px;font-weight:500}
 .nav button.on .badge{background:var(--thread);color:var(--thread-ink)}
-.rail-foot{margin-top:auto;padding:16px 20px;border-top:1px dashed var(--line-2);font-size:12px;color:var(--muted);line-height:1.5}
+.rail-foot{margin-top:auto;padding:10px 20px;border-top:1px dashed var(--line-2);font-size:12px;color:var(--muted);line-height:1.5}
 .rail-foot b{color:var(--ink);font-weight:500}
 
 .main{min-width:0}
@@ -217,6 +219,43 @@ input[type=range]{flex:1;accent-color:var(--brand)}
 .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--ink-2)}
 .legend i{width:10px;height:10px;display:inline-block;margin-right:6px;vertical-align:-1px;border-radius:3px}
 
+/* ---- calendar ---- */
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:0;padding:12px}
+.day{padding:6px;border-right:1px dashed var(--line);display:flex;flex-direction:column;gap:8px;min-height:220px}
+.day:last-child{border-right:0}
+.dh{font-family:'Mitr';font-weight:500;font-size:13px;color:var(--ink-2);padding:2px 4px 6px}
+.ev{background:var(--panel-2);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:4px;border-left:3px solid var(--line-2);cursor:grab}
+.ev.fb{border-left-color:var(--fb)}.ev.tiktok{border-left-color:var(--tiktok)}.ev.shopee{border-left-color:var(--shopee)}
+.ev:hover{box-shadow:var(--shadow)}
+.et{font-size:13px;line-height:1.4}
+.heat{display:grid;grid-template-columns:44px repeat(6,1fr);gap:4px}
+.heat .hh,.heat .hd{font-size:11px;color:var(--muted);font-family:'IBM Plex Mono';display:flex;align-items:center;justify-content:center}
+.heat .hd{justify-content:flex-start}
+.heat .hc{height:26px;border-radius:6px}
+/* ---- chat ---- */
+.msg{padding:12px 0;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.msg:last-child{border-bottom:0}
+.bub{padding:10px 14px;border-radius:14px;font-size:14px;line-height:1.55;max-width:92%}
+.bub.in{background:var(--panel-2);align-self:flex-start;border-bottom-left-radius:4px}
+.bub.ai{background:var(--brand-soft);color:var(--ink);align-self:flex-end;border-bottom-right-radius:4px;position:relative}
+.bub.ai::before{content:"AI";position:absolute;top:-8px;right:10px;font-size:9px;font-family:'IBM Plex Mono';background:var(--brand);color:#fff;padding:0 6px;border-radius:6px}
+.linebub{background:#DCF2D0;color:#1B2033;border-radius:16px;padding:14px 16px;font-size:14px;line-height:1.7;max-width:420px;border-bottom-left-radius:4px}
+/* ---- creative ---- */
+.tpls{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:6px 20px 20px}
+.tpl{display:flex;flex-direction:column;gap:4px}
+.tpl-img{aspect-ratio:1;border-radius:12px;background:linear-gradient(160deg,#4A63B8,#24306B);position:relative;display:flex;align-items:flex-end;padding:10px;box-shadow:var(--shadow)}
+.tpl-img::before{content:"";position:absolute;inset:7px;border:1.5px dashed rgba(240,180,90,.7);border-radius:8px}
+.tpl-img.v{aspect-ratio:9/16;max-height:150px}
+.tpl-img .price{font-family:'Mitr';font-weight:600;font-size:16px;background:var(--thread);color:var(--thread-ink);padding:0 8px;border-radius:7px;position:relative}
+.tpl-n{font-family:'Mitr';font-weight:500;font-size:14px;margin-top:4px}
+.idea{padding:12px 14px;border-radius:12px;background:var(--panel-2)}
+/* ---- catalog ---- */
+.skugrid{display:grid;gap:4px}
+.skugrid .hh,.skugrid .hd{font-size:12px;color:var(--muted);font-family:'IBM Plex Mono';display:flex;align-items:center;justify-content:center}
+.skugrid .hd{justify-content:flex-start;font-family:'IBM Plex Sans Thai';color:var(--ink-2)}
+.sq{height:34px;border-radius:8px;background:var(--good-soft);color:var(--good);display:grid;place-items:center;font-family:'IBM Plex Mono';font-size:12px;font-weight:500}
+.sq.low{background:var(--warn-soft);color:var(--warn)}
+.sq.zero{background:var(--crit-soft);color:var(--crit)}
 /* ---- matrix ---- */
 .matrix{display:grid;grid-template-columns:1.4fr repeat(3,1fr);border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden}
 .matrix > div{padding:12px 14px;border-bottom:1px solid var(--line);border-right:1px solid var(--line);display:flex;align-items:center}
@@ -228,6 +267,7 @@ input[type=range]{flex:1;accent-color:var(--brand)}
   .rail{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}
   .brand{padding:16px 16px 8px}
   .nav{flex-direction:row;overflow-x:auto;padding:6px 12px 10px}
+  .nav-sec{display:none}
   .nav button{white-space:nowrap;padding:8px 12px}
   .rail-foot{display:none}
   .topbar{padding:14px 16px}
@@ -235,6 +275,11 @@ input[type=range]{flex:1;accent-color:var(--brand)}
   .g4{grid-template-columns:repeat(2,1fr)}
   .g3,.g2{grid-template-columns:1fr}
   .pipe{grid-template-columns:repeat(4,1fr);row-gap:18px}
+  .cal{grid-template-columns:1fr}
+  .day{border-right:0;border-bottom:1px dashed var(--line);min-height:auto}
+  .tpls{grid-template-columns:repeat(2,1fr)}
+  .skugrid{font-size:11px}
+  .sq{height:28px;font-size:11px}
   .pipe::before{display:none}
   .card{grid-template-columns:1fr}
   .thumb{max-width:170px}
@@ -482,10 +527,19 @@ const ICONS={
   channels:'<svg viewBox="0 0 24 24"><path d="M9 3v4M15 3v4"/><path d="M6 7h12v4a6 6 0 0 1-12 0z"/><path d="M12 17v4"/></svg>',
   agents:'<svg viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="11" rx="4"/><path d="M12 4v4"/><circle cx="12" cy="3" r="1"/><path d="M9 13h.01M15 13h.01"/><path d="M9.5 16.5h5"/></svg>',
   settings:'<svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2.5"/><circle cx="9" cy="17" r="2.5"/></svg>',
+  calendar:'<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="M8 14h3M13 14h3M8 17h3"/></svg>',
+  chat:'<svg viewBox="0 0 24 24"><path d="M4 6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H9l-5 4z"/><path d="M8 9h8M8 12h5"/></svg>',
+  creative:'<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-8 8"/></svg>',
+  audience:'<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.5a5 5 0 0 1 6 5"/></svg>',
+  competitors:'<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4-4"/><path d="M8.5 11h5M11 8.5v5"/></svg>',
+  reports:'<svg viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/><path d="M9 16l2-3 2 2 3-4"/></svg>',
+  catalog:'<svg viewBox="0 0 24 24"><path d="M8 3h8l1 5H7z"/><path d="M7 8 5 21h14L17 8"/><path d="M10 12v5M14 12v5"/></svg>',
+  team:'<svg viewBox="0 0 24 24"><circle cx="12" cy="7" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/><path d="M19 8h3M20.5 6.5v3"/></svg>',
 };
 const NAV = [
-  ['overview','ภาพรวม','1'],['loop','Loop','2'],['inbox','คิวอนุมัติ','3'],['campaigns','แคมเปญ','4'],
-  ['channels','ช่องทาง','5'],['agents','AI Agents','6'],['settings','ตั้งค่า','7'],
+  { label:'ทำงานประจำวัน', items:[['overview','ภาพรวม'],['loop','Loop'],['inbox','คิวอนุมัติ'],['calendar','ปฏิทินคอนเทนต์'],['chat','แชท & คอมเมนต์']] },
+  { label:'การตลาด', items:[['campaigns','แคมเปญ & กฎ'],['creative','คลังครีเอทีฟ'],['audience','ลูกค้า & กลุ่มเป้าหมาย'],['competitors','คู่แข่ง'],['reports','รายงาน']] },
+  { label:'ระบบ', items:[['catalog','สินค้า & สต็อก'],['channels','ช่องทาง'],['agents','AI Agents'],['team','ทีม & แผน'],['settings','ตั้งค่า']] },
 ];
 const TITLES = {
   overview:['ภาพรวมวันนี้','เสาร์ 6 ก.ย. 2569 · ข้อมูลรวมทุกช่องทางที่เปิดใช้ของร้านที่เลือก'],
@@ -495,6 +549,14 @@ const TITLES = {
   channels:['ช่องทางที่เชื่อมต่อ','เปิด/ปิด และกำหนดว่าให้ AI ทำอะไรได้บ้างในแต่ละที่'],
   agents:['AI Agents','ปรับโมเดล prompt และเครื่องมือของแต่ละ agent'],
   settings:['ตั้งค่าระบบ','งบ กฎอนุมัติ กฎ scale/kill เสียงแบรนด์ การแจ้งเตือน'],
+  calendar:['ปฏิทินคอนเทนต์','สัปดาห์นี้ AI จัดคิวอะไรไว้บ้าง ลากแก้เวลาได้ (mock)'],
+  chat:['แชท & คอมเมนต์','AI ตอบคำถามไซส์ ราคา เก็บเงินปลายทาง แล้วส่งต่อคนเมื่อจะปิดการขาย'],
+  creative:['คลังครีเอทีฟ','template รูปสินค้า วิดีโอ และผลของแต่ละแบบ hook'],
+  audience:['ลูกค้า & กลุ่มเป้าหมาย','กลุ่มที่สร้างจากแชท ยอดซื้อ และ engagement แล้ว sync ไปยิงแอด'],
+  competitors:['คู่แข่ง','เพจยีนส์ที่กำลังยิงแอด (ข้อมูลตัวอย่างจาก Ad Library)'],
+  reports:['รายงาน','สรุปรายสัปดาห์ส่งเจ้าของร้าน + export'],
+  catalog:['สินค้า & สต็อก','SKU แยกทรง สี ไซส์ จาก POS/Bigseller · sync ไปทุกช่องทาง'],
+  team:['ทีม & แผน','ผู้ใช้ สิทธิ์ และการใช้งานของแพ็กเกจ'],
 };
 
 function vOverview(){
@@ -886,10 +948,243 @@ function bindCharts(){
 /* =========================================================
    RENDER + EVENTS
    ========================================================= */
-const VIEWS={overview:vOverview,loop:vLoop,inbox:vInbox,campaigns:vCampaigns,channels:vChannels,agents:vAgents,settings:vSettings};
+
+/* =========================================================
+   MODULE VIEWS (เพิ่มจาก research)
+   ========================================================= */
+const CAL = [
+  { d:'จ. 8', items:[['facebook','09:00','รับพ่อค้าแม่ค้า 20 ตัว 4,000','scheduled'],['facebook','20:30','ยีนส์ผ้ายืด 4 ตัว 990 + boost','pending']] },
+  { d:'อ. 9', items:[['tiktok','19:00','กระบอกเล็ก 199 ใส่จริง 3 ส่วนสูง','scheduled']] },
+  { d:'พ. 10', items:[['shopee','00:00','Flash: เดฟเอวสูง 3 ตัว 699','scheduled'],['facebook','20:30','ขาสั้นผ้าสี 3 ตัว 499','draft']] },
+  { d:'พฤ. 11', items:[['tiktok','19:00','ชิโน่สไตล์เกาหลี · ใส่ทำงาน','draft']] },
+  { d:'ศ. 12', items:[['tiktok','20:00','LIVE เคลียร์สต็อก (แอดหนุน LIVE)','scheduled'],['facebook','12:00','โปร 1 แถม 1 หมดศุกร์นี้','scheduled']] },
+  { d:'ส. 13', items:[['facebook','20:30','ผ้ายืดสปอร์ต 3 ตัว 499','draft']] },
+  { d:'อา. 14', items:[['facebook','10:00','รีวิวลูกค้า (UGC) รวม 5 รูป','idea']] },
+];
+function vCalendar(){
+  const st={scheduled:['good','ตั้งเวลาแล้ว'],pending:['warn','รออนุมัติ'],draft:['','ร่าง AI'],idea:['acc','ไอเดีย']};
+  return `
+  <div class="row" style="justify-content:space-between">
+    <div class="tabs"><button class="on">สัปดาห์นี้ 8-14 ก.ย.</button><button data-action="toast" data-msg="เดือน ก.ย. (mock)">เดือน</button><button data-action="toast" data-msg="รายการ (mock)">รายการ</button></div>
+    <div class="row"><span class="small muted">โควตา: ${S.settings.maxPostsPerDay} โพสต์/วัน/ช่องทาง</span><button class="btn sm primary" data-action="toast" data-msg="Strategist วางแผนสัปดาห์หน้าแล้ว 9 โพสต์ (mock)">✨ ให้ AI วางแผนสัปดาห์หน้า</button></div>
+  </div>
+  <div class="panel"><div class="cal">${CAL.map(c=>`<div class="day"><div class="dh">${c.d}</div>${c.items.filter(i=>S.channels[i[0]].enabled).map(i=>`<div class="ev ${CH[i[0]].cls}"><div class="row" style="gap:6px;justify-content:space-between"><span class="mono small">${i[1]}</span><span class="chip ${CH[i[0]].cls}" style="padding:0 7px;font-size:10px">${CH[i[0]].short}</span></div><div class="et">${esc(i[2])}</div><span class="chip ${st[i[3]][0]}" style="font-size:10px;padding:0 7px">${st[i[3]][1]}</span></div>`).join('')}</div>`).join('')}</div></div>
+  <div class="grid g2">
+    <div class="panel"><div class="panel-h"><h3>เวลาที่โพสต์แล้ว reach ดี (จาก Insights)</h3></div><div class="panel-b">${heat()}</div></div>
+    <div class="panel"><div class="panel-h"><h3>กฎการจัดคิว</h3></div><div class="panel-b stack">
+      <label class="tog"><input type="checkbox" checked><span class="sw"></span> ใช้ช่วงเวลาที่ดีที่สุดจาก Insights อัตโนมัติ</label>
+      <label class="tog"><input type="checkbox" checked><span class="sw"></span> โพสต์ขายส่งทุกวันจันทร์ 09:00 (จากกฎที่เรียนรู้)</label>
+      <label class="tog"><input type="checkbox" checked><span class="sw"></span> ห้ามโพสต์สินค้าเดิมซ้ำภายใน 5 วัน</label>
+      <label class="tog"><input type="checkbox"><span class="sw"></span> โพสต์ TikTok ซ้ำเป็น Reels บน Facebook อัตโนมัติ</label>
+    </div></div>
+  </div>`;
+}
+function heat(){
+  const days=['จ','อ','พ','พฤ','ศ','ส','อา'], hrs=[9,12,15,18,20,21];
+  const v=[[2,3,2,3,5,4],[2,3,2,3,5,4],[1,2,2,3,4,4],[2,2,2,3,5,5],[3,3,3,4,5,5],[3,4,3,4,4,4],[3,4,3,3,4,3]];
+  return `<div class="heat"><div></div>${hrs.map(h=>`<div class="hh">${h}:00</div>`).join('')}${days.map((d,i)=>`<div class="hd">${d}</div>`+hrs.map((h,j)=>`<div class="hc" style="background:color-mix(in srgb,var(--brand) ${v[i][j]*17}%,var(--panel-2))" title="${d} ${h}:00 · reach ระดับ ${v[i][j]}/5"></div>`).join('')).join('')}</div><div class="small muted" style="margin-top:8px">สีเข้ม = reach เฉลี่ยสูง · ช่วง 20:00-21:00 ดีที่สุดสำหรับเพจนี้</div>`;
+}
+
+const CHAT_RULES=[
+  { kw:'ไซส์, size, เอว', act:'ตอบตารางไซส์ 28-44 + ถามส่วนสูง/น้ำหนัก แล้วแนะนำไซส์', on:true, hits:184 },
+  { kw:'ราคา, เท่าไหร่, กี่บาท', act:'ตอบราคาเดี่ยว + ราคาเซ็ตของสินค้าในโพสต์นั้น', on:true, hits:231 },
+  { kw:'เก็บเงินปลายทาง, cod, ปลายทาง', act:'ตอบ "มีบริการเก็บเงินปลายทาง" + ขอที่อยู่', on:true, hits:97 },
+  { kw:'ขายส่ง, รับมาขาย, ยกโหล', act:'ส่งแคตตาล็อกขายส่ง + แท็กเป็น "พ่อค้าแม่ค้า" + ส่งต่อคน', on:true, hits:42 },
+  { kw:'สั่ง, เอา, จอง', act:'เปิดฟอร์มออเดอร์: สินค้า ไซส์ สี ที่อยู่ เบอร์ → สร้างออเดอร์ COD', on:true, hits:156 },
+  { kw:'เคลม, ชำรุด, เปลี่ยน', act:'ส่งต่อคนทันที (ไม่ตอบอัตโนมัติ)', on:true, hits:9 },
+  { kw:'คอมเมนต์ที่มีเบอร์โทร', act:'ซ่อนคอมเมนต์ + ทักแชทส่วนตัวแทน', on:false, hits:0 },
+];
+const CHATS=[
+  { who:'คุณต้น', ch:'facebook', src:'คอมเมนต์โพสต์ ผ้ายืด 4 ตัว 990', msg:'สูง 172 หนัก 80 ใส่ไซส์ไหนครับ', ai:'สูง 172 หนัก 80 แนะนำไซส์ 34 ครับ ผ้ายืดใส่สบาย ถ้าชอบหลวมหน่อยเอา 36 ได้ 👖 ตอนนี้ไซส์ 34 มีครบทุกสี สั่ง 4 ตัว 990 ส่งฟรี เก็บเงินปลายทางได้เลยครับ', state:'auto', t:'2 นาที' },
+  { who:'แม่ค้าแอน', ch:'facebook', src:'Messenger', msg:'สนใจรับมาขายค่ะ เริ่มกี่ตัว', ai:'เริ่มต้น 20 ตัว 4,000 บาท ตกตัวละ 200 คละแบบคละไซส์ได้ค่ะ ส่งแคตตาล็อกให้ดูก่อนนะคะ (ส่งต่อทีมขายส่งแล้ว)', state:'human', t:'5 นาที' },
+  { who:'Bank K.', ch:'tiktok', src:'คอมเมนต์คลิป กระบอกเล็ก 199', msg:'สีดำซักแล้วตกไหม', ai:'สีดำล็อตนี้ซักน้ำเย็นไม่ตกครับ แนะนำกลับด้านซัก 2 ครั้งแรก มีคลิปทดสอบซักให้ดูครับ', state:'auto', t:'12 นาที' },
+  { who:'คุณนุช', ch:'facebook', src:'Messenger', msg:'เอาขาสั้น 3 ตัว สี ดำ กรม เทา ไซส์ 32 ส่ง 99/1 ม.4 …', ai:'สร้างออเดอร์ COD #A-2291: ขาสั้นผ้าสี ×3 (ดำ/กรม/เทา ไซส์ 32) 499 บาท รอยืนยันที่อยู่', state:'order', t:'18 นาที' },
+  { who:'Pong', ch:'facebook', src:'คอมเมนต์โพสต์ 1 แถม 1', msg:'ของไม่ตรงปก ขอเปลี่ยน', ai:'— ส่งต่อคนทันที (คำว่า "เปลี่ยน") ไม่ตอบอัตโนมัติ', state:'human', t:'25 นาที' },
+];
+function vChat(){
+  const st={auto:['good','AI ตอบแล้ว'],human:['warn','รอคนตอบ'],order:['acc','สร้างออเดอร์']};
+  return `
+  <div class="grid g4">
+    <div class="panel kpi"><span class="eyebrow">คอมเมนต์ + แชทวันนี้</span><div class="v">312</div><div class="d">FB 241 · TikTok 58 · Shopee 13</div></div>
+    <div class="panel kpi"><span class="eyebrow">AI ตอบเองได้</span><div class="v">78<small>%</small></div><div class="d">เฉลี่ยตอบใน 40 วินาที</div></div>
+    <div class="panel kpi"><span class="eyebrow">ออเดอร์ COD จากแชท</span><div class="v">27 <small>ออเดอร์</small></div><div class="d">มูลค่า ฿14,830 · ยืนยันที่อยู่แล้ว 21</div></div>
+    <div class="panel kpi"><span class="eyebrow">รอคนตอบ</span><div class="v">3</div><div class="d">ขายส่ง 1 · เคลม 1 · นอกกฎ 1</div></div>
+  </div>
+  <div class="grid g2">
+    <div class="panel"><div class="panel-h"><h3>แชทล่าสุด</h3><div class="r"><span class="small muted">AI ร่างคำตอบ · คุณแก้ได้ก่อนส่ง</span></div></div>
+      <div class="stack" style="padding:0 20px 16px">${CHATS.filter(c=>S.channels[c.ch].enabled).map(c=>`<div class="msg">
+        <div class="row" style="justify-content:space-between"><div class="row" style="gap:8px"><b>${c.who}</b>${chip(c.ch)}<span class="small muted">${c.src}</span></div><span class="small muted">${c.t} ที่แล้ว</span></div>
+        <div class="bub in">${esc(c.msg)}</div>
+        <div class="bub ai">${esc(c.ai)}</div>
+        <div class="row" style="justify-content:space-between"><span class="chip ${st[c.state][0]}">${st[c.state][1]}</span>${c.state==='human'?`<div class="row" style="gap:6px"><button class="btn sm primary" data-action="toast" data-msg="ส่งคำตอบแล้ว (mock)">ส่งคำตอบนี้</button><button class="btn sm ghost" data-action="toast" data-msg="เปิดแชท (mock)">ตอบเอง</button></div>`:c.state==='order'?`<button class="btn sm good" data-action="toast" data-msg="ยืนยันออเดอร์ #A-2291 แล้ว → ส่งไป POS/Bigseller (mock)">ยืนยันออเดอร์ → POS</button>`:''}</div>
+      </div>`).join('')}</div></div>
+    <div class="panel"><div class="panel-h"><h3>กฎตอบอัตโนมัติ</h3><div class="r"><button class="btn sm" data-action="toast" data-msg="เพิ่มกฎใหม่ (mock)">＋ เพิ่มกฎ</button></div></div>
+      <div class="tbl-wrap"><table><tr><th>คำที่เจอ</th><th>AI ทำอะไร</th><th class="num">ใช้ 7 วัน</th><th></th></tr>
+      ${CHAT_RULES.map(r=>`<tr><td><b>${esc(r.kw)}</b></td><td class="small">${esc(r.act)}</td><td class="num">${r.hits}</td><td><label class="tog"><input type="checkbox" ${r.on?'checked':''}><span class="sw"></span></label></td></tr>`).join('')}
+      </table></div>
+      <div class="panel-b stack" style="padding-top:12px">
+        <div class="field"><label>ข้อความเปิด เมื่อคอมเมนต์แล้ว AI ทักแชทส่วนตัว</label><textarea class="in" style="min-height:70px">สวัสดีครับ 👖 ขอบคุณที่สนใจ ${'${สินค้า}'} ครับ บอกส่วนสูง/น้ำหนักมาได้เลย เดี๋ยวแนะนำไซส์ให้ครับ</textarea></div>
+        <label class="tog"><input type="checkbox" checked><span class="sw"></span> ตอบคอมเมนต์สาธารณะสั้น ๆ ด้วย ("ทักแชทแล้วนะครับ 🙏")</label>
+        <label class="tog"><input type="checkbox" checked><span class="sw"></span> ส่งต่อคนทันทีเมื่อลูกค้าพิมพ์ "คุยกับคน" หรือโกรธ</label>
+      </div></div>
+  </div>`;
+}
+
+const TEMPLATES=[
+  { n:'โปรเซ็ต 3 ตัว', use:41, ctr:2.9, cpa:44, best:true },
+  { n:'ไซส์ครบ 28-44', use:23, ctr:2.6, cpa:52 },
+  { n:'ใส่จริง 3 ส่วนสูง (วิดีโอ)', use:18, ctr:4.1, cpa:38, best:true },
+  { n:'1 แถม 1 ป้ายแดง', use:15, ctr:3.2, cpa:61 },
+  { n:'รับพ่อค้าแม่ค้า', use:9, ctr:1.4, cpa:0 },
+  { n:'flat-lay พื้นขาว (Shopee)', use:31, ctr:1.1, cpa:95 },
+];
+function vCreative(){
+  const hooks=[['คำถาม',2.8,41,'"หายีนส์ที่นั่งสบายอยู่ใช่ไหม?"'],['บอกราคาเซ็ต',3.1,39,'"4 ตัว 990 ส่งฟรี"'],['ราคาเดี่ยว',2.2,73,'"ยีนส์ 199"'],['อ้วนผอมใส่ได้',3.4,36,'"ไซส์ 28-44 อ้วนผอมใส่ได้"'],['ทดสอบ/พิสูจน์',3.9,40,'"ซักแล้วตกไหม? ทดสอบให้ดู"']];
+  const mx=Math.max(...hooks.map(h=>h[1]));
+  return `
+  <div class="grid g2">
+    <div class="panel"><div class="panel-h"><h3>Template ที่ AI ใช้</h3><div class="r"><button class="btn sm" data-action="toast" data-msg="อัปโหลด template ใหม่ (mock)">＋ เพิ่ม template</button></div></div>
+      <div class="tpls">${TEMPLATES.map(t=>`<div class="tpl"><div class="tpl-img ${t.n.includes('วิดีโอ')?'v':''}">${t.best?'<span class="chip acc" style="position:absolute;top:8px;left:8px">ดีที่สุด</span>':''}<span class="price">${t.n.includes('1 แถม 1')?'490.-':t.n.includes('เซ็ต')?'3 ตัว 550':t.n.includes('ครบ')?'28-44':t.n.includes('พ่อค้า')?'20 ตัว 4,000':'199.-'}</span></div><div class="tpl-n">${t.n}</div><div class="small muted">ใช้ ${t.use} ครั้ง · CTR ${t.ctr}% ${t.cpa?'· CPA '+t.cpa:''}</div></div>`).join('')}</div></div>
+    <div class="panel"><div class="panel-h"><h3>Hook แบบไหน work (Creative Cockpit)</h3><div class="r muted small">30 วัน · CTR</div></div>
+      <div class="panel-b stack" style="gap:10px">${hooks.map(h=>`<div><div class="row" style="justify-content:space-between"><span><b>${h[0]}</b> <span class="small muted">${h[3]}</span></span><span class="mono small">CTR ${h[1]}% · CPA ${h[2]}</span></div><div class="meter" style="height:8px"><i style="width:${h[1]/mx*100}%"></i></div></div>`).join('')}
+      <div class="small muted">Copywriter จะสุ่ม hook ตามน้ำหนักนี้ และ Analyst อัปเดตทุกคืน</div></div></div>
+  </div>
+  <div class="panel"><div class="panel-h"><h3>คลังไฟล์</h3><div class="r"><span class="chip">รูปสินค้า 212</span><span class="chip">คลิปใส่จริง 38</span><span class="chip">รีวิวลูกค้า (UGC) 64</span><span class="chip">โลโก้/ป้ายราคา 12</span><button class="btn sm" data-action="toast" data-msg="อัปโหลด (mock)">อัปโหลด</button></div></div>
+    <div class="tbl-wrap"><table><tr><th>สินค้า</th><th>รูปคนใส่</th><th>flat-lay</th><th>คลิป</th><th>UGC</th><th>สถานะ</th></tr>
+    ${PRODUCTS.slice(0,6).map((p,i)=>{const a=[[6,4,3,9],[4,4,2,5],[2,3,0,1],[5,2,1,3],[3,3,2,0],[4,2,0,6]][i];return `<tr><td><b>${p.name}</b></td><td class="num">${a[0]}</td><td class="num">${a[1]}</td><td class="num">${a[2]}</td><td class="num">${a[3]}</td><td>${a[2]===0?'<span class="chip warn">ขาดคลิปใส่จริง</span>':a[0]<3?'<span class="chip warn">รูปคนใส่น้อย</span>':'<span class="chip good">พร้อมใช้</span>'}</td></tr>`}).join('')}
+    </table></div></div>`;
+}
+
+const SEGMENTS=[
+  { n:'ทักแชทแล้วยังไม่ซื้อ (7 วัน)', size:1240, src:'แชท', use:'retarget โปรเซ็ต', sync:{facebook:true,tiktok:false}, roas:4.8 },
+  { n:'ลูกค้าเคยซื้อ (90 วัน)', size:3860, src:'ออเดอร์ COD + Shopee + TikTok Shop', use:'สินค้าใหม่ / 1 แถม 1', sync:{facebook:true,tiktok:true}, roas:3.6 },
+  { n:'พ่อค้าแม่ค้า (ถามขายส่ง)', size:412, src:'แชท keyword ขายส่ง', use:'โพสต์ขายส่งวันจันทร์', sync:{facebook:true,tiktok:false}, roas:0 },
+  { n:'ดูคลิป TikTok > 50% (30 วัน)', size:18500, src:'TikTok engagement', use:'แอด TikTok กระบอกเล็ก', sync:{facebook:false,tiktok:true}, roas:2.9 },
+  { n:'ผู้ติดตามเพจ', size:44000, src:'Facebook', use:'organic + boost', sync:{facebook:true,tiktok:false}, roas:0 },
+  { n:'Lookalike 1% ลูกค้าเคยซื้อ', size:450000, src:'สร้างจาก segment 2', use:'หาลูกค้าใหม่', sync:{facebook:true,tiktok:true}, roas:2.4 },
+];
+function vAudience(){
+  return `
+  <div class="grid g4">
+    <div class="panel kpi"><span class="eyebrow">ลูกค้าที่รู้จัก (มีเบอร์/ที่อยู่)</span><div class="v">5,312</div><div class="d">+184 สัปดาห์นี้ จากออเดอร์ COD</div></div>
+    <div class="panel kpi"><span class="eyebrow">ซื้อซ้ำภายใน 90 วัน</span><div class="v">23<small>%</small></div><div class="d">เป้า 30% · ส่วนใหญ่ซื้อเซ็ตครั้งที่ 2</div></div>
+    <div class="panel kpi"><span class="eyebrow">ไซส์ที่ลูกค้าถามมากสุด</span><div class="v">32-34</div><div class="d">48% ของคำถามไซส์ · สต็อกต้องมีเสมอ</div></div>
+    <div class="panel kpi"><span class="eyebrow">กลุ่มที่ ROAS ดีสุด</span><div class="v">4.8<small>x</small></div><div class="d">ทักแชทแล้วยังไม่ซื้อ → retarget</div></div>
+  </div>
+  <div class="panel"><div class="panel-h"><h3>กลุ่มเป้าหมาย</h3><div class="r"><button class="btn sm" data-action="toast" data-msg="สร้างกลุ่มใหม่ (mock)">＋ สร้างกลุ่ม</button></div></div>
+    <div class="tbl-wrap"><table><tr><th>กลุ่ม</th><th class="num">ขนาด</th><th>สร้างจาก</th><th>AI ใช้ทำอะไร</th><th>sync ไป</th><th class="num">ROAS</th></tr>
+    ${SEGMENTS.map(g=>`<tr><td><b>${g.n}</b></td><td class="num">${fmt(g.size)}</td><td class="small">${g.src}</td><td class="small">${g.use}</td><td class="row" style="gap:4px">${Object.keys(g.sync).map(k=>`<span class="chip ${g.sync[k]?CH[k].cls:''}" style="${g.sync[k]?'':'opacity:.5'}">${CH[k].short}</span>`).join('')}</td><td class="num">${g.roas?g.roas.toFixed(1)+'x':'—'}</td></tr>`).join('')}
+    </table></div></div>
+  <div class="panel"><div class="panel-h"><h3>ความเป็นส่วนตัว</h3></div><div class="panel-b stack">
+    <label class="tog"><input type="checkbox" checked><span class="sw"></span> เก็บเบอร์/ที่อยู่จากแชทเฉพาะเมื่อลูกค้าสั่งซื้อ (PDPA)</label>
+    <label class="tog"><input type="checkbox" checked><span class="sw"></span> ส่งข้อมูลไป Facebook/TikTok แบบ hash เท่านั้น</label>
+    <label class="tog"><input type="checkbox"><span class="sw"></span> ส่ง broadcast LINE หาลูกค้าเก่าเดือนละ 1 ครั้ง</label>
+  </div></div>`;
+}
+
+const COMPS=[
+  { n:'เพจ A · ยีนส์ราคาโรงงาน', ads:14, hook:'"ยีนส์ 159 ส่งฟรี ซื้อ 5 แถม 1"', price:'159-249', note:'เน้นถูกกว่า · ไม่มีไซส์ใหญ่ >40', trend:'up' },
+  { n:'เพจ B · Denim Hub', ads:6, hook:'"ทรงเกาหลี ใส่แล้วขาเรียว"', price:'290-450', note:'รูปคนใส่สวย · ราคาสูงกว่าเรา', trend:'flat' },
+  { n:'เพจ C · ยีนส์ชายส่งตรง', ads:22, hook:'"รับตัวแทน ไม่ต้องสต็อก"', price:'ขายส่ง 180/ตัว', note:'แข่งกลุ่มพ่อค้าแม่ค้าโดยตรง', trend:'up' },
+  { n:'เพจ D · BigSize Jeans', ads:9, hook:'"ไซส์ 44-52 มีจริง"', price:'350-490', note:'ช่องว่าง: เรามีถึง 44 เท่านั้น', trend:'up' },
+];
+function vCompetitors(){
+  return `
+  <div class="panel"><div class="panel-h"><h3>เพจยีนส์ที่กำลังยิงแอด</h3><div class="r"><span class="small muted">ตัวอย่างข้อมูล · ของจริงดึงจาก Meta Ad Library ทุกวัน</span><button class="btn sm" data-action="toast" data-msg="เพิ่มเพจที่ต้องการติดตาม (mock)">＋ ติดตามเพจ</button></div></div>
+    <div class="tbl-wrap"><table><tr><th>เพจ</th><th class="num">แอด active</th><th>hook ที่ใช้บ่อย</th><th>ช่วงราคา</th><th>AI สังเกต</th><th></th></tr>
+    ${COMPS.map(c=>`<tr><td><b>${c.n}</b></td><td class="num">${c.ads} ${c.trend==='up'?'<span style="color:var(--crit)">↑</span>':''}</td><td class="small">${c.hook}</td><td class="mono small">${c.price}</td><td class="small">${c.note}</td><td><button class="btn sm ghost" data-action="toast" data-msg="เปิดแอดของ ${c.n} (mock)">ดูแอด</button></td></tr>`).join('')}
+    </table></div></div>
+  <div class="grid g2">
+    <div class="panel"><div class="panel-h"><h3>สิ่งที่ AI เสนอจากการดูคู่แข่ง</h3></div><div class="panel-b stack">
+      <div class="idea"><b>ทดสอบ hook "ไซส์ใหญ่ 40-44 มีจริง"</b><div class="small muted">คู่แข่ง A ไม่มีไซส์ >40 แต่เรามี · กลุ่มนี้ถามในแชทเยอะ</div><div class="row" style="margin-top:6px"><button class="btn sm primary" data-action="toast" data-msg="ส่งเข้าคิวเป็น Brief แล้ว (mock)">สร้าง Brief</button><button class="btn sm ghost">ข้าม</button></div></div>
+      <div class="idea"><b>โต้ "ซื้อ 5 แถม 1" ด้วย "4 ตัว 990 ส่งฟรี + เคลมได้"</b><div class="small muted">ราคาต่อตัวใกล้กัน แต่เราเน้นเคลมได้และเก็บเงินปลายทาง</div><div class="row" style="margin-top:6px"><button class="btn sm primary" data-action="toast" data-msg="ส่งเข้าคิวเป็น Brief แล้ว (mock)">สร้าง Brief</button><button class="btn sm ghost">ข้าม</button></div></div>
+      <div class="idea"><b>เพจ C ยิงแอดรับตัวแทนหนักขึ้น 3 สัปดาห์ติด</b><div class="small muted">ควรเพิ่มโพสต์ขายส่งจากสัปดาห์ละ 1 เป็น 2 ครั้ง</div></div>
+    </div></div>
+    <div class="panel"><div class="panel-h"><h3>ราคาต่อตัวในตลาด (ตัวอย่าง)</h3></div><div class="panel-b">${priceBars()}</div></div>
+  </div>`;
+}
+function priceBars(){
+  const rows=[['เรา · กระบอกเล็ก',199,true],['เพจ A',159,false],['เพจ B',290,false],['เพจ D',350,false],['เรา · ผ้ายืด',299,true]];
+  const mx=400;
+  return `<div class="stack" style="gap:8px">${rows.map(r=>`<div><div class="row" style="justify-content:space-between"><span class="small ${r[2]?'':'muted'}"><b>${r[0]}</b></span><span class="mono small">฿${r[1]}</span></div><div class="meter" style="height:8px"><i style="width:${r[1]/mx*100}%;background:${r[2]?'var(--brand)':'var(--line-2)'}"></i></div></div>`).join('')}</div>`;
+}
+
+function vReports(){
+  return `
+  <div class="row" style="justify-content:space-between">
+    <div class="tabs"><button class="on">สัปดาห์นี้</button><button>สัปดาห์ก่อน</button><button>เดือนนี้</button></div>
+    <div class="row"><button class="btn sm" data-action="toast" data-msg="ส่ง PDF ทาง LINE แล้ว (mock)">ส่ง LINE</button><button class="btn sm" data-action="toast" data-msg="ดาวน์โหลด Excel (mock)">Excel</button><button class="btn sm" data-action="toast" data-msg="ดาวน์โหลด PDF (mock)">PDF</button></div>
+  </div>
+  <div class="grid g4">
+    <div class="panel kpi"><span class="eyebrow">ยอดขายรวม 7 วัน</span><div class="v">${thb(SALES.slice(6,13).reduce((a,b)=>a+b,0))}</div><div class="d"><span style="color:var(--good)">+14%</span> เทียบสัปดาห์ก่อน</div></div>
+    <div class="panel kpi"><span class="eyebrow">งบแอดที่ใช้</span><div class="v">${thb(activeCh().reduce((s,c)=>s+SPEND[c].slice(6,13).reduce((a,b)=>a+b,0),0))}</div><div class="d">ROAS รวม 3.1x · เป้า ${S.settings.targetRoas}x</div></div>
+    <div class="panel kpi"><span class="eyebrow">ออเดอร์จากแชท (COD)</span><div class="v">163</div><div class="d">ยืนยันที่อยู่ 88% · ตีกลับ 6%</div></div>
+    <div class="panel kpi"><span class="eyebrow">เวลาที่คุณใช้กับการตลาด</span><div class="v">1.4 <small>ชม.</small></div><div class="d">อนุมัติ 23 ชิ้น · ตอบแชทเอง 41 ครั้ง</div></div>
+  </div>
+  <div class="grid g2">
+    <div class="panel"><div class="panel-h"><h3>ตัวอย่างสรุปที่ส่งทาง LINE ทุกคืน ${S.settings.dailyDigestTime}</h3></div><div class="panel-b"><div class="linebub">📊 <b>สรุปวันนี้ · Climax by PKjeans</b><br>ยอดขาย ฿16,700 (+21% vs เฉลี่ย 7 วัน)<br>ใช้งบแอด ฿1,230 / 1,500 · ROAS 2.8x<br><br>🏆 ดีสุด: TikTok "กระบอกเล็ก ใส่จริง 3 ส่วนสูง" CPA 38<br>❌ ปิดแล้ว: FB "ราคาเดี่ยว 199" CPA 73<br>⚠ ผ้ายืดขาดไซส์ 30, 32 → พักโพสต์จนของเข้า 8 ก.ย.<br><br>พรุ่งนี้: โพสต์ขายส่ง 09:00 · boost ผ้ายืดหลังของเข้า · รออนุมัติ 2 ชิ้น<br>👉 กดอนุมัติ: loopdesk.app/a/0906</div></div></div>
+    <div class="panel"><div class="panel-h"><h3>สินค้าที่แอดดันแล้วยอดขึ้นจริง (attribution กับ POS)</h3></div>
+      <div class="tbl-wrap"><table><tr><th>สินค้า</th><th class="num">งบ</th><th class="num">ยอดขายช่วงยิง</th><th class="num">baseline</th><th class="num">lift</th></tr>
+      ${[['กางเกงผ้ายืดสปอร์ต',895,18200,14300,'+27%'],['ยีนส์ทรงกระบอกเล็ก สีดำ',1210,26400,23500,'+12%'],['ขาสั้นผ้าสี',380,9800,8000,'+22%'],['ยีนส์ผ้ายืด',510,11100,11000,'+1%']].map(r=>`<tr><td><b>${r[0]}</b></td><td class="num">${thb(r[1])}</td><td class="num">${thb(r[2])}</td><td class="num muted">${thb(r[3])}</td><td class="num" style="color:${r[4].startsWith('+')&&parseInt(r[4].slice(1))>5?'var(--good)':'var(--muted)'}">${r[4]}</td></tr>`).join('')}
+      </table></div></div>
+  </div>`;
+}
+
+const SIZES=[28,30,32,34,36,38,40,42,44];
+const SKU={ pk1:{'ดำ':[18,26,31,24,17,12,9,6,4],'ฟอกกลาง':[12,20,22,19,11,8,5,3,2]}, pk2:{'ฟอกกลาง':[14,0,0,15,12,9,7,4,3],'สีเข้ม':[9,0,2,11,8,6,4,3,2]}, pk6:{'ดำ':[22,25,28,20,15,11,8,6,5],'กรม':[16,19,21,15,10,8,6,4,3],'เทา':[10,14,16,12,8,6,4,3,2]} };
+function vCatalog(){
+  const sel=S.catSel||'pk1'; const p=prod(sel)||PRODUCTS[0]; const m=SKU[sel]||SKU.pk1;
+  return `
+  <div class="grid g4">
+    <div class="panel kpi"><span class="eyebrow">SKU ทั้งหมด (ทรง×สี×ไซส์)</span><div class="v">486</div><div class="d">42 แบบ · จาก Bigseller / POS</div></div>
+    <div class="panel kpi"><span class="eyebrow">ไซส์ขายดีที่ขาด</span><div class="v" style="color:var(--crit)">2</div><div class="d">ผ้ายืด 30, 32 · AI พักแอดแล้ว</div></div>
+    <div class="panel kpi"><span class="eyebrow">เหลือเยอะ (>60 วัน)</span><div class="v">3 <small>แบบ</small></div><div class="d">AI เสนอโปรระบายสต็อก</div></div>
+    <div class="panel kpi"><span class="eyebrow">sync ล่าสุด</span><div class="v">09:30</div><div class="d">FB Catalog ✓ · TikTok Shop ✓ · Shopee ⚠ 3 SKU</div></div>
+  </div>
+  <div class="grid g2">
+    <div class="panel"><div class="panel-h"><h3>สต็อกรายไซส์</h3><div class="r"><select class="in" style="width:auto;padding:6px 34px 6px 12px" data-action="catsel">${['pk1','pk2','pk6'].map(id=>`<option value="${id}" ${sel===id?'selected':''}>${prod(id).name}</option>`).join('')}</select></div></div>
+      <div class="panel-b"><div class="skugrid" style="grid-template-columns:70px repeat(${SIZES.length},1fr)"><div></div>${SIZES.map(z=>`<div class="hh">${z}</div>`).join('')}
+      ${Object.keys(m).map(col=>`<div class="hd">${col}</div>`+m[col].map((q,i)=>`<div class="sq ${q===0?'zero':q<6?'low':''}" title="${col} ไซส์ ${SIZES[i]}: ${q} ตัว">${q}</div>`).join('')).join('')}</div>
+      <div class="row" style="margin-top:10px;gap:14px"><span class="small"><span class="sq zero" style="display:inline-grid;width:18px;height:18px;font-size:10px">0</span> หมด</span><span class="small"><span class="sq low" style="display:inline-grid;width:18px;height:18px;font-size:10px">5</span> ใกล้หมด</span><span class="small muted">กฎ: ถ้าไซส์ 30-34 ของสีใดหมด AI จะไม่โฆษณาสีนั้น</span></div></div></div>
+    <div class="panel"><div class="panel-h"><h3>Sync ไปช่องทางขาย</h3></div>
+      <div class="tbl-wrap"><table><tr><th>ช่องทาง</th><th>สถานะ</th><th class="num">SKU</th><th>ล่าสุด</th><th></th></tr>
+        <tr><td>${chip('facebook')} Catalog + Shop</td><td><span class="chip good">ตรงกัน</span></td><td class="num">486</td><td class="small">09:30</td><td><button class="btn sm ghost" data-action="toast" data-msg="sync แล้ว (mock)">sync</button></td></tr>
+        <tr><td>${chip('tiktok')} TikTok Shop</td><td><span class="chip good">ตรงกัน</span></td><td class="num">412</td><td class="small">09:30</td><td><button class="btn sm ghost" data-action="toast" data-msg="sync แล้ว (mock)">sync</button></td></tr>
+        <tr><td>${chip('shopee')} Shopee</td><td><span class="chip warn">ราคาไม่ตรง 3 SKU</span></td><td class="num">398</td><td class="small">09:30</td><td><button class="btn sm primary" data-action="toast" data-msg="แก้ราคา 3 SKU บน Shopee แล้ว (mock)">แก้ให้ตรง</button></td></tr>
+        <tr><td>Bigseller / POS</td><td><span class="chip good">ต้นทาง</span></td><td class="num">486</td><td class="small">ทุก 15 นาที</td><td></td></tr>
+      </table></div>
+      <div class="panel-b stack" style="padding-top:12px">
+        <label class="tog"><input type="checkbox" checked><span class="sw"></span> ปิดโฆษณาสินค้าอัตโนมัติเมื่อไซส์ขายดีหมด</label>
+        <label class="tog"><input type="checkbox" checked><span class="sw"></span> เสนอโปรระบายเมื่อสินค้าค้าง > 60 วัน</label>
+        <label class="tog"><input type="checkbox"><span class="sw"></span> ซ่อนสินค้าบน Shopee/TikTok เมื่อสต็อกรวม < 5</label>
+      </div></div>
+  </div>`;
+}
+
+function vTeam(){
+  const members=[['เบนซ์','เจ้าของ','ทุกสิทธิ์ · อนุมัติ high','ออนไลน์'],['พี่แอน','ทีมขายส่ง','ตอบแชทขายส่ง · ดูรายงาน','2 ชม.'],['น้องมิ้นท์','แอดมินเพจ','อนุมัติ low/medium · ตอบแชท','ออนไลน์'],['AI Agents','ระบบ','ตามกฎอนุมัติ','ทำงานอยู่']];
+  return `
+  <div class="grid g2">
+    <div class="panel"><div class="panel-h"><h3>สมาชิก</h3><div class="r"><button class="btn sm" data-action="toast" data-msg="ส่งคำเชิญแล้ว (mock)">＋ เชิญ</button></div></div>
+      <div class="tbl-wrap"><table><tr><th>ชื่อ</th><th>บทบาท</th><th>ทำอะไรได้</th><th>สถานะ</th></tr>
+      ${members.map(m=>`<tr><td><b>${m[0]}</b></td><td><span class="chip">${m[1]}</span></td><td class="small">${m[2]}</td><td class="small ${m[3]==='ออนไลน์'||m[3]==='ทำงานอยู่'?'':'muted'}">${m[3]}</td></tr>`).join('')}
+      </table></div></div>
+    <div class="panel"><div class="panel-h"><h3>แพ็กเกจ · Pro</h3><div class="r"><span class="chip acc">฿1,490/เดือน (ตัวอย่างราคา)</span></div></div>
+      <div class="panel-b stack" style="gap:14px">
+        ${[['ร้านค้า',Object.keys(ALL.stores).length,3],['ช่องทางเชื่อมต่อ',6,10],['AI credits (ชิ้นงาน/เดือน)',312,600],['ข้อความแชทอัตโนมัติ',4180,10000]].map(u=>`<div><div class="row" style="justify-content:space-between"><span>${u[0]}</span><span class="mono small">${fmt(u[1])} / ${fmt(u[2])}</span></div><div class="meter" style="height:8px"><i style="width:${Math.min(100,u[1]/u[2]*100)}%"></i></div></div>`).join('')}
+        <div class="small muted">ค่า API ของ Meta / TikTok / Shopee ไม่มีค่าใช้จ่าย · ค่าแอดจ่ายตรงกับแพลตฟอร์ม</div>
+      </div></div>
+  </div>
+  <div class="panel"><div class="panel-h"><h3>Audit log</h3><div class="r muted small">ทุกการกระทำของคนและ AI</div></div>
+    <div class="tbl-wrap"><table><tr><th>เวลา</th><th>ใคร</th><th>ทำอะไร</th></tr>
+    ${[['09:31','AI · Analyst','เสนอ scale ad-0904-02A +20% (รอคน)'],['09:12','น้องมิ้นท์','อนุมัติ br-0906-02A (TikTok กระบอกเล็ก)'],['08:40','AI · Chat','สร้างออเดอร์ COD #A-2291 จากแชทคุณนุช'],['07:21','AI · QA','ตั้งเงื่อนไข br-0906-01A รอไซส์ 30,32 เข้า'],['เมื่อวาน 22:00','AI · Analyst','เขียน rule ใหม่: hook "อ้วนผอมใส่ได้" CTR +27%'],['เมื่อวาน 18:05','เบนซ์','แก้ dailyCap 1,200 → 1,500']].map(r=>`<tr><td class="mono small">${r[0]}</td><td class="small">${r[1]}</td><td>${r[2]}</td></tr>`).join('')}
+    </table></div></div>`;
+}
+
+const VIEWS={overview:vOverview,loop:vLoop,inbox:vInbox,campaigns:vCampaigns,channels:vChannels,agents:vAgents,settings:vSettings,calendar:vCalendar,chat:vChat,creative:vCreative,audience:vAudience,competitors:vCompetitors,reports:vReports,catalog:vCatalog,team:vTeam};
 function render(){
   const pend=pending().length;
-  document.getElementById('nav').innerHTML=NAV.map(([k,l,n])=>`<button class="${S.view===k?'on':''}" data-action="go" data-view="${k}">${ICONS[k]}${l}${k==='inbox'&&pend?`<span class="badge">${pend}</span>`:''}</button>`).join('');
+  document.getElementById('nav').innerHTML=NAV.map(sec=>`<div class="nav-sec">${sec.label}</div>`+sec.items.map(([k,l])=>`<button class="${S.view===k?'on':''}" data-action="go" data-view="${k}">${ICONS[k]||ICONS.settings}${l}${k==='inbox'&&pend?`<span class="badge">${pend}</span>`:k==='chat'?`<span class="badge">3</span>`:''}</button>`).join('')).join('');
   const sel=document.getElementById('store-sel');
   sel.innerHTML=Object.keys(ALL.stores).map(id=>`<option value="${id}" ${ALL.current===id?'selected':''}>${esc(STORES[id].name)}</option>`).join('')+'<option value="__add">＋ เพิ่มร้านใหม่…</option>';
   document.getElementById('foot-store').textContent=STORES[ALL.current].name+' · '+STORES[ALL.current].type;
@@ -909,6 +1204,7 @@ document.addEventListener('input',e=>{
 });
 document.addEventListener('change',e=>{
   const el=e.target;
+  if(el.dataset.action==='catsel'){ S.catSel=el.value; save(); render(); return; }
   if(el.id==='store-sel'){ if(el.value==='__add'){ const n=prompt('ชื่อร้านใหม่'); if(n){ addStore(n.trim(), prompt('ประเภทร้าน (เช่น ร้านอาหาร, เสื้อผ้า)')||''); } else { el.value=ALL.current; } } else switchStore(el.value); return; } if(el.dataset.bind && el.dataset.rerender && el.type!=='checkbox') render();
 });
 document.addEventListener('click',e=>{
