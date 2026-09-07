@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# loopdesk server
+server/data/pglite
+server/.env

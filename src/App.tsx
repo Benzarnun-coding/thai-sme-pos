@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
+import MarketingView from './marketing/MarketingView'
 import { 
   BarChart3, 
   ShoppingCart, 
@@ -33,7 +34,7 @@ import {
 } from 'recharts'
 
 // --- Types ---
-type View = 'POS' | 'Dashboard' | 'Stock' | 'Receipt';
+type View = 'POS' | 'Dashboard' | 'Stock' | 'Receipt' | 'Marketing';
 
 interface Ingredient { id: string; name: string; unit: string; amount: number; minThreshold: number; maxCapacity: number; }
 interface Modifier { id: string; name: string; price: number; }
@@ -247,7 +248,7 @@ function App() {
         <h1 style={headerFont} className="text-[10px] leading-tight text-black uppercase">Pixel<br/>Cafe</h1>
       </div>
       <nav className="flex flex-col gap-4">
-        {[{ id: 'POS', label: 'TERMINAL', icon: <ShoppingCart /> }, { id: 'Dashboard', label: 'ANALYTICS', icon: <LayoutDashboard /> }, { id: 'Stock', label: 'INVENTORY', icon: <Package /> }].map(btn => (
+        {[{ id: 'POS', label: 'TERMINAL', icon: <ShoppingCart /> }, { id: 'Dashboard', label: 'ANALYTICS', icon: <LayoutDashboard /> }, { id: 'Stock', label: 'INVENTORY', icon: <Package /> }, { id: 'Marketing', label: 'MARKETING', icon: <BrainCircuit /> }].map(btn => (
           <button key={btn.id} onClick={() => { setView(btn.id as View); setIsSidebarOpen(false); }} style={retroFont} className={`p-4 text-2xl font-black text-left flex items-center gap-4 ${pixelBorder} ${view === btn.id ? 'bg-black text-white' : 'bg-white hover:bg-orange-50'}`}>
             {btn.icon} {btn.label}
           </button>
@@ -268,7 +269,7 @@ function App() {
             {cart.length > 0 && <span style={retroFont} className="absolute -top-3 -right-3 bg-[#FF6B6B] border-2 border-black px-1 text-lg font-bold">{cart.length}</span>}
           </button>
         </header>
-        {view === 'POS' ? <POSView /> : view === 'Receipt' ? <ReceiptView /> : <div className="p-10 text-center"><p style={retroFont} className="text-3xl text-gray-400">"{view} VIEW COMING SOON..."</p></div>}
+        {view === 'POS' ? <POSView /> : view === 'Receipt' ? <ReceiptView /> : view === 'Marketing' ? <MarketingView /> : <div className="p-10 text-center"><p style={retroFont} className="text-3xl text-gray-400">"{view} VIEW COMING SOON..."</p></div>}
       </main>
 
       {showPayment && (

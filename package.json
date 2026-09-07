@@ -8,7 +8,10 @@
     "build": "vite build",
     "lint": "eslint .",
     "test": "vitest",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "server:dev": "pnpm --dir server dev",
+    "server:seed": "pnpm --dir server seed",
+    "server:test": "pnpm --dir server test"
   },
   "dependencies": {
     "lucide-react": "^0.577.0",
