@@ -1,73 +1,51 @@
-# React + TypeScript + Vite
+# thai-sme-pos + LoopDesk
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+แอป POS (React + Vite) และ **LoopDesk** ระบบการตลาดอัตโนมัติสำหรับร้านกางเกงยีนส์ Climax by PKjeans
+ที่ต่อกับ Facebook / TikTok / Shopee แบบ full loop (ตอนนี้อยู่ที่ Project 1: ฐานข้อมูล + ข้อมูลจริง ยังไม่มี AI)
 
-Currently, two official plugins are available:
+## เปิดเล่นในเครื่อง (คำสั่งเดียว)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+ต้องมี Node.js 20+ (มี npm มาด้วย)
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+git clone https://github.com/Benzarnun-coding/thai-sme-pos.git
+cd thai-sme-pos
+git checkout claude/ai-automation-fbads-content-anvwrg
+npm run demo
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+สคริปต์จะติดตั้ง dependencies, สร้างฐานข้อมูลตัวอย่าง (ร้าน climax, 52 SKU, ยอดขาย 30 วันจำลอง),
+เปิด API ที่ `http://localhost:3001` และเปิดเบราว์เซอร์ที่ **http://localhost:5173/#Marketing** ให้เอง
+กด Ctrl+C เพื่อหยุด
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+ถ้าอยากรันแยกเอง
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+pnpm server:seed      # ครั้งแรกครั้งเดียว
+pnpm server:dev       # API :3001
+npm run dev           # เว็บ :5173 → เมนู MARKETING
 ```
+
+## เอกสาร
+
+| ไฟล์ | เนื้อหา |
+|---|---|
+| `docs/ai-ads-automation-design.md` | ภาพรวม full loop, module map 15 โมดูล, ลำดับการสร้าง |
+| `docs/data-architecture.md` | แยกงาน Automation / AI / คน, schema, events, guardrails |
+| `docs/mockup/loopdesk.html` | mockup UI ทุกโมดูล (เปิดไฟล์ในเบราว์เซอร์ได้เลย) |
+| `server/README.md` | API, การนำเข้า CSV จาก Bigseller, การต่อ Facebook |
+
+## โครงสร้าง
+
+```
+src/                 แอป POS (React) + src/marketing/ หน้า MARKETING ที่อ่านจาก API
+server/              LoopDesk API (Fastify + PGlite/Postgres)
+docs/                เอกสารออกแบบและ mockup
+scripts/demo.mjs     รันทุกอย่างด้วยคำสั่งเดียว
+```
+
+## ต่อข้อมูลจริง
+
+1. **สินค้า/สต็อก** export CSV จาก Bigseller (คอลัมน์ sku, ชื่อสินค้า, ราคา, คงเหลือ) → `cd server && pnpm import:sku ไฟล์.csv`
+2. **Facebook** ใส่ `FB_PAGE_ID`, `FB_PAGE_TOKEN` (และ `FB_AD_ACCOUNT_ID`) ใน `server/.env` → `pnpm sync:facebook`
+3. **Postgres จริง** ตั้ง `DATABASE_URL` ใน `server/.env`

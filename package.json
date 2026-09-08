@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "server:dev": "pnpm --dir server dev",
     "server:seed": "pnpm --dir server seed",
-    "server:test": "pnpm --dir server test"
+    "server:test": "pnpm --dir server test",
+    "demo": "node scripts/demo.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.577.0",

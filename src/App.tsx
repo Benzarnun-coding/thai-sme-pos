@@ -104,7 +104,10 @@ const MENU_ITEMS: MenuItem[] = [
 const CATEGORIES = ['All', 'Coffee', 'Bakery', 'Dessert', 'Drinks'];
 
 function App() {
-  const [view, setView] = useState<View>('POS');
+  const [view, setView] = useState<View>(() => {
+    const h = window.location.hash.replace('#', '');
+    return (['POS', 'Dashboard', 'Stock', 'Marketing'] as View[]).includes(h as View) ? (h as View) : 'POS';
+  });
   const [activeCategory, setActiveCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<any[]>([]);
