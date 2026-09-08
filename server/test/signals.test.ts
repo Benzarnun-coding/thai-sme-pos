@@ -49,11 +49,19 @@ describe('buildProductSignals', () => {
 });
 
 describe('storeSummary', () => {
+  it('can seed without demo facebook data', async () => {
+    await resetDb(); const fresh = await getDb();
+    await seed(fresh, 'climax', { today, facebookDemo: false });
+    const sum = await storeSummary(fresh, 'climax', today);
+    expect(sum.ad_spend_7d).toBe(0); expect(sum.roas_7d).toBeNull(); expect(sum.followers).toBeNull();
+    await resetDb(); db = await getDb(); await seed(db, 'climax', { today });
+  });
   it('returns 7-day sales and a 14-day daily series', async () => {
     const sum = await storeSummary(db, 'climax', today);
     expect(sum.sales_7d).toBeGreaterThan(0);
     expect(sum.daily.length).toBe(14);
-    expect(sum.ad_spend_7d).toBe(0);
-    expect(sum.roas_7d).toBeNull();
+    expect(sum.ad_spend_7d).toBeGreaterThan(0);      // demo ads seeded
+    expect(sum.roas_7d).toBeGreaterThan(0);
+    expect(sum.followers).toBe(44000);
   });
 });

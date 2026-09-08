@@ -19,6 +19,8 @@ interface Signal {
   days_of_cover: number | null; overstock: boolean; promotable: boolean; note: string;
 }
 interface Connection { channel: string; display_name: string; status: string; last_sync_at: string | null; last_error: string | null }
+interface Post { external_post_id: string; created_time: string; message: string | null; reach: number | null; engaged: number | null; comments: number | null; shares: number | null; reactions: number | null }
+interface Ad { external_ad_id: string; ad_name: string; campaign_name: string; first_date: string; last_date: string; impressions: number; clicks: number; spend: string | number; conversations: number; purchases: number; revenue: string | number }
 
 const STORE = 'climax';
 const pixelBorder = 'border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]';
@@ -29,17 +31,21 @@ export default function MarketingView() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [conns, setConns] = useState<Connection[]>([]);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [ads, setAds] = useState<Ad[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [s, g, c] = await Promise.all([
+        const [s, g, c, p, a] = await Promise.all([
           fetch(`/api/stores/${STORE}/summary`).then((r) => r.json()),
           fetch(`/api/stores/${STORE}/signals`).then((r) => r.json()),
           fetch(`/api/stores/${STORE}/connections`).then((r) => r.json()),
+          fetch(`/api/stores/${STORE}/posts`).then((r) => r.json()),
+          fetch(`/api/stores/${STORE}/ads`).then((r) => r.json()),
         ]);
-        setSummary(s); setSignals(g); setConns(c); setError(null);
+        setSummary(s); setSignals(g); setConns(c); setPosts(p); setAds(a); setError(null);
       } catch (e) {
         setError((e as Error).message);
       }
@@ -130,6 +136,43 @@ export default function MarketingView() {
           </table>
         </div>
       </section>
+
+      <div className="grid lg:grid-cols-2 gap-4">
+        <section className={`${pixelBorder} bg-white p-4`}>
+          <h3 style={retroFont} className="text-2xl mb-2">แอดที่รันอยู่ (Facebook)</h3>
+          {ads.length === 0 ? <p className="text-sm text-gray-500">ยังไม่มีข้อมูลแอด</p> : (
+            <div className="overflow-x-auto"><table className="w-full text-sm">
+              <thead><tr className="text-left border-b-4 border-black" style={retroFont}><th className="p-2 text-lg">แอด</th><th className="p-2 text-lg text-right">ใช้ไป</th><th className="p-2 text-lg text-right">CTR</th><th className="p-2 text-lg text-right">ทักแชท</th><th className="p-2 text-lg text-right">฿/ทัก</th><th className="p-2 text-lg text-right">ROAS</th></tr></thead>
+              <tbody>{ads.map((a) => {
+                const spend = Number(a.spend), rev = Number(a.revenue);
+                const roas = spend > 0 ? rev / spend : 0;
+                return (<tr key={a.external_ad_id} className="border-b-2 border-gray-100 align-top">
+                  <td className="p-2"><b>{a.ad_name}</b><div className="text-xs text-gray-500">{a.campaign_name} · {a.first_date} → {a.last_date}</div></td>
+                  <td className="p-2 text-right whitespace-nowrap">{thb(spend)}</td>
+                  <td className="p-2 text-right">{a.impressions ? ((a.clicks / a.impressions) * 100).toFixed(2) : '0.00'}%</td>
+                  <td className="p-2 text-right">{a.conversations}</td>
+                  <td className="p-2 text-right">{a.conversations ? Math.round(spend / a.conversations) : '—'}</td>
+                  <td className={`p-2 text-right font-bold ${roas >= 3 ? 'text-green-700' : roas < 1.5 ? 'text-red-600' : ''}`}>{roas ? roas.toFixed(1) + 'x' : '—'}</td>
+                </tr>);
+              })}</tbody>
+            </table></div>
+          )}
+        </section>
+        <section className={`${pixelBorder} bg-white p-4`}>
+          <h3 style={retroFont} className="text-2xl mb-2">โพสต์ล่าสุด (Facebook)</h3>
+          {posts.length === 0 ? <p className="text-sm text-gray-500">ยังไม่มีข้อมูลโพสต์</p> : (
+            <ul className="space-y-2">{posts.slice(0, 6).map((p) => (
+              <li key={p.external_post_id} className="border-b-2 border-dashed border-gray-200 pb-2">
+                <div className="text-xs text-gray-500">{p.created_time?.slice(0, 10)}</div>
+                <div className="text-sm whitespace-pre-line line-clamp-2">{p.message}</div>
+                <div className="flex gap-3 text-xs mt-1" style={retroFont}>
+                  <span>reach <b>{(p.reach ?? 0).toLocaleString('th-TH')}</b></span><span>engaged <b>{p.engaged ?? 0}</b></span><span>คอมเมนต์ <b>{p.comments ?? 0}</b></span><span>แชร์ <b>{p.shares ?? 0}</b></span>
+                </div>
+              </li>
+            ))}</ul>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

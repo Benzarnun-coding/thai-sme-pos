@@ -25,7 +25,7 @@ describe('normalizers', () => {
 
 describe('syncFacebook (mocked Graph API)', () => {
   let db: Db;
-  beforeAll(async () => { await resetDb(); db = await getDb(); await seed(db, 'climax', { sales: false }); });
+  beforeAll(async () => { await resetDb(); db = await getDb(); await seed(db, 'climax', { sales: false, facebookDemo: false }); });
   afterAll(async () => { await resetDb(); });
 
   const fetchImpl: typeof fetch = async (input) => {

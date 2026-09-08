@@ -10,10 +10,11 @@ import { getDb, type Db } from './db/client.js';
 import { migrate } from './db/migrate.js';
 import { importRows, parseCsv } from './catalog/import.js';
 import { loadBrandFolder } from './knowledge/brand.js';
+import { seedFacebookDemo } from './seed-facebook-demo.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-export async function seed(db: Db, storeId = 'climax', opts: { sales?: boolean; today?: Date } = {}) {
+export async function seed(db: Db, storeId = 'climax', opts: { sales?: boolean; facebookDemo?: boolean; today?: Date } = {}) {
   await migrate(db);
   await db.query(
     `insert into store(id, name, type, settings) values ($1,$2,$3,$4)
@@ -46,7 +47,7 @@ export async function seed(db: Db, storeId = 'climax', opts: { sales?: boolean; 
     await db.query(
       `insert into connection(id, store_id, channel, external_account_id, display_name, capabilities, token_ref, status)
        values ($1,$2,$3,$4,$5,$6,$7,$8)
-       on conflict (store_id, channel, external_account_id) do update set display_name=excluded.display_name`,
+       on conflict (id) do update set display_name=excluded.display_name, external_account_id=excluded.external_account_id`,
       [`${storeId}-${channel}`, storeId, channel, ext, name,
         JSON.stringify(channel === 'facebook' ? { insights: true, post: false, ads: false } : { import: true }),
         channel === 'facebook' ? 'FB_PAGE_TOKEN' : null,
@@ -58,7 +59,10 @@ export async function seed(db: Db, storeId = 'climax', opts: { sales?: boolean; 
 
   let salesRows = 0;
   if (opts.sales !== false) salesRows = await seedSales(db, storeId, opts.today ?? new Date());
-  return { imported, brandKeys: keys, salesRows };
+  // Mock Facebook data unless a real token is configured (or explicitly disabled)
+  let facebookDemo: { posts: number; ads: number } | null = null;
+  if (opts.facebookDemo !== false && !process.env.FB_PAGE_TOKEN) facebookDemo = await seedFacebookDemo(db, storeId, opts.today ?? new Date());
+  return { imported, brandKeys: keys, salesRows, facebookDemo };
 }
 
 /** Deterministic pseudo-random 30-day sales so the dashboard has a curve. */
