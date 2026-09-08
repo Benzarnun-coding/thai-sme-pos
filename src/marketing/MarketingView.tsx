@@ -75,10 +75,12 @@ export default function MarketingView() {
       <div className="grid lg:grid-cols-3 gap-4">
         <section className={`${pixelBorder} bg-white p-4 lg:col-span-2`}>
           <h3 style={retroFont} className="text-2xl mb-2">ยอดขายรายวัน (14 วัน)</h3>
-          <div className="flex items-end gap-1 h-40">
+          <div className="flex gap-1">
             {summary.daily.map((d) => (
               <div key={d.date} className="flex-1 flex flex-col items-center gap-1" title={`${d.date}: ${thb(d.revenue)}`}>
-                <div className="w-full bg-[#4D96FF] border-2 border-black" style={{ height: `${(d.revenue / max) * 100}%` }} />
+                <div className="h-32 w-full flex items-end">
+                  <div className="w-full bg-[#4D96FF] border-2 border-black" style={{ height: `${Math.max(2, (d.revenue / max) * 100)}%` }} />
+                </div>
                 <span style={retroFont} className="text-sm text-gray-500">{d.date.slice(8)}</span>
               </div>
             ))}
