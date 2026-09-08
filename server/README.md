@@ -23,7 +23,10 @@ pnpm test          # 22 tests
 
 ## ต่อข้อมูลจริง
 
-1. **สินค้า/สต็อกจริง**: export จาก Bigseller เป็น CSV ที่มีคอลัมน์ `sku, name, category, price, qty` (หัวคอลัมน์ภาษาไทยก็ได้) แล้ว
+0. **LOCATION_SKU.xlsx (แคตตาล็อกหลักบน PC Windows)**: `pnpm import:xlsx LOCATION_SKU.xlsx PK` (หรือ `all`)
+   รองรับทั้งรูปแบบ LOCATION_SKU (tab ต่อสถานที่, header แถว 2) และไฟล์ "นำเข้าเพื่อสร้าง SPU" ของ Bigseller
+   แถวที่สีเป็น `ZZ` หรือรุ่นขึ้นต้น `IT` จะนำเข้าพร้อมคำเตือน ไม่ข้าม
+1. **สินค้า/สต็อกจริง (CSV)**: export จาก Bigseller เป็น CSV ที่มีคอลัมน์ `sku, name, category, price, qty` (หัวคอลัมน์ภาษาไทยก็ได้) แล้ว
    `pnpm import:sku path/to/file.csv` หรือ `POST /api/stores/climax/import/sku {csv}` ทุกครั้งที่นำเข้า = snapshot ใหม่ (ไม่ทับของเก่า)
 2. **Facebook**: สร้าง Meta App → ขอ token ของเพจที่มี `pages_read_engagement`, `read_insights` และ `ads_read` แล้วใส่ `.env` (ดู `.env.example`)
    `pnpm sync:facebook` หรือปล่อยให้ scheduler ดึงทุก 6 ชั่วโมง

@@ -65,7 +65,9 @@ export async function buildProductSignals(db: Db, storeId: string, today = new D
     const rule = ruleFor(p.category);
     const core = rule?.core_sizes ?? [];
     const minQ = rule?.min_qty_per_size ?? 1;
-    const missing = core.filter((z) => (bySize[z] ?? 0) < minQ);
+    // products that don't come in numbered sizes (FREESIZE / free size / S-M-L) are judged on total stock only
+    const hasCoreDims = core.some((z) => z in bySize);
+    const missing = hasCoreDims ? core.filter((z) => (bySize[z] ?? 0) < minQ) : [];
     const core_size_ok = missing.length === 0;
     const avgDaily = sales_30d / 30;
     const days_of_cover = avgDaily > 0 ? Math.round(total / avgDaily) : null;

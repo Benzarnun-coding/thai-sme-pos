@@ -44,7 +44,25 @@ docs/                เอกสารออกแบบและ mockup
 scripts/demo.mjs     รันทุกอย่างด้วยคำสั่งเดียว
 ```
 
-## ต่อข้อมูลจริง
+## ต่อข้อมูลจริง (ฐานข้อมูลจริงอยู่บน PC Windows)
+
+แนะนำให้รันทั้งชุดบน PC Windows ที่มี Bigseller / แคตตาล็อกอยู่ เพราะข้อมูลจะได้อยู่เครื่องเดียวกัน
+(ใช้ PowerShell คำสั่งเหมือนกันทุกอย่าง) แล้วเปิดจาก MacBook ผ่าน `http://<ip-ของ-pc>:5173` ในวง LAN เดียวกันได้
+
+1. **แคตตาล็อกจริง** เอาไฟล์ `LOCATION_SKU.xlsx` (tab ต่อสถานที่ PK, CM, BB, AR, BT, AM, SP, MN, JW, MK) มาวางแล้ว
+
+   ```bash
+   cd server
+   pnpm import:xlsx "C:\path\LOCATION_SKU.xlsx" PK      # ทีละสถานที่ หรือใส่ all
+   ```
+
+   ระบบขยาย "ไซส์ที่มี" เป็น SKU ต่อไซส์ แบ่งสต็อกรวมเท่า ๆ กัน และใช้ราคากลางของ "ราคา (ช่วง)" กฎเดียวกับสคริปต์ SPU import
+   ไฟล์ export "นำเข้าเพื่อสร้าง SPU" จาก Bigseller ก็ใช้คำสั่งเดียวกันได้ (ตรวจรูปแบบให้เอง)
+   ดูตัวอย่างรูปแบบไฟล์ได้ที่ `server/data/LOCATION_SKU.sample.xlsx`
+2. **Facebook** ใส่ `FB_PAGE_ID`, `FB_PAGE_TOKEN` (และ `FB_AD_ACCOUNT_ID`) ใน `server/.env` → `pnpm sync:facebook`
+3. **Postgres จริง** ตั้ง `DATABASE_URL` ใน `server/.env`
+
+### ต่อข้อมูลจริง (สรุป)
 
 1. **สินค้า/สต็อก** export CSV จาก Bigseller (คอลัมน์ sku, ชื่อสินค้า, ราคา, คงเหลือ) → `cd server && pnpm import:sku ไฟล์.csv`
 2. **Facebook** ใส่ `FB_PAGE_ID`, `FB_PAGE_TOKEN` (และ `FB_AD_ACCOUNT_ID`) ใน `server/.env` → `pnpm sync:facebook`

@@ -10,7 +10,7 @@ import {
   Plus, 
   Minus,
   BrainCircuit,
-  Coffee,
+  Shirt,
   X,
   Search,
   Menu as MenuIcon,
@@ -51,12 +51,12 @@ interface MenuItem {
 
 // --- Data & Constants ---
 const INITIAL_STOCK: Ingredient[] = [
-  { id: 'beans', name: 'COFFEE BEANS', unit: 'G', amount: 4200, minThreshold: 1000, maxCapacity: 5000 },
-  { id: 'milk', name: 'FRESH MILK', unit: 'ML', amount: 8500, minThreshold: 3000, maxCapacity: 12000 },
-  { id: 'oatmilk', name: 'OAT MILK', unit: 'ML', amount: 1200, minThreshold: 1000, maxCapacity: 4000 },
-  { id: 'chocolate', name: 'DARK CHOCO', unit: 'G', amount: 1800, minThreshold: 500, maxCapacity: 2000 },
-  { id: 'butter', name: 'FRENCH BUTTER', unit: 'G', amount: 450, minThreshold: 500, maxCapacity: 3000 },
-  { id: 'flour', name: 'PASTRY FLOUR', unit: 'G', amount: 9200, minThreshold: 2000, maxCapacity: 10000 },
+  { id: 'kb', name: 'กระบอกเล็ก สีดำ', unit: 'ตัว', amount: 208, minThreshold: 60, maxCapacity: 400 },
+  { id: 'st', name: 'ผ้ายืด ใส่สบาย', unit: 'ตัว', amount: 70, minThreshold: 60, maxCapacity: 300 },
+  { id: 'ch', name: 'ชิโน่สไตล์เกาหลี', unit: 'ตัว', amount: 73, minThreshold: 40, maxCapacity: 200 },
+  { id: 'df', name: 'ทรงเดฟเอวสูง', unit: 'ตัว', amount: 240, minThreshold: 40, maxCapacity: 250 },
+  { id: 'sp', name: 'ผ้ายืดสปอร์ต', unit: 'ตัว', amount: 105, minThreshold: 30, maxCapacity: 200 },
+  { id: 'sh', name: 'ขาสั้นผ้าสี', unit: 'ตัว', amount: 237, minThreshold: 60, maxCapacity: 400 },
 ];
 
 const SALES_STATS = [
@@ -65,43 +65,35 @@ const SALES_STATS = [
 ];
 
 const CATEGORY_STATS = [
-  { name: 'COFFEE', value: 4500 }, { name: 'BAKERY', value: 3200 },
-  { name: 'DESSERT', value: 2100 }, { name: 'DRINKS', value: 1500 },
+  { name: 'ผู้ชาย', value: 62000 }, { name: 'ขาสั้น', value: 29000 },
+  { name: 'ผู้หญิง', value: 12000 }, { name: 'ขายส่ง', value: 40000 },
 ];
 
+const SIZES = ['28', '30', '32', '34', '36', '38', '40', '42', '44'];
 const MODIFIER_CATEGORIES: Record<string, ModifierCategory> = {
-  milk: {
-    id: 'milk', name: 'MILK OPTION', type: 'radio',
-    options: [{ id: 'm-full', name: 'REGULAR', price: 0 }, { id: 'm-oat', name: 'OAT MILK', price: 20 }]
-  },
-  sweet: {
-    id: 'sweet', name: 'SWEETNESS', type: 'radio',
-    options: [{ id: 's0', name: '0%', price: 0 }, { id: 's50', name: '50%', price: 0 }, { id: 's100', name: '100%', price: 0 }]
-  }
+  size: { id: 'size', name: 'ไซส์', type: 'radio', options: SIZES.map(z => ({ id: `z${z}`, name: z, price: 0 })) },
+  sizeW: { id: 'sizeW', name: 'ไซส์', type: 'radio', options: ['26', '28', '30', '32', '34', '36'].map(z => ({ id: `w${z}`, name: z, price: 0 })) },
+  color: { id: 'color', name: 'สี', type: 'radio', options: [{ id: 'c-bk', name: 'ดำ', price: 0 }, { id: 'c-nv', name: 'กรม', price: 0 }, { id: 'c-gy', name: 'เทา', price: 0 }] },
+  wash: { id: 'wash', name: 'สี', type: 'radio', options: [{ id: 'w-mw', name: 'ฟอกกลาง', price: 0 }, { id: 'w-dk', name: 'สีเข้ม', price: 0 }] },
 };
 
+const IMG = (id: string) => `https://images.unsplash.com/${id}?q=80&w=400&auto=format&fit=crop`;
 const MENU_ITEMS: MenuItem[] = [
-  // --- Coffee ---
-  { id: 'c1', name: 'ICED AMERICANO', description: 'Strong & Fresh', price: 45, category: 'Coffee', thumbnail: 'https://images.unsplash.com/photo-1517701604599-bb29b565090c?q=80&w=400&auto=format&fit=crop', modifiers: [MODIFIER_CATEGORIES.sweet] },
-  { id: 'c2', name: 'HOT LATTE ART', description: 'Creamy Heart', price: 55, category: 'Coffee', thumbnail: 'https://images.unsplash.com/photo-1541167760496-162955ed8a9f?q=80&w=400&auto=format&fit=crop', modifiers: [MODIFIER_CATEGORIES.milk] },
-  { id: 'c3', name: 'DIRTY COFFEE', description: 'Cold Milk & Hot Espresso', price: 95, category: 'Coffee', thumbnail: 'https://images.unsplash.com/photo-1559496417-e7f25cb247f3?q=80&w=400&auto=format&fit=crop' },
-  { id: 'c4', name: 'CARAMEL MACCHIATO', description: 'Sweet & Silky', price: 75, category: 'Coffee', thumbnail: 'https://images.unsplash.com/photo-1485808191679-5f86510681a2?q=80&w=400&auto=format&fit=crop' },
-  
-  // --- Bakery ---
-  { id: 'b1', name: 'ALMOND CROISSANT', description: 'Extra Flaky', price: 125, category: 'Bakery', thumbnail: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?q=80&w=400&auto=format&fit=crop' },
-  { id: 'b2', name: 'BUTTER CROISSANT', description: 'French Butter', price: 85, category: 'Bakery', thumbnail: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?q=80&w=400&auto=format&fit=crop' },
-  { id: 'b3', name: 'CHOCO LAVA CAKE', description: 'Warm & Melty', price: 145, category: 'Bakery', thumbnail: 'https://images.unsplash.com/photo-1563805042-7684c019e1cb?q=80&w=400&auto=format&fit=crop' },
-  { id: 'b4', name: 'BLUEBERRY MUFFIN', description: 'Bursting with Berries', price: 75, category: 'Bakery', thumbnail: 'https://images.unsplash.com/photo-1558303420-f814d8a590f5?q=80&w=400&auto=format&fit=crop' },
-  { id: 'b5', name: 'MATCHA BROWNIE', description: 'Rich & Fudgy', price: 90, category: 'Bakery', thumbnail: 'https://images.unsplash.com/photo-1515037893149-de7f840978e2?q=80&w=400&auto=format&fit=crop' },
-  
-  // --- Desserts & Drinks ---
-  { id: 'd1', name: 'DUBAI TART', description: 'Viral Pistachio', price: 185, category: 'Dessert', thumbnail: 'https://images.unsplash.com/photo-1606312619070-d48b4c652a52?q=80&w=400&auto=format&fit=crop' },
-  { id: 'd2', name: 'HONEY TOAST', description: 'Butter Overload', price: 165, category: 'Dessert', thumbnail: 'https://images.unsplash.com/photo-1484723088916-fe59a2df7151?q=80&w=400&auto=format&fit=crop' },
-  { id: 't1', name: 'THAI MILK TEA', description: 'Signature Orange', price: 50, category: 'Drinks', thumbnail: 'https://images.unsplash.com/photo-1594266302456-9a528cc15f18?q=80&w=400&auto=format&fit=crop' },
-  { id: 't2', name: 'STRAWBERRY SODA', description: 'Fizzy & Sweet', price: 65, category: 'Drinks', thumbnail: 'https://images.unsplash.com/photo-1546173159-319746d518e4?q=80&w=400&auto=format&fit=crop' },
+  // --- ผู้ชาย ---
+  { id: 'kb', name: 'ยีนส์ทรงกระบอกเล็ก สีดำ', description: '3 ตัว 550 · ไซส์ 28-44', price: 199, category: 'ผู้ชาย', thumbnail: IMG('photo-1542272604-787c3835535d'), modifiers: [MODIFIER_CATEGORIES.size] },
+  { id: 'st', name: 'ยีนส์ผ้ายืด ใส่สบาย', description: '4 ตัว 990 ส่งฟรี · ไซส์ 28-44', price: 299, category: 'ผู้ชาย', thumbnail: IMG('photo-1541099649105-f69ad21f3246'), modifiers: [MODIFIER_CATEGORIES.wash, MODIFIER_CATEGORIES.size] },
+  { id: 'ch', name: 'ชิโน่สไตล์เกาหลี', description: '3 ตัว 550 · ไซส์ 28-40', price: 199, category: 'ผู้ชาย', thumbnail: IMG('photo-1473966968600-fa801b869a1a'), modifiers: [MODIFIER_CATEGORIES.size] },
+  { id: 'sp', name: 'กางเกงผ้ายืดสปอร์ต', description: '3 ตัว 499 · FREESIZE 28-36', price: 166, category: 'ผู้ชาย', thumbnail: IMG('photo-1552902865-b72c031ac5ea'), modifiers: [MODIFIER_CATEGORIES.color] },
+  // --- ผู้หญิง ---
+  { id: 'df', name: 'ทรงเดฟเอวสูง', description: '3 ตัว 699 · ไซส์ 26-36', price: 249, category: 'ผู้หญิง', thumbnail: IMG('photo-1584370848010-d7fe6bc767ec'), modifiers: [MODIFIER_CATEGORIES.sizeW] },
+  // --- ขาสั้น ---
+  { id: 'sh', name: 'ขาสั้นผ้าสี', description: '3 ตัว 499 · ไซส์ 28-44', price: 189, category: 'ขาสั้น', thumbnail: IMG('photo-1591195853828-11db59a44f6b'), modifiers: [MODIFIER_CATEGORIES.color, MODIFIER_CATEGORIES.size] },
+  // --- โปร / ขายส่ง ---
+  { id: 'b1g1', name: 'ยีนส์ฟอก โปร 1 แถม 1', description: '2 ตัว 490', price: 490, category: 'ขายส่ง', thumbnail: IMG('photo-1475178626620-a4d074967452'), modifiers: [MODIFIER_CATEGORIES.size] },
+  { id: 'ws20', name: 'ชุดขายส่ง 20 ตัว คละแบบ', description: 'ตกตัวละ 200 · คละไซส์ 28-44', price: 4000, category: 'ขายส่ง', thumbnail: IMG('photo-1565084888279-aca607ecce0c') },
 ];
 
-const CATEGORIES = ['All', 'Coffee', 'Bakery', 'Dessert', 'Drinks'];
+const CATEGORIES = ['All', 'ผู้ชาย', 'ผู้หญิง', 'ขาสั้น', 'ขายส่ง'];
 
 function App() {
   const [view, setView] = useState<View>(() => {
@@ -247,8 +239,8 @@ function App() {
   const Sidebar = () => (
     <aside className={`fixed lg:static inset-y-0 left-0 w-72 bg-[#FFD93D] p-6 z-50 border-r-4 border-black transition-transform transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
       <div className="flex items-center gap-4 mb-10">
-        <div className={`bg-white p-2 border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]`}><Coffee size={24} /></div>
-        <h1 style={headerFont} className="text-[10px] leading-tight text-black uppercase">Pixel<br/>Cafe</h1>
+        <div className={`bg-white p-2 border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]`}><Shirt size={24} /></div>
+        <h1 style={headerFont} className="text-[10px] leading-tight text-black uppercase">Climax<br/>PKjeans</h1>
       </div>
       <nav className="flex flex-col gap-4">
         {[{ id: 'POS', label: 'TERMINAL', icon: <ShoppingCart /> }, { id: 'Dashboard', label: 'ANALYTICS', icon: <LayoutDashboard /> }, { id: 'Stock', label: 'INVENTORY', icon: <Package /> }, { id: 'Marketing', label: 'MARKETING', icon: <BrainCircuit /> }].map(btn => (

@@ -17,19 +17,19 @@ describe('Pixel POS App', () => {
     expect(screen.getByText('PIXEL POS v3.0')).toBeInTheDocument()
 
     // Check categories
-    expect(screen.getByRole('button', { name: 'COFFEE' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'BAKERY' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'ผู้ชาย' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'ขายส่ง' })).toBeInTheDocument()
 
     // Check a menu item exists
-    expect(screen.getByText('ICED AMERICANO')).toBeInTheDocument()
+    expect(screen.getByText('ยีนส์ทรงกระบอกเล็ก สีดำ')).toBeInTheDocument()
   })
 
   it('adds an item without modifiers to the cart', async () => {
     const user = userEvent.setup()
     render(<App />)
     
-    // Find an item without modifiers (e.g. DIRTY COFFEE)
-    const dirtyCoffee = screen.getByText('DIRTY COFFEE')
+    // Find an item without modifiers (the wholesale set)
+    const dirtyCoffee = screen.getByText('ชุดขายส่ง 20 ตัว คละแบบ')
     await user.click(dirtyCoffee)
 
     // Check if cart updates. The cart is in an aside. 
@@ -37,11 +37,11 @@ describe('Pixel POS App', () => {
     const cartContainer = screen.getByText('ORDER LIST').closest('aside')!
     
     // Check item in cart
-    expect(within(cartContainer).getByText('DIRTY COFFEE')).toBeInTheDocument()
+    expect(within(cartContainer).getByText('ชุดขายส่ง 20 ตัว คละแบบ')).toBeInTheDocument()
     
-    // Check total price update in cart (Dirty Coffee is 95)
+    // Check total price update in cart (wholesale set is 4000)
     const totalSection = within(cartContainer).getByText('TOTAL').closest('div')!
-    expect(within(totalSection).getByText('95.-')).toBeInTheDocument()
+    expect(within(totalSection).getByText('4000.-')).toBeInTheDocument()
   })
 
   it('handles item with modifiers correctly', async () => {
@@ -49,13 +49,13 @@ describe('Pixel POS App', () => {
     render(<App />)
 
     // Click on ICED AMERICANO which has modifiers
-    await user.click(screen.getByText('ICED AMERICANO'))
+    await user.click(screen.getByText('ยีนส์ทรงกระบอกเล็ก สีดำ'))
 
     // Check if modifier modal appears
-    expect(screen.getByText('SWEETNESS')).toBeInTheDocument()
+    expect(screen.getByText('ไซส์')).toBeInTheDocument()
 
-    // Select 50% sweetness
-    const sweet50 = screen.getByText('50%')
+    // Select size 32
+    const sweet50 = screen.getByText('32')
     await user.click(sweet50)
 
     // Add to order
@@ -70,18 +70,18 @@ describe('Pixel POS App', () => {
     const cartContainer = screen.getByText('ORDER LIST').closest('aside')!
 
     // Check item in cart
-    expect(within(cartContainer).getByText('ICED AMERICANO')).toBeInTheDocument()
+    expect(within(cartContainer).getByText('ยีนส์ทรงกระบอกเล็ก สีดำ')).toBeInTheDocument()
     
-    // Check TOTAL. Iced Americano is 45. Modifier 50% is 0 price.
+    // Check TOTAL. Straight-leg jeans are 199. Size modifier is 0 price.
     const totalSection = within(cartContainer).getByText('TOTAL').closest('div')!
-    expect(within(totalSection).getByText('45.-')).toBeInTheDocument()
+    expect(within(totalSection).getByText('199.-')).toBeInTheDocument()
   })
 
   it('updates quantity in cart', async () => {
     render(<App />)
     
-    // Add Dirty Coffee
-    fireEvent.click(screen.getByText('DIRTY COFFEE'))
+    // Add wholesale set
+    fireEvent.click(screen.getByText('ชุดขายส่ง 20 ตัว คละแบบ'))
     
     const cartContainer = screen.getByText('ORDER LIST').closest('aside')!
     
@@ -94,21 +94,21 @@ describe('Pixel POS App', () => {
       expect(within(cartContainer).getByText('2')).toBeInTheDocument()
     })
     
-    // Total price should be 95 * 2 = 190
+    // Total price should be 4000 * 2 = 8000
     const totalSection = within(cartContainer).getByText('TOTAL').closest('div')!
-    expect(within(totalSection).getByText('190.-')).toBeInTheDocument()
+    expect(within(totalSection).getByText('8000.-')).toBeInTheDocument()
   })
 
   it('removes item from cart', async () => {
     render(<App />)
     
-    // Add Dirty Coffee
-    fireEvent.click(screen.getByText('DIRTY COFFEE'))
+    // Add wholesale set
+    fireEvent.click(screen.getByText('ชุดขายส่ง 20 ตัว คละแบบ'))
     
     const cartContainer = screen.getByText('ORDER LIST').closest('aside')!
     
     // Verify it's there
-    expect(within(cartContainer).getByText('DIRTY COFFEE')).toBeInTheDocument()
+    expect(within(cartContainer).getByText('ชุดขายส่ง 20 ตัว คละแบบ')).toBeInTheDocument()
     
     // Click remove button (X) inside the cart
     const removeBtn = within(cartContainer).getByRole('button', { name: 'X' })
@@ -125,7 +125,7 @@ describe('Pixel POS App', () => {
     render(<App />)
     
     // Add item
-    await user.click(screen.getByText('DIRTY COFFEE'))
+    await user.click(screen.getByText('ชุดขายส่ง 20 ตัว คละแบบ'))
     
     // Click Checkout
     await user.click(screen.getByText('CHECKOUT'))
