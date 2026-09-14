@@ -10,7 +10,7 @@ import { getDb, type Db } from './db/client.js';
 import { migrate } from './db/migrate.js';
 import { importRows, parseCsv } from './catalog/import.js';
 import { loadBrandFolder } from './knowledge/brand.js';
-import { seedFacebookDemo } from './seed-facebook-demo.js';
+import { DEMO_PAGE_ID, seedFacebookDemo } from './seed-facebook-demo.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -41,14 +41,14 @@ export async function seed(db: Db, storeId = 'climax', opts: { sales?: boolean; 
   const imported = await importRows(db, storeId, parseCsv(csv), 'seed:sample-sku.csv');
 
   for (const [channel, name, ext] of [
-    ['facebook', 'กางเกงยีนส์ชาย Climax by PKjeans', process.env.FB_PAGE_ID ?? null],
+    ['facebook', 'กางเกงยีนส์ชาย Climax by PKjeans', process.env.FB_PAGE_ID ?? DEMO_PAGE_ID],
     ['pos', 'Bigseller / POS (CSV import)', null],
   ] as const) {
     await db.query(
       `insert into connection(id, store_id, channel, external_account_id, display_name, capabilities, token_ref, status)
        values ($1,$2,$3,$4,$5,$6,$7,$8)
        on conflict (id) do update set display_name=excluded.display_name, external_account_id=excluded.external_account_id`,
-      [`${storeId}-${channel}`, storeId, channel, ext, name,
+      [`${storeId}-${channel}-${ext ?? 'default'}`, storeId, channel, ext, name,
         JSON.stringify(channel === 'facebook' ? { insights: true, post: false, ads: false } : { import: true }),
         channel === 'facebook' ? 'FB_PAGE_TOKEN' : null,
         channel === 'facebook' && process.env.FB_PAGE_TOKEN ? 'connected' : channel === 'pos' ? 'connected' : 'disconnected'],

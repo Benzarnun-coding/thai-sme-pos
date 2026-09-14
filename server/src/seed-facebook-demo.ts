@@ -6,6 +6,9 @@
  */
 import type { Db } from './db/client.js';
 
+/** Same id the OAuth demo picker offers, so connecting updates this row instead of duplicating it. */
+export const DEMO_PAGE_ID = '100083203598462';
+
 const POSTS = [
   { d: 1, msg: '👖 ยีนส์ผ้ายืด 4 ตัว 990.- ตกตัวละ 247!\n⭐ ไซส์ 28-44 อ้วนผอมใส่ได้\n🚚 ส่งฟรี + เก็บเงินปลายทาง\nทักแชทสั่งได้เลย', reach: 8800, eng: 640, com: 34, sh: 12, re: 210 },
   { d: 2, msg: '🔥 3 ตัว 700.- ยีนส์ทรงกระบอกเล็ก ผ้ายืด ชิโน่ คละแบบได้\n👖 ไซส์ 28-44 มีครบ\nทักแชทสั่งได้เลย', reach: 12400, eng: 910, com: 58, sh: 21, re: 340 },
@@ -62,9 +65,10 @@ export async function seedFacebookDemo(db: Db, storeId: string, today: Date) {
   }
 
   await db.query(
-    `update connection set status='connected', display_name=$2, external_account_id='demo-page', last_sync_at=now(), token_expires_at=now() + interval '58 days', last_error=null
+    `update connection set status='connected', display_name=$2, external_account_id=$3,
+            token_source='demo', last_sync_at=now(), token_expires_at=now() + interval '58 days', last_error=null
       where store_id=$1 and channel='facebook'`,
-    [storeId, 'กางเกงยีนส์ชาย Climax by PKjeans · ข้อมูล demo (ยังไม่ต่อ token จริง)']);
+    [storeId, 'กางเกงยีนส์ชาย Climax by PKjeans', DEMO_PAGE_ID]);
 
   return { posts: POSTS.length, ads: ADS.length };
 }

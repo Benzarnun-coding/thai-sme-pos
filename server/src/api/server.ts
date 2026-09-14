@@ -6,6 +6,8 @@ import { buildProductSignals, storeSummary } from '../signals/build.js';
 import { importRows, parseCsv } from '../catalog/import.js';
 import { getBrandDocs } from '../knowledge/brand.js';
 import { facebookOptionsFromEnv, syncFacebook } from '../connectors/facebook.js';
+import { registerOauthRoutes } from './oauth-routes.js';
+import { listConnections } from '../auth/connections.js';
 
 export function buildServer(db: Db) {
   const app = Fastify({ logger: process.env.NODE_ENV !== 'test' });
@@ -45,7 +47,7 @@ export function buildServer(db: Db) {
 
   app.get('/api/stores/:id/connections', async (req) => {
     const { id } = req.params as { id: string };
-    return db.query('select id, channel, external_account_id, display_name, capabilities, status, last_sync_at, last_error, token_expires_at from connection where store_id=$1 order by channel', [id]);
+    return listConnections(db, id);
   });
 
   app.get('/api/stores/:id/brand', async (req) => {
@@ -89,6 +91,8 @@ export function buildServer(db: Db) {
     const { id } = req.params as { id: string };
     return db.query('select actor, actor_type, action, target, after, at from audit_log where store_id=$1 order by at desc limit 50', [id]);
   });
+
+  registerOauthRoutes(app, db);
 
   return app;
 }

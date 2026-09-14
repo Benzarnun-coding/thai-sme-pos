@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import Connections, { type Connection } from './Connections';
 
 /**
  * Marketing (Project 1): reads real numbers from the LoopDesk server.
@@ -18,7 +19,6 @@ interface Signal {
   stock_by_size: Record<string, number>; missing_core_sizes: string[]; core_size_ok: boolean;
   days_of_cover: number | null; overstock: boolean; promotable: boolean; note: string;
 }
-interface Connection { channel: string; display_name: string; status: string; last_sync_at: string | null; last_error: string | null }
 interface Post { external_post_id: string; created_time: string; message: string | null; reach: number | null; engaged: number | null; comments: number | null; shares: number | null; reactions: number | null }
 interface Ad { external_ad_id: string; ad_name: string; campaign_name: string; first_date: string; last_date: string; impressions: number; clicks: number; spend: string | number; conversations: number; purchases: number; revenue: string | number }
 
@@ -78,8 +78,8 @@ export default function MarketingView() {
         <Tile label="ผู้ติดตามเพจ" value={summary.followers === null ? '—' : summary.followers.toLocaleString('th-TH')} sub={summary.followers_date ? `ณ ${summary.followers_date}` : 'ยังไม่ได้ sync Facebook'} color="bg-white" />
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-4">
-        <section className={`${pixelBorder} bg-white p-4 lg:col-span-2`}>
+      <div className="grid gap-4">
+        <section className={`${pixelBorder} bg-white p-4`}>
           <h3 style={retroFont} className="text-2xl mb-2">ยอดขายรายวัน (14 วัน)</h3>
           <div className="flex gap-1">
             {summary.daily.map((d) => (
@@ -92,17 +92,7 @@ export default function MarketingView() {
             ))}
           </div>
         </section>
-        <section className={`${pixelBorder} bg-white p-4`}>
-          <h3 style={retroFont} className="text-2xl mb-2">การเชื่อมต่อ</h3>
-          <ul className="space-y-2 text-sm">
-            {conns.map((c) => (
-              <li key={c.channel} className="flex items-start justify-between gap-2 border-b-2 border-dashed border-gray-200 pb-2">
-                <div><b className="uppercase">{c.channel}</b><div className="text-gray-500 text-xs">{c.display_name}</div>{c.last_error && <div className="text-red-600 text-xs">{c.last_error}</div>}</div>
-                <span className={`px-2 border-2 border-black text-xs ${c.status === 'connected' ? 'bg-[#6BCB77]' : c.status === 'error' ? 'bg-[#FF6B6B] text-white' : 'bg-gray-200'}`}>{c.status}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
+        <Connections storeId={STORE} connections={conns} onChange={setConns} />
       </div>
 
       <section className={`${pixelBorder} bg-white p-4`}>
