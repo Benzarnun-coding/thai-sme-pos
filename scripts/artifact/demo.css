@@ -1,25 +1,34 @@
-/* Chrome that only exists in the published demo. */
-.demo-bar{position:fixed;bottom:10px;right:10px;z-index:9999;background:#111;color:#fff;
-  font:12px/1.4 system-ui,sans-serif;padding:6px 10px;border:3px solid #FFD93D;box-shadow:3px 3px 0 #000;max-width:calc(100vw - 20px)}
+/* Chrome that only exists in the published demo. Uses the app's own tokens. */
+.demo-bar{position:fixed;bottom:12px;right:12px;z-index:9999;max-width:calc(100vw - 24px);
+  background:var(--panel);color:var(--ink-2);border:1px solid var(--line);border-radius:999px;
+  padding:6px 14px;font:12px/1.5 var(--font);box-shadow:var(--shadow-lg)}
+.demo-bar b{color:var(--ink);font-weight:500}
 
 /* Stand-in consent screen, shown where Facebook's own screen would be. */
-.consent-scrim{position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.72);
+.consent-scrim{position:fixed;inset:0;z-index:10000;background:rgba(11,14,24,.6);
   display:flex;align-items:center;justify-content:center;padding:16px}
-.consent-card{background:#fff;color:#111;width:100%;max-width:420px;max-height:90vh;overflow-y:auto;
-  border:4px solid #000;box-shadow:8px 8px 0 #000;padding:18px;font:15px/1.5 system-ui,-apple-system,sans-serif}
-.consent-head{display:flex;align-items:center;gap:10px;border-bottom:2px solid #eee;padding-bottom:12px;margin-bottom:12px}
-.consent-mark{display:grid;place-items:center;width:38px;height:38px;flex:none;background:#1877F2;color:#fff;
-  font:700 22px/1 Georgia,serif;border-radius:9px}
-.consent-sub{font-size:12px;color:#777;margin-top:2px}
-.consent-lead{margin:0 0 10px}
-.consent-list{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:7px}
-.consent-list li{display:flex;align-items:center;gap:8px;font-size:14px}
-.consent-list .tick{color:#188038;font-weight:700}
-.consent-list code{margin-left:auto;font:11px/1 ui-monospace,monospace;color:#888;background:#f3f3f3;padding:3px 5px;border-radius:4px}
-.consent-note{margin:0 0 16px;font-size:12px;color:#666;background:#FAF7EC;border-left:3px solid #FFD93D;padding:8px 10px}
+.consent-card{background:var(--panel);color:var(--ink);width:100%;max-width:430px;max-height:90vh;overflow-y:auto;
+  border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-lg);padding:22px;
+  font:15px/1.55 var(--font)}
+.consent-head{display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:14px}
+.consent-mark{display:grid;place-items:center;width:38px;height:38px;flex:none;background:var(--fb);color:#fff;
+  font:500 20px/1 var(--font-head);border-radius:11px}
+.consent-head b{font-family:var(--font-head);font-weight:500}
+.consent-sub{font-size:12px;color:var(--muted);margin-top:1px}
+.consent-lead{margin:0 0 12px;font-size:14px;color:var(--ink-2)}
+.consent-lead b{color:var(--ink);font-weight:500}
+.consent-list{list-style:none;margin:0 0 14px;padding:0;display:grid;gap:8px}
+.consent-list li{display:flex;align-items:center;gap:9px;font-size:14px}
+.consent-list .tick{display:grid;place-items:center;width:18px;height:18px;flex:none;border-radius:50%;
+  background:var(--good-soft);color:var(--good);font-size:11px}
+.consent-list code{margin-left:auto;font:11px/1.6 var(--font-mono);color:var(--muted);
+  background:var(--panel-2);padding:2px 7px;border-radius:999px}
+.consent-note{margin:0 0 18px;font-size:12.5px;color:var(--ink-2);background:var(--accent-soft);
+  border-radius:var(--r-sm);padding:10px 12px}
 .consent-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
-.consent-actions button{border:3px solid #000;padding:8px 16px;font:inherit;font-weight:700;cursor:pointer;
-  box-shadow:3px 3px 0 #000}
-.consent-actions button:active{transform:translate(3px,3px);box-shadow:none}
-.consent-no{background:#fff}
-.consent-yes{background:#1877F2;color:#fff}
+.consent-actions button{border:1px solid var(--line-2);border-radius:var(--r-sm);padding:9px 18px;
+  font:inherit;font-size:14px;cursor:pointer;background:var(--panel);color:var(--ink);transition:filter .15s,background .15s}
+.consent-actions button:active{transform:translateY(1px)}
+.consent-no:hover{background:var(--panel-2)}
+.consent-yes{background:var(--fb);border-color:var(--fb);color:#fff;font-weight:500}
+.consent-yes:hover{filter:brightness(1.08)}

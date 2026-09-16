@@ -48,7 +48,7 @@ const css = assetOf(/href="([^"]+\.css)"/);
 const js = assetOf(/src="([^"]+\.js)"/);
 
 const html = `<title>LoopDesk Demo</title>
-<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Mitr:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 ${css}
 ${fs.readFileSync(path.join(root, 'scripts/artifact/demo.css'), 'utf8')}
@@ -58,7 +58,7 @@ window.__LOOPDESK_DEMO__ = ${JSON.stringify(snapshot)};
 ${fs.readFileSync(path.join(root, 'scripts/artifact/shim.js'), 'utf8')}
 </script>
 <div id="root"></div>
-<div class="demo-bar">DEMO · Climax by PKjeans · ข้อมูลตัวอย่างทั้งหมด ไม่ได้ต่อ Facebook จริง</div>
+<div class="demo-bar"><b>เดโม</b> · Climax by PKjeans · ข้อมูลตัวอย่างทั้งหมด ไม่ได้ต่อ Facebook จริง</div>
 <script type="module">${js}</script>
 `;
 

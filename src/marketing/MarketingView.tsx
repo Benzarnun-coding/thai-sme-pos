@@ -23,8 +23,6 @@ interface Post { external_post_id: string; created_time: string; message: string
 interface Ad { external_ad_id: string; ad_name: string; campaign_name: string; first_date: string; last_date: string; impressions: number; clicks: number; spend: string | number; conversations: number; purchases: number; revenue: string | number }
 
 const STORE = 'climax';
-const pixelBorder = 'border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]';
-const retroFont = { fontFamily: "'VT323', monospace" };
 const thb = (n: number) => '฿' + Math.round(n).toLocaleString('th-TH');
 
 export default function MarketingView() {
@@ -56,70 +54,95 @@ export default function MarketingView() {
   if (error) {
     return (
       <div className="p-6">
-        <div className={`${pixelBorder} bg-[#FF6B6B] text-white p-4`}>
-          <p style={retroFont} className="text-2xl">SERVER OFFLINE</p>
-          <p className="text-sm mt-1">รัน <code>pnpm server:seed</code> แล้ว <code>pnpm server:dev</code> ก่อน (พอร์ต 3001) · {error}</p>
+        <div className="panel panel-pad" style={{ background: 'var(--crit-soft)', borderColor: 'var(--crit)' }}>
+          <h3 className="t-head text-[16px]" style={{ color: 'var(--crit)' }}>ต่อเซิร์ฟเวอร์ไม่ได้</h3>
+          <p className="t-sub mt-1">
+            รัน <code className="t-mono">pnpm server:seed</code> แล้ว <code className="t-mono">pnpm server:dev</code> ก่อน (พอร์ต 3001) · {error}
+          </p>
         </div>
       </div>
     );
   }
-  if (!summary) return <div className="p-10 text-center"><p style={retroFont} className="text-3xl text-gray-400">LOADING...</p></div>;
+  if (!summary) return <div className="p-10 text-center t-sub" style={{ color: 'var(--muted)' }}>กำลังโหลด…</div>;
 
   const growth = summary.sales_prev_7d > 0 ? Math.round(((summary.sales_7d - summary.sales_prev_7d) / summary.sales_prev_7d) * 100) : null;
   const max = Math.max(1, ...summary.daily.map((d) => d.revenue));
   const blocked = signals.filter((s) => !s.promotable);
 
   return (
-    <div className="flex-grow overflow-y-auto p-4 lg:p-6 space-y-6">
+    <div className="flex-grow overflow-y-auto p-4 lg:p-6 space-y-5 no-scrollbar">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Tile label="ยอดขาย 7 วัน" value={thb(summary.sales_7d)} sub={growth === null ? `${summary.qty_7d} ตัว` : `${growth >= 0 ? '+' : ''}${growth}% vs สัปดาห์ก่อน · ${summary.qty_7d} ตัว`} color="bg-[#FFD93D]" />
-        <Tile label="งบแอด 7 วัน" value={thb(summary.ad_spend_7d)} sub={summary.roas_7d === null ? 'ยังไม่มีข้อมูลแอด (ต่อ FB Ads ก่อน)' : `ROAS ${summary.roas_7d}x`} color="bg-[#4D96FF] text-white" />
-        <Tile label="ทักแชทจากแอด" value={String(summary.conversations_7d)} sub={summary.cost_per_conversation === null ? '—' : `฿${summary.cost_per_conversation} / ทัก`} color="bg-white" />
-        <Tile label="ผู้ติดตามเพจ" value={summary.followers === null ? '—' : summary.followers.toLocaleString('th-TH')} sub={summary.followers_date ? `ณ ${summary.followers_date}` : 'ยังไม่ได้ sync Facebook'} color="bg-white" />
+        <Tile label="ยอดขาย 7 วัน" value={thb(summary.sales_7d)} accent
+          sub={growth === null ? `${summary.qty_7d} ตัว` : `${growth >= 0 ? '+' : ''}${growth}% เทียบสัปดาห์ก่อน · ${summary.qty_7d} ตัว`}
+          tone={growth === null ? undefined : growth >= 0 ? 'good' : 'crit'} />
+        <Tile label="งบแอด 7 วัน" value={thb(summary.ad_spend_7d)}
+          sub={summary.roas_7d === null ? 'ยังไม่มีข้อมูลแอด' : `ROAS ${summary.roas_7d}x`}
+          tone={summary.roas_7d === null ? undefined : summary.roas_7d >= 3 ? 'good' : summary.roas_7d < 1.5 ? 'crit' : 'warn'} />
+        <Tile label="ทักแชทจากแอด" value={String(summary.conversations_7d)}
+          sub={summary.cost_per_conversation === null ? '—' : `฿${summary.cost_per_conversation} ต่อการทัก`} />
+        <Tile label="ผู้ติดตามเพจ" value={summary.followers === null ? '—' : summary.followers.toLocaleString('th-TH')}
+          sub={summary.followers_date ? `ณ ${summary.followers_date}` : 'ยังไม่ได้ sync Facebook'} />
       </div>
 
-      <div className="grid gap-4">
-        <section className={`${pixelBorder} bg-white p-4`}>
-          <h3 style={retroFont} className="text-2xl mb-2">ยอดขายรายวัน (14 วัน)</h3>
-          <div className="flex gap-1">
-            {summary.daily.map((d) => (
-              <div key={d.date} className="flex-1 flex flex-col items-center gap-1" title={`${d.date}: ${thb(d.revenue)}`}>
-                <div className="h-32 w-full flex items-end">
-                  <div className="w-full bg-[#4D96FF] border-2 border-black" style={{ height: `${Math.max(2, (d.revenue / max) * 100)}%` }} />
-                </div>
-                <span style={retroFont} className="text-sm text-gray-500">{d.date.slice(8)}</span>
+      <section className="panel panel-pad">
+        <div className="panel-head">
+          <h3>ยอดขายรายวัน</h3>
+          <span className="t-label">14 วันล่าสุด · สูงสุด {thb(max)}</span>
+        </div>
+        <div className="flex gap-1.5 items-end">
+          {summary.daily.map((d) => (
+            <div key={d.date} className="flex-1 flex flex-col items-center gap-1.5" title={`${d.date}: ${thb(d.revenue)}`}>
+              <div className="h-28 w-full flex items-end">
+                <div className="w-full rounded-md transition-all"
+                  style={{ height: `${Math.max(3, (d.revenue / max) * 100)}%`, background: 'var(--brand)', opacity: 0.85 }} />
               </div>
-            ))}
-          </div>
-        </section>
-        <Connections storeId={STORE} connections={conns} onChange={setConns} />
-      </div>
+              <span className="t-label t-mono text-[11px]">{d.date.slice(8)}</span>
+            </div>
+          ))}
+        </div>
+      </section>
 
-      <section className={`${pixelBorder} bg-white p-4`}>
-        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-          <h3 style={retroFont} className="text-2xl">สินค้าและสต็อกรายไซส์</h3>
-          <span className="text-xs text-gray-600">{blocked.length ? `${blocked.length} รายการห้ามยิงแอด (ไซส์ขายดีขาด)` : 'ทุกรายการโฆษณาได้'}</span>
+      <Connections storeId={STORE} connections={conns} onChange={setConns} />
+
+      <section className="panel panel-pad">
+        <div className="panel-head">
+          <h3>สินค้าและสต็อกรายไซส์</h3>
+          <span className={blocked.length ? 'chip chip-crit' : 'chip chip-good'}>
+            {blocked.length ? `${blocked.length} รายการห้ามยิงแอด (ไซส์ขายดีขาด)` : 'ทุกรายการโฆษณาได้'}
+          </span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr className="text-left border-b-4 border-black" style={retroFont}>
-              <th className="p-2 text-lg">สินค้า</th><th className="p-2 text-lg text-right">ราคา</th><th className="p-2 text-lg text-right">ขาย 7 วัน</th><th className="p-2 text-lg text-right">แนวโน้ม</th><th className="p-2 text-lg">สต็อกรายไซส์</th><th className="p-2 text-lg">สถานะ</th>
+          <table className="tbl">
+            <thead><tr>
+              <th>สินค้า</th><th className="text-right">ราคา</th><th className="text-right">ขาย 7 วัน</th>
+              <th className="text-right">แนวโน้ม</th><th>สต็อกรายไซส์</th><th>สถานะ</th>
             </tr></thead>
             <tbody>
               {signals.map((s) => (
-                <tr key={s.product_id} className="border-b-2 border-gray-100 align-top">
-                  <td className="p-2"><b>{s.name}</b><div className="text-xs text-gray-500">{s.category}</div></td>
-                  <td className="p-2 text-right whitespace-nowrap">{s.base_price ?? '—'}{s.set_price && <div className="text-xs text-gray-500">{s.set_price.qty} ตัว {s.set_price.price}</div>}</td>
-                  <td className="p-2 text-right">{s.sales_7d}</td>
-                  <td className={`p-2 text-right ${s.trend_pct !== null && s.trend_pct < 0 ? 'text-red-600' : 'text-green-700'}`}>{s.trend_pct === null ? '—' : `${s.trend_pct >= 0 ? '+' : ''}${s.trend_pct}%`}</td>
-                  <td className="p-2">
+                <tr key={s.product_id}>
+                  <td><b className="font-medium">{s.name}</b><div className="t-label">{s.category}</div></td>
+                  <td className="text-right whitespace-nowrap">
+                    <span className="t-num">{s.base_price ?? '—'}</span>
+                    {s.set_price && <div className="t-label">{s.set_price.qty} ตัว {s.set_price.price}</div>}
+                  </td>
+                  <td className="text-right t-num">{s.sales_7d}</td>
+                  <td className="text-right t-num" style={{ color: s.trend_pct !== null && s.trend_pct < 0 ? 'var(--crit)' : 'var(--good)' }}>
+                    {s.trend_pct === null ? '—' : `${s.trend_pct >= 0 ? '+' : ''}${s.trend_pct}%`}
+                  </td>
+                  <td>
                     <div className="flex flex-wrap gap-1">
                       {Object.entries(s.stock_by_size).map(([size, qty]) => (
-                        <span key={size} className={`px-1.5 border-2 border-black text-xs ${qty === 0 ? 'bg-[#FF6B6B] text-white' : qty < 6 ? 'bg-[#FFD93D]' : 'bg-[#6BCB77]'} ${s.missing_core_sizes.includes(size) ? 'ring-2 ring-red-600' : ''}`} title={`ไซส์ ${size}: ${qty} ตัว`}>{size}<span className="opacity-70">:{qty}</span></span>
+                        <span key={size} title={`ไซส์ ${size}: ${qty} ตัว`}
+                          className={`chip t-mono ${qty === 0 ? 'chip-crit' : qty < 6 ? 'chip-warn' : 'chip-good'}`}
+                          style={s.missing_core_sizes.includes(size) ? { outline: '1.5px solid var(--crit)' } : undefined}>
+                          {`${size}:${qty}`}
+                        </span>
                       ))}
                     </div>
                   </td>
-                  <td className="p-2 whitespace-nowrap"><span className={`px-2 border-2 border-black text-xs ${!s.core_size_ok ? 'bg-[#FF6B6B] text-white' : s.overstock ? 'bg-[#FFD93D]' : 'bg-[#6BCB77]'}`}>{s.note}</span></td>
+                  <td className="whitespace-nowrap">
+                    <span className={`chip ${!s.core_size_ok ? 'chip-crit' : s.overstock ? 'chip-warn' : 'chip-good'}`}>{s.note}</span>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -127,36 +150,45 @@ export default function MarketingView() {
         </div>
       </section>
 
-      <div className="grid lg:grid-cols-2 gap-4">
-        <section className={`${pixelBorder} bg-white p-4`}>
-          <h3 style={retroFont} className="text-2xl mb-2">แอดที่รันอยู่ (Facebook)</h3>
-          {ads.length === 0 ? <p className="text-sm text-gray-500">ยังไม่มีข้อมูลแอด</p> : (
-            <div className="overflow-x-auto"><table className="w-full text-sm">
-              <thead><tr className="text-left border-b-4 border-black" style={retroFont}><th className="p-2 text-lg">แอด</th><th className="p-2 text-lg text-right">ใช้ไป</th><th className="p-2 text-lg text-right">CTR</th><th className="p-2 text-lg text-right">ทักแชท</th><th className="p-2 text-lg text-right">฿/ทัก</th><th className="p-2 text-lg text-right">ROAS</th></tr></thead>
+      <div className="grid lg:grid-cols-2 gap-5">
+        <section className="panel panel-pad">
+          <div className="panel-head"><h3>แอดที่รันอยู่</h3><span className="t-label">Facebook</span></div>
+          {ads.length === 0 ? <p className="t-sub" style={{ color: 'var(--muted)' }}>ยังไม่มีข้อมูลแอด</p> : (
+            <div className="overflow-x-auto"><table className="tbl">
+              <thead><tr>
+                <th>แอด</th><th className="text-right">ใช้ไป</th><th className="text-right">CTR</th>
+                <th className="text-right">ทักแชท</th><th className="text-right">฿/ทัก</th><th className="text-right">ROAS</th>
+              </tr></thead>
               <tbody>{ads.map((a) => {
                 const spend = Number(a.spend), rev = Number(a.revenue);
                 const roas = spend > 0 ? rev / spend : 0;
-                return (<tr key={a.external_ad_id} className="border-b-2 border-gray-100 align-top">
-                  <td className="p-2"><b>{a.ad_name}</b><div className="text-xs text-gray-500">{a.campaign_name} · {a.first_date} → {a.last_date}</div></td>
-                  <td className="p-2 text-right whitespace-nowrap">{thb(spend)}</td>
-                  <td className="p-2 text-right">{a.impressions ? ((a.clicks / a.impressions) * 100).toFixed(2) : '0.00'}%</td>
-                  <td className="p-2 text-right">{a.conversations}</td>
-                  <td className="p-2 text-right">{a.conversations ? Math.round(spend / a.conversations) : '—'}</td>
-                  <td className={`p-2 text-right font-bold ${roas >= 3 ? 'text-green-700' : roas < 1.5 ? 'text-red-600' : ''}`}>{roas ? roas.toFixed(1) + 'x' : '—'}</td>
+                return (<tr key={a.external_ad_id}>
+                  <td><b className="font-medium">{a.ad_name}</b><div className="t-label">{a.campaign_name} · {a.first_date} → {a.last_date}</div></td>
+                  <td className="text-right t-num whitespace-nowrap">{thb(spend)}</td>
+                  <td className="text-right t-num">{a.impressions ? ((a.clicks / a.impressions) * 100).toFixed(2) : '0.00'}%</td>
+                  <td className="text-right t-num">{a.conversations}</td>
+                  <td className="text-right t-num">{a.conversations ? Math.round(spend / a.conversations) : '—'}</td>
+                  <td className="text-right t-num" style={{ color: roas >= 3 ? 'var(--good)' : roas < 1.5 ? 'var(--crit)' : 'var(--warn)' }}>
+                    {roas ? roas.toFixed(1) + 'x' : '—'}
+                  </td>
                 </tr>);
               })}</tbody>
             </table></div>
           )}
         </section>
-        <section className={`${pixelBorder} bg-white p-4`}>
-          <h3 style={retroFont} className="text-2xl mb-2">โพสต์ล่าสุด (Facebook)</h3>
-          {posts.length === 0 ? <p className="text-sm text-gray-500">ยังไม่มีข้อมูลโพสต์</p> : (
-            <ul className="space-y-2">{posts.slice(0, 6).map((p) => (
-              <li key={p.external_post_id} className="border-b-2 border-dashed border-gray-200 pb-2">
-                <div className="text-xs text-gray-500">{p.created_time?.slice(0, 10)}</div>
-                <div className="text-sm whitespace-pre-line line-clamp-2">{p.message}</div>
-                <div className="flex gap-3 text-xs mt-1" style={retroFont}>
-                  <span>reach <b>{(p.reach ?? 0).toLocaleString('th-TH')}</b></span><span>engaged <b>{p.engaged ?? 0}</b></span><span>คอมเมนต์ <b>{p.comments ?? 0}</b></span><span>แชร์ <b>{p.shares ?? 0}</b></span>
+
+        <section className="panel panel-pad">
+          <div className="panel-head"><h3>โพสต์ล่าสุด</h3><span className="t-label">Facebook</span></div>
+          {posts.length === 0 ? <p className="t-sub" style={{ color: 'var(--muted)' }}>ยังไม่มีข้อมูลโพสต์</p> : (
+            <ul className="flex flex-col">{posts.slice(0, 6).map((p, i) => (
+              <li key={p.external_post_id} className="py-3" style={i ? { borderTop: '1px solid var(--line)' } : undefined}>
+                <div className="t-label t-mono">{p.created_time?.slice(0, 10)}</div>
+                <div className="text-sm whitespace-pre-line line-clamp-2 mt-0.5">{p.message}</div>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  <span className="chip">reach <b className="t-num">{(p.reach ?? 0).toLocaleString('th-TH')}</b></span>
+                  <span className="chip">engaged <b className="t-num">{p.engaged ?? 0}</b></span>
+                  <span className="chip">คอมเมนต์ <b className="t-num">{p.comments ?? 0}</b></span>
+                  <span className="chip">แชร์ <b className="t-num">{p.shares ?? 0}</b></span>
                 </div>
               </li>
             ))}</ul>
@@ -167,12 +199,15 @@ export default function MarketingView() {
   );
 }
 
-function Tile({ label, value, sub, color }: { label: string; value: string; sub: string; color: string }) {
+function Tile({ label, value, sub, tone, accent }: {
+  label: string; value: string; sub: string; tone?: 'good' | 'warn' | 'crit'; accent?: boolean;
+}) {
+  const toneColor = tone && { good: 'var(--good)', warn: 'var(--warn)', crit: 'var(--crit)' }[tone];
   return (
-    <div className={`${pixelBorder} ${color} p-4`}>
-      <div className="text-xs uppercase tracking-wider opacity-70">{label}</div>
-      <div style={retroFont} className="text-4xl leading-none mt-1">{value}</div>
-      <div className="text-xs mt-2 opacity-80">{sub}</div>
+    <div className="panel panel-pad" style={accent ? { background: 'var(--brand)', borderColor: 'var(--brand)' } : undefined}>
+      <div className="t-label" style={accent ? { color: 'rgba(255,255,255,.72)' } : undefined}>{label}</div>
+      <div className="t-num text-[28px] leading-tight mt-0.5" style={accent ? { color: 'var(--brand-ink)' } : undefined}>{value}</div>
+      <div className="text-xs mt-1.5" style={{ color: accent ? 'rgba(255,255,255,.8)' : toneColor || 'var(--ink-2)' }}>{sub}</div>
     </div>
   );
 }

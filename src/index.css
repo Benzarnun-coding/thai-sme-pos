@@ -2,25 +2,340 @@
 @tailwind components;
 @tailwind utilities;
 
+/**
+ * LoopDesk — Soft Denim.
+ *
+ * One theme for the whole app. Every colour, radius and shadow lives here as a
+ * token; components reference the tokens, never raw hex. Changing the look means
+ * editing this file, not hunting through JSX.
+ */
+
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+  color-scheme: light;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  --bg: #f3f4f9;
+  --panel: #ffffff;
+  --panel-2: #f5f6fb;
+  --ink: #1b2033;
+  --ink-2: #4b5270;
+  --muted: #8a90a8;
+  --line: #e4e7f0;
+  --line-2: #d3d7e4;
 
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  --brand: #24306b;
+  --brand-ink: #ffffff;
+  --brand-soft: #e8ecfa;
+  --brand-text: #24306b;
+
+  --accent: #e8a33d;
+  --accent-ink: #2a1e05;
+  --accent-soft: #fbf0da;
+
+  --good: #1e8e3e;
+  --warn: #c77700;
+  --crit: #d93a3a;
+  --good-soft: #e4f4e8;
+  --warn-soft: #fbefd6;
+  --crit-soft: #fbe3e3;
+
+  --fb: #2a78d6;
+  --tiktok: #1baf7a;
+  --shopee: #eb6834;
+  --line-ch: #3fbf5f;
+
+  --shadow: 0 1px 2px rgba(27, 32, 51, 0.04), 0 8px 24px -12px rgba(27, 32, 51, 0.18);
+  --shadow-lg: 0 2px 4px rgba(27, 32, 51, 0.05), 0 18px 40px -16px rgba(27, 32, 51, 0.28);
+  --r: 18px;
+  --r-sm: 12px;
+
+  --font: 'IBM Plex Sans Thai', 'Noto Sans Thai', system-ui, -apple-system, sans-serif;
+  --font-head: 'Mitr', var(--font);
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 }
 
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --bg: #111420;
+    --panel: #1a1e2d;
+    --panel-2: #222739;
+    --ink: #eef0f7;
+    --ink-2: #c0c5d8;
+    --muted: #7f869e;
+    --line: #2a3043;
+    --line-2: #363d55;
+    --brand: #4e63d8;
+    --brand-soft: #28305a;
+    --brand-text: #b7c3ff;
+    --accent: #f0b45a;
+    --accent-soft: #3b2e14;
+    --good: #5cc271;
+    --warn: #e3a13a;
+    --crit: #f07676;
+    --good-soft: #1b2f22;
+    --warn-soft: #352a14;
+    --crit-soft: #3b2020;
+    --fb: #3987e5;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+    --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.35), 0 18px 40px -16px rgba(0, 0, 0, 0.7);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #111420;
+  --panel: #1a1e2d;
+  --panel-2: #222739;
+  --ink: #eef0f7;
+  --ink-2: #c0c5d8;
+  --muted: #7f869e;
+  --line: #2a3043;
+  --line-2: #363d55;
+  --brand: #4e63d8;
+  --brand-soft: #28305a;
+  --brand-text: #b7c3ff;
+  --accent: #f0b45a;
+  --accent-soft: #3b2e14;
+  --good: #5cc271;
+  --warn: #e3a13a;
+  --crit: #f07676;
+  --good-soft: #1b2f22;
+  --warn-soft: #352a14;
+  --crit-soft: #3b2020;
+  --fb: #3987e5;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.35), 0 18px 40px -16px rgba(0, 0, 0, 0.7);
+}
+
+html,
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
   min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+@layer components {
+  /* ---- type ---- */
+  .t-head {
+    font-family: var(--font-head);
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: var(--ink);
+  }
+  .t-num {
+    font-family: var(--font-head);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+  .t-mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .t-label {
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+  }
+  .t-sub {
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+
+  /* ---- surfaces ---- */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    box-shadow: var(--shadow);
+  }
+  .panel-pad {
+    padding: 18px 20px;
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .panel-head h3 {
+    font-family: var(--font-head);
+    font-weight: 500;
+    font-size: 17px;
+    margin: 0;
+  }
+  .divider {
+    border: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  /* ---- buttons ---- */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 9px 16px;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-sm);
+    background: var(--panel);
+    color: var(--ink);
+    font: inherit;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, transform 0.08s, box-shadow 0.15s;
+  }
+  .btn:hover:not(:disabled) {
+    background: var(--panel-2);
+    border-color: var(--muted);
+  }
+  .btn:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: var(--brand-ink);
+    font-weight: 500;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--brand);
+    filter: brightness(1.12);
+    border-color: var(--brand);
+  }
+  .btn-accent {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 500;
+  }
+  .btn-accent:hover:not(:disabled) {
+    filter: brightness(1.06);
+  }
+  .btn-good {
+    background: var(--good);
+    border-color: var(--good);
+    color: #fff;
+    font-weight: 500;
+  }
+  .btn-good:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+  .btn-sm {
+    padding: 5px 11px;
+    font-size: 13px;
+    border-radius: 9px;
+  }
+  .btn-lg {
+    padding: 14px 20px;
+    font-size: 16px;
+    border-radius: var(--r-sm);
+    width: 100%;
+  }
+  .btn-danger-hover:hover:not(:disabled) {
+    background: var(--crit-soft);
+    border-color: var(--crit);
+    color: var(--crit);
+  }
+
+  /* ---- chips ---- */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    line-height: 1.7;
+    background: var(--panel-2);
+    color: var(--ink-2);
+    border: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  .chip-good {
+    background: var(--good-soft);
+    color: var(--good);
+    border-color: transparent;
+  }
+  .chip-warn {
+    background: var(--warn-soft);
+    color: var(--warn);
+    border-color: transparent;
+  }
+  .chip-crit {
+    background: var(--crit-soft);
+    color: var(--crit);
+    border-color: transparent;
+  }
+  .chip-brand {
+    background: var(--brand-soft);
+    color: var(--brand-text);
+    border-color: transparent;
+  }
+  .chip-off {
+    background: transparent;
+    color: var(--muted);
+    border-color: var(--line);
+    text-decoration: line-through;
+  }
+
+  /* ---- inputs ---- */
+  .field {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-sm);
+    background: var(--panel);
+    color: var(--ink);
+    font: inherit;
+    font-size: 14px;
+  }
+  .field:focus {
+    outline: 2px solid var(--brand);
+    outline-offset: -1px;
+  }
+
+  /* ---- tables ---- */
+  .tbl {
+    width: 100%;
+    font-size: 14px;
+    border-collapse: collapse;
+  }
+  .tbl th {
+    font-family: var(--font-head);
+    font-weight: 500;
+    font-size: 13px;
+    color: var(--ink-2);
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line-2);
+    white-space: nowrap;
+  }
+  .tbl td {
+    padding: 10px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  .tbl tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
 }

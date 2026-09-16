@@ -31,20 +31,28 @@ interface PickerAccount {
   kind: string; id: string; name: string; detail?: string; avatar_url?: string; capabilities: Record<string, boolean>;
 }
 
-const pixelBorder = 'border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]';
-const retroFont = { fontFamily: "'VT323', monospace" };
-
-const CHANNEL_STYLE: Record<string, { label: string; bg: string; mark: string }> = {
-  facebook: { label: 'Facebook', bg: 'bg-[#1877F2]', mark: 'f' },
-  tiktok: { label: 'TikTok', bg: 'bg-black', mark: '♪' },
-  shopee: { label: 'Shopee', bg: 'bg-[#EE4D2D]', mark: 'S' },
-  line: { label: 'LINE', bg: 'bg-[#06C755]', mark: 'L' },
-  pos: { label: 'POS', bg: 'bg-[#4D96FF]', mark: 'P' },
+const CHANNEL_STYLE: Record<string, { label: string; color: string; mark: string }> = {
+  facebook: { label: 'Facebook', color: 'var(--fb)', mark: 'f' },
+  tiktok: { label: 'TikTok', color: 'var(--tiktok)', mark: '♪' },
+  shopee: { label: 'Shopee', color: 'var(--shopee)', mark: 'S' },
+  line: { label: 'LINE', color: 'var(--line-ch)', mark: 'L' },
+  pos: { label: 'POS', color: 'var(--brand)', mark: 'P' },
 };
 const CAP_LABEL: Record<string, string> = {
   insights: 'อ่านสถิติ', post: 'โพสต์ได้', ads: 'ยิงแอดได้', messages: 'ตอบแชทได้',
   import: 'นำเข้าสินค้า', listing: 'แก้รายการสินค้า', orders: 'อ่านออเดอร์', broadcast: 'ส่ง broadcast',
 };
+
+/** The channel's round mark, used in the list and on the connect buttons. */
+function Mark({ channel, size = 36 }: { channel: string; size?: number }) {
+  const st = CHANNEL_STYLE[channel] ?? { color: 'var(--muted)', mark: '?' };
+  return (
+    <span className="rounded-xl grid place-items-center flex-none font-medium"
+      style={{ width: size, height: size, background: st.color, color: '#fff', fontSize: size * 0.45 }}>
+      {st.mark}
+    </span>
+  );
+}
 
 export default function Connections({ storeId, connections, onChange }: {
   storeId: string; connections: Connection[]; onChange: (next: Connection[]) => void;
@@ -120,88 +128,103 @@ export default function Connections({ storeId, connections, onChange }: {
   const connected = connections.filter((c) => c.status === 'connected');
 
   return (
-    <section className={`${pixelBorder} bg-white p-4`}>
-      <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-        <h3 style={retroFont} className="text-2xl">บัญชีที่เชื่อมต่อ</h3>
-        <span className="text-xs text-gray-600">{connected.length} บัญชี · token เก็บแบบเข้ารหัส ไม่แสดงบนหน้าจอ</span>
+    <section className="panel panel-pad">
+      <div className="panel-head">
+        <h3>บัญชีที่เชื่อมต่อ</h3>
+        <span className="t-label">{connected.length} บัญชี · token เก็บแบบเข้ารหัส ไม่แสดงบนหน้าจอ</span>
       </div>
 
       {banner && (
-        <div className={`mb-3 p-2 text-sm border-2 border-black ${banner.kind === 'error' ? 'bg-[#FF6B6B] text-white' : 'bg-[#6BCB77]'}`}>
+        <div className="panel-pad !py-2.5 !px-3.5 mb-4 text-sm"
+          style={{
+            borderRadius: 'var(--r-sm)',
+            background: banner.kind === 'error' ? 'var(--crit-soft)' : 'var(--good-soft)',
+            color: banner.kind === 'error' ? 'var(--crit)' : 'var(--good)',
+          }}>
           {banner.text}
         </div>
       )}
 
-      <ul className="grid md:grid-cols-2 gap-x-6 gap-y-2 mb-4">
+      <ul className="grid md:grid-cols-2 gap-x-6 gap-y-1 mb-4">
         {connected.map((c) => {
-          const st = CHANNEL_STYLE[c.channel] ?? { label: c.channel, bg: 'bg-gray-500', mark: '?' };
+          const st = CHANNEL_STYLE[c.channel] ?? { label: c.channel, color: 'var(--muted)', mark: '?' };
           const left = daysLeft(c.token_expires_at);
           return (
-            <li key={c.id} className="flex items-start gap-3 border-b-2 border-dashed border-gray-200 pb-2">
-              <div className={`w-10 h-10 flex-none ${st.bg} text-white border-2 border-black flex items-center justify-center font-bold`}>{st.mark}</div>
+            <li key={c.id} className="flex items-start gap-3 py-3" style={{ borderBottom: '1px solid var(--line)' }}>
+              <Mark channel={c.channel} />
               <div className="flex-grow min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <b className="text-sm">{c.display_name}</b>
-                  {c.token_source === 'demo' && <span className="text-[10px] px-1 bg-[#FFD93D] border border-black">DEMO</span>}
+                  <b className="text-sm font-medium truncate">{c.display_name}</b>
+                  {c.token_source === 'demo' && <span className="chip chip-warn">ตัวอย่าง</span>}
                 </div>
-                <div className="text-xs text-gray-500">{st.label}{c.external_account_id ? ` · ${c.external_account_id}` : ''}</div>
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {Object.entries(c.capabilities ?? {}).map(([k, on]) => (
-                    <span key={k} className={`text-[10px] px-1.5 border border-black ${on ? 'bg-[#6BCB77]' : 'bg-gray-100 text-gray-400 line-through'}`}>
-                      {CAP_LABEL[k] ?? k}
-                    </span>
+                <div className="t-label t-mono truncate">{st.label}{c.external_account_id ? ` · ${c.external_account_id}` : ''}</div>
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {Object.entries(c.capabilities ?? {}).sort(([, a], [, b]) => Number(b) - Number(a)).map(([k, on]) => (
+                    <span key={k} className={`chip ${on ? 'chip-good' : 'chip-off'}`}>{CAP_LABEL[k] ?? k}</span>
                   ))}
                 </div>
-                {c.last_error && <div className="text-red-600 text-xs mt-1">{c.last_error}</div>}
+                {c.last_error && <div className="text-xs mt-1.5" style={{ color: 'var(--crit)' }}>{c.last_error}</div>}
                 {left !== null && left <= 14 && (
-                  <div className={`text-xs mt-1 ${left <= 3 ? 'text-red-600 font-bold' : 'text-[#FF8400]'}`}>
-                    ⚠ สิทธิ์หมดอายุใน {left} วัน ต้องกดเชื่อมต่อใหม่
+                  <div className="text-xs mt-1.5" style={{ color: left <= 3 ? 'var(--crit)' : 'var(--warn)', fontWeight: 500 }}>
+                    สิทธิ์หมดอายุใน {left} วัน · ต้องกดเชื่อมต่อใหม่
                   </div>
                 )}
               </div>
-              <button onClick={() => remove(c)} disabled={busy === c.id}
-                className="flex-none text-xs px-2 py-1 border-2 border-black bg-white hover:bg-[#FF6B6B] hover:text-white disabled:opacity-50">
+              <button onClick={() => remove(c)} disabled={busy === c.id} className="btn btn-sm btn-danger-hover flex-none">
                 ยกเลิก
               </button>
             </li>
           );
         })}
-        {connected.length === 0 && <li className="text-sm text-gray-500 md:col-span-2">ยังไม่มีบัญชีที่เชื่อมต่อ กดปุ่มด้านล่างเพื่อเริ่ม</li>}
+        {connected.length === 0 && (
+          <li className="t-sub md:col-span-2 py-2" style={{ color: 'var(--muted)' }}>
+            ยังไม่มีบัญชีที่เชื่อมต่อ กดปุ่มด้านล่างเพื่อเริ่ม
+          </li>
+        )}
       </ul>
 
       <div className="flex flex-wrap gap-2">
         {providers.map((p) => {
-          const st = CHANNEL_STYLE[p.channel] ?? { label: p.name, bg: 'bg-gray-500', mark: '?' };
+          const st = CHANNEL_STYLE[p.channel] ?? { label: p.name, color: 'var(--muted)', mark: '?' };
           const has = connected.some((c) => c.channel === p.channel);
           return (
             <button key={p.channel} onClick={() => startConnect(p.channel)} disabled={!p.implemented || busy === p.channel}
               title={!p.implemented ? 'ยังไม่เปิดให้เชื่อมต่อในเวอร์ชันนี้' : !p.configured ? `ยังไม่ได้ตั้งค่า ${p.missing_env.join(', ')} — จะแสดงเป็นตัวอย่าง` : ''}
-              className={`flex items-center gap-2 px-3 py-2 text-sm border-2 border-black ${p.implemented ? 'bg-white hover:bg-[#FFD93D]' : 'bg-gray-100 text-gray-400'} disabled:cursor-not-allowed`}>
-              <span className={`w-6 h-6 ${p.implemented ? st.bg : 'bg-gray-400'} text-white flex items-center justify-center text-xs font-bold`}>{st.mark}</span>
-              {busy === p.channel ? 'กำลังเปิด...' : has ? `เพิ่มบัญชี ${st.label}` : `เชื่อมต่อ ${st.label}`}
-              {p.implemented && !p.configured && <span className="text-[10px] px-1 bg-[#FFD93D] border border-black">DEMO</span>}
+              className="btn">
+              {p.implemented ? <Mark channel={p.channel} size={22} />
+                : <span className="rounded-md grid place-items-center flex-none"
+                    style={{ width: 22, height: 22, background: 'var(--line-2)', color: 'var(--muted)', fontSize: 11 }}>{st.mark}</span>}
+              {busy === p.channel ? 'กำลังเปิด…' : has ? `เพิ่มบัญชี ${st.label}` : `เชื่อมต่อ ${st.label}`}
+              {p.implemented && !p.configured && <span className="chip chip-warn">ตัวอย่าง</span>}
             </button>
           );
         })}
       </div>
 
       {picker && (
-        <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4" onClick={() => setPicker(null)}>
-          <div className={`${pixelBorder} bg-white max-w-lg w-full max-h-[85vh] overflow-y-auto`} onClick={(e) => e.stopPropagation()}>
-            <div className="p-4 border-b-4 border-black flex items-center justify-between">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          style={{ background: 'rgba(11,14,24,.6)' }} onClick={() => setPicker(null)}>
+          <div className="panel w-full max-w-lg max-h-[85vh] overflow-y-auto no-scrollbar" onClick={(e) => e.stopPropagation()}>
+            <div className="panel-pad flex items-start justify-between gap-3" style={{ borderBottom: '1px solid var(--line)' }}>
               <div>
-                <h4 style={retroFont} className="text-2xl">เลือกบัญชีที่จะเชื่อม</h4>
-                <p className="text-xs text-gray-600">เลือกได้มากกว่าหนึ่ง · เปลี่ยนภายหลังได้</p>
+                <h4 className="t-head text-[17px]">เลือกบัญชีที่จะเชื่อม</h4>
+                <p className="t-label">เลือกได้มากกว่าหนึ่ง · เปลี่ยนภายหลังได้</p>
               </div>
-              {picker.demo && <span className="text-xs px-2 py-1 bg-[#FFD93D] border-2 border-black">ตัวอย่าง</span>}
+              {picker.demo && <span className="chip chip-warn flex-none">ตัวอย่าง</span>}
             </div>
-            <ul className="p-4 space-y-2">
+
+            <ul className="p-4 flex flex-col gap-2">
               {picker.accounts.map((a) => {
                 const on = chosen.has(a.id);
                 return (
                   <li key={a.id}>
-                    <label className={`flex items-start gap-3 p-3 border-2 cursor-pointer ${on ? 'border-black bg-[#FFFBEA]' : 'border-gray-200'}`}>
-                      <input type="checkbox" checked={on} className="mt-1"
+                    <label className="flex items-start gap-3 p-3 cursor-pointer transition-colors"
+                      style={{
+                        borderRadius: 'var(--r-sm)',
+                        border: `1px solid ${on ? 'var(--brand)' : 'var(--line)'}`,
+                        background: on ? 'var(--brand-soft)' : 'transparent',
+                      }}>
+                      <input type="checkbox" checked={on} className="mt-1 flex-none"
                         onChange={() => setChosen((prev) => {
                           const next = new Set(prev);
                           if (next.has(a.id)) next.delete(a.id); else next.add(a.id);
@@ -209,15 +232,13 @@ export default function Connections({ storeId, connections, onChange }: {
                         })} />
                       <span className="flex-grow min-w-0">
                         <span className="flex items-center gap-2 flex-wrap">
-                          <b className="text-sm">{a.name}</b>
-                          <span className="text-[10px] px-1 border border-black bg-gray-100">
-                            {a.kind === 'page' ? 'เพจ' : a.kind === 'ad_account' ? 'บัญชีโฆษณา' : a.kind}
-                          </span>
+                          <b className="text-sm font-medium">{a.name}</b>
+                          <span className="chip">{a.kind === 'page' ? 'เพจ' : a.kind === 'ad_account' ? 'บัญชีโฆษณา' : a.kind}</span>
                         </span>
-                        {a.detail && <span className="block text-xs text-gray-500">{a.detail}</span>}
-                        <span className="flex flex-wrap gap-1 mt-1">
+                        {a.detail && <span className="block t-label">{a.detail}</span>}
+                        <span className="flex flex-wrap gap-1 mt-1.5">
                           {Object.entries(a.capabilities).filter(([, v]) => v).map(([k]) => (
-                            <span key={k} className="text-[10px] px-1.5 border border-black bg-[#6BCB77]">{CAP_LABEL[k] ?? k}</span>
+                            <span key={k} className="chip chip-good">{CAP_LABEL[k] ?? k}</span>
                           ))}
                         </span>
                       </span>
@@ -226,11 +247,11 @@ export default function Connections({ storeId, connections, onChange }: {
                 );
               })}
             </ul>
-            <div className="p-4 border-t-4 border-black flex gap-2 justify-end">
-              <button onClick={() => setPicker(null)} className="px-4 py-2 text-sm border-2 border-black bg-white">ยกเลิก</button>
-              <button onClick={attach} disabled={chosen.size === 0 || busy === 'attach'}
-                className="px-4 py-2 text-sm border-2 border-black bg-[#6BCB77] font-bold disabled:opacity-50">
-                {busy === 'attach' ? 'กำลังบันทึก...' : `เชื่อมต่อ ${chosen.size} บัญชี`}
+
+            <div className="panel-pad flex gap-2 justify-end" style={{ borderTop: '1px solid var(--line)' }}>
+              <button onClick={() => setPicker(null)} className="btn">ยกเลิก</button>
+              <button onClick={attach} disabled={chosen.size === 0 || busy === 'attach'} className="btn btn-primary">
+                {busy === 'attach' ? 'กำลังบันทึก…' : `เชื่อมต่อ ${chosen.size} บัญชี`}
               </button>
             </div>
           </div>
