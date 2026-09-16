@@ -38,7 +38,6 @@ function capabilitiesFor(channel: Channel, kind: string, scopes: string[]): Reco
   return {
     insights: scopes.includes('read_insights') || scopes.includes('pages_read_engagement'),
     post: scopes.includes('pages_manage_posts'),
-    messages: scopes.includes('pages_messaging'),
   };
 }
 

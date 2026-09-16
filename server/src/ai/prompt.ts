@@ -7,7 +7,7 @@
  * auditable and stable — which also keeps the cached prefix stable.
  */
 import { ADDON_BY_ID } from './catalog.js';
-import { renderAds, renderPosts, renderSignals, type Knowledge } from './context.js';
+import { knowledgeKeys, renderAds, renderCompetitors, renderPosts, renderRuns, renderSignals, type Knowledge } from './context.js';
 
 export interface AgentConfig {
   slug: string;
@@ -65,6 +65,8 @@ export function buildSystemPrompt(agent: AgentConfig, store: { name: string }, k
   if (knowledge.signals) parts.push(`## สินค้า สต็อก และยอดขาย (จาก POS วันนี้)\n${renderSignals(knowledge.signals)}`);
   if (knowledge.ads) parts.push(`## ผลแอดล่าสุด\n${renderAds(knowledge.ads)}`);
   if (knowledge.posts) parts.push(`## โพสต์ที่ผ่านมา\n${renderPosts(knowledge.posts)}`);
+  if (knowledge.competitors) parts.push(`## แอดของคู่แข่ง (จาก Ad Library)\n${renderCompetitors(knowledge.competitors)}`);
+  if (knowledge.runs) parts.push(`## สิ่งที่ระบบทำวันนี้\n${renderRuns(knowledge.runs)}`);
 
   return parts.join('\n\n');
 }
@@ -72,12 +74,7 @@ export function buildSystemPrompt(agent: AgentConfig, store: { name: string }, k
 /** For the "ทำไมถึงตอบแบบนี้" panel: what the assistant had in front of it. */
 export function describeInputs(agent: AgentConfig, knowledge: Knowledge, corrections: Correction[]) {
   return {
-    knowledge: [
-      ...Object.keys(knowledge.brand),
-      ...(knowledge.signals ? ['signals'] : []),
-      ...(knowledge.ads ? ['ads'] : []),
-      ...(knowledge.posts ? ['posts'] : []),
-    ],
+    knowledge: knowledgeKeys(knowledge),
     actions: agent.addons.actions ?? [],
     examples: agent.examples.length,
     corrections: corrections.length,

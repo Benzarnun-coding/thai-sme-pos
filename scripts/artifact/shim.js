@@ -17,6 +17,8 @@
   var threads = [];        // {id, agent_id, title, created_at}
   var messages = [];       // {id, thread_id, role, content, used, mode, created_at}
   var feedback = [];       // {id, agent_id, message_id, verdict, note}
+  var runs = JSON.parse(JSON.stringify(SNAP.runs || []));   // newest first, as the API returns them
+  var nextRunId = runs.reduce(function (m, r) { return Math.max(m, r.id || 0); }, 0) + 1;
   var nextMessageId = 1;
   var brandMap = {};
   (SNAP.brand || []).forEach(function (b) { brandMap[b.key] = b.content; });
@@ -30,6 +32,8 @@
       signals: keys.indexOf('signals') >= 0 ? SNAP.signals : undefined,
       ads: keys.indexOf('ads') >= 0 ? SNAP.ads : undefined,
       posts: keys.indexOf('posts') >= 0 ? (SNAP.posts || []).slice(0, 8) : undefined,
+      competitors: keys.indexOf('competitors') >= 0 ? SNAP.competitors : undefined,
+      runs: keys.indexOf('runs') >= 0 ? runs.slice(0, 40) : undefined,
     };
   }
   function corrections(agentId) {
@@ -47,6 +51,43 @@
   function feedbackSummary(agentId) {
     var mine = feedback.filter(function (f) { return f.agent_id === agentId; });
     return { up: mine.filter(function (f) { return f.verdict === 'up'; }).length, down: mine.filter(function (f) { return f.verdict === 'down'; }).length, corrections: corrections(agentId) };
+  }
+  /** A box's run, replayed offline: AI boxes answer their run prompt, the rest reuse their snapshot summary. */
+  function runBox(ag, by) {
+    var now = new Date().toISOString();
+    var status = 'ok', summary, output = null;
+    if (!ag.enabled) { status = 'skipped'; summary = 'ปิดใช้อยู่ ไม่ได้รัน'; }
+    else if (ag.kind === 'ai') {
+      var prompt = ag.runPrompt || (ag.starters && ag.starters[0]) || 'สรุปให้หน่อย';
+      var res = chatWith(ag, null, prompt);
+      var lines = res.reply.split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+      summary = (lines.find(function (l) { return l.length >= 20; }) || lines.find(function (l) { return l.length > 8; }) || lines[0] || res.reply).slice(0, 140);
+      output = { thread_id: res.thread_id, message_id: res.message_id, text: res.reply, mode: 'demo' };
+    } else {
+      var prev = (SNAP.runs || []).find(function (r) { return r.agent_id === ag.id; });
+      status = prev ? prev.status : 'skipped';
+      summary = prev ? prev.summary : 'ยังไม่มีงานสำหรับกล่องนี้';
+      output = prev ? prev.output : null;
+    }
+    var run = { id: nextRunId++, agent_id: ag.id, slug: ag.slug, name: ag.name, emoji: ag.emoji, trigger: 'manual', status: status, summary: summary, output: output, started_at: now, finished_at: now, by: by || null };
+    runs.unshift(run);
+    ag.last_run = run;
+    return run;
+  }
+  function chatWith(ca, threadId, text) {
+    var tid = threadId && threads.some(function (t) { return t.id === threadId && t.agent_id === ca.id; }) ? threadId : null;
+    if (!tid) { tid = 'demo-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); threads.push({ id: tid, agent_id: ca.id, title: text.slice(0, 60), created_at: new Date().toISOString() }); }
+    var fixes = corrections(ca.id);
+    var know = knowledgeFor(ca);
+    var reply = demoReply(ca, know, text);
+    var used = {
+      knowledge: Object.keys(know.brand).concat(know.signals ? ['signals'] : [], know.ads ? ['ads'] : [], know.posts ? ['posts'] : [], know.competitors ? ['competitors'] : [], know.runs ? ['runs'] : []),
+      actions: (ca.addons && ca.addons.actions) || [], examples: (ca.examples || []).length, corrections: fixes.length, mode: 'demo', model: 'demo',
+    };
+    messages.push({ id: nextMessageId++, thread_id: tid, role: 'user', content: text, used: null, mode: 'demo', created_at: new Date().toISOString() });
+    var mid = nextMessageId++;
+    messages.push({ id: mid, thread_id: tid, role: 'assistant', content: reply, used: used, mode: 'demo', created_at: new Date().toISOString() });
+    return { thread_id: tid, message_id: mid, reply: reply, mode: 'demo', used: used, refused: false };
   }
   function messagesOf(threadId) {
     return messages.filter(function (m) { return m.thread_id === threadId; }).map(function (m) {
@@ -160,6 +201,20 @@
     /* ---------- AI Studio ---------- */
     if (p === '/api/studio/catalog') return json(SNAP.catalog);
 
+    var runsList = p.match(/^\/api\/stores\/([^/]+)\/runs$/);
+    if (runsList && method === 'GET') {
+      var lim = Number(u.searchParams.get('limit') || 50);
+      var slugQ = u.searchParams.get('slug');
+      return json(runs.filter(function (r) { return !slugQ || r.slug === slugQ; }).slice(0, lim));
+    }
+    var agentRun = p.match(/^\/api\/stores\/([^/]+)\/agents\/([^/]+)\/run$/);
+    if (agentRun && method === 'POST') {
+      var ra = agentBy(agentRun[1], agentRun[2]);
+      if (!ra) return json({ error: 'ไม่พบกล่องนี้' }, 404);
+      var run = runBox(ra, body && body.by);
+      return new Promise(function (resolve) { setTimeout(function () { resolve(json({ run: run, agent: ra })); }, 350); });
+    }
+
     var agentsList = p.match(/^\/api\/stores\/([^/]+)\/agents$/);
     if (agentsList && method === 'GET') return json(agents.filter(function (a) { return a.store_id === agentsList[1]; }));
 
@@ -167,7 +222,7 @@
     if (agentOne) {
       var ag = agentBy(agentOne[1], agentOne[2]);
       if (!ag) return json({ error: 'ไม่พบผู้ช่วยตัวนี้' }, 404);
-      if (method === 'GET') return json({ agent: ag, threads: threadList(ag.id), feedback: feedbackSummary(ag.id) });
+      if (method === 'GET') return json({ agent: ag, threads: threadList(ag.id), feedback: feedbackSummary(ag.id), runs: runs.filter(function (r) { return r.agent_id === ag.id; }).slice(0, 10) });
       if (method === 'PUT') {
         var patch = body || {};
         ['instructions', 'examples', 'autonomy', 'enabled', 'effort', 'model'].forEach(function (k) { if (patch[k] !== undefined) ag[k] = patch[k]; });
@@ -197,23 +252,13 @@
     var agentChat = p.match(/^\/api\/stores\/([^/]+)\/agents\/([^/]+)\/chat$/);
     if (agentChat && method === 'POST') {
       var ca = agentBy(agentChat[1], agentChat[2]);
-      if (!ca) return json({ error: 'ไม่พบผู้ช่วยตัวนี้' }, 404);
+      if (!ca) return json({ error: 'ไม่พบกล่องนี้' }, 404);
+      if (ca.kind !== 'ai') return json({ error: ca.name + ' ไม่ใช่กล่อง AI — ทำงานตามกฎ ไม่มีแชท' }, 400);
       var text = ((body && body.message) || '').trim();
       if (!text) return json({ error: 'ต้องมีข้อความ' }, 400);
-      var tid = body.thread_id && threads.some(function (t) { return t.id === body.thread_id && t.agent_id === ca.id; }) ? body.thread_id : null;
-      if (!tid) { tid = 'demo-' + Date.now().toString(36); threads.push({ id: tid, agent_id: ca.id, title: text.slice(0, 60), created_at: new Date().toISOString() }); }
-      var fixes = corrections(ca.id);
-      var know = knowledgeFor(ca);
-      var reply = demoReply(ca, know, text);
-      var used = {
-        knowledge: Object.keys(know.brand).concat(know.signals ? ['signals'] : [], know.ads ? ['ads'] : [], know.posts ? ['posts'] : []),
-        actions: (ca.addons && ca.addons.actions) || [], examples: (ca.examples || []).length, corrections: fixes.length, mode: 'demo', model: 'demo',
-      };
-      messages.push({ id: nextMessageId++, thread_id: tid, role: 'user', content: text, used: null, mode: 'demo', created_at: new Date().toISOString() });
-      var mid = nextMessageId++;
-      messages.push({ id: mid, thread_id: tid, role: 'assistant', content: reply, used: used, mode: 'demo', created_at: new Date().toISOString() });
+      var res = chatWith(ca, body.thread_id, text);
       // a short think, so the "กำลังคิด…" state is visible in the demo
-      return new Promise(function (resolve) { setTimeout(function () { resolve(json({ thread_id: tid, message_id: mid, reply: reply, mode: 'demo', used: used, refused: false })); }, 450); });
+      return new Promise(function (resolve) { setTimeout(function () { resolve(json(res)); }, 450); });
     }
 
     var agentFeedback = p.match(/^\/api\/stores\/([^/]+)\/agents\/([^/]+)\/feedback$/);

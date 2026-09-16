@@ -41,7 +41,6 @@ export const PROVIDERS: Record<Channel, ProviderConfig> = {
       { scope: 'ads_read', label: 'อ่านผลโฆษณา', phase: 1, needsReview: true },
       { scope: 'pages_manage_posts', label: 'โพสต์ลงเพจแทนคุณ', phase: 3, needsReview: true },
       { scope: 'ads_management', label: 'สร้างและปรับโฆษณา', phase: 4, needsReview: true },
-      { scope: 'pages_messaging', label: 'ตอบแชทและคอมเมนต์', phase: 5, needsReview: true },
       { scope: 'business_management', label: 'เข้าถึง Business Manager', phase: 4, needsReview: true },
     ],
     requires: ['FB_APP_ID', 'FB_APP_SECRET'],

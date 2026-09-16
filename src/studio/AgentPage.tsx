@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Lock, Plus, RotateCcw, Send, ThumbsDown, ThumbsUp, Trash2, X } from 'lucide-react';
-import { studioApi, type Agent, type Catalog, type Feedback, type Message, type Thread } from './api';
+import { ArrowLeft, Clock, Lock, Play, Plus, RotateCcw, Send, ThumbsDown, ThumbsUp, Trash2, X } from 'lucide-react';
+import { studioApi, clock, KIND_LABEL, type Agent, type Catalog, type Feedback, type Message, type Run, type Thread } from './api';
 import type { Connection } from '../marketing/Connections';
 
 /**
- * One assistant, opened.
+ * One box, opened.
  *
- * Left: teach it — plain-language instructions, what it may see and do, worked
- * examples. Right: talk to it and grade the answers. A 👎 with a note is the
- * whole training loop; the owner never sees a prompt.
+ * AI box — left: teach it (plain-language instructions, what it may see and do,
+ * worked examples); right: talk to it and grade the answers. A 👎 with a note is
+ * the whole training loop; the owner never sees a prompt.
+ *
+ * Automation or human box — the rules it follows, its schedule, and its run log.
+ * No chat: it does not think, it does.
  */
 const CHANNEL_LABEL: Record<string, string> = { facebook: 'Facebook', tiktok: 'TikTok', shopee: 'Shopee', line: 'LINE', pos: 'POS' };
 /** Negative ids for messages not yet saved by the server, so they never collide with real ones. */
@@ -21,8 +24,10 @@ export default function AgentPage({ store, slug, catalog, connections, onBack }:
   const [agent, setAgent] = useState<Agent | null>(null);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [feedback, setFeedback] = useState<Feedback>({ up: 0, down: 0, corrections: [] });
+  const [runs, setRuns] = useState<Run[]>([]);
   const [draft, setDraft] = useState('');
   const [saved, setSaved] = useState(false);
+  const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [threadId, setThreadId] = useState<string | undefined>();
@@ -36,7 +41,7 @@ export default function AgentPage({ store, slug, catalog, connections, onBack }:
 
   const def = catalog.agents.find((a) => a.slug === slug);
 
-  const load = () => studioApi.agent(store, slug).then((p) => { setAgent(p.agent); setDraft(p.agent.instructions); setThreads(p.threads); setFeedback(p.feedback); })
+  const load = () => studioApi.agent(store, slug).then((p) => { setAgent(p.agent); setDraft(p.agent.instructions); setThreads(p.threads); setFeedback(p.feedback); setRuns(p.runs); })
     .catch((e) => setError((e as Error).message));
   useEffect(() => { load(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [store, slug]);
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, busy]);
@@ -49,6 +54,17 @@ export default function AgentPage({ store, slug, catalog, connections, onBack }:
     if (!agent) return;
     const cur = agent.addons[kind] ?? [];
     save({ addons: { ...agent.addons, [kind]: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] } });
+  };
+  const runNow = async () => {
+    setRunning(true); setError(null);
+    try {
+      const { run, agent: a } = await studioApi.run(store, slug);
+      setAgent(a); setRuns((r) => [run, ...r].slice(0, 10));
+      // an AI run is a real conversation — show it in the chat so the owner can grade it
+      const out = run.output as { thread_id?: string } | null;
+      if (a.kind === 'ai' && out?.thread_id) { await openThread(out.thread_id); studioApi.agent(store, slug).then((p) => setThreads(p.threads)).catch(() => {}); }
+    } catch (e) { setError((e as Error).message); }
+    finally { setRunning(false); }
   };
 
   const send = async (text: string) => {
@@ -83,18 +99,19 @@ export default function AgentPage({ store, slug, catalog, connections, onBack }:
   const knowledge = catalog.addons.filter((a) => a.kind === 'knowledge');
   const actions = catalog.addons.filter((a) => a.kind === 'action');
   const dirty = draft !== agent.instructions;
+  const isAi = agent.kind === 'ai';
 
-  return (
-    <div className="flex-grow flex flex-col overflow-hidden">
-      {/* ---- header ---- */}
-      <div className="flex items-center gap-3 px-4 lg:px-6 py-3 flex-wrap" style={{ background: 'var(--panel)', borderBottom: '1px solid var(--line)' }}>
-        <button onClick={onBack} className="btn btn-sm" aria-label="กลับ"><ArrowLeft size={15} /> ทุกผู้ช่วย</button>
-        <span className="text-2xl leading-none">{agent.emoji}</span>
-        <div className="min-w-0">
-          <div className="t-head text-[17px] leading-tight">{agent.name}</div>
-          <div className="t-label truncate">{agent.role}</div>
-        </div>
-        <div className="ml-auto flex items-center gap-2 flex-wrap">
+  const header = (
+    <div className="flex items-center gap-3 px-4 lg:px-6 py-3 flex-wrap" style={{ background: 'var(--panel)', borderBottom: '1px solid var(--line)' }}>
+      <button onClick={onBack} className="btn btn-sm" aria-label="กลับ"><ArrowLeft size={15} /> ทุกกล่อง</button>
+      <span className="text-2xl leading-none">{agent.emoji}</span>
+      <div className="min-w-0">
+        <div className="t-head text-[17px] leading-tight flex items-center gap-2">{agent.name} <span className="chip">{KIND_LABEL[agent.kind]}</span></div>
+        <div className="t-label truncate">{agent.role}</div>
+      </div>
+      <div className="ml-auto flex items-center gap-2 flex-wrap">
+        <span className="text-xs flex items-center gap-1" style={{ color: 'var(--muted)' }}><Clock size={12} /> {agent.schedule}</span>
+        {isAi && (
           <div className="flex rounded-xl overflow-hidden" style={{ border: '1px solid var(--line-2)' }}>
             {(['propose', 'auto'] as const).map((v) => (
               <button key={v} onClick={() => save({ autonomy: v })} className="px-3 py-1.5 text-sm"
@@ -103,19 +120,80 @@ export default function AgentPage({ store, slug, catalog, connections, onBack }:
               </button>
             ))}
           </div>
-          <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--ink-2)' }}>
-            <input type="checkbox" checked={agent.enabled} onChange={(e) => save({ enabled: e.target.checked })} /> เปิดใช้
-          </label>
+        )}
+        <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--ink-2)' }}>
+          <input type="checkbox" checked={agent.enabled} onChange={(e) => save({ enabled: e.target.checked })} /> เปิดใช้
+        </label>
+        <button className="btn btn-sm btn-primary" disabled={running || !agent.enabled} onClick={runNow}><Play size={13} /> {running ? 'กำลังรัน…' : 'รันตอนนี้'}</button>
+        {isAi && (
           <button className="btn btn-sm" title="กลับไปใช้ค่าเริ่มต้น" onClick={async () => { if (confirm('ล้างสิ่งที่สอนไว้ทั้งหมด กลับไปใช้ค่าเริ่มต้น?')) { const a = await studioApi.reset(store, slug); setAgent(a); setDraft(a.instructions); } }}>
             <RotateCcw size={14} /> ค่าเริ่มต้น
           </button>
+        )}
+      </div>
+    </div>
+  );
+
+  const runLog = (
+    <section className="panel panel-pad">
+      <div className="panel-head"><h3>ผลรันล่าสุด</h3><span className="t-label">{agent.cron ? `cron ${agent.cron}` : 'รันเมื่อมี event'}</span></div>
+      {runs.length === 0 ? <p className="t-sub" style={{ color: 'var(--muted)' }}>ยังไม่เคยรัน กด "รันตอนนี้" เพื่อดูว่ามันทำอะไร</p> : (
+        <ul className="flex flex-col">
+          {runs.map((r, i) => (
+            <li key={r.id} className="py-2.5 text-sm" style={i ? { borderTop: '1px solid var(--line)' } : undefined}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="t-mono t-label">{clock(r.started_at)}</span>
+                <span className={`chip ${r.status === 'ok' ? 'chip-good' : r.status === 'error' ? 'chip-crit' : ''}`}>{r.status === 'ok' ? 'สำเร็จ' : r.status === 'error' ? 'ผิดพลาด' : 'ข้าม'}</span>
+                <span className="t-label">{r.trigger === 'manual' ? `กดเอง${r.by ? ` · ${r.by}` : ''}` : r.trigger === 'schedule' ? 'ตามเวลา' : 'จาก event'}</span>
+              </div>
+              <div className="mt-1 whitespace-pre-line">{r.summary}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+
+  /* ================= automation / human box ================= */
+  if (!isAi) {
+    return (
+      <div className="flex-grow flex flex-col overflow-hidden">
+        {header}
+        {error && <div className="mx-4 lg:mx-6 mt-3 px-3 py-2 text-sm rounded-xl" style={{ background: 'var(--crit-soft)', color: 'var(--crit)' }}>{error}</div>}
+        <div className="flex-grow overflow-y-auto p-4 lg:p-6 no-scrollbar">
+          <div className="grid lg:grid-cols-2 gap-5 max-w-5xl">
+            <section className="panel panel-pad">
+              <div className="panel-head"><h3>{agent.kind === 'human' ? 'กติกาของคิวนี้' : 'กฎที่มันทำตาม'}</h3><span className="t-label">{agent.kind === 'human' ? 'คนเป็นคนกด ระบบแค่จัดคิว' : 'ไม่ใช้ AI · ผลเหมือนเดิมทุกครั้งกับข้อมูลเดิม'}</span></div>
+              <ol className="space-y-2 text-sm" style={{ listStyle: 'none', padding: 0 }}>
+                {(agent.rules ?? []).map((r, i) => (
+                  <li key={i} className="flex gap-3">
+                    <span className="t-mono text-[11px] w-5 h-5 rounded-md grid place-items-center flex-none mt-0.5" style={{ background: 'var(--brand-soft)', color: 'var(--brand-text)' }}>{i + 1}</span>
+                    <span>{r}</span>
+                  </li>
+                ))}
+              </ol>
+              {agent.last_run?.output && (
+                <details className="mt-4">
+                  <summary className="t-label cursor-pointer">ข้อมูลดิบของรอบล่าสุด</summary>
+                  <pre className="t-mono text-[11px] mt-2 p-3 rounded-xl overflow-x-auto" style={{ background: 'var(--panel-2)' }}>{JSON.stringify(agent.last_run.output, null, 2)}</pre>
+                </details>
+              )}
+            </section>
+            {runLog}
+          </div>
         </div>
       </div>
+    );
+  }
 
+  /* ================= AI box ================= */
+  return (
+    <div className="flex-grow flex flex-col overflow-hidden">
+      {header}
       {error && <div className="mx-4 lg:mx-6 mt-3 px-3 py-2 text-sm rounded-xl" style={{ background: 'var(--crit-soft)', color: 'var(--crit)' }}>{error}</div>}
 
       <div className="flex-grow grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] gap-5 p-4 lg:p-6 overflow-hidden">
-        {/* ================= teach ================= */}
+        {/* ---- teach ---- */}
         <div className="overflow-y-auto no-scrollbar space-y-4 pb-4">
           <section className="panel panel-pad">
             <div className="panel-head">
@@ -123,15 +201,22 @@ export default function AgentPage({ store, slug, catalog, connections, onBack }:
               <span className="t-label">{dirty ? 'ยังไม่ได้บันทึก' : saved ? 'บันทึกแล้ว ✓' : 'พิมพ์เหมือนสั่งงานพนักงานใหม่'}</span>
             </div>
             <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={7} className="field"
-              placeholder={'เช่น\nตอบสั้น ๆ ลงท้ายด้วยครับ\nถ้าลูกค้าถามลดราคา ให้เสนอซื้อเป็นเซ็ตแทน\nห้ามพูดถึงแบรนด์อื่น'} />
+              placeholder={'เช่น\nเสนอไม่เกิน 3 ตัว\nถ้าสต็อกเหลือเยอะให้เสนอโปรเซ็ตแทนลดราคาเดี่ยว\nห้ามพูดถึงแบรนด์อื่น'} />
             <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
               <span className="t-label">หนึ่งบรรทัดต่อหนึ่งกฎ ยิ่งชัดยิ่งดี</span>
               <button className="btn btn-sm btn-primary" disabled={!dirty} onClick={() => save({ instructions: draft })}>บันทึกสิ่งที่สอน</button>
             </div>
           </section>
 
+          {agent.runPrompt && (
+            <section className="panel panel-pad">
+              <div className="panel-head"><h3>ตอนรันเองมันถูกถามว่า</h3><span className="t-label">{agent.schedule}</span></div>
+              <p className="text-sm px-3 py-2 rounded-xl" style={{ background: 'var(--panel-2)' }}>“{agent.runPrompt}”</p>
+            </section>
+          )}
+
           <section className="panel panel-pad">
-            <div className="panel-head"><h3>ให้เห็นอะไรบ้าง</h3><span className="t-label">ความรู้ที่ผู้ช่วยอ่านได้ก่อนตอบ</span></div>
+            <div className="panel-head"><h3>ให้เห็นอะไรบ้าง</h3><span className="t-label">ความรู้ที่อ่านได้ก่อนตอบ</span></div>
             <div className="grid sm:grid-cols-2 gap-2">
               {knowledge.map((ad) => <AddonToggle key={ad.id} label={ad.label} hint={ad.hint} on={(agent.addons.knowledge ?? []).includes(ad.id)} onClick={() => toggleAddon('knowledge', ad.id)} />)}
             </div>
@@ -176,12 +261,14 @@ export default function AgentPage({ store, slug, catalog, connections, onBack }:
           <section className="panel panel-pad">
             <div className="panel-head"><h3>สิ่งที่เรียนรู้จากการแก้</h3><span className="t-label">👍 {feedback.up} · 👎 {feedback.down}</span></div>
             {feedback.corrections.length === 0
-              ? <p className="t-sub" style={{ color: 'var(--muted)' }}>กด 👎 ที่คำตอบแล้วพิมพ์ว่าควรตอบยังไง ผู้ช่วยจะจำไว้ทุกครั้งถัดไป</p>
+              ? <p className="t-sub" style={{ color: 'var(--muted)' }}>กด 👎 ที่คำตอบแล้วพิมพ์ว่าควรตอบยังไง กล่องจะจำไว้ทุกครั้งถัดไป</p>
               : <ul className="space-y-1.5">{feedback.corrections.map((c, i) => <li key={i} className="text-sm flex gap-2"><span style={{ color: 'var(--good)' }}>✓</span>{c.note}</li>)}</ul>}
           </section>
+
+          {runLog}
         </div>
 
-        {/* ================= chat ================= */}
+        {/* ---- chat ---- */}
         <div className="panel flex flex-col overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 flex-wrap" style={{ borderBottom: '1px solid var(--line)' }}>
             <h3 className="t-head text-[15px]">ลองคุย</h3>
@@ -234,8 +321,8 @@ export default function AgentPage({ store, slug, catalog, connections, onBack }:
                   )}
                   {noteFor === m.id && (
                     <div className="mt-2 p-3 rounded-xl" style={{ background: 'var(--panel)', border: '1px solid var(--crit)' }}>
-                      <div className="t-label mb-1">ควรตอบยังไง? (ผู้ช่วยจะจำไว้)</div>
-                      <textarea className="field" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น ไม่ต้องถามซ้ำ ให้บอกราคาเลย" autoFocus />
+                      <div className="t-label mb-1">ควรตอบยังไง? (กล่องจะจำไว้)</div>
+                      <textarea className="field" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น ราคาเซ็ตต้องอยู่บรรทัดแรก" autoFocus />
                       <div className="flex gap-2 justify-end mt-2">
                         <button className="btn btn-sm" onClick={() => setNoteFor(null)}><X size={13} /></button>
                         <button className="btn btn-sm btn-primary" onClick={() => grade(m, 'down', note)}>จำไว้</button>
@@ -285,7 +372,7 @@ function ExampleForm({ onAdd }: { onAdd: (ex: { ask: string; answer: string }) =
   if (!open) return <button className="btn btn-sm" onClick={() => setOpen(true)}><Plus size={13} /> เพิ่มตัวอย่าง</button>;
   return (
     <div className="space-y-2">
-      <input className="field" placeholder="ลูกค้าถามว่า…" value={ask} onChange={(e) => setAsk(e.target.value)} />
+      <input className="field" placeholder="ถามว่า…" value={ask} onChange={(e) => setAsk(e.target.value)} />
       <textarea className="field" rows={3} placeholder="คำตอบที่อยากให้ตอบ" value={answer} onChange={(e) => setAnswer(e.target.value)} />
       <div className="flex gap-2 justify-end">
         <button className="btn btn-sm" onClick={() => setOpen(false)}>ยกเลิก</button>

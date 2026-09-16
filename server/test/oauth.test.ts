@@ -120,7 +120,7 @@ describe('connect flow over the API (demo mode)', () => {
     expect(fb.missing_env).toEqual(['FB_APP_ID', 'FB_APP_SECRET']);
     // phase 1 scopes are requested, later-phase ones are declared but not asked for yet
     expect(fb.scopes.find((s) => s.scope === 'ads_read')?.requested_now).toBe(true);
-    expect(fb.scopes.find((s) => s.scope === 'pages_messaging')?.requested_now).toBe(false);
+    expect(fb.scopes.find((s) => s.scope === 'pages_manage_posts')?.requested_now).toBe(false);
   });
 
   it('walks connect → pick account → attach → disconnect', async () => {

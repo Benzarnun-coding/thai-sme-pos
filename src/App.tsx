@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import MarketingView from './marketing/MarketingView'
 import StudioView from './studio/StudioView'
+import ReportView from './report/ReportView'
 import {
   ShoppingCart,
   Package,
@@ -9,6 +10,7 @@ import {
   Plus,
   BrainCircuit,
   Sparkles,
+  FileText,
   Shirt,
   X,
   Menu as MenuIcon,
@@ -18,7 +20,7 @@ import {
 } from 'lucide-react'
 
 // --- Types ---
-type View = 'POS' | 'Dashboard' | 'Stock' | 'Receipt' | 'Marketing' | 'Studio';
+type View = 'POS' | 'Dashboard' | 'Stock' | 'Receipt' | 'Marketing' | 'Studio' | 'Report';
 
 interface Modifier { id: string; name: string; price: number; }
 interface ModifierCategory { id: string; name: string; options: Modifier[]; type: 'radio' | 'checkbox' }
@@ -84,7 +86,8 @@ const NAV: { id: View; label: string; icon: React.ReactNode }[] = [
   { id: 'Dashboard', label: 'ภาพรวม', icon: <LayoutDashboard size={18} /> },
   { id: 'Stock', label: 'สต็อก', icon: <Package size={18} /> },
   { id: 'Marketing', label: 'การตลาด', icon: <BrainCircuit size={18} /> },
-  { id: 'Studio', label: 'ผู้ช่วย AI', icon: <Sparkles size={18} /> },
+  { id: 'Studio', label: 'ระบบหลังบ้าน', icon: <Sparkles size={18} /> },
+  { id: 'Report', label: 'รายงาน', icon: <FileText size={18} /> },
 ];
 
 const baht = (n: number) => '฿' + n.toLocaleString('th-TH');
@@ -116,7 +119,7 @@ function Sidebar({ view, onPick, open }: { view: View; onPick: (v: View) => void
             <button
               key={btn.id}
               onClick={() => onPick(btn.id)}
-              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-left text-[15px] transition-colors"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-left text-[15px] transition-colors whitespace-nowrap"
               style={on
                 ? { background: 'rgba(255,255,255,.17)', color: 'var(--brand-ink)', fontWeight: 500, boxShadow: 'inset 3px 0 0 var(--accent)' }
                 : { color: 'var(--brand-ink)', opacity: 0.74 }}
@@ -272,7 +275,7 @@ function ReceiptView({ order, onNew }: { order: Order | null; onNew: () => void 
 function App() {
   const [view, setView] = useState<View>(() => {
     const h = window.location.hash.replace('#', '').split('?')[0];
-    return (['POS', 'Dashboard', 'Stock', 'Marketing', 'Studio'] as View[]).includes(h as View) ? (h as View) : 'POS';
+    return (['POS', 'Dashboard', 'Stock', 'Marketing', 'Studio', 'Report'] as View[]).includes(h as View) ? (h as View) : 'POS';
   });
   const [cart, setCart] = useState<CartLine[]>([]);
   const [lastOrder, setLastOrder] = useState<Order | null>(null);
@@ -335,6 +338,8 @@ function App() {
           <MarketingView />
         ) : view === 'Studio' ? (
           <StudioView />
+        ) : view === 'Report' ? (
+          <ReportView />
         ) : (
           <div className="p-10 text-center t-sub" style={{ color: 'var(--muted)' }}>
             หน้า “{NAV.find(n => n.id === view)?.label}” ยังไม่เปิดใช้งานในเวอร์ชันนี้

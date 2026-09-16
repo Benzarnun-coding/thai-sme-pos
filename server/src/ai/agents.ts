@@ -1,15 +1,21 @@
 /**
- * Assistants as rows: defaults from the catalogue, edits from the owner,
- * conversations and corrections alongside.
+ * Boxes as rows: defaults from the catalogue, edits from the owner,
+ * conversations, corrections and runs alongside.
+ *
+ * Only the owner-editable fields live in the database. Kind, team, step,
+ * schedule and rules come from the catalogue and are merged in on read, so a
+ * catalogue change reaches every store without a migration.
  */
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../db/client.js';
-import { AGENTS, AGENT_BY_SLUG, ADDON_BY_ID, type Autonomy } from './catalog.js';
-import { loadKnowledge } from './context.js';
+import { AGENTS, AGENT_BY_SLUG, ADDON_BY_ID, type AgentDef, type Autonomy } from './catalog.js';
+import { knowledgeKeys, loadKnowledge } from './context.js';
 import { answer, DEFAULT_MODEL, type Turn } from './llm.js';
 import { buildSystemPrompt, describeInputs, type AgentConfig } from './prompt.js';
 
-export interface AgentRow extends AgentConfig {
+type Meta = Pick<AgentDef, 'kind' | 'team' | 'step' | 'schedule' | 'cron' | 'runPrompt' | 'rules' | 'starters'>;
+
+export interface AgentRow extends AgentConfig, Meta {
   id: string;
   store_id: string;
   emoji: string | null;
@@ -18,6 +24,12 @@ export interface AgentRow extends AgentConfig {
   enabled: boolean;
   updated_by: string | null;
   updated_at: string;
+  last_run: RunRow | null;
+}
+
+export interface RunRow {
+  id: number; agent_id: string; trigger: string; status: 'ok' | 'skipped' | 'error';
+  summary: string; output: Record<string, unknown> | null; started_at: string; finished_at: string | null; by: string | null;
 }
 
 export interface AgentPatch {
@@ -31,8 +43,16 @@ export interface AgentPatch {
 }
 
 const agentId = (storeId: string, slug: string) => `${storeId}-${slug}`;
+const metaOf = (slug: string): Meta => {
+  const d = AGENT_BY_SLUG[slug];
+  return { kind: d.kind, team: d.team, step: d.step, schedule: d.schedule, cron: d.cron, runPrompt: d.runPrompt, rules: d.rules, starters: d.starters };
+};
 
-/** Every store gets the six default assistants; existing rows are left alone. */
+/**
+ * Every store gets every catalogue box; existing rows are left alone. Boxes that
+ * left the catalogue (the chat assistants, for instance) are removed with their
+ * history, so the screen never shows a box the product no longer has.
+ */
 export async function ensureAgents(db: Db, storeId: string): Promise<void> {
   for (const a of AGENTS) {
     await db.query(
@@ -41,21 +61,42 @@ export async function ensureAgents(db: Db, storeId: string): Promise<void> {
       [agentId(storeId, a.slug), storeId, a.slug, a.name, a.emoji, a.role, a.instructions,
         JSON.stringify(a.examples), JSON.stringify({ connections: [], ...a.addons }), a.autonomy, DEFAULT_MODEL, a.effort]);
   }
+  const slugs = AGENTS.map((a) => a.slug);
+  const stale = await db.query<{ id: string }>('select id from agent where store_id=$1 and not (slug = any($2))', [storeId, slugs]);
+  for (const { id } of stale) {
+    await db.query('delete from agent_feedback where agent_id=$1', [id]);
+    await db.query('delete from agent_message where thread_id in (select id from agent_thread where agent_id=$1)', [id]);
+    await db.query('delete from agent_thread where agent_id=$1', [id]);
+    await db.query('delete from agent_run where agent_id=$1', [id]);
+    await db.query('delete from agent where id=$1', [id]);
+  }
 }
 
 const COLS = 'id, store_id, slug, name, emoji, role, instructions, examples, addons, autonomy, model, effort, enabled, updated_by, updated_at::text';
 
+async function lastRuns(db: Db, storeId: string): Promise<Map<string, RunRow>> {
+  const rows = await db.query<RunRow>(
+    `select distinct on (agent_id) id, agent_id, trigger, status, summary, output, started_at::text, finished_at::text, by
+       from agent_run where store_id=$1 order by agent_id, id desc`, [storeId]);
+  return new Map(rows.map((r) => [r.agent_id, r]));
+}
+
 export async function listAgents(db: Db, storeId: string): Promise<AgentRow[]> {
   await ensureAgents(db, storeId);
-  const rows = await db.query<AgentRow>(`select ${COLS} from agent where store_id=$1`, [storeId]);
-  const order = AGENTS.map((a) => a.slug);
-  return rows.sort((a, b) => order.indexOf(a.slug as never) - order.indexOf(b.slug as never));
+  const rows = await db.query<Omit<AgentRow, keyof Meta | 'last_run'>>(`select ${COLS} from agent where store_id=$1`, [storeId]);
+  const runs = await lastRuns(db, storeId);
+  return rows
+    .map((r) => ({ ...r, ...metaOf(r.slug), last_run: runs.get(r.id) ?? null }))
+    .sort((a, b) => a.step - b.step);
 }
 
 export async function getAgent(db: Db, storeId: string, slug: string): Promise<AgentRow | null> {
+  if (!AGENT_BY_SLUG[slug]) return null;
   await ensureAgents(db, storeId);
-  const rows = await db.query<AgentRow>(`select ${COLS} from agent where id=$1`, [agentId(storeId, slug)]);
-  return rows[0] ?? null;
+  const rows = await db.query<Omit<AgentRow, keyof Meta | 'last_run'>>(`select ${COLS} from agent where id=$1`, [agentId(storeId, slug)]);
+  if (!rows[0]) return null;
+  const runs = await lastRuns(db, storeId);
+  return { ...rows[0], ...metaOf(slug), last_run: runs.get(rows[0].id) ?? null };
 }
 
 export async function updateAgent(db: Db, storeId: string, slug: string, patch: AgentPatch, by?: string): Promise<AgentRow | null> {
@@ -73,8 +114,8 @@ export async function updateAgent(db: Db, storeId: string, slug: string, patch: 
       patch.autonomy ?? cur.autonomy, patch.enabled ?? cur.enabled, patch.effort ?? cur.effort, patch.model ?? cur.model, by ?? null]);
   await db.query(
     `insert into audit_log(store_id, actor, actor_type, action, target, before, after) values ($1,$2,'human','agent.update',$3,$4,$5)`,
-    [storeId, by ?? 'unknown', cur.id, JSON.stringify({ instructions: cur.instructions, addons: cur.addons, autonomy: cur.autonomy }),
-      JSON.stringify({ instructions: patch.instructions ?? cur.instructions, addons, autonomy: patch.autonomy ?? cur.autonomy })]);
+    [storeId, by ?? 'unknown', cur.id, JSON.stringify({ instructions: cur.instructions, addons: cur.addons, autonomy: cur.autonomy, enabled: cur.enabled }),
+      JSON.stringify({ instructions: patch.instructions ?? cur.instructions, addons, autonomy: patch.autonomy ?? cur.autonomy, enabled: patch.enabled ?? cur.enabled })]);
   return getAgent(db, storeId, slug);
 }
 
@@ -86,6 +127,28 @@ export async function resetAgent(db: Db, storeId: string, slug: string, by?: str
     `update agent set instructions=$2, examples=$3, addons=$4, autonomy=$5, effort=$6, updated_by=$7, updated_at=now() where id=$1`,
     [agentId(storeId, slug), def.instructions, JSON.stringify(def.examples), JSON.stringify({ connections: [], ...def.addons }), def.autonomy, def.effort, by ?? null]);
   return getAgent(db, storeId, slug);
+}
+
+/* ---------------- runs ---------------- */
+
+export async function recordRun(db: Db, o: {
+  storeId: string; slug: string; trigger: 'schedule' | 'manual' | 'event'; status: RunRow['status'];
+  summary: string; output?: Record<string, unknown>; by?: string; startedAt?: Date;
+}): Promise<RunRow> {
+  const rows = await db.query<RunRow>(
+    `insert into agent_run(agent_id, store_id, trigger, status, summary, output, started_at, finished_at, by)
+     values ($1,$2,$3,$4,$5,$6,$7,now(),$8)
+     returning id, agent_id, trigger, status, summary, output, started_at::text, finished_at::text, by`,
+    [agentId(o.storeId, o.slug), o.storeId, o.trigger, o.status, o.summary, o.output ? JSON.stringify(o.output) : null, o.startedAt ?? new Date(), o.by ?? null]);
+  return rows[0];
+}
+
+export async function listRuns(db: Db, storeId: string, o: { slug?: string; limit?: number } = {}): Promise<(RunRow & { slug: string; name: string; emoji: string | null })[]> {
+  return db.query(
+    `select r.id, r.agent_id, a.slug, a.name, a.emoji, r.trigger, r.status, r.summary, r.output, r.started_at::text, r.finished_at::text, r.by
+       from agent_run r join agent a on a.id = r.agent_id
+      where r.store_id=$1 and ($2::text is null or a.slug=$2)
+      order by r.id desc limit $3`, [storeId, o.slug ?? null, o.limit ?? 50]);
 }
 
 /* ---------------- conversations ---------------- */
@@ -111,9 +174,15 @@ async function corrections(db: Db, agentIdValue: string) {
     `select note, created_at::text from agent_feedback where agent_id=$1 and verdict='down' and note is not null and note <> '' order by id`, [agentIdValue]);
 }
 
-export async function chat(db: Db, o: { storeId: string; slug: string; threadId?: string; message: string; by?: string }) {
+export interface ChatResult {
+  thread_id: string; message_id: number; reply: string; mode: 'claude' | 'demo';
+  used: Record<string, unknown>; refused: boolean;
+}
+
+export async function chat(db: Db, o: { storeId: string; slug: string; threadId?: string; message: string; by?: string }): Promise<ChatResult | { error: string } | null> {
   const agent = await getAgent(db, o.storeId, o.slug);
   if (!agent) return null;
+  if (agent.kind !== 'ai') return { error: `${agent.name} ไม่ใช่กล่อง AI — ทำงานตามกฎ ไม่มีแชท` };
   const store = (await db.query<{ name: string }>('select name from store where id=$1', [o.storeId]))[0] ?? { name: o.storeId };
 
   let threadId = o.threadId;
@@ -132,7 +201,7 @@ export async function chat(db: Db, o: { storeId: string; slug: string; threadId?
   const history: Turn[] = (await getMessages(db, threadId)).slice(-20).map((m) => ({ role: m.role, content: m.content }));
 
   const result = await answer({ agent, system, knowledge, history, message: o.message });
-  const used = { ...describeInputs(agent, knowledge, fixes), mode: result.mode, model: result.mode === 'claude' ? agent.model : 'demo' };
+  const used = { ...describeInputs(agent, knowledge, fixes), knowledge: knowledgeKeys(knowledge), mode: result.mode, model: result.mode === 'claude' ? agent.model : 'demo' };
 
   await db.query(`insert into agent_message(thread_id, role, content, mode) values ($1,'user',$2,$3)`, [threadId, o.message, result.mode]);
   const saved = await db.query<{ id: number }>(

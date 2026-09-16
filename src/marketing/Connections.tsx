@@ -44,7 +44,7 @@ const daysLeft = (iso: string | null) => iso ? Math.ceil((new Date(iso).getTime(
 const returnParams = () => new URLSearchParams(window.location.hash.split('?')[1] ?? '');
 
 const CAP_LABEL: Record<string, string> = {
-  insights: 'อ่านสถิติ', post: 'โพสต์ได้', ads: 'ยิงแอดได้', messages: 'ตอบแชทได้',
+  insights: 'อ่านสถิติ', post: 'โพสต์ได้', ads: 'ยิงแอดได้',
   import: 'นำเข้าสินค้า', listing: 'แก้รายการสินค้า', orders: 'อ่านออเดอร์', broadcast: 'ส่ง broadcast',
 };
 
