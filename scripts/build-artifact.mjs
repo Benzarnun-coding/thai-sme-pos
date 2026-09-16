@@ -55,6 +55,7 @@ ${fs.readFileSync(path.join(root, 'scripts/artifact/demo.css'), 'utf8')}
 </style>
 <script>
 window.__LOOPDESK_DEMO__ = ${JSON.stringify(snapshot)};
+${fs.readFileSync(path.join(root, 'server/src/ai/demo-brain.js'), 'utf8').replace(/^export /gm, '')}
 ${fs.readFileSync(path.join(root, 'scripts/artifact/shim.js'), 'utf8')}
 </script>
 <div id="root"></div>

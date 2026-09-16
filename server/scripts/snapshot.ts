@@ -15,6 +15,7 @@ import { seed } from '../src/seed.js';
 import { buildServer } from '../src/api/server.js';
 
 process.env.PGLITE_MEMORY = '1';
+process.env.LOOPDESK_AI = 'demo';   // the published demo has no model behind it
 delete process.env.FB_APP_ID;      // force the connect flow into demo mode
 delete process.env.FB_APP_SECRET;
 
@@ -39,6 +40,8 @@ const snapshot: Record<string, unknown> = {
   ads: await get(`/api/stores/${STORE}/ads`),
   audit: await get(`/api/stores/${STORE}/audit`),
   connections: await get(`/api/stores/${STORE}/connections`),
+  catalog: await get('/api/studio/catalog'),
+  agents: await get(`/api/stores/${STORE}/agents`),
 };
 
 // Walk the connect flow once so the page can replay the account picker offline.

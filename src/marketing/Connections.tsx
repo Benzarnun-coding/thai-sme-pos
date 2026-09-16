@@ -38,6 +38,11 @@ const CHANNEL_STYLE: Record<string, { label: string; color: string; mark: string
   line: { label: 'LINE', color: 'var(--line-ch)', mark: 'L' },
   pos: { label: 'POS', color: 'var(--brand)', mark: 'P' },
 };
+/** Days until a token expires; module-level so Date.now() is not called during render. */
+const daysLeft = (iso: string | null) => iso ? Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000) : null;
+/** What the consent screen sent us back with, read once at mount. */
+const returnParams = () => new URLSearchParams(window.location.hash.split('?')[1] ?? '');
+
 const CAP_LABEL: Record<string, string> = {
   insights: 'อ่านสถิติ', post: 'โพสต์ได้', ads: 'ยิงแอดได้', messages: 'ตอบแชทได้',
   import: 'นำเข้าสินค้า', listing: 'แก้รายการสินค้า', orders: 'อ่านออเดอร์', broadcast: 'ส่ง broadcast',
@@ -61,7 +66,10 @@ export default function Connections({ storeId, connections, onChange }: {
   const [picker, setPicker] = useState<{ channel: string; grant: string; demo: boolean; accounts: PickerAccount[] } | null>(null);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
-  const [banner, setBanner] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null);
+  const [banner, setBanner] = useState<{ kind: 'error' | 'ok'; text: string } | null>(() => {
+    const err = returnParams().get('connect_error');
+    return err ? { kind: 'error', text: err } : null;
+  });
 
   useEffect(() => { fetch('/api/providers').then((r) => r.json()).then(setProviders).catch(() => {}); }, []);
 
@@ -75,11 +83,12 @@ export default function Connections({ storeId, connections, onChange }: {
 
   // Coming back from the consent screen: #Marketing?grant=... or ?connect_error=...
   useEffect(() => {
-    const q = new URLSearchParams(window.location.hash.split('?')[1] ?? '');
-    const grant = q.get('grant'); const err = q.get('connect_error');
-    if (err) setBanner({ kind: 'error', text: err });
+    const q = returnParams();
+    const grant = q.get('grant');
+    // Syncing with the URL we were redirected back to; the picker opens once, on mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (grant) openPicker(q.get('channel') ?? 'facebook', grant);
-    if (grant || err) window.history.replaceState(null, '', '#Marketing');
+    if (grant || q.get('connect_error')) window.history.replaceState(null, '', '#Marketing');
   }, [openPicker]);
 
   const startConnect = async (channel: string) => {
@@ -90,7 +99,7 @@ export default function Connections({ storeId, connections, onChange }: {
       });
       const body = await r.json();
       if (!r.ok) { setBanner({ kind: 'error', text: body.error ?? 'เชื่อมต่อไม่สำเร็จ' }); return; }
-      if (body.mode === 'oauth') { window.location.href = body.url; return; }
+      if (body.mode === 'oauth') { window.location.assign(body.url); return; }
       setBanner({ kind: 'ok', text: body.note });
       await openPicker(channel, body.grant_id);
     } catch (e) {
@@ -124,7 +133,6 @@ export default function Connections({ storeId, connections, onChange }: {
     } finally { setBusy(null); }
   };
 
-  const daysLeft = (iso: string | null) => iso ? Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000) : null;
   const connected = connections.filter((c) => c.status === 'connected');
 
   return (

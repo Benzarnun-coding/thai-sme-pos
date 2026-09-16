@@ -32,7 +32,9 @@ npm run dev           # เว็บ :5173 → เมนู MARKETING
 |---|---|
 | `docs/ai-ads-automation-design.md` | ภาพรวม full loop, module map 15 โมดูล, ลำดับการสร้าง |
 | `docs/data-architecture.md` | แยกงาน Automation / AI / คน, schema, events, guardrails |
-| `docs/mockup/loopdesk.html` | mockup UI ทุกโมดูล (เปิดไฟล์ในเบราว์เซอร์ได้เลย) |
+| `docs/workflow-templates.md` | 12 workflow templates สำหรับอธิบาย Partner |
+| `docs/ai-studio-design.md` | ผู้ช่วย AI 6 กล่อง: สเปก การสอนแบบไม่ต้องรู้ tech ความเสี่ยง ตารางการเชื่อมต่อ และแผนรัน ฿300 ล้าน/ปี |
+| `pnpm build:artifact` | สร้างไฟล์ demo หน้าเดียวจากแอปจริง (`docs/mockup/demo.html`) สำหรับแชร์ |
 | `server/README.md` | API, การนำเข้า CSV จาก Bigseller, การต่อ Facebook |
 
 ## โครงสร้าง

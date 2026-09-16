@@ -322,7 +322,7 @@ thai-sme-pos/
 
 ## 11. Mockup UI
 
-หน้าจอต้นแบบแบบ interactive (mock data, หลายร้านค้า, ปรับได้ทุกค่า) อยู่ที่ `docs/mockup/loopdesk.html`
+หน้าจอจริงอยู่ในแอป (เมนู การตลาด และ ผู้ช่วย AI) — รันด้วย `pnpm demo` หรือดูไฟล์ demo หน้าเดียวที่สร้างจาก `pnpm build:artifact`
 เปิดไฟล์ในเบราว์เซอร์ได้โดยตรง ไม่ต้อง build มี 7 หน้า: ภาพรวม / Loop / คิวอนุมัติ / แคมเปญ / ช่องทาง (Facebook, TikTok, Shopee, LINE) / AI Agents / ตั้งค่า
 
 ---
@@ -381,4 +381,4 @@ thai-sme-pos/
 - **Organic ก่อน Paid** เพื่อสร้างความไว้ใจในสไตล์การเขียนของ AI โดยไม่เสียเงิน แล้วค่อยเปิดงบ
 - **Chat ทีหลัง Loop** แม้จะมีค่ามาก เพราะต้องขอสิทธิ์ Messenger เพิ่มและผ่าน App Review ทำคู่ขนานกับข้อ 3-4 ได้ถ้ามีคนสองคน
 
-Mockup ทุกโมดูลอยู่ที่ `docs/mockup/loopdesk.html` เมนูแบ่ง 3 กลุ่มตามตารางด้านบน
+หน้าจอจริงอยู่ในแอป (`pnpm demo`) หรือไฟล์ demo หน้าเดียวจาก `pnpm build:artifact` · ผู้ช่วย AI แต่ละตัวอธิบายไว้ใน `docs/ai-studio-design.md`

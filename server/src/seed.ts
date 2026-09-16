@@ -10,6 +10,7 @@ import { getDb, type Db } from './db/client.js';
 import { migrate } from './db/migrate.js';
 import { importRows, parseCsv } from './catalog/import.js';
 import { loadBrandFolder } from './knowledge/brand.js';
+import { ensureAgents } from './ai/agents.js';
 import { DEMO_PAGE_ID, seedFacebookDemo } from './seed-facebook-demo.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -56,6 +57,7 @@ export async function seed(db: Db, storeId = 'climax', opts: { sales?: boolean; 
   }
 
   const keys = await loadBrandFolder(db, storeId, path.join(here, '../knowledge/climax'));
+  await ensureAgents(db, storeId);
 
   let salesRows = 0;
   if (opts.sales !== false) salesRows = await seedSales(db, storeId, opts.today ?? new Date());

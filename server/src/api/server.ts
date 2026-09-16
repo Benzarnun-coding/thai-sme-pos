@@ -7,6 +7,7 @@ import { importRows, parseCsv } from '../catalog/import.js';
 import { getBrandDocs } from '../knowledge/brand.js';
 import { facebookOptionsFromEnv, syncFacebook } from '../connectors/facebook.js';
 import { registerOauthRoutes } from './oauth-routes.js';
+import { registerAgentRoutes } from './agent-routes.js';
 import { listConnections } from '../auth/connections.js';
 
 export function buildServer(db: Db) {
@@ -93,6 +94,7 @@ export function buildServer(db: Db) {
   });
 
   registerOauthRoutes(app, db);
+  registerAgentRoutes(app, db);
 
   return app;
 }

@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import MarketingView from './marketing/MarketingView'
+import StudioView from './studio/StudioView'
 import {
   ShoppingCart,
   Package,
   LayoutDashboard,
   Plus,
   BrainCircuit,
+  Sparkles,
   Shirt,
   X,
   Menu as MenuIcon,
@@ -16,7 +18,7 @@ import {
 } from 'lucide-react'
 
 // --- Types ---
-type View = 'POS' | 'Dashboard' | 'Stock' | 'Receipt' | 'Marketing';
+type View = 'POS' | 'Dashboard' | 'Stock' | 'Receipt' | 'Marketing' | 'Studio';
 
 interface Modifier { id: string; name: string; price: number; }
 interface ModifierCategory { id: string; name: string; options: Modifier[]; type: 'radio' | 'checkbox' }
@@ -82,9 +84,13 @@ const NAV: { id: View; label: string; icon: React.ReactNode }[] = [
   { id: 'Dashboard', label: 'ภาพรวม', icon: <LayoutDashboard size={18} /> },
   { id: 'Stock', label: 'สต็อก', icon: <Package size={18} /> },
   { id: 'Marketing', label: 'การตลาด', icon: <BrainCircuit size={18} /> },
+  { id: 'Studio', label: 'ผู้ช่วย AI', icon: <Sparkles size={18} /> },
 ];
 
 const baht = (n: number) => '฿' + n.toLocaleString('th-TH');
+/** A receipt number and time; lives outside the component so React's purity lint sees no side effect in render. */
+const makeOrder = (items: CartLine[], total: number): Order =>
+  ({ id: `REC-${Math.floor(Math.random() * 9000) + 1000}`, items, total, time: new Date().toLocaleTimeString('th-TH') });
 
 /* ---------------------------------------------------------------- sidebar */
 
@@ -265,8 +271,8 @@ function ReceiptView({ order, onNew }: { order: Order | null; onNew: () => void 
 
 function App() {
   const [view, setView] = useState<View>(() => {
-    const h = window.location.hash.replace('#', '');
-    return (['POS', 'Dashboard', 'Stock', 'Marketing'] as View[]).includes(h as View) ? (h as View) : 'POS';
+    const h = window.location.hash.replace('#', '').split('?')[0];
+    return (['POS', 'Dashboard', 'Stock', 'Marketing', 'Studio'] as View[]).includes(h as View) ? (h as View) : 'POS';
   });
   const [cart, setCart] = useState<CartLine[]>([]);
   const [lastOrder, setLastOrder] = useState<Order | null>(null);
@@ -291,7 +297,7 @@ function App() {
   };
 
   const completeOrder = () => {
-    setLastOrder({ id: `REC-${Math.floor(Math.random() * 9000) + 1000}`, items: [...cart], total: totalAmount, time: new Date().toLocaleTimeString('th-TH') });
+    setLastOrder(makeOrder([...cart], totalAmount));
     setCart([]);
     setShowPayment(false);
     setView('Receipt');
@@ -327,6 +333,8 @@ function App() {
           <ReceiptView order={lastOrder} onNew={() => setView('POS')} />
         ) : view === 'Marketing' ? (
           <MarketingView />
+        ) : view === 'Studio' ? (
+          <StudioView />
         ) : (
           <div className="p-10 text-center t-sub" style={{ color: 'var(--muted)' }}>
             หน้า “{NAV.find(n => n.id === view)?.label}” ยังไม่เปิดใช้งานในเวอร์ชันนี้

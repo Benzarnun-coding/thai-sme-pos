@@ -10,6 +10,50 @@
   var SNAP = window.__LOOPDESK_DEMO__;
   var real = window.fetch.bind(window);
   var connections = JSON.parse(JSON.stringify(SNAP.connections));
+
+  /* ---------- AI Studio state: assistants, conversations, corrections ---------- */
+  var agents = JSON.parse(JSON.stringify(SNAP.agents || []));
+  var agentDefaults = JSON.parse(JSON.stringify(SNAP.agents || []));
+  var threads = [];        // {id, agent_id, title, created_at}
+  var messages = [];       // {id, thread_id, role, content, used, mode, created_at}
+  var feedback = [];       // {id, agent_id, message_id, verdict, note}
+  var nextMessageId = 1;
+  var brandMap = {};
+  (SNAP.brand || []).forEach(function (b) { brandMap[b.key] = b.content; });
+
+  function knowledgeFor(agent) {
+    var keys = (agent.addons && agent.addons.knowledge) || [];
+    var brand = {};
+    keys.forEach(function (k) { if (brandMap[k] !== undefined) brand[k] = brandMap[k]; });
+    return {
+      brand: brand,
+      signals: keys.indexOf('signals') >= 0 ? SNAP.signals : undefined,
+      ads: keys.indexOf('ads') >= 0 ? SNAP.ads : undefined,
+      posts: keys.indexOf('posts') >= 0 ? (SNAP.posts || []).slice(0, 8) : undefined,
+    };
+  }
+  function corrections(agentId) {
+    return feedback.filter(function (f) { return f.agent_id === agentId && f.verdict === 'down' && f.note; })
+      .map(function (f) { return { note: f.note, created_at: '' }; });
+  }
+  function agentBy(storeId, slug) {
+    return agents.find(function (a) { return a.store_id === storeId && a.slug === slug; }) || null;
+  }
+  function threadList(agentId) {
+    return threads.filter(function (t) { return t.agent_id === agentId; }).map(function (t) {
+      return { id: t.id, title: t.title, created_at: t.created_at, messages: messages.filter(function (m) { return m.thread_id === t.id; }).length };
+    }).reverse();
+  }
+  function feedbackSummary(agentId) {
+    var mine = feedback.filter(function (f) { return f.agent_id === agentId; });
+    return { up: mine.filter(function (f) { return f.verdict === 'up'; }).length, down: mine.filter(function (f) { return f.verdict === 'down'; }).length, corrections: corrections(agentId) };
+  }
+  function messagesOf(threadId) {
+    return messages.filter(function (m) { return m.thread_id === threadId; }).map(function (m) {
+      var last = feedback.filter(function (f) { return f.message_id === m.id; }).pop();
+      return Object.assign({}, m, { verdict: last ? last.verdict : null });
+    });
+  }
   var json = function (body, status) {
     return new Response(JSON.stringify(body), { status: status || 200, headers: { 'content-type': 'application/json' } });
   };
@@ -111,6 +155,75 @@
       row.scopes = null;
       row.token_expires_at = null;
       return json({ disconnected: target, connections: connections });
+    }
+
+    /* ---------- AI Studio ---------- */
+    if (p === '/api/studio/catalog') return json(SNAP.catalog);
+
+    var agentsList = p.match(/^\/api\/stores\/([^/]+)\/agents$/);
+    if (agentsList && method === 'GET') return json(agents.filter(function (a) { return a.store_id === agentsList[1]; }));
+
+    var agentOne = p.match(/^\/api\/stores\/([^/]+)\/agents\/([^/]+)$/);
+    if (agentOne) {
+      var ag = agentBy(agentOne[1], agentOne[2]);
+      if (!ag) return json({ error: 'ไม่พบผู้ช่วยตัวนี้' }, 404);
+      if (method === 'GET') return json({ agent: ag, threads: threadList(ag.id), feedback: feedbackSummary(ag.id) });
+      if (method === 'PUT') {
+        var patch = body || {};
+        ['instructions', 'examples', 'autonomy', 'enabled', 'effort', 'model'].forEach(function (k) { if (patch[k] !== undefined) ag[k] = patch[k]; });
+        if (patch.addons) ag.addons = Object.assign({}, ag.addons, patch.addons);
+        ag.updated_at = new Date().toISOString();
+        return json(ag);
+      }
+    }
+
+    var agentReset = p.match(/^\/api\/stores\/([^/]+)\/agents\/([^/]+)\/reset$/);
+    if (agentReset && method === 'POST') {
+      var cur = agentBy(agentReset[1], agentReset[2]);
+      var def = agentDefaults.find(function (a) { return a.id === (cur && cur.id); });
+      if (!cur || !def) return json({ error: 'ไม่พบผู้ช่วยตัวนี้' }, 404);
+      ['instructions', 'examples', 'addons', 'autonomy', 'effort'].forEach(function (k) { cur[k] = JSON.parse(JSON.stringify(def[k])); });
+      return json(cur);
+    }
+
+    var agentThread = p.match(/^\/api\/stores\/([^/]+)\/agents\/([^/]+)\/threads\/([^/]+)$/);
+    if (agentThread && method === 'GET') {
+      var ta = agentBy(agentThread[1], agentThread[2]);
+      var th = threads.find(function (t) { return t.id === agentThread[3] && ta && t.agent_id === ta.id; });
+      if (!th) return json({ error: 'ไม่พบบทสนทนานี้' }, 404);
+      return json({ thread_id: th.id, messages: messagesOf(th.id) });
+    }
+
+    var agentChat = p.match(/^\/api\/stores\/([^/]+)\/agents\/([^/]+)\/chat$/);
+    if (agentChat && method === 'POST') {
+      var ca = agentBy(agentChat[1], agentChat[2]);
+      if (!ca) return json({ error: 'ไม่พบผู้ช่วยตัวนี้' }, 404);
+      var text = ((body && body.message) || '').trim();
+      if (!text) return json({ error: 'ต้องมีข้อความ' }, 400);
+      var tid = body.thread_id && threads.some(function (t) { return t.id === body.thread_id && t.agent_id === ca.id; }) ? body.thread_id : null;
+      if (!tid) { tid = 'demo-' + Date.now().toString(36); threads.push({ id: tid, agent_id: ca.id, title: text.slice(0, 60), created_at: new Date().toISOString() }); }
+      var fixes = corrections(ca.id);
+      var know = knowledgeFor(ca);
+      var reply = demoReply(ca, know, text);
+      var used = {
+        knowledge: Object.keys(know.brand).concat(know.signals ? ['signals'] : [], know.ads ? ['ads'] : [], know.posts ? ['posts'] : []),
+        actions: (ca.addons && ca.addons.actions) || [], examples: (ca.examples || []).length, corrections: fixes.length, mode: 'demo', model: 'demo',
+      };
+      messages.push({ id: nextMessageId++, thread_id: tid, role: 'user', content: text, used: null, mode: 'demo', created_at: new Date().toISOString() });
+      var mid = nextMessageId++;
+      messages.push({ id: mid, thread_id: tid, role: 'assistant', content: reply, used: used, mode: 'demo', created_at: new Date().toISOString() });
+      // a short think, so the "กำลังคิด…" state is visible in the demo
+      return new Promise(function (resolve) { setTimeout(function () { resolve(json({ thread_id: tid, message_id: mid, reply: reply, mode: 'demo', used: used, refused: false })); }, 450); });
+    }
+
+    var agentFeedback = p.match(/^\/api\/stores\/([^/]+)\/agents\/([^/]+)\/feedback$/);
+    if (agentFeedback && method === 'POST') {
+      var fa = agentBy(agentFeedback[1], agentFeedback[2]);
+      var msg = messages.find(function (m) { return m.id === (body && body.message_id); });
+      var owner = msg && threads.find(function (t) { return t.id === msg.thread_id; });
+      if (!fa || !msg || !owner || owner.agent_id !== fa.id) return json({ error: 'ไม่พบข้อความนี้' }, 404);
+      feedback.push({ id: feedback.length + 1, agent_id: fa.id, message_id: msg.id, verdict: body.verdict, note: (body.note || '').trim() || null });
+      return json({ id: feedback.length, corrections: corrections(fa.id).length });
     }
 
     var store = p.match(/^\/api\/stores\/[^/]+\/(\w+)$/);
