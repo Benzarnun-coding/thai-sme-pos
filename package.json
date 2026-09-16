@@ -12,7 +12,8 @@
     "server:dev": "pnpm --dir server dev",
     "server:seed": "pnpm --dir server seed",
     "server:test": "pnpm --dir server test",
-    "demo": "node scripts/demo.mjs"
+    "demo": "node scripts/demo.mjs",
+    "build:artifact": "node scripts/build-artifact.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.577.0",

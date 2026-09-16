@@ -26,3 +26,6 @@ dist-ssr
 # loopdesk server
 server/data/pglite
 server/.env
+
+# built by scripts/build-artifact.mjs
+docs/mockup/demo.html
