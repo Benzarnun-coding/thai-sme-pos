@@ -15,7 +15,7 @@
  * @typedef {{ page_name: string; ad_text: string; hook: string|null; price_hint: number|null; format: string|null; first_seen: string }} CompetitorAd
  * @typedef {{ name: string; emoji: string|null; status: string; summary: string; started_at: string }} Run
  * @typedef {{ brand: Record<string,string>; signals?: Signal[]; ads?: Ad[]; posts?: {message:string|null; reach:number|null; engaged?: number|null}[];
- *   competitors?: CompetitorAd[]; runs?: Run[] }} Knowledge
+ *   competitors?: CompetitorAd[]; runs?: Run[]; directives?: {title:string; text:string}[] }} Knowledge
  * @typedef {{ slug: string; name: string; instructions: string; autonomy: 'propose'|'auto'; addons: { knowledge?: string[]; actions?: string[] } }} AgentLike
  */
 
@@ -46,6 +46,16 @@ function findProduct(signals, text) {
     if (len > bestLen) { best = s; bestLen = len; }
   }
   return best;
+}
+
+/** Owner directives (from the Trend screen): the product they name, and a one-line acknowledgement. */
+function directiveProduct(signals, k) {
+  for (const d of k.directives || []) { const s = findProduct(signals, d.title + ' ' + d.text); if (s) return s; }
+  return null;
+}
+function directiveNote(k) {
+  const ds = k.directives || [];
+  return ds.length ? `ตามคำสั่ง「${ds[0].title}」${ds.length > 1 ? ` (+${ds.length - 1})` : ''}\n` : '';
 }
 
 function postFor(s) {
@@ -90,7 +100,7 @@ const BRAINS = {
       return `ราคาเดี่ยวถูกสุดของคู่แข่ง: ${cheapest.page_name} ${cheapest.price_hint}.- (${cheapest.ad_text.slice(0, 40)}…)\nของเราถูกสุดที่พร้อมไซส์: ${ourCheapest.name} ${ourCheapest.base_price}.- (${ourCheapest.base_price - cheapest.price_hint >= 0 ? '+' : ''}${ourCheapest.base_price - cheapest.price_hint} บาท)\n\nไม่แนะนำสู้ราคาเดี่ยว — ${ourSet ? `ชูเซ็ต ${ourSet.name} ${ourSet.set_price.qty} ตัว ${ourSet.set_price.price} (ตกตัวละ ${Math.round(ourSet.set_price.price / ourSet.set_price.qty)}) ซึ่งต่ำกว่าราคาเดี่ยวคู่แข่งอยู่แล้ว` : 'ชูราคาเซ็ตแทน'}`;
     }
     const unused = Object.keys(hookName).filter((h) => !byHook[h] && ['proof', 'story', 'service', 'free_ship'].includes(h));
-    const lines = [`คู่แข่ง ${new Set(comps.map((c) => c.page_name)).size} เพจ รันอยู่ ${comps.length} แอด (7 วันล่าสุด ${comps.filter((c) => (Date.now() - new Date(c.first_seen).getTime()) < 7 * 86400000).length} แอดใหม่)`];
+    const lines = [`${directiveNote(k)}คู่แข่ง ${new Set(comps.map((c) => c.page_name)).size} เพจ รันอยู่ ${comps.length} แอด (7 วันล่าสุด ${comps.filter((c) => (Date.now() - new Date(c.first_seen).getTime()) < 7 * 86400000).length} แอดใหม่)`];
     lines.push('\nมุมที่เขาใช้ซ้ำ:\n' + ranked.slice(0, 4).map(([h, n]) => `- ${hookName[h] || h} × ${n}${h === 'bogo' || h === 'single_price' ? ' — สงครามราคา' : ''}`).join('\n'));
     if (/มุม|ยังไม่มีใคร/.test(msg) || true) {
       lines.push('\nมุมโต้ที่แนะนำ (ไม่สู้ราคาเดี่ยว):');
@@ -114,7 +124,8 @@ const BRAINS = {
         ? `ที่ควรล้างสต็อก:\n` + over.map((s) => `- ${s.name} เหลือ ${s.stock_total} ตัว ≈ ${s.days_of_cover} วัน → เสนอเซ็ต ${s.set_price ? s.set_price.qty + ' ตัว ' + s.set_price.price : '3 ตัวราคาพิเศษ'} ลงแอดงบเล็ก 3 วัน`).join('\n')
         : 'ตอนนี้ไม่มีตัวไหนเหลือเกิน 60 วัน สต็อกหมุนดี';
     }
-    const top = ok.slice(0, 3);
+    const pushed = directiveProduct(sig, k);
+    const top = pushed && pushed.promotable ? [pushed, ...ok.filter((s) => s !== pushed)].slice(0, 3) : ok.slice(0, 3);
     const lines = top.map((s, i) => {
       const angle = s.trend_pct && s.trend_pct >= 10 ? 'กำลังมา ดันต่อ' : s.set_price ? `ชูราคาเซ็ต ${s.set_price.qty} ตัว ${s.set_price.price}` : 'ราคาเดี่ยวชัด ๆ';
       return `${i + 1}. ${s.name} — ขาย 7 วัน ${s.sales_7d} ตัว (${pct(s.trend_pct)}) สต็อกครบไซส์ ${s.stock_total} ตัว → มุม: ${angle}`;
@@ -123,7 +134,8 @@ const BRAINS = {
     const tail = blocked.length ? `\n\nไม่เสนอ ${blocked.map((s) => s.name).join(', ')} เพราะ${blocked[0].note}` : '';
     const compNote = comp ? `\nคู่แข่งกำลังเล่นสงครามราคา ${comp} แอด — แผนนี้ชูเซ็ตและไซส์ครบแทนการลดราคาเดี่ยว` : '';
     const ask = agent.autonomy === 'propose' ? '\n\nอนุมัติให้นักเขียนร่างโพสต์ 3 ตัวนี้ไหม' : '';
-    return `สัปดาห์นี้แนะนำดัน:\n${lines.join('\n')}${tail}${compNote}${ask}`;
+    const pushedNote = pushed && !pushed.promotable ? `\n\n${pushed.name} ที่สั่งให้ดัน ตอนนี้${pushed.note} — ต้องเติมไซส์ก่อนถึงจะยิงแอดได้` : '';
+    return `${directiveNote(k)}สัปดาห์นี้แนะนำดัน:\n${lines.join('\n')}${tail}${pushedNote}${compNote}${ask}`;
   },
 
   copywriter(agent, k, msg) {
@@ -135,6 +147,7 @@ const BRAINS = {
     if (/ขายส่ง|พ่อค้า|แม่ค้า/.test(msg)) {
       return '📣 รับพ่อค้า/แม่ค้า เริ่มต้น 20 ตัว 4,000.- ตกตัวละ 200\n👖 คละแบบ คละไซส์ได้ มากกว่า 40 แบบ\n⭐ สินค้าพร้อมส่ง เคลมได้\nทักแชทขอแคตตาล็อกได้เลย';
     }
+    if (!s) s = directiveProduct(sig, k);
     if (!s) s = sig.filter((x) => x.promotable).sort((a, b) => b.sales_7d - a.sales_7d)[0];
     if (!s) return 'ยังไม่มีข้อมูลสินค้า ขอเช็คก่อนแล้วจะร่างให้';
     if (!s.promotable) {
@@ -146,7 +159,7 @@ const BRAINS = {
     if (count >= 3) variants.push(`👖 ${s.name} ผ้าหนา ไม่ย้วย ซักไม่ตก\n⭐ ${s.base_price}.- ตัวเดียวก็ส่ง${s.set_price ? ` / เซ็ต ${s.set_price.qty} ตัว ${s.set_price.price}.-` : ''}\n🚚 มีบริการเก็บเงินปลายทาง\nทักแชทสั่งได้เลย`);
     const check = bad.length ? `\n\nเช็คคำต้องห้ามแล้ว ${bad.length} คำ — ไม่มีในร่างนี้` : '';
     const ask = agent.autonomy === 'propose' ? '\nส่งให้ผู้ตรวจแล้วรออนุมัติก่อนโพสต์' : '';
-    return variants.map((v, i) => (count > 1 ? `แบบ ${i + 1}\n` : '') + v).join('\n\n') + check + ask;
+    return directiveNote(k) + variants.map((v, i) => (count > 1 ? `แบบ ${i + 1}\n` : '') + v).join('\n\n') + check + ask;
   },
 
   qa(agent, k, msg) {
@@ -168,7 +181,30 @@ const BRAINS = {
     return `ไม่ผ่าน ❌ พบ ${issues.length} จุด\n` + issues.map((i) => `- ${i}`).join('\n');
   },
 
+  /** A directive that names a product gets its ad plan first, then the routine answer. */
   campaign(agent, k, msg) {
+    const sig = k.signals || [];
+    const pushed = !findProduct(sig, msg) && directiveProduct(sig, k);
+    const routine = campaignRoutine(agent, k, msg);
+    if (!pushed) return routine;
+    const cap = /งบ\s*([\d,]+)/.exec(msg) ? Number(/งบ\s*([\d,]+)/.exec(msg)[1].replace(/,/g, '')) : 1500;
+    return `${directiveNote(k)}${adPlan(agent, pushed, cap)}\n\n— งานประจำ —\n${routine}`;
+  },
+};
+
+/** The ad plan for one product: two creatives, a 3-day split test, a stop rule — all from its own numbers. */
+function adPlan(agent, one, cap) {
+  if (!one.promotable) return `ตั้งแอดให้ ${one.name} ไม่ได้ — ${one.note} ต้องเติมไซส์ก่อน (กฎยามสต็อก)`;
+  const daily = Math.min(cap, Math.max(150, Math.min(300, cap)));
+  return [`แผนแอด ${one.name} · งบ ${thb(daily)}/วัน · เป้าหมาย ทักแชท`,
+    `- ชิ้น A: ราคาเซ็ต${one.set_price ? ` ${one.set_price.qty} ตัว ${one.set_price.price}` : ''} · ชิ้น B: ราคาเดี่ยว ${one.base_price} + ไซส์ครบ`,
+    `- กลุ่มเป้าหมาย: ชาย 20-45 ทั่วประเทศ · เคยทักเพจ 90 วัน (retarget)`,
+    `- ทดสอบ 3 วัน แบ่งงบ 50/50 แล้วเทงบให้ตัวที่ ฿/ทัก ต่ำกว่า`,
+    `- กฎหยุด: ROAS < 1.5 สามวันติด หรือใช้ไป ${thb(one.base_price * 3)} โดยไม่มีคนทัก`,
+    agent.autonomy === 'propose' ? '\nส่งเข้าคิวอนุมัติไหม' : ''].join('\n');
+}
+
+function campaignRoutine(agent, k, msg) {
     const sig = k.signals || [];
     const ads = adStats(k.ads);
     const capMatch = /งบ\s*([\d,]+)/.exec(msg);
@@ -181,16 +217,7 @@ const BRAINS = {
       return 'ควรหยุดตอนนี้:\n' + toStop.map((a) => { const p = productOfAd(sig, a); return `- ${a.ad_name} — ${p && !p.promotable ? `สินค้า${p.note}` : `ROAS ${a.roas.toFixed(1)}x ใช้ไป ${thb(a.spend)}`}`; }).join('\n') + (agent.autonomy === 'propose' ? '\n\nอนุมัติให้หยุดไหม' : '\nหยุดแล้ว');
     }
     const one = findProduct(sig, msg);
-    if (one && /ตั้งแอด|สร้างแอด/.test(msg)) {
-      if (!one.promotable) return `ตั้งแอดให้ ${one.name} ไม่ได้ — ${one.note} ต้องเติมไซส์ก่อน (กฎยามสต็อก)`;
-      const daily = Math.min(cap, Math.max(150, Math.min(300, cap)));
-      return [`แผนแอด ${one.name} · งบ ${thb(daily)}/วัน · เป้าหมาย ทักแชท`,
-        `- ชิ้น A: ราคาเซ็ต${one.set_price ? ` ${one.set_price.qty} ตัว ${one.set_price.price}` : ''} · ชิ้น B: ราคาเดี่ยว ${one.base_price} + ไซส์ครบ`,
-        `- กลุ่มเป้าหมาย: ชาย 20-45 ทั่วประเทศ · เคยทักเพจ 90 วัน (retarget)`,
-        `- ทดสอบ 3 วัน แบ่งงบ 50/50 แล้วเทงบให้ตัวที่ ฿/ทัก ต่ำกว่า`,
-        `- กฎหยุด: ROAS < 1.5 สามวันติด หรือใช้ไป ${thb(one.base_price * 3)} โดยไม่มีคนทัก`,
-        agent.autonomy === 'propose' ? '\nส่งเข้าคิวอนุมัติไหม' : ''].join('\n');
-    }
+    if (one && /ตั้งแอด|สร้างแอด/.test(msg)) return adPlan(agent, one, cap);
     // split today's budget
     const ok = sig.filter((s) => s.promotable).sort((a, b) => b.sales_7d - a.sales_7d).slice(0, 3);
     const total = ok.reduce((s, p) => s + p.sales_7d, 0) || 1;
@@ -205,8 +232,9 @@ const BRAINS = {
     if (stop.length) lines.push(`\nแอดที่เข้ากฎหยุด: ${stop.map((a) => a.ad_name).join(', ')}`);
     if (agent.autonomy === 'propose') lines.push('\nอนุมัติแผนนี้ไหม');
     return lines.join('\n');
-  },
+  }
 
+Object.assign(BRAINS, {
   analyst(agent, k, msg) {
     const ads = adStats(k.ads);
     if (!ads.length) return 'ยังไม่มีข้อมูลแอด ต่อบัญชีโฆษณาก่อนแล้วจะวิเคราะห์ให้';
@@ -217,7 +245,7 @@ const BRAINS = {
     const scale = ads.filter((a) => a.roas >= 3);
     const pause = ads.filter((a) => a.roas < 1.5 && !a.wholesale);
     const total = ads.reduce((s, a) => s + a.spend, 0), rev = ads.reduce((s, a) => s + a.rev, 0);
-    const lines = [`ใช้ไปรวม ${thb(total)} ได้ยอด ${thb(rev)} (ROAS ${(rev / total).toFixed(1)}x) ทักแชท ${ads.reduce((s, a) => s + a.conversations, 0)} ครั้ง`];
+    const lines = [`${directiveNote(k)}ใช้ไปรวม ${thb(total)} ได้ยอด ${thb(rev)} (ROAS ${(rev / total).toFixed(1)}x) ทักแชท ${ads.reduce((s, a) => s + a.conversations, 0)} ครั้ง`];
     if (scale.length) lines.push('\nควรเพิ่มงบ (ไม่เกิน +30%/วัน):\n' + scale.map((a) => `- ${a.ad_name} ROAS ${a.roas.toFixed(1)}x ${thb(a.cpc || 0)}/ทัก`).join('\n'));
     if (pause.length) lines.push('\nควรพัก:\n' + pause.map((a) => `- ${a.ad_name} ROAS ${a.roas.toFixed(1)}x ใช้ไป ${thb(a.spend)} ซื้อ ${a.purchases}`).join('\n'));
     if (wholesale.length) lines.push(`\nแอดขายส่ง ${wholesale.length} ตัว วัดคนละแบบ — ${wholesale[0].conversations} คนทักที่ ${thb(wholesale[0].cpc || 0)}/ทัก ถือว่าดี`);
@@ -266,7 +294,7 @@ const BRAINS = {
     if (!rules.length) return 'สัปดาห์นี้หลักฐานยังไม่พอจะสรุปเป็นกฎ (ต้องมีโพสต์/แอดที่เทียบกันได้อย่างน้อย 2 คู่)';
     return 'กฎที่เสนอสัปดาห์นี้ (รอเจ้าของเปิดใช้):\n' + rules.map((r, i) => `${i + 1}. ${r}`).join('\n');
   },
-};
+});
 
 /**
  * @param {AgentLike} agent

@@ -20,6 +20,7 @@ export interface CompetitorAd {
   page_name: string; ad_text: string; hook: string | null; price_hint: number | null; format: string | null; first_seen: string;
 }
 export interface RunRow { agent_id: string; name: string; emoji: string | null; status: string; summary: string; started_at: string }
+export interface DirectiveRow { id?: number; title: string; text: string; source?: string; expires_at?: string | null }
 
 export interface Knowledge {
   brand: Record<string, string>;      // voice / usp / forbidden / sizes → markdown
@@ -28,6 +29,7 @@ export interface Knowledge {
   posts?: PostRow[];
   competitors?: CompetitorAd[];
   runs?: RunRow[];
+  directives?: DirectiveRow[];      // owner commands from the Trend screen, aimed at this box
 }
 
 const BRAND_KEYS = new Set(['voice', 'usp', 'forbidden', 'sizes', 'policy']);
@@ -86,7 +88,7 @@ export function knowledgeKeys(k: Knowledge): string[] {
   return [
     ...Object.keys(k.brand),
     ...(k.signals ? ['signals'] : []), ...(k.ads ? ['ads'] : []), ...(k.posts ? ['posts'] : []),
-    ...(k.competitors ? ['competitors'] : []), ...(k.runs ? ['runs'] : []),
+    ...(k.competitors ? ['competitors'] : []), ...(k.runs ? ['runs'] : []), ...(k.directives?.length ? ['directives'] : []),
   ];
 }
 

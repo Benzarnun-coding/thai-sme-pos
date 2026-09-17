@@ -42,6 +42,7 @@ const snapshot: Record<string, unknown> = {
   audit: await get(`/api/stores/${STORE}/audit`),
   connections: await get(`/api/stores/${STORE}/connections`),
   catalog: await get('/api/studio/catalog'),
+  trends: (await get(`/api/stores/${STORE}/trends`) as { trends: unknown[] }).trends,
 };
 // Run the whole loop once, in order, so every card shows a last run and the
 // report has something to read. Same code path the scheduler uses.

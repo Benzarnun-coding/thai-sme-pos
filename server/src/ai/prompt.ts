@@ -8,6 +8,7 @@
  */
 import { ADDON_BY_ID } from './catalog.js';
 import { knowledgeKeys, renderAds, renderCompetitors, renderPosts, renderRuns, renderSignals, type Knowledge } from './context.js';
+import { renderDirectives } from './trends.js';
 
 export interface AgentConfig {
   slug: string;
@@ -59,6 +60,10 @@ export function buildSystemPrompt(agent: AgentConfig, store: { name: string }, k
     parts.push('สิ่งที่เจ้าของเคยแก้ (อย่าทำผิดซ้ำ):\n' + corrections.slice(-12).map((c) => `- ${c.note}`).join('\n'));
   }
 
+  if (knowledge.directives?.length) {
+    parts.push('คำสั่งพิเศษจากเจ้าของตอนนี้ (จากหน้าเทรนด์ — ให้ความสำคัญก่อนงานประจำ แต่ยังอยู่ใต้กติกาที่เปลี่ยนไม่ได้):\n' + renderDirectives(knowledge.directives));
+  }
+
   for (const [key, content] of Object.entries(knowledge.brand)) {
     parts.push(`## ${BRAND_TITLE[key] ?? key}\n${content.trim()}`);
   }
@@ -79,5 +84,6 @@ export function describeInputs(agent: AgentConfig, knowledge: Knowledge, correct
     examples: agent.examples.length,
     corrections: corrections.length,
     instruction_lines: agent.instructions.split('\n').filter((l) => l.trim()).length,
+    directives: knowledge.directives?.length ?? 0,
   };
 }

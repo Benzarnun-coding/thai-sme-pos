@@ -40,7 +40,7 @@ npm run dev           # เว็บ :5173 → เมนู MARKETING
 ## โครงสร้าง
 
 ```
-src/                 แอป POS (React) + src/marketing/ การตลาด · src/office/ ออฟฟิศ 8-bit · src/studio/ ระบบหลังบ้าน · src/report/ รายงาน
+src/                 แอป POS (React) + src/marketing/ การตลาด · src/trend/ เทรนด์→คำสั่ง · src/office/ ออฟฟิศ 8-bit · src/studio/ ระบบหลังบ้าน · src/report/ รายงาน
 server/              LoopDesk API (Fastify + PGlite/Postgres)
 docs/                เอกสารออกแบบและ mockup
 scripts/demo.mjs     รันทุกอย่างด้วยคำสั่งเดียว

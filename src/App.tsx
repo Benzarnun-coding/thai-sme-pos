@@ -4,6 +4,7 @@ import MarketingView from './marketing/MarketingView'
 import StudioView from './studio/StudioView'
 import ReportView from './report/ReportView'
 import OfficeView from './office/OfficeView'
+import TrendView from './trend/TrendView'
 import {
   ShoppingCart,
   Package,
@@ -13,6 +14,7 @@ import {
   Sparkles,
   FileText,
   Building2,
+  TrendingUp,
   Shirt,
   X,
   Menu as MenuIcon,
@@ -22,7 +24,7 @@ import {
 } from 'lucide-react'
 
 // --- Types ---
-type View = 'POS' | 'Dashboard' | 'Stock' | 'Receipt' | 'Marketing' | 'Studio' | 'Report' | 'Office';
+type View = 'POS' | 'Dashboard' | 'Stock' | 'Receipt' | 'Marketing' | 'Studio' | 'Report' | 'Office' | 'Trend';
 
 interface Modifier { id: string; name: string; price: number; }
 interface ModifierCategory { id: string; name: string; options: Modifier[]; type: 'radio' | 'checkbox' }
@@ -88,12 +90,13 @@ const NAV: { id: View; label: string; icon: React.ReactNode }[] = [
   { id: 'Dashboard', label: 'ภาพรวม', icon: <LayoutDashboard size={18} /> },
   { id: 'Stock', label: 'สต็อก', icon: <Package size={18} /> },
   { id: 'Marketing', label: 'การตลาด', icon: <BrainCircuit size={18} /> },
+  { id: 'Trend', label: 'เทรนด์', icon: <TrendingUp size={18} /> },
   { id: 'Office', label: 'ออฟฟิศ', icon: <Building2 size={18} /> },
   { id: 'Studio', label: 'ระบบหลังบ้าน', icon: <Sparkles size={18} /> },
   { id: 'Report', label: 'รายงาน', icon: <FileText size={18} /> },
 ];
 
-const ROUTED: View[] = ['POS', 'Dashboard', 'Stock', 'Marketing', 'Studio', 'Report', 'Office'];
+const ROUTED: View[] = ['POS', 'Dashboard', 'Stock', 'Marketing', 'Studio', 'Report', 'Office', 'Trend'];
 const viewFromHash = (): View | null => {
   const h = window.location.hash.replace('#', '').split('?')[0];
   return ROUTED.includes(h as View) ? (h as View) : null;
@@ -354,6 +357,8 @@ function App() {
           <ReportView />
         ) : view === 'Office' ? (
           <OfficeView />
+        ) : view === 'Trend' ? (
+          <TrendView />
         ) : (
           <div className="p-10 text-center t-sub" style={{ color: 'var(--muted)' }}>
             หน้า “{NAV.find(n => n.id === view)?.label}” ยังไม่เปิดใช้งานในเวอร์ชันนี้

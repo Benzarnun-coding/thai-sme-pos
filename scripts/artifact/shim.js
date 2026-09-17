@@ -20,6 +20,12 @@
   var runs = JSON.parse(JSON.stringify(SNAP.runs || []));   // newest first, as the API returns them
   var nextRunId = runs.reduce(function (m, r) { return Math.max(m, r.id || 0); }, 0) + 1;
   var nextMessageId = 1;
+  var directives = [];     // {id, title, text, source, targets, status, created_at, expires_at, by}
+  var nextDirectiveId = 1;
+  function activeDirectives(slug) {
+    var now = Date.now();
+    return directives.filter(function (d) { return d.status === 'active' && (!d.expires_at || new Date(d.expires_at).getTime() > now) && (!slug || d.targets.indexOf(slug) >= 0); });
+  }
   var brandMap = {};
   (SNAP.brand || []).forEach(function (b) { brandMap[b.key] = b.content; });
 
@@ -34,6 +40,7 @@
       posts: keys.indexOf('posts') >= 0 ? (SNAP.posts || []).slice(0, 8) : undefined,
       competitors: keys.indexOf('competitors') >= 0 ? SNAP.competitors : undefined,
       runs: keys.indexOf('runs') >= 0 ? runs.slice(0, 40) : undefined,
+      directives: activeDirectives(agent.slug),
     };
   }
   function corrections(agentId) {
@@ -53,7 +60,7 @@
     return { up: mine.filter(function (f) { return f.verdict === 'up'; }).length, down: mine.filter(function (f) { return f.verdict === 'down'; }).length, corrections: corrections(agentId) };
   }
   /** A box's run, replayed offline: AI boxes answer their run prompt, the rest reuse their snapshot summary. */
-  function runBox(ag, by) {
+  function runBox(ag, by, trigger) {
     var now = new Date().toISOString();
     var status = 'ok', summary, output = null;
     if (!ag.enabled) { status = 'skipped'; summary = 'ปิดใช้อยู่ ไม่ได้รัน'; }
@@ -69,7 +76,7 @@
       summary = prev ? prev.summary : 'ยังไม่มีงานสำหรับกล่องนี้';
       output = prev ? prev.output : null;
     }
-    var run = { id: nextRunId++, agent_id: ag.id, slug: ag.slug, name: ag.name, emoji: ag.emoji, trigger: 'manual', status: status, summary: summary, output: output, started_at: now, finished_at: now, by: by || null };
+    var run = { id: nextRunId++, agent_id: ag.id, slug: ag.slug, name: ag.name, emoji: ag.emoji, trigger: trigger || 'manual', status: status, summary: summary, output: output, started_at: now, finished_at: now, by: by || null };
     runs.unshift(run);
     ag.last_run = run;
     return run;
@@ -81,8 +88,8 @@
     var know = knowledgeFor(ca);
     var reply = demoReply(ca, know, text);
     var used = {
-      knowledge: Object.keys(know.brand).concat(know.signals ? ['signals'] : [], know.ads ? ['ads'] : [], know.posts ? ['posts'] : [], know.competitors ? ['competitors'] : [], know.runs ? ['runs'] : []),
-      actions: (ca.addons && ca.addons.actions) || [], examples: (ca.examples || []).length, corrections: fixes.length, mode: 'demo', model: 'demo',
+      knowledge: Object.keys(know.brand).concat(know.signals ? ['signals'] : [], know.ads ? ['ads'] : [], know.posts ? ['posts'] : [], know.competitors ? ['competitors'] : [], know.runs ? ['runs'] : [], know.directives.length ? ['directives'] : []),
+      actions: (ca.addons && ca.addons.actions) || [], examples: (ca.examples || []).length, corrections: fixes.length, mode: 'demo', model: 'demo', directives: know.directives.length,
     };
     messages.push({ id: nextMessageId++, thread_id: tid, role: 'user', content: text, used: null, mode: 'demo', created_at: new Date().toISOString() });
     var mid = nextMessageId++;
@@ -200,6 +207,41 @@
 
     /* ---------- AI Studio ---------- */
     if (p === '/api/studio/catalog') return json(SNAP.catalog);
+
+    /* ---------- Trends → directives ---------- */
+    var trendsGet = p.match(/^\/api\/stores\/([^/]+)\/trends$/);
+    if (trendsGet && method === 'GET') return json({ trends: SNAP.trends || [], directives: activeDirectives() });
+    var dirList = p.match(/^\/api\/stores\/([^/]+)\/directives$/);
+    if (dirList && method === 'GET') {
+      var st = u.searchParams.get('status');
+      return json(directives.filter(function (d) { return !st || d.status === st; }).slice().reverse());
+    }
+    if (dirList && method === 'POST') {
+      var aiSlugs = (SNAP.catalog.agents || []).filter(function (a) { return a.kind === 'ai'; }).map(function (a) { return a.slug; });
+      var targets = ((body && body.targets) || []).filter(function (t) { return aiSlugs.indexOf(t) >= 0; });
+      if (!body || !body.title || !body.text || !targets.length) return json({ error: targets.length ? 'ต้องมีหัวข้อ ข้อความ และกล่องที่จะสั่งอย่างน้อย 1 กล่อง' : 'สั่งได้เฉพาะกล่อง AI' }, 400);
+      var nowIso = new Date().toISOString();
+      var nd = { id: nextDirectiveId++, store_id: dirList[1], title: body.title, text: body.text, source: body.source || 'manual', targets: targets, status: 'active', created_at: nowIso,
+        expires_at: body.days ? new Date(Date.now() + body.days * 86400000).toISOString() : null, by: body.by || null };
+      directives.push(nd);
+      return json(nd);
+    }
+    var dirOne = p.match(/^\/api\/stores\/([^/]+)\/directives\/(\d+)$/);
+    if (dirOne && method === 'PATCH') {
+      var dd = directives.find(function (d) { return d.id === Number(dirOne[2]); });
+      if (!dd) return json({ error: 'ไม่พบคำสั่งนี้' }, 404);
+      dd.status = (body && body.status) || dd.status;
+      return json(dd);
+    }
+    var dirRun = p.match(/^\/api\/stores\/([^/]+)\/directives\/(\d+)\/run$/);
+    if (dirRun && method === 'POST') {
+      var rd = directives.find(function (d) { return d.id === Number(dirRun[2]); });
+      if (!rd) return json({ error: 'ไม่พบคำสั่งนี้' }, 404);
+      var stepOf = {}; (SNAP.catalog.agents || []).forEach(function (a) { stepOf[a.slug] = a.step; });
+      var outRuns = rd.targets.slice().sort(function (a, b) { return (stepOf[a] || 99) - (stepOf[b] || 99); })
+        .map(function (slug) { var ag = agentBy(dirRun[1], slug); return ag ? runBox(ag, (body && body.by) || ('คำสั่ง #' + rd.id), 'event') : null; }).filter(Boolean);
+      return new Promise(function (resolve) { setTimeout(function () { resolve(json({ directive: rd, runs: outRuns })); }, 500); });
+    }
 
     var runsList = p.match(/^\/api\/stores\/([^/]+)\/runs$/);
     if (runsList && method === 'GET') {

@@ -12,6 +12,7 @@ import { ADDONS, AGENTS, TEAM_LABEL, TEAM_ORDER } from '../ai/catalog.js';
 import { addFeedback, chat, feedbackSummary, getAgent, getMessages, listAgents, listRuns, listThreads, resetAgent, updateAgent } from '../ai/agents.js';
 import { runAgent } from '../ai/jobs.js';
 import { aiMode, DEFAULT_MODEL } from '../ai/llm.js';
+import { buildTrends, createDirective, listDirectives, runDirective, setDirectiveStatus } from '../ai/trends.js';
 
 const CURRENT_PHASE = Number(process.env.LOOPDESK_PHASE ?? 1);
 
@@ -120,6 +121,51 @@ export function registerAgentRoutes(app: FastifyInstance, db: Db) {
     if (!body.success) return reply.code(400).send({ error: 'ต้องระบุ message_id และ verdict' });
     const res = await addFeedback(db, { storeId: id, slug, messageId: body.data.message_id, verdict: body.data.verdict, note: body.data.note, by: body.data.by });
     if (!res) return reply.code(404).send({ error: 'ไม่พบข้อความนี้' });
+    return res;
+  });
+
+  /* ---------- Trends → directives ---------- */
+
+  /** What is happening now, each with a ready-to-send Thai instruction. */
+  app.get('/api/stores/:id/trends', async (req) => {
+    const { id } = req.params as { id: string };
+    return { trends: await buildTrends(db, id), directives: await listDirectives(db, id, 'active') };
+  });
+
+  app.get('/api/stores/:id/directives', async (req) => {
+    const { id } = req.params as { id: string };
+    const q = req.query as { status?: 'active' | 'done' | 'archived' };
+    return listDirectives(db, id, q.status);
+  });
+
+  app.post('/api/stores/:id/directives', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = z.object({
+      title: z.string().min(1).max(120), text: z.string().min(1).max(2000),
+      source: z.enum(['trend', 'competitor', 'season', 'post', 'manual']).optional(),
+      targets: z.array(z.string()).min(1).max(10), days: z.number().int().min(1).max(90).optional(), by: z.string().max(120).optional(),
+    }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: 'ต้องมีหัวข้อ ข้อความ และกล่องที่จะสั่งอย่างน้อย 1 กล่อง' });
+    const d = await createDirective(db, { storeId: id, ...body.data });
+    if (!d.targets.length) return reply.code(400).send({ error: 'สั่งได้เฉพาะกล่อง AI' });
+    return d;
+  });
+
+  app.patch('/api/stores/:id/directives/:did', async (req, reply) => {
+    const { id, did } = req.params as { id: string; did: string };
+    const body = z.object({ status: z.enum(['active', 'done', 'archived']) }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: 'ต้องระบุสถานะ' });
+    const d = await setDirectiveStatus(db, id, Number(did), body.data.status);
+    if (!d) return reply.code(404).send({ error: 'ไม่พบคำสั่งนี้' });
+    return d;
+  });
+
+  /** Run every targeted box now, in loop order. */
+  app.post('/api/stores/:id/directives/:did/run', async (req, reply) => {
+    const { id, did } = req.params as { id: string; did: string };
+    const by = (req.body as { by?: string } | null)?.by;
+    const res = await runDirective(db, id, Number(did), by);
+    if (!res) return reply.code(404).send({ error: 'ไม่พบคำสั่งนี้' });
     return res;
   });
 }

@@ -150,7 +150,7 @@ export default function OfficeView() {
 
           {/* zone labels */}
           {scene?.zones.map((z) => (
-            <div key={z.team} className="absolute pointer-events-none t-head" style={{ left: pct(z.x + 5), top: pctY(z.y + 3), fontSize: 'clamp(8px, 0.95vw, 12px)', lineHeight: 1.1, color: '#FFFFFF', background: TEAM_SHIRT[z.team], padding: '2px 6px 1px', borderRadius: 3, boxShadow: '1px 1px 0 rgba(27,32,51,.35)', whiteSpace: 'nowrap' }}>{z.label}</div>
+            <div key={z.team} className="absolute pointer-events-none t-head" style={{ left: pct(z.x), top: pctY(z.y + z.h + 2), fontSize: 'clamp(8px, 0.95vw, 12px)', lineHeight: 1.1, color: '#FFFFFF', background: TEAM_SHIRT[z.team], padding: '2px 6px 1px', borderRadius: 3, boxShadow: '1px 1px 0 rgba(27,32,51,.35)', whiteSpace: 'nowrap' }}>{z.label}</div>
           ))}
 
           {/* name tags + speech bubbles */}

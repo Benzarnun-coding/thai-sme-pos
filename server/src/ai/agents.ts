@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import type { Db } from '../db/client.js';
 import { AGENTS, AGENT_BY_SLUG, ADDON_BY_ID, type AgentDef, type Autonomy } from './catalog.js';
 import { knowledgeKeys, loadKnowledge } from './context.js';
+import { activeDirectivesFor } from './trends.js';
 import { answer, DEFAULT_MODEL, type Turn } from './llm.js';
 import { buildSystemPrompt, describeInputs, type AgentConfig } from './prompt.js';
 
@@ -197,6 +198,7 @@ export async function chat(db: Db, o: { storeId: string; slug: string; threadId?
 
   const fixes = await corrections(db, agent.id);
   const knowledge = await loadKnowledge(db, o.storeId, agent.addons.knowledge ?? []);
+  knowledge.directives = await activeDirectivesFor(db, o.storeId, o.slug);
   const system = buildSystemPrompt(agent, store, knowledge, fixes);
   const history: Turn[] = (await getMessages(db, threadId)).slice(-20).map((m) => ({ role: m.role, content: m.content }));
 

@@ -43,6 +43,14 @@ export interface Feedback { up: number; down: number; corrections: { note: strin
 export interface AgentPage { agent: Agent; threads: Thread[]; feedback: Feedback; runs: Run[] }
 export interface ChatResult { thread_id: string; message_id: number; reply: string; mode: string; used: Message['used']; refused: boolean }
 
+export type TrendKind = 'rising' | 'falling' | 'overstock' | 'competitor' | 'season' | 'post';
+export interface Trend { id: string; kind: TrendKind; title: string; detail: string; suggestion: string; targets: string[]; score: number }
+export type DirectiveSource = 'trend' | 'competitor' | 'season' | 'post' | 'manual';
+export interface Directive {
+  id: number; title: string; text: string; source: DirectiveSource; targets: string[];
+  status: 'active' | 'done' | 'archived'; created_at: string; expires_at: string | null; by: string | null;
+}
+
 export const KIND_LABEL: Record<Kind, string> = { ai: 'AI', automation: 'อัตโนมัติ', human: 'คน' };
 
 const BY = 'เจ้าของร้าน';
@@ -68,6 +76,14 @@ export const studioApi = {
     post(`/api/stores/${store}/agents/${slug}/chat`, { message, thread_id, by: BY }).then((r) => j<ChatResult>(r)),
   feedback: (store: string, slug: string, message_id: number, verdict: 'up' | 'down', note?: string) =>
     post(`/api/stores/${store}/agents/${slug}/feedback`, { message_id, verdict, note, by: BY }).then((r) => j<{ id: number; corrections: number }>(r)),
+  trends: (store: string) => fetch(`/api/stores/${store}/trends`).then((r) => j<{ trends: Trend[]; directives: Directive[] }>(r)),
+  directives: (store: string, status?: Directive['status']) => fetch(`/api/stores/${store}/directives${status ? `?status=${status}` : ''}`).then((r) => j<Directive[]>(r)),
+  createDirective: (store: string, d: { title: string; text: string; source: DirectiveSource; targets: string[]; days?: number }) =>
+    post(`/api/stores/${store}/directives`, { ...d, by: BY }).then((r) => j<Directive>(r)),
+  setDirective: (store: string, id: number, status: Directive['status']) =>
+    post(`/api/stores/${store}/directives/${id}`, { status }, 'PATCH').then((r) => j<Directive>(r)),
+  runDirective: (store: string, id: number) =>
+    post(`/api/stores/${store}/directives/${id}/run`, { by: BY }).then((r) => j<{ directive: Directive; runs: Run[] }>(r)),
 };
 
 /** Postgres prints "2026-09-16 05:12:03.1+00"; browsers want "2026-09-16T05:12:03.1+00:00". */
