@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import MarketingView from './marketing/MarketingView'
 import StudioView from './studio/StudioView'
 import ReportView from './report/ReportView'
-import OfficeView from './office/OfficeView'
 import {
   ShoppingCart,
   Package,
@@ -12,7 +11,6 @@ import {
   BrainCircuit,
   Sparkles,
   FileText,
-  Building2,
   Shirt,
   X,
   Menu as MenuIcon,
@@ -22,7 +20,7 @@ import {
 } from 'lucide-react'
 
 // --- Types ---
-type View = 'POS' | 'Dashboard' | 'Stock' | 'Receipt' | 'Marketing' | 'Studio' | 'Report' | 'Office';
+type View = 'POS' | 'Dashboard' | 'Stock' | 'Receipt' | 'Marketing' | 'Studio' | 'Report';
 
 interface Modifier { id: string; name: string; price: number; }
 interface ModifierCategory { id: string; name: string; options: Modifier[]; type: 'radio' | 'checkbox' }
@@ -88,16 +86,9 @@ const NAV: { id: View; label: string; icon: React.ReactNode }[] = [
   { id: 'Dashboard', label: 'ภาพรวม', icon: <LayoutDashboard size={18} /> },
   { id: 'Stock', label: 'สต็อก', icon: <Package size={18} /> },
   { id: 'Marketing', label: 'การตลาด', icon: <BrainCircuit size={18} /> },
-  { id: 'Office', label: 'ออฟฟิศ', icon: <Building2 size={18} /> },
   { id: 'Studio', label: 'ระบบหลังบ้าน', icon: <Sparkles size={18} /> },
   { id: 'Report', label: 'รายงาน', icon: <FileText size={18} /> },
 ];
-
-const ROUTED: View[] = ['POS', 'Dashboard', 'Stock', 'Marketing', 'Studio', 'Report', 'Office'];
-const viewFromHash = (): View | null => {
-  const h = window.location.hash.replace('#', '').split('?')[0];
-  return ROUTED.includes(h as View) ? (h as View) : null;
-};
 
 const baht = (n: number) => '฿' + n.toLocaleString('th-TH');
 /** A receipt number and time; lives outside the component so React's purity lint sees no side effect in render. */
@@ -282,13 +273,10 @@ function ReceiptView({ order, onNew }: { order: Order | null; onNew: () => void 
 /* -------------------------------------------------------------------- app */
 
 function App() {
-  const [view, setView] = useState<View>(() => viewFromHash() ?? 'POS');
-  // Screens link to each other by hash (the office opens a box in the back office), so follow it.
-  useEffect(() => {
-    const onHash = () => { const v = viewFromHash(); if (v) setView(v); };
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
-  }, []);
+  const [view, setView] = useState<View>(() => {
+    const h = window.location.hash.replace('#', '').split('?')[0];
+    return (['POS', 'Dashboard', 'Stock', 'Marketing', 'Studio', 'Report'] as View[]).includes(h as View) ? (h as View) : 'POS';
+  });
   const [cart, setCart] = useState<CartLine[]>([]);
   const [lastOrder, setLastOrder] = useState<Order | null>(null);
   const [showPayment, setShowPayment] = useState(false);
@@ -352,8 +340,6 @@ function App() {
           <StudioView />
         ) : view === 'Report' ? (
           <ReportView />
-        ) : view === 'Office' ? (
-          <OfficeView />
         ) : (
           <div className="p-10 text-center t-sub" style={{ color: 'var(--muted)' }}>
             หน้า “{NAV.find(n => n.id === view)?.label}” ยังไม่เปิดใช้งานในเวอร์ชันนี้
