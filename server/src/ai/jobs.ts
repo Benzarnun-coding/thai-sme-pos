@@ -1,40 +1,77 @@
 /**
  * Running a box.
  *
- * Every box can be run by hand from the Studio or by the scheduler on its cron.
- * AI boxes are asked their `runPrompt` through the same chat path the owner
- * uses, so what runs unattended is exactly what was taught. Automation boxes
- * execute their job. Human boxes report what is waiting. Every run leaves one
- * row in agent_run with a one-line Thai summary the card shows.
+ * Every box can be run by hand from the Studio, by the scheduler on its cron,
+ * or by an event: the box before it in the loop handed it work. AI boxes are
+ * asked their `runPrompt` — or one task per item in their inbox — through the
+ * same chat path the owner uses, so what runs unattended is exactly what was
+ * taught. Their replies become work items for the next box (handoff.js), and
+ * the next box runs right away when it is not a human. Automation boxes
+ * execute their job. Every run leaves one row in agent_run with a one-line
+ * Thai summary the card shows.
  */
 import type { Db } from '../db/client.js';
 import { AGENT_BY_SLUG } from './catalog.js';
 import { chat, getAgent, recordRun, type RunRow } from './agents.js';
 import { buildProductSignals, storeSummary } from '../signals/build.js';
 import { loadAds } from './context.js';
+import { outcome, plan, publish, summarize, type WorkItem } from './handoff.js';
+import { createWork, inboxOf, stampRun, updateWork } from './work.js';
 
 export type Trigger = 'schedule' | 'manual' | 'event';
+const CURRENT_PHASE = () => Number(process.env.LOOPDESK_PHASE ?? 1);
+const MAX_CHAIN = 6;
 
-export async function runAgent(db: Db, o: { storeId: string; slug: string; trigger: Trigger; by?: string }): Promise<RunRow | null> {
+export async function runAgent(db: Db, o: { storeId: string; slug: string; trigger: Trigger; by?: string; chain?: boolean; depth?: number }): Promise<RunRow | null> {
   const agent = await getAgent(db, o.storeId, o.slug);
   if (!agent) return null;
   const startedAt = new Date();
   const base = { storeId: o.storeId, slug: o.slug, trigger: o.trigger, by: o.by, startedAt };
+  const depth = o.depth ?? 0;
 
   if (!agent.enabled) {
     return recordRun(db, { ...base, status: 'skipped', summary: 'ปิดใช้อยู่ ไม่ได้รัน' });
   }
 
   try {
+    const inbox = await inboxOf(db, o.storeId, o.slug);
+    const touched: number[] = [];
+    const handedTo = new Set<string>();
+
     if (agent.kind === 'ai') {
       const prompt = agent.runPrompt ?? AGENT_BY_SLUG[o.slug].starters[0];
-      const r = await chat(db, { storeId: o.storeId, slug: o.slug, message: prompt, by: o.by ?? 'scheduler' });
-      if (!r) return recordRun(db, { ...base, status: 'error', summary: 'ไม่พบกล่องนี้' });
-      if ('error' in r) return recordRun(db, { ...base, status: 'error', summary: r.error });
-      // The card shows one line: the first line that says something (skip "แบบ 1"-style headings).
-      const lines = r.reply.split('\n').map((l) => l.trim()).filter(Boolean);
-      const first = lines.find((l) => l.length >= 20) ?? lines.find((l) => l.length > 8) ?? lines[0] ?? r.reply;
-      return recordRun(db, { ...base, status: 'ok', summary: first.slice(0, 140), output: { thread_id: r.thread_id, message_id: r.message_id, text: r.reply, mode: r.mode } });
+      const tasks = plan(o.slug, prompt, inbox);
+      if (!tasks.length) return recordRun(db, { ...base, status: 'skipped', summary: 'ไม่มีงานส่งมาให้ตรวจ', output: { inbox: 0 } });
+      const results: { reply: string; note?: string; thread_id: string; message_id: number; mode: string }[] = [];
+      for (const task of tasks) {
+        const r = await chat(db, { storeId: o.storeId, slug: o.slug, message: task.message, by: o.by ?? 'scheduler' });
+        if (!r) return recordRun(db, { ...base, status: 'error', summary: 'ไม่พบกล่องนี้' });
+        if ('error' in r) return recordRun(db, { ...base, status: 'error', summary: r.error });
+        const out = outcome(o.slug, task, r.reply);
+        for (const it of out.create) { const row = await createWork(db, o.storeId, it); touched.push(row.id); if (row.to_slug) handedTo.add(row.to_slug); }
+        for (const u of out.update) { const row = await updateWork(db, o.storeId, u.id, u.patch); if (row) { touched.push(row.id); if (row.to_slug && row.status !== 'done') handedTo.add(row.to_slug); } }
+        results.push({ reply: r.reply, note: out.note, thread_id: r.thread_id, message_id: r.message_id, mode: r.mode });
+      }
+      const summary = summarize(o.slug, results, inbox) ?? firstLine(results[0].reply);
+      const first = results[0];
+      const run = await recordRun(db, { ...base, status: 'ok', summary: summary.slice(0, 140),
+        output: { thread_id: first.thread_id, message_id: first.message_id, text: results.map((r) => r.reply).join('\n\n———\n\n'), mode: first.mode, tasks: tasks.length, items: touched, inbox: inbox.length } });
+      await stampRun(db, touched, run.id);
+      await chainNext(db, o, handedTo, depth);
+      return run;
+    }
+
+    if (o.slug === 'approval') {
+      return recordRun(db, { ...base, status: inbox.length ? 'ok' : 'skipped', summary: summarize('approval', [], inbox)!, output: { pending: inbox.length, items: inbox.map((i) => i.id) } });
+    }
+    if (o.slug === 'publisher') {
+      const live = CURRENT_PHASE() >= 3;
+      const cap = await JOBS.publisher(db, o.storeId);
+      if (!inbox.length) return recordRun(db, { ...base, status: 'skipped', summary: cap.summary, output: cap.output });
+      for (const u of publish(inbox, live)) { const row = await updateWork(db, o.storeId, u.id, u.patch); if (row) touched.push(row.id); }
+      const run = await recordRun(db, { ...base, status: 'ok', summary: `${summarize('publisher', [{ live }], inbox)} · ${cap.summary}`.slice(0, 140), output: { ...cap.output, published: touched, live } });
+      await stampRun(db, touched, run.id);
+      return run;
     }
 
     const job = JOBS[o.slug];
@@ -45,6 +82,21 @@ export async function runAgent(db: Db, o: { storeId: string; slug: string; trigg
     return recordRun(db, { ...base, status: 'error', summary: `ผิดพลาด: ${(e as Error).message}`.slice(0, 200) });
   }
 }
+
+/** Run the boxes that just received work, in loop order — unless they are people, or chaining is off. */
+async function chainNext(db: Db, o: { storeId: string; by?: string; chain?: boolean }, handedTo: Set<string>, depth: number) {
+  if (o.chain === false || depth >= MAX_CHAIN) return;
+  const next = [...handedTo].filter((s) => AGENT_BY_SLUG[s] && AGENT_BY_SLUG[s].kind !== 'human').sort((a, b) => AGENT_BY_SLUG[a].step - AGENT_BY_SLUG[b].step);
+  for (const slug of next) await runAgent(db, { storeId: o.storeId, slug, trigger: 'event', by: o.by, chain: true, depth: depth + 1 });
+}
+
+/** The card shows one line: the first line that says something (skip "แบบ 1"-style headings). */
+function firstLine(reply: string) {
+  const lines = reply.split('\n').map((l) => l.trim()).filter(Boolean);
+  return lines.find((l) => l.length >= 20) ?? lines.find((l) => l.length > 8) ?? lines[0] ?? reply;
+}
+
+export type { WorkItem };
 
 type JobResult = { summary: string; output?: Record<string, unknown>; status?: RunRow['status'] };
 type Job = (db: Db, storeId: string) => Promise<JobResult>;
@@ -82,12 +134,7 @@ const JOBS: Record<string, Job> = {
     };
   },
 
-  /** The approval queue is a human box; until phase 2 nothing is routed into it. */
-  async approval() {
-    return { summary: 'ไม่มีงานรออนุมัติ (คิวจะเริ่มมีงานในเฟส 2 เมื่อกล่องส่งงานต่อกัน)', output: { pending: 0 }, status: 'skipped' };
-  },
-
-  /** Publish approved work within the budget cap. Nothing approved yet, so it only reports the cap. */
+  /** The budget line the publisher reports alongside whatever it published. */
   async publisher(db, storeId) {
     const store = await db.query<{ settings: { dailyCap?: number; monthlyCap?: number } | null }>('select settings from store where id=$1', [storeId]);
     const cap = store[0]?.settings ?? {};

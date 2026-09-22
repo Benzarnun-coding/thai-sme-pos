@@ -30,6 +30,7 @@ export interface Knowledge {
   competitors?: CompetitorAd[];
   runs?: RunRow[];
   directives?: DirectiveRow[];      // owner commands from the Trend screen, aimed at this box
+  rules?: { title: string; body: string }[];   // learned rules the owner approved
 }
 
 const BRAND_KEYS = new Set(['voice', 'usp', 'forbidden', 'sizes', 'policy']);
@@ -88,7 +89,7 @@ export function knowledgeKeys(k: Knowledge): string[] {
   return [
     ...Object.keys(k.brand),
     ...(k.signals ? ['signals'] : []), ...(k.ads ? ['ads'] : []), ...(k.posts ? ['posts'] : []),
-    ...(k.competitors ? ['competitors'] : []), ...(k.runs ? ['runs'] : []), ...(k.directives?.length ? ['directives'] : []),
+    ...(k.competitors ? ['competitors'] : []), ...(k.runs ? ['runs'] : []), ...(k.directives?.length ? ['directives'] : []), ...(k.rules?.length ? ['rules'] : []),
   ];
 }
 

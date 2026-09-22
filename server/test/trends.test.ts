@@ -3,6 +3,7 @@ import { getDb, resetDb, type Db } from '../src/db/client.js';
 import { seed } from '../src/seed.js';
 import { buildServer } from '../src/api/server.js';
 import { competitorTrends, productTrends, seasonTrends, type Trend } from '../src/ai/trends.js';
+import type { ProductSignal } from '../src/signals/build.js';
 import { buildSystemPrompt } from '../src/ai/prompt.js';
 import { loadKnowledge } from '../src/ai/context.js';
 import { demoReply } from '../src/ai/demo-brain.js';
@@ -47,7 +48,7 @@ describe('Trends → directives', () => {
   });
 
   it('product trends respect the stock guard: a rising but blocked product is not sent to the ad manager', () => {
-    const base = { product_id: 'p', category: null, sku_group: 'g', base_price: 199, set_price: null, sales_30d: 100, stock_by_size: {}, stock_by_color_size: {}, core_sizes: [], missing_core_sizes: ['32'], core_size_ok: false, days_of_cover: 20, overstock: false } as const;
+    const base = { product_id: 'p', category: null, sku_group: 'g', base_price: 199, set_price: null, sales_30d: 100, stock_by_size: {}, stock_by_color_size: {}, core_sizes: [] as string[], missing_core_sizes: ['32'], core_size_ok: false, days_of_cover: 20, overstock: false } satisfies Partial<ProductSignal>;
     const t = productTrends([
       { ...base, product_id: 'a', name: 'ยีนส์ A', sales_7d: 40, sales_prev_7d: 20, trend_pct: 100, stock_total: 50, promotable: true, note: '' },
       { ...base, product_id: 'b', name: 'ยีนส์ B', sales_7d: 40, sales_prev_7d: 20, trend_pct: 100, stock_total: 50, promotable: false, note: 'ไซส์ 32 หมด' },

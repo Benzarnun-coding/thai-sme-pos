@@ -74,8 +74,8 @@ export default function OfficeView() {
     scene.startWork(slug);
     try {
       const { run, agent } = await studioApi.run(STORE, slug);
-      setAgents((prev) => prev.map((a) => (a.slug === slug ? agent : a)));
       setRuns((prev) => [{ ...run, slug, name: agent.name, emoji: agent.emoji }, ...prev].slice(0, 30));
+      studioApi.agents(STORE).then(setAgents).catch(() => setAgents((prev) => prev.map((a) => (a.slug === slug ? agent : a))));
       // let the typing show for a moment even when the demo answers instantly
       await new Promise((r) => setTimeout(r, 700));
       scene.finishWork(slug, run.summary, run.status, nextOf(slug));
@@ -161,6 +161,10 @@ export default function OfficeView() {
               </span>
             </div>
           ))}
+          {/* work waiting on a desk */}
+          {agents.filter((a) => a.inbox > 0).map((a) => { const p = scene?.person(a.slug); return p ? (
+            <div key={'i' + a.slug} className="absolute pointer-events-none t-mono" style={{ left: pct(p.desk.x + 26), top: pctY(p.desk.y - 2), transform: 'translate(-50%, -100%)', fontSize: 'clamp(7px, 0.75vw, 10px)', background: a.kind === 'human' ? '#FFD84D' : '#5FD1FF', color: '#1B2033', padding: '1px 4px', borderRadius: 3, border: '1px solid #1B2033', lineHeight: 1.2 }}>{a.kind === 'human' ? 'รอ' : 'งาน'} {a.inbox}</div>
+          ) : null; })}
           {scene?.people.filter((p) => p.bubble).map((p) => (
             <div key={'b' + p.slug} className="absolute pointer-events-none"
               style={{ left: pct(Math.min(W - 70, Math.max(70, p.x + 6))), top: pctY(p.y - 5), transform: 'translate(-50%, -100%)', maxWidth: '30%', zIndex: 2 }}>
@@ -176,7 +180,7 @@ export default function OfficeView() {
             <div className="absolute z-10" style={{ left: pct(Math.min(W - 120, Math.max(0, selPerson.desk.x - 40))), top: pctY(selPerson.desk.y < CORRIDOR_Y ? selPerson.desk.y + 34 : selPerson.desk.y - 92), width: 'min(280px, 36%)' }}>
               <PersonCard agent={sel} running={running === sel.slug}
                 onRun={() => runOne(sel.slug)} onToggle={(on) => toggle(sel.slug, on)}
-                onOpen={() => { window.location.hash = `#Studio?agent=${sel.slug}`; }} onClose={() => { if (sceneRef.current) sceneRef.current.selected = null; setSelected(null); }} />
+                onOpen={() => { window.location.hash = sel.kind === 'human' ? '#Approve' : `#Studio?agent=${sel.slug}`; }} onClose={() => { if (sceneRef.current) sceneRef.current.selected = null; setSelected(null); }} />
             </div>
           )}
         </div>
@@ -237,7 +241,7 @@ function PersonCard({ agent: a, running, onRun, onToggle, onOpen, onClose }: {
         </label>
         <div className="flex gap-1.5">
           <button className="btn btn-sm" disabled={running || !a.enabled} onClick={onRun}><Play size={12} /> {running ? 'กำลังรัน…' : 'รัน'}</button>
-          <button className="btn btn-sm btn-primary" onClick={onOpen}>เปิดกล่อง <ArrowRight size={12} /></button>
+          <button className="btn btn-sm btn-primary" onClick={onOpen}>{a.kind === 'human' ? `เปิดคิว${a.inbox ? ` (${a.inbox})` : ''}` : 'เปิดกล่อง'} <ArrowRight size={12} /></button>
         </div>
       </div>
     </div>

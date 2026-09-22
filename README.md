@@ -1,7 +1,7 @@
 # thai-sme-pos + LoopDesk
 
 แอป POS (React + Vite) และ **LoopDesk** ระบบการตลาดอัตโนมัติสำหรับร้านกางเกงยีนส์ Climax by PKjeans
-ที่ต่อกับ Facebook / TikTok / Shopee แบบ full loop (ตอนนี้อยู่ที่ Project 1: ฐานข้อมูล + ข้อมูลจริง ยังไม่มี AI)
+ที่ต่อกับ Facebook / TikTok / Shopee แบบ full loop (13 กล่องส่งงานต่อกัน · คิวอนุมัติ · ตัวตั้งเวลา · ใส่ `ANTHROPIC_API_KEY` แล้วใช้สมองจริง ไม่ใส่ก็เล่นโหมดตัวอย่าง)
 
 ## เปิดเล่นในเครื่อง (คำสั่งเดียว)
 
@@ -40,7 +40,7 @@ npm run dev           # เว็บ :5173 → เมนู MARKETING
 ## โครงสร้าง
 
 ```
-src/                 แอป POS (React) + src/marketing/ การตลาด · src/trend/ เทรนด์→คำสั่ง · src/office/ ออฟฟิศ 8-bit · src/studio/ ระบบหลังบ้าน · src/report/ รายงาน
+src/                 แอป POS (React) + src/marketing/ การตลาด · src/trend/ เทรนด์→คำสั่ง · src/approve/ คิวอนุมัติ · src/office/ ออฟฟิศ 8-bit · src/studio/ ระบบหลังบ้าน · src/report/ รายงาน
 server/              LoopDesk API (Fastify + PGlite/Postgres)
 docs/                เอกสารออกแบบและ mockup
 scripts/demo.mjs     รันทุกอย่างด้วยคำสั่งเดียว

@@ -13,6 +13,9 @@ import { addFeedback, chat, feedbackSummary, getAgent, getMessages, listAgents, 
 import { runAgent } from '../ai/jobs.js';
 import { aiMode, DEFAULT_MODEL } from '../ai/llm.js';
 import { buildTrends, createDirective, listDirectives, runDirective, setDirectiveStatus } from '../ai/trends.js';
+import { getWork, listWork, updateWork } from '../ai/work.js';
+import { decide, KIND_LABEL as WORK_KIND_LABEL, STATUS_LABEL as WORK_STATUS_LABEL, type WorkStatus } from '../ai/handoff.js';
+import { schedulerStatus } from '../jobs/scheduler.js';
 
 const CURRENT_PHASE = Number(process.env.LOOPDESK_PHASE ?? 1);
 
@@ -87,8 +90,8 @@ export function registerAgentRoutes(app: FastifyInstance, db: Db) {
   /** Run a box now, as the scheduler would. */
   app.post('/api/stores/:id/agents/:slug/run', async (req, reply) => {
     const { id, slug } = req.params as { id: string; slug: string };
-    const by = (req.body as { by?: string } | null)?.by;
-    const run = await runAgent(db, { storeId: id, slug, trigger: 'manual', by });
+    const body = (req.body as { by?: string; chain?: boolean } | null) ?? {};
+    const run = await runAgent(db, { storeId: id, slug, trigger: 'manual', by: body.by, chain: body.chain !== false });
     if (!run) return reply.code(404).send({ error: 'ไม่พบกล่องนี้' });
     return { run, agent: await getAgent(db, id, slug) };
   });
@@ -167,5 +170,33 @@ export function registerAgentRoutes(app: FastifyInstance, db: Db) {
     const res = await runDirective(db, id, Number(did), by);
     if (!res) return reply.code(404).send({ error: 'ไม่พบคำสั่งนี้' });
     return res;
+  });
+
+  /* ---------- Work items: what moves between boxes, and the approval queue ---------- */
+
+  app.get('/api/studio/scheduler', async () => schedulerStatus());
+
+  app.get('/api/stores/:id/work', async (req) => {
+    const { id } = req.params as { id: string };
+    const q = req.query as { status?: string; kind?: string; to?: string; limit?: string };
+    const status = q.status ? (q.status.split(',') as WorkStatus[]) : undefined;
+    const items = await listWork(db, id, { status, kind: q.kind, to: q.to, limit: q.limit ? Math.min(500, Number(q.limit)) : 200 });
+    return { items, labels: { kind: WORK_KIND_LABEL, status: WORK_STATUS_LABEL } };
+  });
+
+  /** The owner decides on a pending item. Approving a post or ad plan runs the publisher right away. */
+  app.post('/api/stores/:id/work/:wid/decide', async (req, reply) => {
+    const { id, wid } = req.params as { id: string; wid: string };
+    const body = z.object({ decision: z.enum(['approve', 'reject']), note: z.string().max(1000).optional(), by: z.string().max(120).optional() }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: 'ต้องระบุ approve หรือ reject' });
+    const item = await getWork(db, id, Number(wid));
+    if (!item) return reply.code(404).send({ error: 'ไม่พบงานนี้' });
+    const patch = decide(item, body.data.decision, body.data.note);
+    if (!patch) return reply.code(409).send({ error: `งานนี้${WORK_STATUS_LABEL[item.status]}แล้ว ตัดสินซ้ำไม่ได้` });
+    const updated = await updateWork(db, id, item.id, { ...patch, decided_by: body.data.by ?? null, decided_at: new Date().toISOString() });
+    await db.query(`insert into audit_log(store_id, actor, actor_type, action, target, before, after) values ($1,$2,'human',$3,$4,$5,$6)`,
+      [id, body.data.by ?? 'unknown', `work.${body.data.decision}`, String(item.id), JSON.stringify({ status: item.status }), JSON.stringify({ status: updated?.status, note: body.data.note ?? null })]);
+    const run = updated?.to_slug === 'publisher' ? await runAgent(db, { storeId: id, slug: 'publisher', trigger: 'event', by: body.data.by }) : null;
+    return { item: run ? await getWork(db, id, item.id) : updated, run };
   });
 }

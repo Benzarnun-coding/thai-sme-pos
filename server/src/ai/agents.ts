@@ -11,6 +11,8 @@ import type { Db } from '../db/client.js';
 import { AGENTS, AGENT_BY_SLUG, ADDON_BY_ID, type AgentDef, type Autonomy } from './catalog.js';
 import { knowledgeKeys, loadKnowledge } from './context.js';
 import { activeDirectivesFor } from './trends.js';
+import { approvedRules, inboxCounts } from './work.js';
+import { nextFire } from './cron.js';
 import { answer, DEFAULT_MODEL, type Turn } from './llm.js';
 import { buildSystemPrompt, describeInputs, type AgentConfig } from './prompt.js';
 
@@ -26,6 +28,8 @@ export interface AgentRow extends AgentConfig, Meta {
   updated_by: string | null;
   updated_at: string;
   last_run: RunRow | null;
+  inbox: number;                 // items waiting for this box
+  next_run: string | null;       // ISO, from its cron
 }
 
 export interface RunRow {
@@ -44,6 +48,13 @@ export interface AgentPatch {
 }
 
 const agentId = (storeId: string, slug: string) => `${storeId}-${slug}`;
+/** When the scheduler will run this box next (null when it only runs on events or is off). */
+export const nextRunOf = (slug: string, enabled: boolean): string | null => {
+  const cron = AGENT_BY_SLUG[slug]?.cron;
+  if (!cron || !enabled) return null;
+  return nextFire(cron)?.toISOString() ?? null;
+};
+
 const metaOf = (slug: string): Meta => {
   const d = AGENT_BY_SLUG[slug];
   return { kind: d.kind, team: d.team, step: d.step, schedule: d.schedule, cron: d.cron, runPrompt: d.runPrompt, rules: d.rules, starters: d.starters };
@@ -85,9 +96,9 @@ async function lastRuns(db: Db, storeId: string): Promise<Map<string, RunRow>> {
 export async function listAgents(db: Db, storeId: string): Promise<AgentRow[]> {
   await ensureAgents(db, storeId);
   const rows = await db.query<Omit<AgentRow, keyof Meta | 'last_run'>>(`select ${COLS} from agent where store_id=$1`, [storeId]);
-  const runs = await lastRuns(db, storeId);
+  const [runs, inbox] = await Promise.all([lastRuns(db, storeId), inboxCounts(db, storeId)]);
   return rows
-    .map((r) => ({ ...r, ...metaOf(r.slug), last_run: runs.get(r.id) ?? null }))
+    .map((r) => ({ ...r, ...metaOf(r.slug), last_run: runs.get(r.id) ?? null, inbox: inbox[r.slug] ?? 0, next_run: nextRunOf(r.slug, r.enabled) }))
     .sort((a, b) => a.step - b.step);
 }
 
@@ -96,8 +107,8 @@ export async function getAgent(db: Db, storeId: string, slug: string): Promise<A
   await ensureAgents(db, storeId);
   const rows = await db.query<Omit<AgentRow, keyof Meta | 'last_run'>>(`select ${COLS} from agent where id=$1`, [agentId(storeId, slug)]);
   if (!rows[0]) return null;
-  const runs = await lastRuns(db, storeId);
-  return { ...rows[0], ...metaOf(slug), last_run: runs.get(rows[0].id) ?? null };
+  const [runs, inbox] = await Promise.all([lastRuns(db, storeId), inboxCounts(db, storeId)]);
+  return { ...rows[0], ...metaOf(slug), last_run: runs.get(rows[0].id) ?? null, inbox: inbox[slug] ?? 0, next_run: nextRunOf(slug, rows[0].enabled) };
 }
 
 export async function updateAgent(db: Db, storeId: string, slug: string, patch: AgentPatch, by?: string): Promise<AgentRow | null> {
@@ -199,6 +210,7 @@ export async function chat(db: Db, o: { storeId: string; slug: string; threadId?
   const fixes = await corrections(db, agent.id);
   const knowledge = await loadKnowledge(db, o.storeId, agent.addons.knowledge ?? []);
   knowledge.directives = await activeDirectivesFor(db, o.storeId, o.slug);
+  knowledge.rules = await approvedRules(db, o.storeId);
   const system = buildSystemPrompt(agent, store, knowledge, fixes);
   const history: Turn[] = (await getMessages(db, threadId)).slice(-20).map((m) => ({ role: m.role, content: m.content }));
 

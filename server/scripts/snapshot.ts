@@ -16,6 +16,7 @@ import { buildServer } from '../src/api/server.js';
 
 process.env.PGLITE_MEMORY = '1';
 process.env.LOOPDESK_AI = 'demo';   // the published demo has no model behind it
+process.env.LOOPDESK_SCHEDULER = 'off';
 delete process.env.FB_APP_ID;      // force the connect flow into demo mode
 delete process.env.FB_APP_SECRET;
 
@@ -46,13 +47,19 @@ const snapshot: Record<string, unknown> = {
 };
 // Run the whole loop once, in order, so every card shows a last run and the
 // report has something to read. Same code path the scheduler uses.
+// A box that already ran as an event in this pass (handed work by the one before) is not run again.
 for (const a of (snapshot.catalog as { agents: { slug: string }[] }).agents) {
+  const ran = (await get(`/api/stores/${STORE}/runs?limit=100`) as { slug: string }[]).some((r) => r.slug === a.slug);
+  if (ran) continue;
   await app.inject({ method: 'POST', url: `/api/stores/${STORE}/agents/${a.slug}/run`, payload: { by: 'ตัวตั้งเวลา' } });
 }
 const asScheduled = <T extends { trigger: string; by: string | null }>(r: T): T => ({ ...r, trigger: 'schedule', by: null });
 snapshot.agents = (await get(`/api/stores/${STORE}/agents`) as { last_run: { trigger: string; by: string | null } | null }[])
   .map((a) => ({ ...a, last_run: a.last_run ? asScheduled(a.last_run) : null }));
 snapshot.runs = (await get(`/api/stores/${STORE}/runs?limit=100`) as { trigger: string; by: string | null }[]).map(asScheduled);
+// What the loop handed on — the queue the demo opens with.
+snapshot.work = await get(`/api/stores/${STORE}/work?limit=200`).then((w: { items: unknown[] }) => w.items);
+snapshot.scheduler_started = new Date().toISOString();
 
 // Walk the connect flow once so the page can replay the account picker offline.
 const start = (await app.inject({ method: 'POST', url: `/api/stores/${STORE}/connect/facebook`, payload: { by: 'เจ้าของร้าน' } })).json() as { grant_id: string; note: string };

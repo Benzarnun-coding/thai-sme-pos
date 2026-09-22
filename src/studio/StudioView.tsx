@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Lock, ArrowRight, Play, Clock } from 'lucide-react';
-import { studioApi, clock, KIND_LABEL, type Agent, type Catalog, type Team } from './api';
+import { studioApi, clock, KIND_LABEL, type Agent, type Catalog, type SchedulerStatus, type Team } from './api';
 import type { Connection } from '../marketing/Connections';
 import AgentPage from './AgentPage';
 
@@ -28,9 +28,10 @@ export default function StudioView() {
   const [open, setOpen] = useState<string | null>(() => new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('agent'));
   const [running, setRunning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scheduler, setScheduler] = useState<SchedulerStatus | null>(null);
 
-  const reload = () => Promise.all([studioApi.catalog(), studioApi.agents(STORE), fetch(`/api/stores/${STORE}/connections`).then((r) => r.json())])
-    .then(([c, a, cn]) => { setCatalog(c); setAgents(a); setConns(cn); setError(null); })
+  const reload = () => Promise.all([studioApi.catalog(), studioApi.agents(STORE), fetch(`/api/stores/${STORE}/connections`).then((r) => r.json()), studioApi.scheduler().catch(() => null)])
+    .then(([c, a, cn, sch]) => { setCatalog(c); setAgents(a); setConns(cn); setScheduler(sch); setError(null); })
     .catch((e) => setError((e as Error).message));
 
   useEffect(() => { reload(); }, []);
@@ -41,7 +42,7 @@ export default function StudioView() {
   };
   const runNow = async (slug: string) => {
     setRunning(slug);
-    try { const { agent } = await studioApi.run(STORE, slug); setAgents((prev) => prev.map((a) => (a.slug === slug ? agent : a))); }
+    try { await studioApi.run(STORE, slug); setAgents(await studioApi.agents(STORE)); }
     catch (e) { setError((e as Error).message); }
     finally { setRunning(null); }
   };
@@ -75,6 +76,9 @@ export default function StudioView() {
             {catalog.mode === 'claude' ? `สมองจริง · ${catalog.model}` : 'โหมดตัวอย่าง · ยังไม่ได้ใส่ API key'}
           </span>
           <span className="chip">เฟส {catalog.phase}</span>
+          <span className={`chip ${scheduler?.enabled ? 'chip-good' : ''}`} title={scheduler?.boxes.map((b) => `${b.name} ${b.cron}`).join('\n')}>
+            {scheduler?.enabled ? `ตัวตั้งเวลาเปิด · ถัดไป ${clock(scheduler.boxes[0]?.next)} ${scheduler.boxes[0]?.name ?? ''}` : 'ตัวตั้งเวลาปิด (รันเอง)'}
+          </span>
           <button className="btn btn-sm btn-primary" disabled={!!running} onClick={runAll}>
             <Play size={13} /> {running ? `กำลังรัน ${agents.find((a) => a.slug === running)?.name ?? ''}…` : 'รันทั้ง loop ตอนนี้'}
           </button>
@@ -183,7 +187,11 @@ function BoxCard({ agent: a, catalog, running, onToggle, onRun, onOpen }: {
         </div>
       </div>
 
-      <div className="text-xs flex items-center gap-1.5" style={{ color: 'var(--muted)' }}><Clock size={12} /> {a.schedule}</div>
+      <div className="text-xs flex items-center gap-1.5 flex-wrap" style={{ color: 'var(--muted)' }}>
+        <Clock size={12} /> {a.schedule}
+        {a.next_run && <span className="chip">ถัดไป {clock(a.next_run)}</span>}
+        {a.inbox > 0 && <span className={`chip ${a.kind === 'human' ? 'chip-warn' : 'chip-brand'}`}>{a.kind === 'human' ? `รออนุมัติ ${a.inbox}` : `รอทำ ${a.inbox}`}</span>}
+      </div>
 
       <div className="text-sm rounded-xl px-3 py-2" style={{ background: 'var(--panel-2)', borderLeft: `3px solid ${runTone}` }}>
         {run ? (

@@ -13,6 +13,7 @@
 
   /* ---------- AI Studio state: assistants, conversations, corrections ---------- */
   var agents = JSON.parse(JSON.stringify(SNAP.agents || []));
+  setTimeout(function () { agents.forEach(withInbox); }, 0);
   var agentDefaults = JSON.parse(JSON.stringify(SNAP.agents || []));
   var threads = [];        // {id, agent_id, title, created_at}
   var messages = [];       // {id, thread_id, role, content, used, mode, created_at}
@@ -20,6 +21,25 @@
   var runs = JSON.parse(JSON.stringify(SNAP.runs || []));   // newest first, as the API returns them
   var nextRunId = runs.reduce(function (m, r) { return Math.max(m, r.id || 0); }, 0) + 1;
   var nextMessageId = 1;
+  var work = JSON.parse(JSON.stringify(SNAP.work || []));   // work items moving between boxes, newest first
+  var nextWorkId = work.reduce(function (m, w) { return Math.max(m, w.id || 0); }, 0) + 1;
+  var stepOf = {}; (SNAP.catalog.agents || []).forEach(function (a) { stepOf[a.slug] = a.step; });
+  var kindOf = {}; (SNAP.catalog.agents || []).forEach(function (a) { kindOf[a.slug] = a.kind; });
+  function inboxCount(slug) { return inboxFor(slug, work).length; }
+  function withInbox(a) { a.inbox = inboxCount(a.slug); a.next_run = a.cron && a.enabled ? (nextFire(a.cron) || new Date()).toISOString() : null; return a; }
+  function createWorkItem(item) {
+    if (item.replaces) work.forEach(function (w) { if (w.kind === item.replaces && w.from_slug === item.from_slug && (w.status === 'open' || w.status === 'pending')) { w.status = 'done'; w.to_slug = null; w.decision_note = 'ถูกแทนด้วยฉบับใหม่'; w.updated_at = new Date().toISOString(); } });
+    var now = new Date().toISOString();
+    var row = { id: nextWorkId++, store_id: 'climax', kind: item.kind, title: item.title, body: item.body, status: item.status, from_slug: item.from_slug, to_slug: item.to_slug, parent_id: item.parent_id || null,
+      review: null, rounds: item.rounds || 0, run_id: null, directive_id: null, created_at: now, updated_at: now, decided_at: null, decided_by: null, decision_note: null, published_at: null, published_as: null };
+    work.unshift(row);
+    return row;
+  }
+  function updateWorkItem(id, patch) {
+    var w = work.find(function (x) { return x.id === id; }); if (!w) return null;
+    Object.keys(patch).forEach(function (k) { w[k] = patch[k]; }); w.updated_at = new Date().toISOString();
+    return w;
+  }
   var directives = [];     // {id, title, text, source, targets, status, created_at, expires_at, by}
   var nextDirectiveId = 1;
   function activeDirectives(slug) {
@@ -41,6 +61,7 @@
       competitors: keys.indexOf('competitors') >= 0 ? SNAP.competitors : undefined,
       runs: keys.indexOf('runs') >= 0 ? runs.slice(0, 40) : undefined,
       directives: activeDirectives(agent.slug),
+      rules: work.filter(function (w) { return w.kind === 'rule' && w.status === 'approved'; }).map(function (w) { return { title: w.title, body: w.body }; }),
     };
   }
   function corrections(agentId) {
@@ -60,16 +81,42 @@
     return { up: mine.filter(function (f) { return f.verdict === 'up'; }).length, down: mine.filter(function (f) { return f.verdict === 'down'; }).length, corrections: corrections(agentId) };
   }
   /** A box's run, replayed offline: AI boxes answer their run prompt, the rest reuse their snapshot summary. */
-  function runBox(ag, by, trigger) {
+  function firstLine(reply) {
+    var lines = reply.split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+    return lines.find(function (l) { return l.length >= 20; }) || lines.find(function (l) { return l.length > 8; }) || lines[0] || reply;
+  }
+  function runBox(ag, by, trigger, chain, depth) {
     var now = new Date().toISOString();
     var status = 'ok', summary, output = null;
+    var inbox = inboxFor(ag.slug, work), touched = [], handedTo = [];
+    depth = depth || 0;
     if (!ag.enabled) { status = 'skipped'; summary = 'ปิดใช้อยู่ ไม่ได้รัน'; }
     else if (ag.kind === 'ai') {
       var prompt = ag.runPrompt || (ag.starters && ag.starters[0]) || 'สรุปให้หน่อย';
-      var res = chatWith(ag, null, prompt);
-      var lines = res.reply.split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
-      summary = (lines.find(function (l) { return l.length >= 20; }) || lines.find(function (l) { return l.length > 8; }) || lines[0] || res.reply).slice(0, 140);
-      output = { thread_id: res.thread_id, message_id: res.message_id, text: res.reply, mode: 'demo' };
+      var tasks = plan(ag.slug, prompt, inbox);
+      if (!tasks.length) { status = 'skipped'; summary = 'ไม่มีงานส่งมาให้ตรวจ'; output = { inbox: 0 }; }
+      else {
+        var results = [];
+        tasks.forEach(function (task) {
+          var res = chatWith(ag, null, task.message);
+          var out = outcome(ag.slug, task, res.reply);
+          out.create.forEach(function (it) { var row = createWorkItem(it); touched.push(row.id); if (row.to_slug) handedTo.push(row.to_slug); });
+          out.update.forEach(function (u) { var row = updateWorkItem(u.id, u.patch); if (row) { touched.push(row.id); if (row.to_slug && row.status !== 'done') handedTo.push(row.to_slug); } });
+          results.push({ reply: res.reply, note: out.note, thread_id: res.thread_id, message_id: res.message_id });
+        });
+        summary = (summarize(ag.slug, results, inbox) || firstLine(results[0].reply)).slice(0, 140);
+        output = { thread_id: results[0].thread_id, message_id: results[0].message_id, text: results.map(function (r) { return r.reply; }).join('\n\n———\n\n'), mode: 'demo', tasks: tasks.length, items: touched, inbox: inbox.length };
+      }
+    } else if (ag.slug === 'approval') {
+      status = inbox.length ? 'ok' : 'skipped'; summary = summarize('approval', [], inbox); output = { pending: inbox.length };
+    } else if (ag.slug === 'publisher') {
+      var prev0 = (SNAP.runs || []).find(function (r) { return r.agent_id === ag.id; });
+      var capLine = prev0 ? prev0.summary : 'เพดานงบยังไม่ตั้ง';
+      if (!inbox.length) { status = 'skipped'; summary = capLine; output = prev0 ? prev0.output : null; }
+      else {
+        publish(inbox, false).forEach(function (u) { var row = updateWorkItem(u.id, u.patch); if (row) touched.push(row.id); });
+        summary = (summarize('publisher', [{ live: false }], inbox) + ' · ' + capLine).slice(0, 140); output = { published: touched, live: false };
+      }
     } else {
       var prev = (SNAP.runs || []).find(function (r) { return r.agent_id === ag.id; });
       status = prev ? prev.status : 'skipped';
@@ -78,7 +125,14 @@
     }
     var run = { id: nextRunId++, agent_id: ag.id, slug: ag.slug, name: ag.name, emoji: ag.emoji, trigger: trigger || 'manual', status: status, summary: summary, output: output, started_at: now, finished_at: now, by: by || null };
     runs.unshift(run);
+    touched.forEach(function (id) { var w = work.find(function (x) { return x.id === id; }); if (w && !w.run_id) w.run_id = run.id; });
     ag.last_run = run;
+    agents.forEach(withInbox);
+    // the boxes that just received work run right away — unless they are people, or chaining is off
+    if (chain !== false && depth < 6) {
+      var next = handedTo.filter(function (s, i, arr) { return arr.indexOf(s) === i && kindOf[s] && kindOf[s] !== 'human'; }).sort(function (a, b) { return (stepOf[a] || 99) - (stepOf[b] || 99); });
+      next.forEach(function (slug) { var nx = agentBy(ag.store_id, slug); if (nx) runBox(nx, by, 'event', true, depth + 1); });
+    }
     return run;
   }
   function chatWith(ca, threadId, text) {
@@ -88,7 +142,7 @@
     var know = knowledgeFor(ca);
     var reply = demoReply(ca, know, text);
     var used = {
-      knowledge: Object.keys(know.brand).concat(know.signals ? ['signals'] : [], know.ads ? ['ads'] : [], know.posts ? ['posts'] : [], know.competitors ? ['competitors'] : [], know.runs ? ['runs'] : [], know.directives.length ? ['directives'] : []),
+      knowledge: Object.keys(know.brand).concat(know.signals ? ['signals'] : [], know.ads ? ['ads'] : [], know.posts ? ['posts'] : [], know.competitors ? ['competitors'] : [], know.runs ? ['runs'] : [], know.directives.length ? ['directives'] : [], know.rules.length ? ['rules'] : []),
       actions: (ca.addons && ca.addons.actions) || [], examples: (ca.examples || []).length, corrections: fixes.length, mode: 'demo', model: 'demo', directives: know.directives.length,
     };
     messages.push({ id: nextMessageId++, thread_id: tid, role: 'user', content: text, used: null, mode: 'demo', created_at: new Date().toISOString() });
@@ -208,6 +262,33 @@
     /* ---------- AI Studio ---------- */
     if (p === '/api/studio/catalog') return json(SNAP.catalog);
 
+    /* ---------- Work items, approval queue, scheduler ---------- */
+    if (p === '/api/studio/scheduler') {
+      var boxes = agents.filter(function (a) { return a.cron && a.enabled; }).map(function (a) { var nf = nextFire(a.cron); return { slug: a.slug, name: a.name, cron: a.cron, next: nf ? nf.toISOString() : null, last: null }; })
+        .sort(function (x, y) { return (x.next || '').localeCompare(y.next || ''); });
+      return json({ enabled: true, timezone: 'Asia/Bangkok', started_at: SNAP.scheduler_started || new Date().toISOString(), boxes: boxes });
+    }
+    var workList = p.match(/^\/api\/stores\/([^/]+)\/work$/);
+    if (workList && method === 'GET') {
+      var stq = u.searchParams.get('status'), kq = u.searchParams.get('kind'), tq = u.searchParams.get('to');
+      var sts = stq ? stq.split(',') : null;
+      var lim2 = Number(u.searchParams.get('limit') || 200);
+      return json({ items: work.filter(function (w) { return (!sts || sts.indexOf(w.status) >= 0) && (!kq || w.kind === kq) && (!tq || w.to_slug === tq); }).slice(0, lim2), labels: { kind: WORK_KIND_LABEL, status: STATUS_LABEL } });
+    }
+    var workDecide = p.match(/^\/api\/stores\/([^/]+)\/work\/(\d+)\/decide$/);
+    if (workDecide && method === 'POST') {
+      var wi = work.find(function (w) { return w.id === Number(workDecide[2]); });
+      if (!wi) return json({ error: 'ไม่พบงานนี้' }, 404);
+      var patch = decide(wi, body && body.decision, body && body.note);
+      if (!patch) return json({ error: 'งานนี้' + STATUS_LABEL[wi.status] + 'แล้ว ตัดสินซ้ำไม่ได้' }, 409);
+      patch.decided_by = (body && body.by) || null; patch.decided_at = new Date().toISOString();
+      updateWorkItem(wi.id, patch);
+      var pubRun = null;
+      if (wi.to_slug === 'publisher') { var pub = agentBy(workDecide[1], 'publisher'); if (pub) pubRun = runBox(pub, body && body.by, 'event', true); }
+      agents.forEach(withInbox);
+      return new Promise(function (resolve) { setTimeout(function () { resolve(json({ item: wi, run: pubRun })); }, 300); });
+    }
+
     /* ---------- Trends → directives ---------- */
     var trendsGet = p.match(/^\/api\/stores\/([^/]+)\/trends$/);
     if (trendsGet && method === 'GET') return json({ trends: SNAP.trends || [], directives: activeDirectives() });
@@ -253,7 +334,7 @@
     if (agentRun && method === 'POST') {
       var ra = agentBy(agentRun[1], agentRun[2]);
       if (!ra) return json({ error: 'ไม่พบกล่องนี้' }, 404);
-      var run = runBox(ra, body && body.by);
+      var run = runBox(ra, body && body.by, 'manual', !(body && body.chain === false));
       return new Promise(function (resolve) { setTimeout(function () { resolve(json({ run: run, agent: ra })); }, 350); });
     }
 

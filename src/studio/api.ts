@@ -26,6 +26,8 @@ export interface Agent {
   model: string; effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   enabled: boolean; updated_at: string;
   last_run: Run | null;
+  inbox: number;               // work items waiting for this box
+  next_run: string | null;     // from its cron, ISO
 }
 export interface AgentPatch {
   instructions?: string; examples?: Agent['examples']; addons?: Agent['addons'];
@@ -50,6 +52,16 @@ export interface Directive {
   id: number; title: string; text: string; source: DirectiveSource; targets: string[];
   status: 'active' | 'done' | 'archived'; created_at: string; expires_at: string | null; by: string | null;
 }
+
+export type WorkKind = 'intel' | 'brief' | 'post' | 'ad_plan' | 'adjust' | 'rule';
+export type WorkStatus = 'open' | 'changes' | 'pending' | 'approved' | 'rejected' | 'done';
+export interface WorkItem {
+  id: number; kind: WorkKind; title: string; body: string; status: WorkStatus; from_slug: string; to_slug: string | null; parent_id: number | null;
+  review: { pass: boolean | null; issues: string[] } | null; rounds: number; run_id: number | null; directive_id: number | null;
+  created_at: string; updated_at: string; decided_at: string | null; decided_by: string | null; decision_note: string | null; published_at: string | null; published_as: string | null;
+}
+export interface WorkPage { items: WorkItem[]; labels: { kind: Record<WorkKind, string>; status: Record<WorkStatus, string> } }
+export interface SchedulerStatus { enabled: boolean; timezone: string; started_at: string | null; boxes: { slug: string; name: string; cron: string; next: string | null; last: { at: string; status: string; summary: string } | null }[] }
 
 export const KIND_LABEL: Record<Kind, string> = { ai: 'AI', automation: 'อัตโนมัติ', human: 'คน' };
 
@@ -84,6 +96,13 @@ export const studioApi = {
     post(`/api/stores/${store}/directives/${id}`, { status }, 'PATCH').then((r) => j<Directive>(r)),
   runDirective: (store: string, id: number) =>
     post(`/api/stores/${store}/directives/${id}/run`, { by: BY }).then((r) => j<{ directive: Directive; runs: Run[] }>(r)),
+  work: (store: string, o: { status?: WorkStatus[]; kind?: WorkKind; limit?: number } = {}) => {
+    const q = new URLSearchParams(); if (o.status) q.set('status', o.status.join(',')); if (o.kind) q.set('kind', o.kind); if (o.limit) q.set('limit', String(o.limit));
+    return fetch(`/api/stores/${store}/work?${q}`).then((r) => j<WorkPage>(r));
+  },
+  decide: (store: string, id: number, decision: 'approve' | 'reject', note?: string) =>
+    post(`/api/stores/${store}/work/${id}/decide`, { decision, note, by: BY }).then((r) => j<{ item: WorkItem; run: Run | null }>(r)),
+  scheduler: () => fetch('/api/studio/scheduler').then((r) => j<SchedulerStatus>(r)),
 };
 
 /** Postgres prints "2026-09-16 05:12:03.1+00"; browsers want "2026-09-16T05:12:03.1+00:00". */

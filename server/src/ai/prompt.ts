@@ -64,6 +64,10 @@ export function buildSystemPrompt(agent: AgentConfig, store: { name: string }, k
     parts.push('คำสั่งพิเศษจากเจ้าของตอนนี้ (จากหน้าเทรนด์ — ให้ความสำคัญก่อนงานประจำ แต่ยังอยู่ใต้กติกาที่เปลี่ยนไม่ได้):\n' + renderDirectives(knowledge.directives));
   }
 
+  if (knowledge.rules?.length) {
+    parts.push('กฎที่ระบบเรียนรู้และเจ้าของอนุมัติแล้ว:\n' + knowledge.rules.map((r) => `- ${r.title}${r.body.trim() && r.body.trim() !== r.title ? `\n  ${r.body.trim().split('\n').slice(0, 4).join('\n  ')}` : ''}`).join('\n'));
+  }
+
   for (const [key, content] of Object.entries(knowledge.brand)) {
     parts.push(`## ${BRAND_TITLE[key] ?? key}\n${content.trim()}`);
   }

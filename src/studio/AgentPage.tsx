@@ -172,6 +172,9 @@ export default function AgentPage({ store, slug, catalog, connections, onBack }:
                   </li>
                 ))}
               </ol>
+              {agent.kind === 'human' && (
+                <a href="#Approve" className="btn btn-sm btn-primary mt-4 inline-flex">เปิดคิวอนุมัติ{agent.inbox ? ` (${agent.inbox} งานรอ)` : ''}</a>
+              )}
               {agent.last_run?.output && (
                 <details className="mt-4">
                   <summary className="t-label cursor-pointer">ข้อมูลดิบของรอบล่าสุด</summary>

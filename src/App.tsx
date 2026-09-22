@@ -5,6 +5,7 @@ import StudioView from './studio/StudioView'
 import ReportView from './report/ReportView'
 import OfficeView from './office/OfficeView'
 import TrendView from './trend/TrendView'
+import ApproveView from './approve/ApproveView'
 import {
   ShoppingCart,
   Package,
@@ -15,6 +16,7 @@ import {
   FileText,
   Building2,
   TrendingUp,
+  ClipboardCheck,
   Shirt,
   X,
   Menu as MenuIcon,
@@ -24,7 +26,7 @@ import {
 } from 'lucide-react'
 
 // --- Types ---
-type View = 'POS' | 'Dashboard' | 'Stock' | 'Receipt' | 'Marketing' | 'Studio' | 'Report' | 'Office' | 'Trend';
+type View = 'POS' | 'Dashboard' | 'Stock' | 'Receipt' | 'Marketing' | 'Studio' | 'Report' | 'Office' | 'Trend' | 'Approve';
 
 interface Modifier { id: string; name: string; price: number; }
 interface ModifierCategory { id: string; name: string; options: Modifier[]; type: 'radio' | 'checkbox' }
@@ -91,12 +93,13 @@ const NAV: { id: View; label: string; icon: React.ReactNode }[] = [
   { id: 'Stock', label: 'สต็อก', icon: <Package size={18} /> },
   { id: 'Marketing', label: 'การตลาด', icon: <BrainCircuit size={18} /> },
   { id: 'Trend', label: 'เทรนด์', icon: <TrendingUp size={18} /> },
+  { id: 'Approve', label: 'คิวอนุมัติ', icon: <ClipboardCheck size={18} /> },
   { id: 'Office', label: 'ออฟฟิศ', icon: <Building2 size={18} /> },
   { id: 'Studio', label: 'ระบบหลังบ้าน', icon: <Sparkles size={18} /> },
   { id: 'Report', label: 'รายงาน', icon: <FileText size={18} /> },
 ];
 
-const ROUTED: View[] = ['POS', 'Dashboard', 'Stock', 'Marketing', 'Studio', 'Report', 'Office', 'Trend'];
+const ROUTED: View[] = ['POS', 'Dashboard', 'Stock', 'Marketing', 'Studio', 'Report', 'Office', 'Trend', 'Approve'];
 const viewFromHash = (): View | null => {
   const h = window.location.hash.replace('#', '').split('?')[0];
   return ROUTED.includes(h as View) ? (h as View) : null;
@@ -109,7 +112,7 @@ const makeOrder = (items: CartLine[], total: number): Order =>
 
 /* ---------------------------------------------------------------- sidebar */
 
-function Sidebar({ view, onPick, open }: { view: View; onPick: (v: View) => void; open: boolean }) {
+function Sidebar({ view, onPick, open, pending }: { view: View; onPick: (v: View) => void; open: boolean; pending: number }) {
   return (
     <aside
       className={`fixed lg:static inset-y-0 left-0 w-64 z-50 flex flex-col p-4 transition-transform ${open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
@@ -137,6 +140,7 @@ function Sidebar({ view, onPick, open }: { view: View; onPick: (v: View) => void
                 : { color: 'var(--brand-ink)', opacity: 0.74 }}
             >
               {btn.icon} {btn.label}
+              {btn.id === 'Approve' && pending > 0 && <span className="ml-auto t-mono text-[11px] px-1.5 rounded-full" style={{ background: 'var(--accent)', color: '#1B2033', minWidth: 20, textAlign: 'center' }}>{pending}</span>}
             </button>
           );
         })}
@@ -286,6 +290,14 @@ function ReceiptView({ order, onNew }: { order: Order | null; onNew: () => void 
 
 function App() {
   const [view, setView] = useState<View>(() => viewFromHash() ?? 'POS');
+  // How many items wait in the approval queue — the badge on the menu. Refreshed on every screen change and every minute.
+  const [pending, setPending] = useState(0);
+  useEffect(() => {
+    const tick = () => fetch('/api/stores/climax/work?status=pending&limit=200').then((r) => r.json()).then((w) => setPending((w.items ?? []).length)).catch(() => undefined);
+    tick();
+    const id = setInterval(tick, 60000);
+    return () => clearInterval(id);
+  }, [view]);
   // Screens link to each other by hash (the office opens a box in the back office), so follow it.
   useEffect(() => {
     const onHash = () => { const v = viewFromHash(); if (v) setView(v); };
@@ -323,7 +335,7 @@ function App() {
 
   return (
     <div className="h-screen w-screen flex overflow-hidden" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
-      <Sidebar view={view} open={isSidebarOpen} onPick={(v) => { setView(v); setIsSidebarOpen(false); }} />
+      <Sidebar view={view} open={isSidebarOpen} pending={pending} onPick={(v) => { setView(v); setIsSidebarOpen(false); }} />
 
       <main className="flex-grow flex flex-col relative overflow-hidden">
         <header className="flex items-center justify-between gap-3 px-4 lg:px-6 py-3 z-30"
@@ -359,6 +371,8 @@ function App() {
           <OfficeView />
         ) : view === 'Trend' ? (
           <TrendView />
+        ) : view === 'Approve' ? (
+          <ApproveView onCount={setPending} />
         ) : (
           <div className="p-10 text-center t-sub" style={{ color: 'var(--muted)' }}>
             หน้า “{NAV.find(n => n.id === view)?.label}” ยังไม่เปิดใช้งานในเวอร์ชันนี้

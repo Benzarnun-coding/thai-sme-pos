@@ -56,6 +56,8 @@ ${fs.readFileSync(path.join(root, 'scripts/artifact/demo.css'), 'utf8')}
 <script>
 window.__LOOPDESK_DEMO__ = ${JSON.stringify(snapshot)};
 ${fs.readFileSync(path.join(root, 'server/src/ai/demo-brain.js'), 'utf8').replace(/^export /gm, '')}
+${fs.readFileSync(path.join(root, 'server/src/ai/cron.js'), 'utf8').replace(/^export /gm, '')}
+${fs.readFileSync(path.join(root, 'server/src/ai/handoff.js'), 'utf8').replace(/^export /gm, '').replace(/^const KIND_LABEL = /m, 'const WORK_KIND_LABEL = ').replace(/KIND_LABEL\[/g, 'WORK_KIND_LABEL[').replace(/Object\.keys\(KIND_LABEL\)/g, 'Object.keys(WORK_KIND_LABEL)')}
 ${fs.readFileSync(path.join(root, 'scripts/artifact/shim.js'), 'utf8')}
 </script>
 <div id="root"></div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { studioApi, clock, isToday, type Run } from '../studio/api';
+import { studioApi, clock, isToday, type Run, type WorkItem } from '../studio/api';
 
 /**
  * Report — the owner's one-minute read.
@@ -27,6 +27,7 @@ export default function ReportView() {
   const [ads, setAds] = useState<Ad[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
+  const [pending, setPending] = useState<WorkItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,7 +37,8 @@ export default function ReportView() {
     fetch(`/api/stores/${STORE}/ads`).then((x) => x.json()),
     fetch(`/api/stores/${STORE}/posts`).then((x) => x.json()),
     studioApi.runs(STORE, 60),
-  ]).then(([s, g, a, p, r]) => { setSummary(s); setSignals(g); setAds(a); setPosts(p); setRuns(r); setError(null); })
+    studioApi.work(STORE, { status: ['pending'] }).then((w) => w.items).catch(() => [] as WorkItem[]),
+  ]).then(([s, g, a, p, r, w]) => { setSummary(s); setSignals(g); setAds(a); setPosts(p); setRuns(r); setPending(w); setError(null); })
     .catch((e) => setError((e as Error).message));
   useEffect(() => { load(); }, []);
 
@@ -61,6 +63,7 @@ export default function ReportView() {
   const topPosts = [...posts].sort((a, b) => (b.reach ?? 0) - (a.reach ?? 0)).slice(0, 3);
   const today = runs.filter((r) => isToday(r.started_at));
   const decisions = [
+    ...(pending.length ? [{ tone: 'warn', text: `รออนุมัติ ${pending.length} งานในคิว (${pending.map((w) => w.title).slice(0, 2).join(' · ')}${pending.length > 2 ? ' …' : ''}) — เปิดคิวอนุมัติ`, href: '#Approve' }] : []),
     ...blocked.map((b) => ({ tone: 'crit', text: `${b.name} ${b.note} — เติมไซส์ หรือถอดออกจากแอด` })),
     ...toPause.map((a) => ({ tone: 'warn', text: `พักแอด ${a.ad_name} (ROAS ${a.roas.toFixed(1)}x)` })),
     ...toScale.map((a) => ({ tone: 'good', text: `เพิ่มงบ ${a.ad_name} (ROAS ${a.roas.toFixed(1)}x · ฿${a.cpc}/ทัก)` })),
@@ -102,7 +105,7 @@ export default function ReportView() {
               {decisions.map((d, i) => (
                 <li key={i} className="text-sm flex gap-2 items-start">
                   <span className="w-2 h-2 rounded-full flex-none mt-2" style={{ background: `var(--${d.tone})` }} />
-                  <span>{d.text}</span>
+                  {'href' in d && d.href ? <a href={d.href} className="underline">{d.text}</a> : <span>{d.text}</span>}
                 </li>
               ))}
             </ul>
