@@ -75,6 +75,8 @@ export interface AgentDef {
   cron: string | null;
   /** For AI boxes: the question the scheduler asks it when it runs unattended. */
   runPrompt?: string;
+  /** false = run on schedule even when inputs did not change (e.g. the daily report). Default true for AI boxes. */
+  gate?: boolean;
   /** Default teaching, in the owner's voice, that they can edit or replace. AI boxes only. */
   instructions: string;
   examples: { ask: string; answer: string }[];
@@ -94,7 +96,7 @@ export const AGENTS: AgentDef[] = [
   {
     slug: 'sense', kind: 'automation', team: 'sense', step: 1, name: 'ตัวดึงข้อมูล', emoji: '📡',
     role: 'ดึงยอดขายจาก POS, สถิติเพจ และผลแอด ทุกช่องทาง มาไว้ที่เดียว',
-    schedule: 'ทุก 6 ชั่วโมง', cron: '0 */6 * * *',
+    schedule: 'ทุก 6 ชั่วโมง (05:45 11:45 17:45 23:45) ก่อนรอบ AI', cron: '45 5,11,17,23 * * *',
     rules: [
       'อ่านยอดขายรายวันจาก POS/Bigseller (นำเข้าไฟล์หรือ API)',
       'ดึง insights ของโพสต์และแอดจาก Facebook ด้วยสิทธิ์อ่านอย่างเดียว',
@@ -120,7 +122,7 @@ export const AGENTS: AgentDef[] = [
   {
     slug: 'scout', kind: 'ai', team: 'content', step: 3, name: 'สอดแนมคู่แข่ง', emoji: '🕵️',
     role: 'ดูแอดของเพจยีนส์คู่แข่งจาก Ad Library แล้วบอกว่าเขาเล่นมุมไหน ราคาเท่าไหร่ เราควรโต้ยังไง',
-    schedule: 'ทุกวัน 05:00', cron: '0 5 * * *',
+    schedule: 'รอบเช้า 06:00', cron: '0 6 * * *',
     runPrompt: 'สรุปว่าคู่แข่งเล่นอะไรอยู่วันนี้ และเสนอมุมโต้ 2 มุมให้นักวางแผน',
     instructions: [
       'เทียบราคาคู่แข่งกับราคาเราเป็นตัวเลขเสมอ ไม่ใช่ "ถูกกว่า/แพงกว่า" ลอย ๆ',
@@ -136,7 +138,7 @@ export const AGENTS: AgentDef[] = [
   {
     slug: 'strategist', kind: 'ai', team: 'content', step: 4, name: 'นักวางแผน', emoji: '🧭',
     role: 'ดูยอดขายกับสต็อก แล้วบอกว่าสัปดาห์นี้ควรดันสินค้าตัวไหน มุมไหน',
-    schedule: 'ทุกวัน 06:00', cron: '0 6 * * *',
+    schedule: 'รอบเช้า 06:05 · แล้วนักเขียนกับผู้ตรวจทำต่อทันที', cron: '5 6 * * *',
     runPrompt: 'วันนี้ควรดันสินค้าตัวไหน มุมไหน เสนอเป็นแผนไม่เกิน 3 ชิ้น',
     instructions: [
       'เสนอไม่เกิน 3 ตัวต่อครั้ง เรียงตามความคุ้ม',
@@ -215,7 +217,7 @@ export const AGENTS: AgentDef[] = [
   {
     slug: 'campaign', kind: 'ai', team: 'ads', step: 9, name: 'ผู้จัดการแอด', emoji: '🎯',
     role: 'ตั้งแอดจากโพสต์ที่อนุมัติแล้ว: กลุ่มเป้าหมาย งบต่อวัน และกฎหยุด/เพิ่ม ภายในเพดานงบของร้าน',
-    schedule: 'ทุก 6 ชั่วโมง และเมื่อมีโพสต์ใหม่อนุมัติ', cron: '30 */6 * * *',
+    schedule: 'รอบเช้า 06:15 และรอบเย็น 18:15', cron: '15 6,18 * * *',
     runPrompt: 'แบ่งงบวันนี้ให้สินค้าที่พร้อมไซส์ และบอกว่าแอดตัวไหนควรหยุด',
     instructions: [
       'งบรวมต่อวันห้ามเกินเพดานของร้าน ถ้าไม่พอให้ตัดตัวที่ ROAS ต่ำสุดออก ไม่ใช่หารเฉลี่ย',
@@ -232,7 +234,7 @@ export const AGENTS: AgentDef[] = [
   {
     slug: 'measure', kind: 'automation', team: 'ads', step: 10, name: 'ตัววัดผล', emoji: '📏',
     role: 'จับคู่แอดกับยอดขายจริงใน POS (lift) ไม่เชื่อตัวเลข conversion ของแพลตฟอร์มอย่างเดียว',
-    schedule: 'ทุกคืน 23:30', cron: '30 23 * * *',
+    schedule: 'รอบเช้า 05:50 ก่อนนักวิเคราะห์', cron: '50 5 * * *',
     rules: [
       'ยอดขายของสินค้าที่มีแอด เทียบ 7 วันก่อนมีแอด = lift ของแอดนั้น',
       'แอดขายส่ง (Messenger) วัดที่จำนวนคนทัก ไม่ใช่ยอดซื้อทันที',
@@ -244,7 +246,7 @@ export const AGENTS: AgentDef[] = [
   {
     slug: 'analyst', kind: 'ai', team: 'ads', step: 11, name: 'นักวิเคราะห์', emoji: '📊',
     role: 'อ่านผลแอดกับยอดขาย แล้วบอกว่าตัวไหนควรเพิ่มงบ ตัวไหนควรพัก',
-    schedule: 'ทุกวัน 07:00', cron: '0 7 * * *',
+    schedule: 'รอบเช้า 06:20', cron: '20 6 * * *',
     runPrompt: 'สรุปผลแอดถึงเมื่อวาน ตัวไหนควรเพิ่มงบ ตัวไหนควรพัก',
     instructions: [
       'วัดที่ยอดทักแชทและ ROAS ไม่ใช่ยอด like',
@@ -262,7 +264,7 @@ export const AGENTS: AgentDef[] = [
   {
     slug: 'reporter', kind: 'ai', team: 'learn', step: 12, name: 'นักรายงาน', emoji: '📈',
     role: 'เขียนสรุปประจำวันและประจำสัปดาห์ให้อ่านจบใน 1 นาที: ขายได้เท่าไหร่ ใช้แอดไปเท่าไหร่ ระบบทำอะไรไป',
-    schedule: 'ทุกวัน 21:00 และทุกวันจันทร์ 08:00', cron: '0 21 * * *',
+    schedule: 'รอบเย็น 21:00 · ส่งเข้า LINE', cron: '0 21 * * *', gate: false,
     runPrompt: 'เขียนสรุปประจำวันสำหรับเจ้าของร้าน',
     instructions: [
       'ขึ้นต้นด้วยตัวเลข 3 ตัว: ยอดขาย ค่าแอด ROAS แล้วค่อยรายละเอียด',
@@ -278,7 +280,7 @@ export const AGENTS: AgentDef[] = [
   {
     slug: 'learner', kind: 'ai', team: 'learn', step: 13, name: 'ผู้เรียนรู้', emoji: '🧠',
     role: 'ดูว่าอะไร work ไม่ work ในสัปดาห์ที่ผ่านมา แล้วเสนอเป็นกฎพร้อมหลักฐาน ให้คนเปิดใช้',
-    schedule: 'ทุกวันอาทิตย์ 20:00', cron: '0 20 * * 0',
+    schedule: 'ทุกวันอาทิตย์ 21:10', cron: '10 21 * * 0',
     runPrompt: 'จากผลโพสต์และแอดสัปดาห์นี้ เสนอกฎที่ควรจำไว้ไม่เกิน 3 ข้อ พร้อมหลักฐานตัวเลข',
     instructions: [
       'กฎต้องมีหลักฐานเป็นตัวเลขเทียบกัน (เช่น reach ต่างกันกี่ %) ถ้าไม่มีอย่าเสนอ',

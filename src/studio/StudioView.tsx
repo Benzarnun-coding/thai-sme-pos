@@ -77,6 +77,7 @@ export default function StudioView() {
             {catalog.mode === 'claude' ? `สมองจริง · ${catalog.model}` : 'โหมดตัวอย่าง · ยังไม่ได้ใส่ API key'}
           </span>
           <span className="chip">เฟส {catalog.phase}</span>
+          <span className={`chip ${catalog.line ? 'chip-good' : ''}`} title="งานรออนุมัติและรายงานประจำวันส่งเข้า LINE เมื่อตั้ง LINE_CHANNEL_ACCESS_TOKEN + LINE_TO">{catalog.line ? 'LINE เปิด' : 'LINE ยังไม่ตั้ง'}</span>
           <span className={`chip ${scheduler?.enabled ? 'chip-good' : ''}`} title={scheduler?.boxes.map((b) => `${b.name} ${b.cron}`).join('\n')}>
             {scheduler?.enabled ? `ตัวตั้งเวลาเปิด · ถัดไป ${clock(scheduler.boxes[0]?.next)} ${scheduler.boxes[0]?.name ?? ''}` : 'ตัวตั้งเวลาปิด (รันเอง)'}
           </span>

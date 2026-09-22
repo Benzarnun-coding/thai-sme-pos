@@ -7,7 +7,7 @@ export interface AddonDef {
   id: string; kind: 'knowledge' | 'action'; label: string; hint: string; phase: number; risky?: boolean; available: boolean;
 }
 export interface CatalogAgent { slug: string; kind: Kind; team: Team; step: number; name: string; emoji: string; role: string; schedule: string; starters: string[]; rules?: string[] }
-export interface Catalog { mode: 'claude' | 'demo'; model: string; phase: number; teams: { id: Team; label: string }[]; agents: CatalogAgent[]; addons: AddonDef[] }
+export interface Catalog { mode: 'claude' | 'demo'; model: string; phase: number; line?: boolean; teams: { id: Team; label: string }[]; agents: CatalogAgent[]; addons: AddonDef[] }
 
 export interface Run {
   id: number; agent_id: string; slug?: string; name?: string; emoji?: string | null;

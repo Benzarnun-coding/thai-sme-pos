@@ -17,6 +17,7 @@ import { getWork, listWork, updateWork } from '../ai/work.js';
 import { decide, KIND_LABEL as WORK_KIND_LABEL, STATUS_LABEL as WORK_STATUS_LABEL, type WorkStatus } from '../ai/handoff.js';
 import { schedulerStatus } from '../jobs/scheduler.js';
 import { setAiCap, usageReport } from '../ai/usage.js';
+import { lineConfigured } from '../connectors/line.js';
 
 const CURRENT_PHASE = Number(process.env.LOOPDESK_PHASE ?? 1);
 
@@ -41,6 +42,7 @@ export function registerAgentRoutes(app: FastifyInstance, db: Db) {
     mode: aiMode(),
     model: DEFAULT_MODEL,
     phase: CURRENT_PHASE,
+    line: lineConfigured(),
     teams: TEAM_ORDER.map((id) => ({ id, label: TEAM_LABEL[id] })),
     agents: AGENTS.map(({ slug, kind, team, step, name, emoji, role, schedule, starters, rules }) => ({ slug, kind, team, step, name, emoji, role, schedule, starters, rules })),
     addons: ADDONS.map((a) => ({ ...a, available: a.phase <= CURRENT_PHASE })),

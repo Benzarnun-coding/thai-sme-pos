@@ -28,9 +28,16 @@ pnpm test          # 22 tests
    แถวที่สีเป็น `ZZ` หรือรุ่นขึ้นต้น `IT` จะนำเข้าพร้อมคำเตือน ไม่ข้าม
 1. **สินค้า/สต็อกจริง (CSV)**: export จาก Bigseller เป็น CSV ที่มีคอลัมน์ `sku, name, category, price, qty` (หัวคอลัมน์ภาษาไทยก็ได้) แล้ว
    `pnpm import:sku path/to/file.csv` หรือ `POST /api/stores/climax/import/sku {csv}` ทุกครั้งที่นำเข้า = snapshot ใหม่ (ไม่ทับของเก่า)
-2. **Facebook**: สร้าง Meta App → ขอ token ของเพจที่มี `pages_read_engagement`, `read_insights` และ `ads_read` แล้วใส่ `.env` (ดู `.env.example`)
-   `pnpm sync:facebook` หรือปล่อยให้ scheduler ดึงทุก 6 ชั่วโมง
-3. **Postgres จริง**: ตั้ง `DATABASE_URL=postgres://...` ทุกอย่างเหมือนเดิม
+2. **Facebook แบบกดเชื่อมต่อ**: สร้าง Meta App แล้วตั้ง `FB_APP_ID`, `FB_APP_SECRET`, `API_BASE_URL`, `PUBLIC_URL`, `TOKEN_ENC_KEY` (64 hex)
+   ปุ่ม "เชื่อมต่อ Facebook" ในแอปจะเปิด Login ของ Facebook จริงแล้วให้เลือกเพจ/บัญชีโฆษณา · admin ของแอปใช้เพจตัวเองได้ทันทีในโหมด Development
+   ร้านอื่นต้องผ่าน App Review ก่อน (ชุดยื่นอยู่ที่ `docs/meta-app-review.md` · หน้า `/privacy` และ `/data-deletion` มีให้แล้ว)
+   `LOOPDESK_PHASE=4` เพื่อขอสิทธิ์โพสต์/แอดด้วย · หรือแบบเดิม: ใส่ token ใน `.env` แล้ว `pnpm sync:facebook`
+3. **AI**: ใส่ `ANTHROPIC_API_KEY` → กล่อง AI ใช้ `claude-opus-5` (ไม่ใส่ = โหมดตัวอย่าง) · `LOOPDESK_THB_PER_USD` (ค่าเริ่มต้น 35) สำหรับมิเตอร์
+   เพดานรายเดือนตั้งได้ในหน้าระบบหลังบ้าน (`PUT /api/stores/:id/settings/ai-cap`) ถึงเพดานแล้ว AI หยุด อัตโนมัติยังเดิน
+4. **ตัวตั้งเวลา**: เปิดอัตโนมัติเมื่อรันเซิร์ฟเวอร์ (Asia/Bangkok) `LOOPDESK_SCHEDULER=off` เพื่อปิด · รอบเช้า 05:45–06:20 · รอบเย็น 18:15 / 21:00 · ตัวโพสต์เช็คคิวทุก 5 นาที
+   รอบตามเวลาจะข้ามกล่อง AI ที่ข้อมูลไม่เปลี่ยนจากรอบก่อน (diff gate) ยกเว้นนักรายงาน
+5. **LINE**: `LINE_CHANNEL_ACCESS_TOKEN` + `LINE_TO` (user/group id) + `APP_URL` → งานรออนุมัติและรายงานประจำวันถูกส่งเข้า LINE
+6. **Postgres จริง**: ตั้ง `DATABASE_URL=postgres://...` ทุกอย่างเหมือนเดิม
 
 ## Endpoints
 
@@ -46,6 +53,13 @@ pnpm test          # 22 tests
 | GET | `/api/stores/:id/audit` | audit log 50 รายการล่าสุด |
 | POST | `/api/stores/:id/import/sku` | นำเข้า CSV |
 | POST | `/api/stores/:id/sync/facebook` | ดึงข้อมูล Facebook ตอนนี้ |
+| GET | `/api/studio/catalog` · `/api/studio/scheduler` | กล่องทั้ง 13 · เวลารันถัดไป |
+| GET/PUT/POST | `/api/stores/:id/agents/:slug` · `/run` · `/chat` · `/feedback` · `/reset` | สอน รัน คุย ให้คะแนน กล่อง |
+| GET | `/api/stores/:id/runs` · `/work` · `/trends` · `/usage` | ผลรัน · งานที่ส่งต่อกัน/คิวอนุมัติ · เทรนด์ · มิเตอร์ token |
+| POST | `/api/stores/:id/work/:wid/decide` · `/directives` · `/directives/:id/run` | อนุมัติ/ไม่อนุมัติ · สั่งงานจากเทรนด์ |
+| PUT | `/api/stores/:id/settings/ai-cap` | เพดาน AI รายเดือน |
+| GET | `/privacy` · `/data-deletion` | หน้าสาธารณะสำหรับ Meta |
+| POST | `/api/meta/data-deletion` · `/api/meta/deauthorize` | callback จาก Meta (`signed_request`) |
 
 ## โครงสร้าง
 
@@ -65,7 +79,7 @@ server/
 
 ## ยังไม่ทำในโปรเจกต์นี้ (ตามลำดับที่ออกแบบ)
 
-- Project 2: Rules Engine + budget_ledger + LINE digest รายคืน
-- Project 3: Copywriter/QA + คิวอนุมัติ + โพสต์ organic
-- Project 4: Campaign manager + Strategist/Analyst (loop ปิด)
-- Project 5: แชท/คอมเมนต์ + Audience
+- budget_ledger (บันทึกการใช้เงินจริงต่อแอดต่อวันเทียบเพดาน)
+- โพสต์/ตั้งแอดจริง (ตอนนี้ตัวโพสต์ "จำลอง" จนกว่าจะได้สิทธิ์ `pages_manage_posts` / `ads_management`)
+- Batch API สำหรับรอบกลางคืน (ลดราคาครึ่งหนึ่ง) · connector Shopee / TikTok หลังได้เป็น partner
+- แชท/คอมเมนต์: ตัดออกจากขอบเขต

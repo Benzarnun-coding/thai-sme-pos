@@ -18,6 +18,12 @@ import { loadAds } from './context.js';
 import { outcome, plan, publish, summarize, type WorkItem } from './handoff.js';
 import { createWork, inboxOf, stampRun, updateWork } from './work.js';
 import { capReached } from './usage.js';
+import { activeDirectivesFor } from './trends.js';
+import { approvedRules } from './work.js';
+import { loadKnowledge } from './context.js';
+import { appLink, notifyLine } from '../connectors/line.js';
+import { createHash } from 'node:crypto';
+import { KIND_LABEL as WORK_KIND_LABEL } from './handoff.js';
 
 export type Trigger = 'schedule' | 'manual' | 'event';
 const CURRENT_PHASE = () => Number(process.env.LOOPDESK_PHASE ?? 1);
@@ -45,6 +51,11 @@ export async function runAgent(db: Db, o: { storeId: string; slug: string; trigg
       const prompt = agent.runPrompt ?? AGENT_BY_SLUG[o.slug].starters[0];
       const tasks = plan(o.slug, prompt, inbox);
       if (!tasks.length) return recordRun(db, { ...base, status: 'skipped', summary: 'ไม่มีงานส่งมาให้ตรวจ', output: { inbox: 0 } });
+      // Diff gate: a scheduled run whose inputs are byte-for-byte what the last run saw is a wasted model call.
+      const fp = await fingerprint(db, o.storeId, agent, inbox.map((i) => i.id));
+      if (o.trigger === 'schedule' && AGENT_BY_SLUG[o.slug].gate !== false && !inbox.length && (agent.last_run?.output as { fp?: string } | null)?.fp === fp && agent.last_run?.status === 'ok') {
+        return recordRun(db, { ...base, status: 'skipped', summary: 'ข้อมูลไม่เปลี่ยนจากรอบก่อน — ข้ามเพื่อประหยัด token', output: { fp, gated: true } });
+      }
       const results: { reply: string; note?: string; thread_id: string; message_id: number; mode: string }[] = [];
       for (const task of tasks) {
         const r = await chat(db, { storeId: o.storeId, slug: o.slug, message: task.message, by: o.by ?? 'scheduler' });
@@ -58,8 +69,9 @@ export async function runAgent(db: Db, o: { storeId: string; slug: string; trigg
       const summary = summarize(o.slug, results, inbox) ?? firstLine(results[0].reply);
       const first = results[0];
       const run = await recordRun(db, { ...base, status: 'ok', summary: summary.slice(0, 140),
-        output: { thread_id: first.thread_id, message_id: first.message_id, text: results.map((r) => r.reply).join('\n\n———\n\n'), mode: first.mode, tasks: tasks.length, items: touched, inbox: inbox.length } });
+        output: { thread_id: first.thread_id, message_id: first.message_id, text: results.map((r) => r.reply).join('\n\n———\n\n'), mode: first.mode, tasks: tasks.length, items: touched, inbox: inbox.length, fp } });
       await stampRun(db, touched, run.id);
+      await notifyOwner(db, o.storeId, o.slug, touched, results[0].reply);
       await chainNext(db, o, handedTo, depth);
       return run;
     }
@@ -84,6 +96,24 @@ export async function runAgent(db: Db, o: { storeId: string; slug: string; trigg
   } catch (e) {
     return recordRun(db, { ...base, status: 'error', summary: `ผิดพลาด: ${(e as Error).message}`.slice(0, 200) });
   }
+}
+
+/** Everything a box will read, hashed — knowledge (minus today's runs), directives, approved rules, its teaching, its inbox. */
+async function fingerprint(db: Db, storeId: string, agent: { slug: string; instructions: string; examples: unknown; addons: { knowledge?: string[] } }, inboxIds: number[]) {
+  const keys = (agent.addons.knowledge ?? []).filter((k) => k !== 'runs');
+  const [k, d, r] = await Promise.all([loadKnowledge(db, storeId, keys), activeDirectivesFor(db, storeId, agent.slug), approvedRules(db, storeId)]);
+  return createHash('sha1').update(JSON.stringify({ k, d: d.map((x) => x.id), r, i: agent.instructions, e: agent.examples, inbox: inboxIds })).digest('hex').slice(0, 16);
+}
+
+/** LINE: new items waiting for the owner, and the daily report itself. Silent when LINE is not configured. */
+async function notifyOwner(db: Db, storeId: string, slug: string, touched: number[], reply: string) {
+  if (slug === 'reporter') { await notifyLine(`📈 รายงานประจำวัน\n${reply.slice(0, 1500)}\n\n${appLink('Report')}`); return; }
+  if (!touched.length) return;
+  const pending = (await db.query<{ id: number; kind: keyof typeof WORK_KIND_LABEL; title: string }>(
+    `select id, kind, title from work_item where store_id=$1 and status='pending' and id = any($2) order by id`, [storeId, touched]));
+  if (!pending.length) return;
+  const lines = pending.map((p) => `• ${WORK_KIND_LABEL[p.kind]}: ${p.title}`).join('\n');
+  await notifyLine(`✅ มี ${pending.length} งานรออนุมัติ\n${lines}\n\nเปิดคิว: ${appLink('Approve')}`);
 }
 
 /** Run the boxes that just received work, in loop order — unless they are people, or chaining is off. */

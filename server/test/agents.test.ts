@@ -26,7 +26,7 @@ describe('Back office (AI Studio)', () => {
     const agents = r.json() as { slug: string; kind: string; team: string; step: number; schedule: string; last_run: unknown }[];
     expect(agents.map((a) => a.slug)).toEqual(AGENTS.map((a) => a.slug));
     expect(agents.map((a) => a.step)).toEqual([...agents.map((a) => a.step)].sort((x, y) => x - y));
-    expect(agents.find((a) => a.slug === 'sense')).toMatchObject({ kind: 'automation', team: 'sense', schedule: 'ทุก 6 ชั่วโมง', last_run: null });
+    expect(agents.find((a) => a.slug === 'sense')).toMatchObject({ kind: 'automation', team: 'sense', schedule: 'ทุก 6 ชั่วโมง (05:45 11:45 17:45 23:45) ก่อนรอบ AI', last_run: null });
     expect(agents.find((a) => a.slug === 'approval')?.kind).toBe('human');
     expect(agents.filter((a) => a.kind === 'ai').length).toBe(AI_AGENTS.length);
     // chat is out of scope: no chat assistants, no messaging add-ons
