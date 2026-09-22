@@ -6,6 +6,7 @@ import ReportView from './report/ReportView'
 import OfficeView from './office/OfficeView'
 import TrendView from './trend/TrendView'
 import ApproveView from './approve/ApproveView'
+import { STORE } from './store'
 import {
   ShoppingCart,
   Package,
@@ -293,7 +294,7 @@ function App() {
   // How many items wait in the approval queue — the badge on the menu. Refreshed on every screen change and every minute.
   const [pending, setPending] = useState(0);
   useEffect(() => {
-    const tick = () => fetch('/api/stores/climax/work?status=pending&limit=200').then((r) => r.json()).then((w) => setPending((w.items ?? []).length)).catch(() => undefined);
+    const tick = () => fetch(`/api/stores/${STORE}/work?status=pending&limit=200`).then((r) => r.json()).then((w) => setPending((w.items ?? []).length)).catch(() => undefined);
     tick();
     const id = setInterval(tick, 60000);
     return () => clearInterval(id);

@@ -9,7 +9,7 @@ import { studioApi, clock, isToday, type Budget, type Run, type WorkItem } from 
  * then what the system did today. The narrative at the top is written by the
  * reporter box (its latest run); the tables are the same data it read.
  */
-const STORE = 'climax';
+import { STORE } from '../store';
 const thb = (n: number) => '฿' + Math.round(n).toLocaleString('th-TH');
 
 interface Summary {

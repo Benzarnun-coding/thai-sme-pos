@@ -22,7 +22,7 @@ interface Signal {
 interface Post { external_post_id: string; created_time: string; message: string | null; reach: number | null; engaged: number | null; comments: number | null; shares: number | null; reactions: number | null }
 interface Ad { external_ad_id: string; ad_name: string; campaign_name: string; first_date: string; last_date: string; impressions: number; clicks: number; spend: string | number; conversations: number; purchases: number; revenue: string | number }
 
-const STORE = 'climax';
+import { STORE } from '../store';
 const thb = (n: number) => '฿' + Math.round(n).toLocaleString('th-TH');
 
 export default function MarketingView() {

@@ -18,4 +18,4 @@ export async function notifyLine(text: string, fetchImpl: typeof fetch = fetch):
   } catch (e) { return { sent: false, reason: (e as Error).message }; }
 }
 
-export const appLink = (hash: string) => `${(process.env.APP_URL ?? process.env.PUBLIC_URL ?? 'http://localhost:5173').replace(/\/$/, '')}/#${hash}`;
+export const appLink = (hash: string) => `${(process.env.APP_BASE_URL ?? process.env.PUBLIC_URL ?? 'http://localhost:5173').replace(/\/$/, '')}/#${hash}`;

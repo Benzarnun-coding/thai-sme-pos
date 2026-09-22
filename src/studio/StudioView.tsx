@@ -13,7 +13,7 @@ import UsageMeter from './UsageMeter';
  * now. AI boxes open into teach + chat, the others into rules + run log. Below,
  * the "who is connected to what" grid for the AI boxes.
  */
-const STORE = 'climax';
+import { STORE } from '../store';
 const CHANNEL_LABEL: Record<string, string> = { facebook: 'Facebook', tiktok: 'TikTok', shopee: 'Shopee', line: 'LINE', pos: 'POS' };
 
 const KIND_STYLE: Record<string, { bg: string; fg: string }> = {

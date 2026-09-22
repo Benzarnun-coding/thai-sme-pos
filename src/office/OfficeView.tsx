@@ -11,7 +11,7 @@ import { TEAM_SHIRT, type Team } from './sprites';
  * type; when the run ends a paper walks to the next desk. Click a person for
  * their card; run one, or run the whole loop and watch the paper travel.
  */
-const STORE = 'climax';
+import { STORE } from '../store';
 const thb = (n: number) => '฿' + Math.round(n).toLocaleString('th-TH');
 
 interface Summary { sales_7d: number; sales_prev_7d: number; ad_spend_7d: number; roas_7d: number | null; conversations_7d: number }

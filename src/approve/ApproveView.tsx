@@ -10,7 +10,7 @@ import { studioApi, clock, type Agent, type WorkItem, type WorkKind, type WorkPa
  * permission exists). Reject → back with a note the boxes can learn from. The
  * other tabs are the record: what went out, what was turned down.
  */
-const STORE = 'climax';
+import { STORE } from '../store';
 const TABS: { id: WorkStatus[]; label: string }[] = [
   { id: ['pending'], label: 'รออนุมัติ' }, { id: ['done'], label: 'โพสต์/ทำแล้ว' }, { id: ['approved'], label: 'อนุมัติแล้ว รอโพสต์' },
   { id: ['rejected'], label: 'ไม่อนุมัติ' }, { id: ['open', 'changes'], label: 'กำลังทำในทีม' },

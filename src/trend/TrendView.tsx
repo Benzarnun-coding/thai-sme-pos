@@ -11,7 +11,7 @@ import { studioApi, clock, type Agent, type Directive, type DirectiveSource, typ
  * boxes get it, and saves. The command rides in those boxes' prompts until it
  * expires or is marked done; "save and run" also runs them right away.
  */
-const STORE = 'climax';
+import { STORE } from '../store';
 
 const KIND: Record<TrendKind, { label: string; icon: React.ReactNode; tone: string }> = {
   rising: { label: 'กำลังมา', icon: <TrendingUp size={14} />, tone: 'chip-good' },

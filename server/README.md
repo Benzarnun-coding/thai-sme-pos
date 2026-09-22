@@ -36,7 +36,7 @@ pnpm test          # 22 tests
    เพดานรายเดือนตั้งได้ในหน้าระบบหลังบ้าน (`PUT /api/stores/:id/settings/ai-cap`) ถึงเพดานแล้ว AI หยุด อัตโนมัติยังเดิน
 4. **ตัวตั้งเวลา**: เปิดอัตโนมัติเมื่อรันเซิร์ฟเวอร์ (Asia/Bangkok) `LOOPDESK_SCHEDULER=off` เพื่อปิด · รอบเช้า 05:45–06:20 · รอบเย็น 18:15 / 21:00 · ตัวโพสต์เช็คคิวทุก 5 นาที
    รอบตามเวลาจะข้ามกล่อง AI ที่ข้อมูลไม่เปลี่ยนจากรอบก่อน (diff gate) ยกเว้นนักรายงาน
-5. **LINE**: `LINE_CHANNEL_ACCESS_TOKEN` + `LINE_TO` (user/group id) + `APP_URL` → งานรออนุมัติและรายงานประจำวันถูกส่งเข้า LINE
+5. **LINE**: `LINE_CHANNEL_ACCESS_TOKEN` + `LINE_TO` (user/group id) + `APP_BASE_URL` → งานรออนุมัติและรายงานประจำวันถูกส่งเข้า LINE
 6. **Postgres จริง**: ตั้ง `DATABASE_URL=postgres://...` ทุกอย่างเหมือนเดิม
 
 ## Endpoints

@@ -44,7 +44,7 @@ describe('diff gate and LINE notifications', () => {
 
   it('LINE is a no-op until configured, then pending items and the daily report are pushed', async () => {
     expect(await notifyLine('x')).toMatchObject({ sent: false });
-    process.env.LINE_CHANNEL_ACCESS_TOKEN = 'tok'; process.env.LINE_TO = 'U123'; process.env.APP_URL = 'https://loop.example.com';
+    process.env.LINE_CHANNEL_ACCESS_TOKEN = 'tok'; process.env.LINE_TO = 'U123'; process.env.APP_BASE_URL = 'https://loop.example.com';
     vi.stubGlobal('fetch', vi.fn(async (url: string, init: { body: string }) => { calls.push({ url, body: JSON.parse(init.body) }); return new Response('{}', { status: 200 }); }));
     expect(await notifyLine('hello')).toEqual({ sent: true });
     expect(calls[0].url).toBe('https://api.line.me/v2/bot/message/push'); expect(calls[0].body.to).toBe('U123');
@@ -63,6 +63,6 @@ describe('diff gate and LINE notifications', () => {
     calls.length = 0;
     await runAgent(db, { storeId: 'climax', slug: 'scout', trigger: 'manual', chain: false });
     expect(calls.length).toBe(0);
-    delete process.env.APP_URL;
+    delete process.env.APP_BASE_URL;
   });
 });
