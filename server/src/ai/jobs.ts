@@ -17,6 +17,7 @@ import { buildProductSignals, storeSummary } from '../signals/build.js';
 import { loadAds } from './context.js';
 import { outcome, plan, publish, summarize, type WorkItem } from './handoff.js';
 import { createWork, inboxOf, stampRun, updateWork } from './work.js';
+import { capReached } from './usage.js';
 
 export type Trigger = 'schedule' | 'manual' | 'event';
 const CURRENT_PHASE = () => Number(process.env.LOOPDESK_PHASE ?? 1);
@@ -39,6 +40,8 @@ export async function runAgent(db: Db, o: { storeId: string; slug: string; trigg
     const handedTo = new Set<string>();
 
     if (agent.kind === 'ai') {
+      const capped = await capReached(db, o.storeId);
+      if (capped) return recordRun(db, { ...base, status: 'skipped', summary: capped.slice(0, 140), output: { capped: true, inbox: inbox.length } });
       const prompt = agent.runPrompt ?? AGENT_BY_SLUG[o.slug].starters[0];
       const tasks = plan(o.slug, prompt, inbox);
       if (!tasks.length) return recordRun(db, { ...base, status: 'skipped', summary: 'ไม่มีงานส่งมาให้ตรวจ', output: { inbox: 0 } });

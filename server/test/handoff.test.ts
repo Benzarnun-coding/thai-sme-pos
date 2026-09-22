@@ -83,7 +83,7 @@ describe('the loop end to end', () => {
   let db: Db;
   let app: ReturnType<typeof buildServer>;
   const get = async (url: string) => (await app.inject({ method: 'GET', url })).json();
-  const post = async (url: string, payload: unknown = {}) => app.inject({ method: 'POST', url, payload });
+  const post = async (url: string, payload: Record<string, unknown> = {}) => app.inject({ method: 'POST', url, payload });
 
   beforeAll(async () => {
     process.env.NODE_ENV = 'test'; process.env.LOOPDESK_AI = 'demo'; delete process.env.ANTHROPIC_API_KEY;

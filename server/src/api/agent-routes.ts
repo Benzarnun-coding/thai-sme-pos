@@ -16,6 +16,7 @@ import { buildTrends, createDirective, listDirectives, runDirective, setDirectiv
 import { getWork, listWork, updateWork } from '../ai/work.js';
 import { decide, KIND_LABEL as WORK_KIND_LABEL, STATUS_LABEL as WORK_STATUS_LABEL, type WorkStatus } from '../ai/handoff.js';
 import { schedulerStatus } from '../jobs/scheduler.js';
+import { setAiCap, usageReport } from '../ai/usage.js';
 
 const CURRENT_PHASE = Number(process.env.LOOPDESK_PHASE ?? 1);
 
@@ -170,6 +171,15 @@ export function registerAgentRoutes(app: FastifyInstance, db: Db) {
     const res = await runDirective(db, id, Number(did), by);
     if (!res) return reply.code(404).send({ error: 'ไม่พบคำสั่งนี้' });
     return res;
+  });
+
+  /* ---------- Token meter ---------- */
+  app.get('/api/stores/:id/usage', async (req) => usageReport(db, (req.params as { id: string }).id));
+  app.put('/api/stores/:id/settings/ai-cap', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = z.object({ cap_thb: z.number().min(0).max(10_000_000).nullable() }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: 'ต้องระบุ cap_thb เป็นตัวเลข หรือ null' });
+    return { cap_thb: await setAiCap(db, id, body.data.cap_thb && body.data.cap_thb > 0 ? body.data.cap_thb : null) };
   });
 
   /* ---------- Work items: what moves between boxes, and the approval queue ---------- */

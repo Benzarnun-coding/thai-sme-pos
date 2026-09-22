@@ -60,6 +60,7 @@ snapshot.runs = (await get(`/api/stores/${STORE}/runs?limit=100`) as { trigger: 
 // What the loop handed on — the queue the demo opens with.
 snapshot.work = await get(`/api/stores/${STORE}/work?limit=200`).then((w: { items: unknown[] }) => w.items);
 snapshot.scheduler_started = new Date().toISOString();
+snapshot.usage = await get(`/api/stores/${STORE}/usage`);
 
 // Walk the connect flow once so the page can replay the account picker offline.
 const start = (await app.inject({ method: 'POST', url: `/api/stores/${STORE}/connect/facebook`, payload: { by: 'เจ้าของร้าน' } })).json() as { grant_id: string; note: string };

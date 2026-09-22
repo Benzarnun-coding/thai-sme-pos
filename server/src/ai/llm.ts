@@ -11,7 +11,7 @@ import { demoReply, type DemoAgent } from './demo-brain.js';
 import type { Knowledge } from './context.js';
 
 export type LlmMode = 'claude' | 'demo';
-export interface LlmResult { text: string; mode: LlmMode; tokensIn?: number; tokensOut?: number; refused?: boolean }
+export interface LlmResult { text: string; mode: LlmMode; model?: string; tokensIn?: number; tokensOut?: number; cacheRead?: number; cacheWrite?: number; refused?: boolean }
 export interface Turn { role: 'user' | 'assistant'; content: string }
 
 export const DEFAULT_MODEL = 'claude-opus-5';
@@ -44,18 +44,19 @@ export async function askClaude(o: {
     output_config: { effort: o.effort },
     // The prompt is stable per assistant per day (teaching + today's data), so
     // cache it: every turn after the first reads the prefix at ~10% of the cost.
-    system: [{ type: 'text', text: o.system, cache_control: { type: 'ephemeral' } }],
+    system: [{ type: 'text', text: o.system, cache_control: { type: 'ephemeral', ttl: '1h' } }],
     messages,
     // A policy decline re-runs on the fallback model inside the same call.
     betas: ['server-side-fallback-2026-06-01'],
     fallbacks: [{ model: FALLBACK_MODEL }],
   });
+  const usage = { model: res.model, tokensIn: res.usage.input_tokens, tokensOut: res.usage.output_tokens,
+    cacheRead: res.usage.cache_read_input_tokens ?? 0, cacheWrite: res.usage.cache_creation_input_tokens ?? 0 };
   if (res.stop_reason === 'refusal') {
-    return { text: 'ผู้ช่วยขอไม่ตอบคำถามนี้ ลองถามใหม่อีกแบบหรือให้แอดมินคนดูแทน', mode: 'claude', refused: true,
-      tokensIn: res.usage.input_tokens, tokensOut: res.usage.output_tokens };
+    return { text: 'ผู้ช่วยขอไม่ตอบคำถามนี้ ลองถามใหม่อีกแบบหรือให้แอดมินคนดูแทน', mode: 'claude', refused: true, ...usage };
   }
   const text = res.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
-  return { text, mode: 'claude', tokensIn: res.usage.input_tokens, tokensOut: res.usage.output_tokens };
+  return { text, mode: 'claude', ...usage };
 }
 
 export async function answer(o: {
@@ -65,5 +66,8 @@ export async function answer(o: {
   if (aiMode() === 'claude') {
     return askClaude({ model: o.agent.model, effort: o.agent.effort, system: o.system, history: o.history, message: o.message });
   }
-  return { text: demoReply(o.agent, o.knowledge, o.message), mode: 'demo' };
+  // Demo: store an estimate (~3 chars per token for Thai) so the meter shows what a real day would cost.
+  const text = demoReply(o.agent, o.knowledge, o.message);
+  const est = (s: string) => Math.round(s.length / 3);
+  return { text, mode: 'demo', model: `demo:${o.agent.model}`, tokensIn: est(o.system) + est(o.message) + o.history.reduce((n, t) => n + est(t.content), 0), tokensOut: est(text) };
 }

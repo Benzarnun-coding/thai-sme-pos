@@ -12,6 +12,7 @@ import { AGENTS, AGENT_BY_SLUG, ADDON_BY_ID, type AgentDef, type Autonomy } from
 import { knowledgeKeys, loadKnowledge } from './context.js';
 import { activeDirectivesFor } from './trends.js';
 import { approvedRules, inboxCounts } from './work.js';
+import { capReached } from './usage.js';
 import { nextFire } from './cron.js';
 import { answer, DEFAULT_MODEL, type Turn } from './llm.js';
 import { buildSystemPrompt, describeInputs, type AgentConfig } from './prompt.js';
@@ -195,6 +196,8 @@ export async function chat(db: Db, o: { storeId: string; slug: string; threadId?
   const agent = await getAgent(db, o.storeId, o.slug);
   if (!agent) return null;
   if (agent.kind !== 'ai') return { error: `${agent.name} ไม่ใช่กล่อง AI — ทำงานตามกฎ ไม่มีแชท` };
+  const capped = await capReached(db, o.storeId);
+  if (capped) return { error: capped };
   const store = (await db.query<{ name: string }>('select name from store where id=$1', [o.storeId]))[0] ?? { name: o.storeId };
 
   let threadId = o.threadId;
@@ -215,12 +218,13 @@ export async function chat(db: Db, o: { storeId: string; slug: string; threadId?
   const history: Turn[] = (await getMessages(db, threadId)).slice(-20).map((m) => ({ role: m.role, content: m.content }));
 
   const result = await answer({ agent, system, knowledge, history, message: o.message });
-  const used = { ...describeInputs(agent, knowledge, fixes), knowledge: knowledgeKeys(knowledge), mode: result.mode, model: result.mode === 'claude' ? agent.model : 'demo' };
+  const used = { ...describeInputs(agent, knowledge, fixes), knowledge: knowledgeKeys(knowledge), mode: result.mode, model: result.mode === 'claude' ? (result.model ?? agent.model) : 'demo',
+    tokens: { in: result.tokensIn ?? 0, out: result.tokensOut ?? 0, cache_read: result.cacheRead ?? 0 } };
 
   await db.query(`insert into agent_message(thread_id, role, content, mode) values ($1,'user',$2,$3)`, [threadId, o.message, result.mode]);
   const saved = await db.query<{ id: number }>(
-    `insert into agent_message(thread_id, role, content, used, mode, tokens_in, tokens_out) values ($1,'assistant',$2,$3,$4,$5,$6) returning id`,
-    [threadId, result.text, JSON.stringify(used), result.mode, result.tokensIn ?? null, result.tokensOut ?? null]);
+    `insert into agent_message(thread_id, role, content, used, mode, tokens_in, tokens_out, cache_read, cache_write, model) values ($1,'assistant',$2,$3,$4,$5,$6,$7,$8,$9) returning id`,
+    [threadId, result.text, JSON.stringify(used), result.mode, result.tokensIn ?? null, result.tokensOut ?? null, result.cacheRead ?? null, result.cacheWrite ?? null, result.model ?? null]);
 
   return { thread_id: threadId, message_id: saved[0].id, reply: result.text, mode: result.mode, used, refused: result.refused ?? false };
 }

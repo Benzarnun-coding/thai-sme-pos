@@ -63,6 +63,13 @@ export interface WorkItem {
 export interface WorkPage { items: WorkItem[]; labels: { kind: Record<WorkKind, string>; status: Record<WorkStatus, string> } }
 export interface SchedulerStatus { enabled: boolean; timezone: string; started_at: string | null; boxes: { slug: string; name: string; cron: string; next: string | null; last: { at: string; status: string; summary: string } | null }[] }
 
+export interface Usage {
+  mode: 'claude' | 'demo'; estimated: boolean; thb_per_usd: number; cap_thb: number | null;
+  month: { key: string; calls: number; tokens_in: number; tokens_out: number; cache_read: number; cost_thb: number; cache_rate: number };
+  by_box: { slug: string; name: string; emoji: string | null; calls: number; tokens_in: number; tokens_out: number; cache_read: number; cost_thb: number }[];
+  by_day: { day: string; calls: number; cost_thb: number }[];
+}
+
 export const KIND_LABEL: Record<Kind, string> = { ai: 'AI', automation: 'อัตโนมัติ', human: 'คน' };
 
 const BY = 'เจ้าของร้าน';
@@ -103,6 +110,8 @@ export const studioApi = {
   decide: (store: string, id: number, decision: 'approve' | 'reject', note?: string) =>
     post(`/api/stores/${store}/work/${id}/decide`, { decision, note, by: BY }).then((r) => j<{ item: WorkItem; run: Run | null }>(r)),
   scheduler: () => fetch('/api/studio/scheduler').then((r) => j<SchedulerStatus>(r)),
+  usage: (store: string) => fetch(`/api/stores/${store}/usage`).then((r) => j<Usage>(r)),
+  setAiCap: (store: string, cap_thb: number | null) => post(`/api/stores/${store}/settings/ai-cap`, { cap_thb }, 'PUT').then((r) => j<{ cap_thb: number | null }>(r)),
 };
 
 /** Postgres prints "2026-09-16 05:12:03.1+00"; browsers want "2026-09-16T05:12:03.1+00:00". */

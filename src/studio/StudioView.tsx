@@ -3,6 +3,7 @@ import { Lock, ArrowRight, Play, Clock } from 'lucide-react';
 import { studioApi, clock, KIND_LABEL, type Agent, type Catalog, type SchedulerStatus, type Team } from './api';
 import type { Connection } from '../marketing/Connections';
 import AgentPage from './AgentPage';
+import UsageMeter from './UsageMeter';
 
 /**
  * The back office — every box in the daily loop, in loop order.
@@ -104,6 +105,8 @@ export default function StudioView() {
       })}
 
       {/* ---- who is connected to what (AI boxes) ---- */}
+      <UsageMeter store={STORE} />
+
       <section className="panel panel-pad">
         <div className="panel-head">
           <h3>ใครต่อกับอะไร</h3>

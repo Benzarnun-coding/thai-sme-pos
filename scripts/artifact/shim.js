@@ -40,6 +40,26 @@
     Object.keys(patch).forEach(function (k) { w[k] = patch[k]; }); w.updated_at = new Date().toISOString();
     return w;
   }
+  var aiCap = null;
+  var est = function (s) { return Math.round((s || '').length / 3); };
+  function usageReport() {
+    var base = SNAP.usage || { month: { calls: 0, tokens_in: 0, tokens_out: 0, cache_read: 0, cost_thb: 0 }, by_box: [], by_day: [] };
+    var price = { in: 5, out: 25 }, thb = 35;
+    var boxes = {}; base.by_box.forEach(function (b) { boxes[b.slug] = Object.assign({}, b); });
+    var month = Object.assign({}, base.month), today = new Date().toISOString().slice(0, 10), todayCost = 0, todayCalls = 0;
+    messages.filter(function (m) { return m.role === 'assistant'; }).forEach(function (m) {
+      var th = threads.find(function (t) { return t.id === m.thread_id; }); var ag = th && agents.find(function (a) { return a.id === th.agent_id; }); if (!ag) return;
+      var cost = ((m.tokens_in || 0) * price.in + (m.tokens_out || 0) * price.out) / 1e6 * thb;
+      var b = boxes[ag.slug] || (boxes[ag.slug] = { slug: ag.slug, name: ag.name, emoji: ag.emoji, calls: 0, tokens_in: 0, tokens_out: 0, cache_read: 0, cost_thb: 0 });
+      b.calls++; b.tokens_in += m.tokens_in || 0; b.tokens_out += m.tokens_out || 0; b.cost_thb += cost;
+      month.calls++; month.tokens_in += m.tokens_in || 0; month.tokens_out += m.tokens_out || 0; month.cost_thb += cost; todayCost += cost; todayCalls++;
+    });
+    var byDay = base.by_day.slice(); var last = byDay[byDay.length - 1];
+    if (last && last.day === today) { last = Object.assign({}, last, { calls: last.calls + todayCalls, cost_thb: last.cost_thb + todayCost }); byDay[byDay.length - 1] = last; }
+    else if (todayCalls) byDay.push({ day: today, calls: todayCalls, cost_thb: todayCost });
+    month.cache_rate = 0;
+    return { mode: 'demo', estimated: true, thb_per_usd: thb, cap_thb: aiCap, month: month, by_box: Object.keys(boxes).map(function (k) { return boxes[k]; }).sort(function (a, b) { return b.cost_thb - a.cost_thb; }), by_day: byDay, prices: {} };
+  }
   var directives = [];     // {id, title, text, source, targets, status, created_at, expires_at, by}
   var nextDirectiveId = 1;
   function activeDirectives(slug) {
@@ -147,7 +167,9 @@
     };
     messages.push({ id: nextMessageId++, thread_id: tid, role: 'user', content: text, used: null, mode: 'demo', created_at: new Date().toISOString() });
     var mid = nextMessageId++;
-    messages.push({ id: mid, thread_id: tid, role: 'assistant', content: reply, used: used, mode: 'demo', created_at: new Date().toISOString() });
+    var tokIn = est(text) + est(JSON.stringify(know).slice(0, 12000)), tokOut = est(reply);
+    used.tokens = { in: tokIn, out: tokOut, cache_read: 0 };
+    messages.push({ id: mid, thread_id: tid, role: 'assistant', content: reply, used: used, mode: 'demo', created_at: new Date().toISOString(), tokens_in: tokIn, tokens_out: tokOut });
     return { thread_id: tid, message_id: mid, reply: reply, mode: 'demo', used: used, refused: false };
   }
   function messagesOf(threadId) {
@@ -261,6 +283,12 @@
 
     /* ---------- AI Studio ---------- */
     if (p === '/api/studio/catalog') return json(SNAP.catalog);
+
+    /* ---------- Token meter ---------- */
+    var usageGet = p.match(/^\/api\/stores\/([^/]+)\/usage$/);
+    if (usageGet && method === 'GET') return json(usageReport());
+    var capPut = p.match(/^\/api\/stores\/([^/]+)\/settings\/ai-cap$/);
+    if (capPut && method === 'PUT') { aiCap = body && body.cap_thb > 0 ? body.cap_thb : null; return json({ cap_thb: aiCap }); }
 
     /* ---------- Work items, approval queue, scheduler ---------- */
     if (p === '/api/studio/scheduler') {
