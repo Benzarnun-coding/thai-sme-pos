@@ -28,6 +28,8 @@ export interface ExchangeResult {
   userToken: string;
   expiresInSec: number | null;
   scopes: string[];
+  userId?: string | null;
+  userName?: string | null;
 }
 
 export function buildAuthorizeUrl(o: { appId: string; redirectUri: string; state: string; scopes: string[]; configId?: string }): string {
@@ -72,7 +74,14 @@ export async function exchangeCode(o: {
     // permissions endpoint is informational; a failure must not break the connect
   }
 
-  return { userToken: long.access_token, expiresInSec: long.expires_in ?? null, scopes };
+  // Who granted this — kept so a Meta data-deletion or deauthorize callback (which only carries the user id) can find it.
+  let userId: string | null = null, userName: string | null = null;
+  try {
+    const me = await graph<{ id: string; name?: string }>('me', { access_token: long.access_token, fields: 'id,name' }, f);
+    userId = me.id ?? null; userName = me.name ?? null;
+  } catch { /* informational */ }
+
+  return { userToken: long.access_token, expiresInSec: long.expires_in ?? null, scopes, userId, userName };
 }
 
 /** Everything this grant can reach, so the owner can pick. */

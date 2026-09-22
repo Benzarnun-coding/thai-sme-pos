@@ -8,11 +8,16 @@ import { getBrandDocs } from '../knowledge/brand.js';
 import { facebookOptionsFromEnv, syncFacebook } from '../connectors/facebook.js';
 import { registerOauthRoutes } from './oauth-routes.js';
 import { registerAgentRoutes } from './agent-routes.js';
+import { registerMetaRoutes } from './meta-routes.js';
 import { listConnections } from '../auth/connections.js';
 
 export function buildServer(db: Db) {
   const app = Fastify({ logger: process.env.NODE_ENV !== 'test' });
   app.register(cors, { origin: true });
+  // Meta posts its data-deletion and deauthorize callbacks as form bodies.
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => {
+    try { done(null, Object.fromEntries(new URLSearchParams(String(body)))); } catch (e) { done(e as Error); }
+  });
 
   app.get('/api/health', async () => ({ ok: true, db: db.kind }));
 
@@ -95,6 +100,7 @@ export function buildServer(db: Db) {
 
   registerOauthRoutes(app, db);
   registerAgentRoutes(app, db);
+  registerMetaRoutes(app, db);
 
   return app;
 }

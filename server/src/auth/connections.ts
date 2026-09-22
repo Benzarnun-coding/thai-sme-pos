@@ -49,14 +49,14 @@ export async function consumeState(db: Db, state: string): Promise<{ store_id: s
 /* ---------------- grants and connections ---------------- */
 
 export async function saveGrant(db: Db, o: {
-  storeId: string; channel: Channel; userToken: string; scopes: string[]; expiresInSec: number | null; grantedBy?: string;
+  storeId: string; channel: Channel; userToken: string; scopes: string[]; expiresInSec: number | null; grantedBy?: string; externalUserId?: string | null;
 }): Promise<string> {
   const id = randomUUID();
   const expiresAt = o.expiresInSec ? new Date(Date.now() + o.expiresInSec * 1000) : null;
   await db.query(
-    `insert into oauth_grant(id, store_id, channel, granted_scopes, token_enc, expires_at, granted_by)
-     values ($1,$2,$3,$4,$5,$6,$7)`,
-    [id, o.storeId, o.channel, o.scopes, encryptToken(o.userToken), expiresAt, o.grantedBy ?? null]);
+    `insert into oauth_grant(id, store_id, channel, granted_scopes, token_enc, expires_at, granted_by, external_user_id)
+     values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [id, o.storeId, o.channel, o.scopes, encryptToken(o.userToken), expiresAt, o.grantedBy ?? null, o.externalUserId ?? null]);
   return id;
 }
 

@@ -103,6 +103,7 @@ export function registerOauthRoutes(app: FastifyInstance, db: Db) {
       });
       const grantId = await saveGrant(db, {
         storeId: st.store_id, channel, userToken: ex.userToken, scopes: ex.scopes, expiresInSec: ex.expiresInSec,
+        grantedBy: ex.userName ?? undefined, externalUserId: ex.userId ?? null,
       });
       return back({ grant: grantId, channel });
     } catch (e) {
