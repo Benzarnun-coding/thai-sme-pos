@@ -284,6 +284,14 @@
     /* ---------- AI Studio ---------- */
     if (p === '/api/studio/catalog') return json(SNAP.catalog);
 
+    var budgetGet = p.match(/^\/api\/stores\/([^/]+)\/budget$/);
+    if (budgetGet && method === 'GET') {
+      var bg = JSON.parse(JSON.stringify(SNAP.budget || { daily_cap: 1500, monthly_cap: 30000, today: { spent: 0, planned: 0 }, month_total: 0, ledger: [] }));
+      work.filter(function (w) { return (w.kind === 'ad_plan' || w.kind === 'adjust') && w.status === 'done' && w.published_at && w.budget_thb && !(SNAP.work || []).some(function (s) { return s.id === w.id && s.status === 'done'; }); })
+        .forEach(function (w) { bg.today.planned += w.budget_thb; bg.month_total += w.budget_thb; bg.ledger.unshift({ id: w.id, date: w.published_at.slice(0, 10), kind: 'planned', ref: String(w.id), amount: w.budget_thb, note: w.title }); });
+      return json(bg);
+    }
+
     /* ---------- Token meter ---------- */
     var usageGet = p.match(/^\/api\/stores\/([^/]+)\/usage$/);
     if (usageGet && method === 'GET') return json(usageReport());
@@ -307,12 +315,12 @@
     if (workDecide && method === 'POST') {
       var wi = work.find(function (w) { return w.id === Number(workDecide[2]); });
       if (!wi) return json({ error: 'ไม่พบงานนี้' }, 404);
-      var patch = decide(wi, body && body.decision, body && body.note);
+      var patch = decide(wi, body && body.decision, body && body.note, body && body.publish_at);
       if (!patch) return json({ error: 'งานนี้' + STATUS_LABEL[wi.status] + 'แล้ว ตัดสินซ้ำไม่ได้' }, 409);
       patch.decided_by = (body && body.by) || null; patch.decided_at = new Date().toISOString();
       updateWorkItem(wi.id, patch);
       var pubRun = null;
-      if (wi.to_slug === 'publisher') { var pub = agentBy(workDecide[1], 'publisher'); if (pub) pubRun = runBox(pub, body && body.by, 'event', true); }
+      if (wi.to_slug === 'publisher' && (!wi.publish_at || new Date(wi.publish_at).getTime() <= Date.now())) { var pub = agentBy(workDecide[1], 'publisher'); if (pub) pubRun = runBox(pub, body && body.by, 'event', true); }
       agents.forEach(withInbox);
       return new Promise(function (resolve) { setTimeout(function () { resolve(json({ item: wi, run: pubRun })); }, 300); });
     }

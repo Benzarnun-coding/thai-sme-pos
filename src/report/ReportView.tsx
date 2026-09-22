@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { studioApi, clock, isToday, type Run, type WorkItem } from '../studio/api';
+import { studioApi, clock, isToday, type Budget, type Run, type WorkItem } from '../studio/api';
 
 /**
  * Report — the owner's one-minute read.
@@ -28,6 +28,7 @@ export default function ReportView() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [pending, setPending] = useState<WorkItem[]>([]);
+  const [budget, setBudget] = useState<Budget | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,7 +39,8 @@ export default function ReportView() {
     fetch(`/api/stores/${STORE}/posts`).then((x) => x.json()),
     studioApi.runs(STORE, 60),
     studioApi.work(STORE, { status: ['pending'] }).then((w) => w.items).catch(() => [] as WorkItem[]),
-  ]).then(([s, g, a, p, r, w]) => { setSummary(s); setSignals(g); setAds(a); setPosts(p); setRuns(r); setPending(w); setError(null); })
+    studioApi.budget(STORE).catch(() => null),
+  ]).then(([s, g, a, p, r, w, b]) => { setSummary(s); setSignals(g); setAds(a); setPosts(p); setRuns(r); setPending(w); setBudget(b); setError(null); })
     .catch((e) => setError((e as Error).message));
   useEffect(() => { load(); }, []);
 
@@ -86,6 +88,7 @@ export default function ReportView() {
         <Tile label="ค่าแอด 7 วัน" value={thb(summary.ad_spend_7d)} sub={summary.roas_7d === null ? 'ยังไม่มีข้อมูลแอด' : `ROAS ${summary.roas_7d}x`} tone={summary.roas_7d === null ? undefined : summary.roas_7d >= 3 ? 'good' : summary.roas_7d < 1.5 ? 'crit' : 'warn'} />
         <Tile label="ทักแชทจากแอด" value={String(summary.conversations_7d)} sub={summary.cost_per_conversation === null ? '—' : `฿${summary.cost_per_conversation} ต่อการทัก`} />
         <Tile label="ต้องตัดสินใจ" value={String(decisions.length)} sub={decisions.length ? `${blocked.length} สต็อก · ${toPause.length + toScale.length} แอด · ${over.length} โปร` : 'ไม่มีอะไรค้าง'} tone={decisions.length ? 'warn' : 'good'} />
+        {budget && <Tile label="งบแอดวันนี้" value={`฿${Math.round(budget.today.spent + budget.today.planned).toLocaleString('th-TH')}`} sub={budget.daily_cap ? `เพดาน ฿${budget.daily_cap.toLocaleString('th-TH')} · เดือนนี้ ฿${Math.round(budget.month_total).toLocaleString('th-TH')}${budget.monthly_cap ? ` / ${budget.monthly_cap.toLocaleString('th-TH')}` : ''}` : 'ยังไม่ตั้งเพดาน'} tone={budget.daily_cap && budget.today.spent + budget.today.planned >= budget.daily_cap ? 'crit' : 'good'} />}
       </div>
 
       <div className="grid lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-5">

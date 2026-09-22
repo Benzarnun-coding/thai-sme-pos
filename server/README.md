@@ -58,6 +58,7 @@ pnpm test          # 22 tests
 | GET | `/api/stores/:id/runs` · `/work` · `/trends` · `/usage` | ผลรัน · งานที่ส่งต่อกัน/คิวอนุมัติ · เทรนด์ · มิเตอร์ token |
 | POST | `/api/stores/:id/work/:wid/decide` · `/directives` · `/directives/:id/run` | อนุมัติ/ไม่อนุมัติ · สั่งงานจากเทรนด์ |
 | PUT | `/api/stores/:id/settings/ai-cap` | เพดาน AI รายเดือน |
+| GET | `/api/stores/:id/budget` | เพดานงบแอด ใช้ไปวันนี้/เดือนนี้ และ ledger |
 | GET | `/privacy` · `/data-deletion` | หน้าสาธารณะสำหรับ Meta |
 | POST | `/api/meta/data-deletion` · `/api/meta/deauthorize` | callback จาก Meta (`signed_request`) |
 
@@ -79,7 +80,6 @@ server/
 
 ## ยังไม่ทำในโปรเจกต์นี้ (ตามลำดับที่ออกแบบ)
 
-- budget_ledger (บันทึกการใช้เงินจริงต่อแอดต่อวันเทียบเพดาน)
 - โพสต์/ตั้งแอดจริง (ตอนนี้ตัวโพสต์ "จำลอง" จนกว่าจะได้สิทธิ์ `pages_manage_posts` / `ads_management`)
 - Batch API สำหรับรอบกลางคืน (ลดราคาครึ่งหนึ่ง) · connector Shopee / TikTok หลังได้เป็น partner
 - แชท/คอมเมนต์: ตัดออกจากขอบเขต

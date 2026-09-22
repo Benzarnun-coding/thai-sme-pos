@@ -16,7 +16,7 @@ import { chat, getAgent, recordRun, type RunRow } from './agents.js';
 import { buildProductSignals, storeSummary } from '../signals/build.js';
 import { loadAds } from './context.js';
 import { outcome, plan, publish, summarize, type WorkItem } from './handoff.js';
-import { createWork, inboxOf, stampRun, updateWork } from './work.js';
+import { addLedger, createWork, inboxOf, stampRun, todaySpend, monthSpend, updateWork } from './work.js';
 import { capReached } from './usage.js';
 import { activeDirectivesFor } from './trends.js';
 import { approvedRules } from './work.js';
@@ -83,9 +83,30 @@ export async function runAgent(db: Db, o: { storeId: string; slug: string; trigg
       const live = CURRENT_PHASE() >= 3;
       const cap = await JOBS.publisher(db, o.storeId);
       if (!inbox.length) return recordRun(db, { ...base, status: 'skipped', summary: cap.summary, output: cap.output });
-      for (const u of publish(inbox, live)) { const row = await updateWork(db, o.storeId, u.id, u.patch); if (row) touched.push(row.id); }
-      const run = await recordRun(db, { ...base, status: 'ok', summary: `${summarize('publisher', [{ live }], inbox)} · ${cap.summary}`.slice(0, 140), output: { ...cap.output, published: touched, live } });
+      // Money first: an ad plan only goes out if today's spend + what is already planned + this plan fits the caps.
+      const caps = cap.output as { daily_cap: number | null; monthly_cap: number | null };
+      const held: string[] = [];
+      const ready: WorkItem[] = [];
+      let { spent, planned } = await todaySpend(db, o.storeId);
+      const month = await monthSpend(db, o.storeId);
+      for (const it of inbox) {
+        const b = it.kind === 'ad_plan' || it.kind === 'adjust' ? Number(it.budget_thb ?? 0) : 0;
+        const overDay = caps.daily_cap != null && b > 0 && spent + planned + b > caps.daily_cap;
+        const overMonth = caps.monthly_cap != null && b > 0 && month + planned + b > caps.monthly_cap;
+        if (overDay || overMonth) {
+          held.push(`${it.title} (฿${b}/วัน)`);
+          await updateWork(db, o.storeId, it.id, { decision_note: `รอเพดาน${overDay ? 'วัน' : 'เดือน'}: ใช้ไป ฿${Math.round(spent + planned)} + แผน ฿${b} เกิน ฿${overDay ? caps.daily_cap : caps.monthly_cap}` });
+          continue;
+        }
+        if (b > 0) { await addLedger(db, o.storeId, { kind: 'planned', ref: String(it.id), amount: b, note: it.title }); planned += b; }
+        ready.push(it);
+      }
+      for (const u of publish(ready, live)) { const row = await updateWork(db, o.storeId, u.id, u.patch); if (row) touched.push(row.id); }
+      const heldNote = held.length ? ` · ติดเพดานงบ ${held.length}: ${held.join(', ')}` : '';
+      const summary = ready.length ? `${summarize('publisher', [{ live }], ready)}${heldNote} · ${cap.summary}` : `ติดเพดานงบ ทั้ง ${held.length} แผน${heldNote} · ${cap.summary}`;
+      const run = await recordRun(db, { ...base, status: ready.length ? 'ok' : 'skipped', summary: summary.slice(0, 160), output: { ...cap.output, published: touched, held, planned_today: planned, live } });
       await stampRun(db, touched, run.id);
+      if (held.length) await notifyLine(`⛔ ติดเพดานงบแอด ${held.length} แผน: ${held.join(', ')}\nเพดานวัน ฿${caps.daily_cap ?? '-'} ใช้ไป ฿${Math.round(spent + planned)}\n${appLink('Approve')}`);
       return run;
     }
 

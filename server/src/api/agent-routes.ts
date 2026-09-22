@@ -13,7 +13,7 @@ import { addFeedback, chat, feedbackSummary, getAgent, getMessages, listAgents, 
 import { runAgent } from '../ai/jobs.js';
 import { aiMode, DEFAULT_MODEL } from '../ai/llm.js';
 import { buildTrends, createDirective, listDirectives, runDirective, setDirectiveStatus } from '../ai/trends.js';
-import { getWork, listWork, updateWork } from '../ai/work.js';
+import { getWork, ledger, listWork, monthSpend, todaySpend, updateWork } from '../ai/work.js';
 import { decide, KIND_LABEL as WORK_KIND_LABEL, STATUS_LABEL as WORK_STATUS_LABEL, type WorkStatus } from '../ai/handoff.js';
 import { schedulerStatus } from '../jobs/scheduler.js';
 import { setAiCap, usageReport } from '../ai/usage.js';
@@ -199,16 +199,25 @@ export function registerAgentRoutes(app: FastifyInstance, db: Db) {
   /** The owner decides on a pending item. Approving a post or ad plan runs the publisher right away. */
   app.post('/api/stores/:id/work/:wid/decide', async (req, reply) => {
     const { id, wid } = req.params as { id: string; wid: string };
-    const body = z.object({ decision: z.enum(['approve', 'reject']), note: z.string().max(1000).optional(), by: z.string().max(120).optional() }).safeParse(req.body);
-    if (!body.success) return reply.code(400).send({ error: 'ต้องระบุ approve หรือ reject' });
+    const body = z.object({ decision: z.enum(['approve', 'reject']), note: z.string().max(1000).optional(), by: z.string().max(120).optional(), publish_at: z.string().datetime({ offset: true }).nullable().optional() }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: 'ต้องระบุ approve หรือ reject (publish_at ถ้ามีต้องเป็นเวลา ISO)' });
     const item = await getWork(db, id, Number(wid));
     if (!item) return reply.code(404).send({ error: 'ไม่พบงานนี้' });
-    const patch = decide(item, body.data.decision, body.data.note);
+    const patch = decide(item, body.data.decision, body.data.note, body.data.publish_at ?? null);
     if (!patch) return reply.code(409).send({ error: `งานนี้${WORK_STATUS_LABEL[item.status]}แล้ว ตัดสินซ้ำไม่ได้` });
     const updated = await updateWork(db, id, item.id, { ...patch, decided_by: body.data.by ?? null, decided_at: new Date().toISOString() });
     await db.query(`insert into audit_log(store_id, actor, actor_type, action, target, before, after) values ($1,$2,'human',$3,$4,$5,$6)`,
       [id, body.data.by ?? 'unknown', `work.${body.data.decision}`, String(item.id), JSON.stringify({ status: item.status }), JSON.stringify({ status: updated?.status, note: body.data.note ?? null })]);
-    const run = updated?.to_slug === 'publisher' ? await runAgent(db, { storeId: id, slug: 'publisher', trigger: 'event', by: body.data.by }) : null;
+    const dueNow = updated?.to_slug === 'publisher' && (!updated.publish_at || new Date(updated.publish_at).getTime() <= Date.now());
+    const run = dueNow ? await runAgent(db, { storeId: id, slug: 'publisher', trigger: 'event', by: body.data.by }) : null;
     return { item: run ? await getWork(db, id, item.id) : updated, run };
+  });
+
+  /** The money side: caps, today's and this month's spend, and the ledger. */
+  app.get('/api/stores/:id/budget', async (req) => {
+    const { id } = req.params as { id: string };
+    const store = await db.query<{ settings: { dailyCap?: number; monthlyCap?: number } | null }>('select settings from store where id=$1', [id]);
+    const [today, month, rows] = await Promise.all([todaySpend(db, id), monthSpend(db, id), ledger(db, id, 30)]);
+    return { daily_cap: store[0]?.settings?.dailyCap ?? null, monthly_cap: store[0]?.settings?.monthlyCap ?? null, today, month_total: month, ledger: rows };
   });
 }

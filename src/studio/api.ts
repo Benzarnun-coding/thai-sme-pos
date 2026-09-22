@@ -59,7 +59,9 @@ export interface WorkItem {
   id: number; kind: WorkKind; title: string; body: string; status: WorkStatus; from_slug: string; to_slug: string | null; parent_id: number | null;
   review: { pass: boolean | null; issues: string[] } | null; rounds: number; run_id: number | null; directive_id: number | null;
   created_at: string; updated_at: string; decided_at: string | null; decided_by: string | null; decision_note: string | null; published_at: string | null; published_as: string | null;
+  publish_at: string | null; budget_thb: number | null;
 }
+export interface Budget { daily_cap: number | null; monthly_cap: number | null; today: { spent: number; planned: number }; month_total: number; ledger: { id: number; date: string; kind: string; ref: string | null; amount: number; note: string | null }[] }
 export interface WorkPage { items: WorkItem[]; labels: { kind: Record<WorkKind, string>; status: Record<WorkStatus, string> } }
 export interface SchedulerStatus { enabled: boolean; timezone: string; started_at: string | null; boxes: { slug: string; name: string; cron: string; next: string | null; last: { at: string; status: string; summary: string } | null }[] }
 
@@ -107,8 +109,9 @@ export const studioApi = {
     const q = new URLSearchParams(); if (o.status) q.set('status', o.status.join(',')); if (o.kind) q.set('kind', o.kind); if (o.limit) q.set('limit', String(o.limit));
     return fetch(`/api/stores/${store}/work?${q}`).then((r) => j<WorkPage>(r));
   },
-  decide: (store: string, id: number, decision: 'approve' | 'reject', note?: string) =>
-    post(`/api/stores/${store}/work/${id}/decide`, { decision, note, by: BY }).then((r) => j<{ item: WorkItem; run: Run | null }>(r)),
+  decide: (store: string, id: number, decision: 'approve' | 'reject', note?: string, publish_at?: string | null) =>
+    post(`/api/stores/${store}/work/${id}/decide`, { decision, note, by: BY, publish_at: publish_at ?? null }).then((r) => j<{ item: WorkItem; run: Run | null }>(r)),
+  budget: (store: string) => fetch(`/api/stores/${store}/budget`).then((r) => j<Budget>(r)),
   scheduler: () => fetch('/api/studio/scheduler').then((r) => j<SchedulerStatus>(r)),
   usage: (store: string) => fetch(`/api/stores/${store}/usage`).then((r) => j<Usage>(r)),
   setAiCap: (store: string, cap_thb: number | null) => post(`/api/stores/${store}/settings/ai-cap`, { cap_thb }, 'PUT').then((r) => j<{ cap_thb: number | null }>(r)),

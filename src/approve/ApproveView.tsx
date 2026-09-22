@@ -24,6 +24,7 @@ export default function ApproveView({ onCount }: { onCount?: (n: number) => void
   const [agents, setAgents] = useState<Agent[]>([]);
   const [busy, setBusy] = useState<number | null>(null);
   const [note, setNote] = useState<Record<number, string>>({});
+  const [when, setWhen] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [last, setLast] = useState<string | null>(null);
 
@@ -38,8 +39,11 @@ export default function ApproveView({ onCount }: { onCount?: (n: number) => void
   const act = async (it: WorkItem, decision: 'approve' | 'reject') => {
     setBusy(it.id); setError(null);
     try {
-      const { run } = await studioApi.decide(STORE, it.id, decision, note[it.id]);
-      setLast(decision === 'approve' ? (run ? `อนุมัติแล้ว · ${run.summary}` : 'อนุมัติแล้ว · กฎนี้มีผลกับทุกกล่องตั้งแต่งานถัดไป') : 'ไม่อนุมัติ · บันทึกเหตุผลไว้แล้ว');
+      const at = when[it.id] ? new Date(when[it.id]).toISOString() : null;
+      const { run, item } = await studioApi.decide(STORE, it.id, decision, note[it.id], decision === 'approve' ? at : null);
+      setLast(decision === 'approve'
+        ? (run ? `อนุมัติแล้ว · ${run.summary}` : item.publish_at ? `อนุมัติแล้ว · นัดโพสต์ ${clock(item.publish_at)} ตัวโพสต์จะทำเมื่อถึงเวลา` : 'อนุมัติแล้ว · กฎนี้มีผลกับทุกกล่องตั้งแต่งานถัดไป')
+        : 'ไม่อนุมัติ · บันทึกเหตุผลไว้แล้ว');
       await load(tab);
     } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
   };
@@ -84,6 +88,8 @@ export default function ApproveView({ onCount }: { onCount?: (n: number) => void
                     {it.review && it.kind === 'post' && <span className={`chip ${it.review.pass ? 'chip-good' : it.review.pass === false ? 'chip-crit' : 'chip-warn'}`}>ผู้ตรวจ: {it.review.pass ? 'ผ่าน' : it.review.pass === false ? 'ไม่ผ่าน' : 'ไม่ฟันธง'}</span>}
                     {it.rounds > 1 && <span className="chip">แก้แล้ว {it.rounds - 1} รอบ</span>}
                     {it.published_as && <span className="chip chip-good">โพสต์แล้ว ({it.published_as})</span>}
+                    {it.budget_thb != null && <span className="chip chip-warn">฿{Math.round(it.budget_thb).toLocaleString('th-TH')}/วัน</span>}
+                    {it.status === 'approved' && it.publish_at && <span className="chip">นัด {new Date(it.publish_at).toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>}
                   </div>
                   <h3 className="t-head text-[15px] mt-1.5">{it.title}</h3>
                   <div className="t-label mt-0.5">{maker?.emoji} {maker?.name ?? it.from_slug}{from && from.slug !== maker?.slug ? ` → ส่งมาโดย ${from.emoji} ${from.name}` : ''} · {clock(it.updated_at)}{it.decided_by ? ` · ตัดสินโดย ${it.decided_by}` : ''}</div>
@@ -104,6 +110,11 @@ export default function ApproveView({ onCount }: { onCount?: (n: number) => void
                 <div className="mt-auto space-y-2">
                   <div className="t-label">ถ้าอนุมัติ: {RISK[it.kind]}</div>
                   <input className="field w-full" placeholder="หมายเหตุ (ไม่บังคับ) — ถ้าไม่อนุมัติ บอกสั้น ๆ ว่าทำไม ทีมจะได้แก้" value={note[it.id] ?? ''} onChange={(e) => setNote({ ...note, [it.id]: e.target.value })} />
+                  {it.kind !== 'rule' && (
+                    <label className="flex items-center gap-2 text-xs flex-wrap" style={{ color: 'var(--ink-2)' }}>นัดเวลา (ไม่บังคับ · ว่างไว้ = ทำทันที)
+                      <input type="datetime-local" className="field" value={when[it.id] ?? ''} onChange={(e) => setWhen({ ...when, [it.id]: e.target.value })} />
+                    </label>
+                  )}
                   <div className="flex gap-2 justify-end">
                     <button className="btn btn-sm" disabled={busy === it.id} onClick={() => act(it, 'reject')}><X size={13} /> ไม่อนุมัติ</button>
                     <button className="btn btn-sm btn-primary" disabled={busy === it.id} onClick={() => act(it, 'approve')}><Check size={13} /> {busy === it.id ? 'กำลังทำ…' : it.kind === 'rule' ? 'อนุมัติกฎนี้' : 'อนุมัติ'}</button>

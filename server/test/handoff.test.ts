@@ -10,7 +10,7 @@ import { loadKnowledge } from '../src/ai/context.js';
 
 const item = (o: Partial<WorkItem>): WorkItem => ({
   id: 1, store_id: 'climax', kind: 'post', title: 't', body: 'b', status: 'open', from_slug: 'copywriter', to_slug: 'qa', parent_id: null, review: null, rounds: 1,
-  run_id: null, directive_id: null, created_at: '', updated_at: '', decided_at: null, decided_by: null, decision_note: null, published_at: null, published_as: null, ...o,
+  run_id: null, directive_id: null, created_at: '', updated_at: '', decided_at: null, decided_by: null, decision_note: null, published_at: null, published_as: null, publish_at: null, budget_thb: null, ...o,
 });
 
 describe('cron', () => {

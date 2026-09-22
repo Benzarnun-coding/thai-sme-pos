@@ -29,10 +29,20 @@ export const STATUS_LABEL = { open: 'รอทำ', changes: 'ส่งกลั
 const MAX_ROUNDS = 2;
 const clip = (s, n) => (s.length > n ? s.slice(0, n) + '…' : s);
 
-/** What a box picks up when it runs. */
-export function inboxFor(slug, items) {
+/** What a box picks up when it runs. The publisher leaves items scheduled for later alone. */
+export function inboxFor(slug, items, now = Date.now()) {
   const want = slug === 'approval' ? ['pending'] : slug === 'publisher' ? ['approved'] : ['open', 'changes'];
-  return items.filter((it) => it.to_slug === slug && want.includes(it.status)).sort((a, b) => (a.id || 0) - (b.id || 0));
+  return items.filter((it) => it.to_slug === slug && want.includes(it.status) && !(slug === 'publisher' && it.publish_at && new Date(it.publish_at).getTime() > now))
+    .sort((a, b) => (a.id || 0) - (b.id || 0));
+}
+
+/** Baht per day an ad plan asks for: "งบ ฿300/วัน" first, else the sum of "- … ฿450/วัน" lines. */
+export function budgetOf(text) {
+  const one = /งบ\s*฿?([\d,]+)\s*\/\s*วัน/.exec(text);
+  if (one) return Number(one[1].replace(/,/g, ''));
+  let sum = 0;
+  for (const m of text.matchAll(/^- .*?฿([\d,]+)\s*\/\s*วัน/gm)) sum += Number(m[1].replace(/,/g, ''));
+  return sum || null;
 }
 
 /**
@@ -105,17 +115,17 @@ export function outcome(slug, task, reply) {
   const risky = { campaign: 'ad_plan', analyst: 'adjust', learner: 'rule' }[slug];
   if (risky) {
     const fallback = { ad_plan: 'แผนแอดวันนี้', adjust: 'ข้อเสนอปรับงบ', rule: 'กฎที่เสนอสัปดาห์นี้' }[risky];
-    return { create: [{ kind: risky, title: titleOf(reply, fallback), body: reply, status: 'pending', from_slug: slug, to_slug: 'approval', replaces: risky }], update: [] };
+    return { create: [{ kind: risky, title: titleOf(reply, fallback), body: reply, status: 'pending', from_slug: slug, to_slug: 'approval', replaces: risky, budget_thb: risky === 'ad_plan' ? budgetOf(reply) : null }], update: [] };
   }
   return { create: [], update: [] };
 }
 
 /** The owner's decision on a pending item. */
-export function decide(item, decision, note) {
+export function decide(item, decision, note, publishAt) {
   if (item.status !== 'pending') return null;
   if (decision === 'reject') return { status: 'rejected', to_slug: null, decision_note: note || null };
   if (item.kind === 'rule') return { status: 'approved', to_slug: null, decision_note: note || null };
-  return { status: 'approved', to_slug: 'publisher', decision_note: note || null };
+  return { status: 'approved', to_slug: 'publisher', decision_note: note || null, publish_at: publishAt || null };
 }
 
 /** The publisher: everything approved goes out (for real once the page permission exists; simulated until then). */
