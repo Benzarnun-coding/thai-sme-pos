@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, type Overview as OverviewData, type RunReport, type Window } from './api.ts';
 import { History, RunResult } from './History.tsx';
+import { when } from './fmt.ts';
 import { Modal, Overview } from './Overview.tsx';
 import { ProductsPage } from './ProductsPage.tsx';
 import { RulesPage, type RulesTarget } from './RulesPage.tsx';
@@ -40,6 +41,10 @@ export function App() {
   }, [window]);
 
   useEffect(() => { load(); }, [load]);
+  // A snapshot only has some windows; don't sit on one it can't show.
+  useEffect(() => {
+    if (data?.snapshot && !data.snapshot.windows.includes(window)) setWindow(data.snapshot.windows[0]);
+  }, [data?.snapshot, window]);
   useEffect(() => { api.me().then(setMe).catch(() => {}); }, []);
   useEffect(() => { try { localStorage.setItem('window', window); } catch { /* private mode */ } }, [window]);
 
@@ -84,7 +89,11 @@ export function App() {
           </div>
         )}
       </header>
-      {me?.mock && <div className="banner">ใช้ข้อมูลตัวอย่าง (DEV_MOCK_META) — ยังไม่ได้ต่อ Meta จริง</div>}
+      {data?.snapshot ? (
+        <div className="banner">
+          ข้อมูลจริงของ PkJeans ณ {when(data.snapshot.taken_at)} (ดึงผ่าน Claude) — ดูได้อย่างเดียว ไม่อัปเดตเอง · ปุ่มเปิด/หยุด/แก้งบใช้ได้เมื่อใส่ Meta token
+        </div>
+      ) : me?.mock && <div className="banner">ใช้ข้อมูลตัวอย่าง (DEV_MOCK_META) — ยังไม่ได้ต่อ Meta จริง</div>}
 
       <nav className="tabs">
         <button className={tab === 'overview' ? 'on' : ''} onClick={() => setTab('overview')}>ภาพรวม</button>

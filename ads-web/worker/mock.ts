@@ -1,7 +1,9 @@
-// Stand-in for MetaClient when DEV_MOCK_META=true, so the dashboard can be developed without a Meta token.
-// Numbers are PkJeans campaigns from 21–27 Sep 2026 (ads-engine/reports). Changes live in memory until the dev server restarts.
+// Stand-in for MetaClient when DEV_MOCK_META=true, so the dashboard works without a Meta token.
+// If a real snapshot was loaded into local D1 (npm run snapshot:load) it serves that, read-only.
+// Otherwise it serves built-in sample numbers (PkJeans 21–27 Sep 2026); sample changes live in memory until restart.
 
 import type { Entity, Level, Metrics, Window } from '../../ads-engine/src/types.ts';
+import { BadRequest } from './validate.ts';
 
 // [id, name, daily budget (CBO) or null (ABO), spend 7d, purchases 7d, ROAS 7d, frequency 7d]
 const CAMPAIGNS: [string, string, number | null, number, number, number, number][] = [
@@ -53,20 +55,96 @@ function build(): Row[] {
 
 let rows: Row[] | null = null;
 
+/** Shape written by scripts/load-snapshot.mjs (rows are compact arrays, see *_cols in the file). */
+interface SnapshotData {
+  taken_at: string;
+  account: string;
+  windows: Window[];
+  campaigns_30d: [string, string, string, number | null, number, number, number, number, number, number | null][];
+  campaigns_7d: [string, number, number, number, number, number, number | null][];
+  adsets_7d: [string, string, string, number | null, string, number, number, number, number, number, number | null][];
+}
+
+export interface SnapshotInfo {
+  taken_at: string;
+  windows: Window[];
+}
+
+function snapshotMetrics(spend: number, impressions: number, clicks: number, frequency: number, purchases: number, roas: number | null): Metrics {
+  const purchase_value = spend * (roas ?? 0);
+  return {
+    spend, impressions, clicks, frequency, purchases, purchase_value,
+    ctr: impressions ? (clicks / impressions) * 100 : 0,
+    cpc: clicks ? spend / clicks : 0,
+    cpa: purchases ? spend / purchases : Infinity,
+    roas: roas ?? 0,
+    messages: 0,
+    cost_per_message: Infinity,
+  };
+}
+
 export class MockMeta {
+  private db: D1Database | undefined;
+  private snap: Promise<SnapshotData | null> | null = null;
+
+  constructor(db?: D1Database) {
+    this.db = db;
+  }
+
+  /** The loaded real snapshot, or null when running on built-in sample data. */
+  snapshot(): Promise<SnapshotData | null> {
+    this.snap ??= this.db
+      ? this.db.prepare('SELECT data FROM dev_snapshot WHERE id = 1').first<{ data: string }>()
+        .then((r) => (r ? (JSON.parse(r.data) as SnapshotData) : null))
+        .catch(() => null) // table doesn't exist until a snapshot is loaded
+      : Promise.resolve(null);
+    return this.snap;
+  }
+
+  async snapshotInfo(): Promise<SnapshotInfo | null> {
+    const s = await this.snapshot();
+    return s ? { taken_at: s.taken_at, windows: s.windows } : null;
+  }
+
   private get rows(): Row[] {
     return (rows ??= build());
   }
 
   async accountName(): Promise<string> {
-    return 'PkJeans (ข้อมูลตัวอย่าง) (THB)';
+    const s = await this.snapshot();
+    return s ? `${s.account} · ข้อมูลจริง (THB)` : 'PkJeans (ข้อมูลตัวอย่าง) (THB)';
   }
 
   async listEntities(): Promise<Entity[]> {
+    const s = await this.snapshot();
+    if (s) {
+      const campaigns: Entity[] = s.campaigns_30d.map(([id, name, status, budget]) => (
+        { level: 'campaign', id, name, campaign_id: id, campaign_name: name, status, daily_budget: budget, metrics: {} }
+      ));
+      const nameOf = new Map(campaigns.map((c) => [c.id, c.name]));
+      const adsets: Entity[] = s.adsets_7d.map(([id, name, status, budget, campaignId]) => (
+        { level: 'adset', id, name, campaign_id: campaignId, campaign_name: nameOf.get(campaignId) ?? '', status, daily_budget: budget, metrics: {} }
+      ));
+      return [...campaigns, ...adsets];
+    }
     return this.rows.map((r) => ({ ...r.e, metrics: {} }));
   }
 
   async insights(level: Level, window: Window): Promise<Map<string, Metrics>> {
+    const s = await this.snapshot();
+    if (s) {
+      // Only what was pulled: campaigns for 7 and 30 days, ad sets for 7 days. Anything else is absent, not zero.
+      if (level === 'campaign' && window === 'last_30d') {
+        return new Map(s.campaigns_30d.map(([id, , , , spend, impr, clicks, freq, purch, roas]) => [id, snapshotMetrics(spend, impr, clicks, freq, purch, roas)]));
+      }
+      if (level === 'campaign' && window === 'last_7d') {
+        return new Map(s.campaigns_7d.map(([id, spend, impr, clicks, freq, purch, roas]) => [id, snapshotMetrics(spend, impr, clicks, freq, purch, roas)]));
+      }
+      if (level === 'adset' && window === 'last_7d') {
+        return new Map(s.adsets_7d.map(([id, , , , , spend, impr, clicks, freq, purch, roas]) => [id, snapshotMetrics(spend, impr, clicks, freq, purch, roas)]));
+      }
+      return new Map();
+    }
     const scale: Record<Window, number> = { today: 1 / 7, yesterday: 1 / 7, last_3d: 3 / 7, last_7d: 1, last_14d: 2, last_30d: 30 / 7 };
     const k = scale[window];
     return new Map(this.rows.filter((r) => r.e.level === level).map((r) => {
@@ -76,13 +154,19 @@ export class MockMeta {
   }
 
   async setStatus(id: string, status: 'ACTIVE' | 'PAUSED'): Promise<void> {
+    await this.refuseOnSnapshot();
     this.find(id).status = status;
   }
 
   async setDailyBudget(id: string, amount: number): Promise<void> {
+    await this.refuseOnSnapshot();
     const e = this.find(id);
     if (e.daily_budget === null) throw new Error('This object has no daily budget (mock)');
     e.daily_budget = amount;
+  }
+
+  private async refuseOnSnapshot(): Promise<void> {
+    if (await this.snapshot()) throw new BadRequest('ข้อมูลนี้เป็น snapshot ที่ดึงผ่าน Claude — ปุ่มเปิด/หยุด/แก้งบจะใช้ได้เมื่อใส่ Meta token แล้ว');
   }
 
   private find(id: string): Entity {

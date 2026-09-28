@@ -33,7 +33,7 @@ const COSTS_CRON = '30 0 * * *';
 const DASHBOARD_WINDOWS: Window[] = ['today', 'yesterday', 'last_3d', 'last_7d', 'last_14d', 'last_30d'];
 
 function metaFor(env: Env): MetaLike {
-  if (env.DEV_MOCK_META === 'true') return new MockMeta();
+  if (env.DEV_MOCK_META === 'true') return new MockMeta(env.DB);
   if (!env.META_ACCESS_TOKEN) throw new BadRequest('ยังไม่ได้ตั้ง META_ACCESS_TOKEN (npx wrangler secret put META_ACCESS_TOKEN)');
   return new MetaClient(env.META_ACCESS_TOKEN, env.META_AD_ACCOUNT_ID, env.META_API_VERSION);
 }
@@ -85,6 +85,7 @@ async function route(req: Request, env: Env, url: URL, user: string): Promise<Re
   let m: RegExpMatchArray | null;
 
   if (method === 'GET' && path === '/api/me') return json({ email: user, mock: env.DEV_MOCK_META === 'true' });
+
 
   if (method === 'GET' && path === '/api/overview') {
     const w = url.searchParams.get('window') as Window;
@@ -219,9 +220,11 @@ async function overview(env: Env, window: Window) {
   for (const level of ['campaign', 'adset'] as const) {
     for (const w of level === 'campaign' ? windows : [window]) {
       const m = await meta.insights(level, w);
-      for (const e of entities) if (e.level === level) e.metrics[w] = m.get(e.id) ?? zeroMetrics();
+      // A campaign with no row simply had no delivery (zero); an ad set without a row shows "–".
+      for (const e of entities) if (e.level === level) e.metrics[w] = m.get(e.id) ?? (level === 'campaign' ? zeroMetrics() : undefined);
     }
   }
+  const snapshot = meta instanceof MockMeta ? await meta.snapshotInfo() : null;
   const sectionOf = sectionMap(entities, sections, campaignSettings);
   const totals = sectionTotals(entities, sectionOf, window);
   // Break-even the same way the engine computes it (7-day), profit over the window being viewed.
@@ -258,6 +261,8 @@ async function overview(env: Env, window: Window) {
   return {
     account,
     window,
+    /** Set when showing a Claude-pulled snapshot: read-only, limited windows. */
+    snapshot,
     settings: { dry_run: settings.dry_run, kill_switch: settings.kill_switch, guardrails: settings.guardrails },
     costs_loaded: costs.length,
     last_run: runs[0] ? { run_at: runs[0].run_at, summary: runs[0].summary, dry_run: runs[0].dry_run } : null,

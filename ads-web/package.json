@@ -9,7 +9,8 @@
     "test": "node --test worker/*.test.ts",
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p web",
     "db:migrate": "wrangler d1 migrations apply DB --remote",
-    "deploy": "npm run build && wrangler d1 migrations apply DB --remote && wrangler deploy"
+    "deploy": "npm run build && wrangler d1 migrations apply DB --remote && wrangler deploy",
+    "snapshot:load": "node scripts/load-snapshot.mjs"
   },
   "dependencies": {
     "react": "^19.3.0",

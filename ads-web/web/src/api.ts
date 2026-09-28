@@ -84,6 +84,8 @@ export interface Guardrails { max_change_pct_per_run: number; min_daily_budget: 
 export interface Overview {
   account: string;
   window: Window;
+  /** Claude-pulled snapshot: read-only, only these windows have data */
+  snapshot: { taken_at: string; windows: Window[] } | null;
   settings: { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails };
   costs_loaded: number;
   last_run: { run_at: string; summary: string; dry_run: boolean } | null;

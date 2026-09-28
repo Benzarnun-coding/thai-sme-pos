@@ -28,7 +28,7 @@ export function Overview({ data, window, onWindow, onReload, onOpenRules, stageT
     <>
       <div className="row between wrap">
         <div className="segmented" role="tablist" aria-label="ช่วงเวลา">
-          {(Object.keys(WINDOW_LABEL) as Window[]).map((w) => (
+          {(data.snapshot?.windows ?? (Object.keys(WINDOW_LABEL) as Window[])).map((w) => (
             <button key={w} className={w === window ? 'on' : ''} onClick={() => onWindow(w)}>{WINDOW_LABEL[w]}</button>
           ))}
         </div>
@@ -108,6 +108,7 @@ function CampaignRow({ c, data, onReload, onOpenRules }: { c: CampaignView; data
   const m = c.metrics;
   const r = m && m.spend > 0 ? m.purchase_value / m.spend : null;
   const section = data.sections.find((s) => s.id === c.section_id);
+  const readOnly = data.snapshot !== null;
   const days = c.stage_since ? Math.floor((Date.now() - new Date(c.stage_since).getTime()) / 86_400_000) : null;
 
   async function act(fn: () => Promise<unknown>) {
@@ -126,7 +127,7 @@ function CampaignRow({ c, data, onReload, onOpenRules }: { c: CampaignView; data
   return (
     <div className={`campaign ${c.status !== 'ACTIVE' ? 'paused' : ''}`}>
       <div className="c-main">
-        <StatusSwitch entity={c} busy={busy} onToggle={(status) => act(() => api.setStatus(c.id, status, c.name))} />
+        <StatusSwitch entity={c} busy={busy || readOnly} onToggle={(status) => act(() => api.setStatus(c.id, status, c.name))} />
         <div className="c-name">
           <b>{c.name}</b>
           <div className="c-metrics">
@@ -140,7 +141,7 @@ function CampaignRow({ c, data, onReload, onOpenRules }: { c: CampaignView; data
             {days !== null && <span>อยู่กลุ่มนี้ {days} วัน</span>}
           </div>
         </div>
-        <Budget entity={c} busy={busy} nullLabel="งบอยู่ที่ ad set" onSave={(amount) => act(() => api.setBudget(c.id, amount, c.daily_budget, c.name))} />
+        <Budget entity={c} busy={busy || readOnly} nullLabel="งบอยู่ที่ ad set" onSave={(amount) => act(() => api.setBudget(c.id, amount, c.daily_budget, c.name))} />
       </div>
       <div className="c-controls">
         <label>กลุ่ม
@@ -164,14 +165,15 @@ function CampaignRow({ c, data, onReload, onOpenRules }: { c: CampaignView; data
       </div>
       {showAdsets && (
         <div className="adsets">
-          {c.adsets.map((a) => <AdsetRow key={a.id} a={a} breakeven={c.breakeven_roas} onReload={onReload} />)}
+          {c.adsets.map((a) => <AdsetRow key={a.id} a={a} breakeven={c.breakeven_roas} readOnly={readOnly} onReload={onReload} />)}
+          {c.adsets.length > 0 && c.adsets.every((a) => !a.metrics) && <p className="muted small">ยังไม่มีตัวเลขระดับ ad set ในช่วงเวลานี้</p>}
         </div>
       )}
     </div>
   );
 }
 
-function AdsetRow({ a, breakeven, onReload }: { a: EntityView; breakeven: number | null; onReload: () => void }) {
+function AdsetRow({ a, breakeven, readOnly, onReload }: { a: EntityView; breakeven: number | null; readOnly: boolean; onReload: () => void }) {
   const [busy, setBusy] = useState(false);
   const m = a.metrics;
   const r = m && m.spend > 0 ? m.purchase_value / m.spend : null;
@@ -181,7 +183,7 @@ function AdsetRow({ a, breakeven, onReload }: { a: EntityView; breakeven: number
   };
   return (
     <div className={`c-main adset ${a.status !== 'ACTIVE' ? 'paused' : ''}`}>
-      <StatusSwitch entity={a} busy={busy} onToggle={(status) => act(() => api.setStatus(a.id, status, a.name))} />
+      <StatusSwitch entity={a} busy={busy || readOnly} onToggle={(status) => act(() => api.setStatus(a.id, status, a.name))} />
       <div className="c-name">
         <span>{a.name}</span>
         <div className="c-metrics">
@@ -191,7 +193,7 @@ function AdsetRow({ a, breakeven, onReload }: { a: EntityView; breakeven: number
           {m && m.frequency > 0 && <span>Freq {num(m.frequency, 2)}</span>}
         </div>
       </div>
-      <Budget entity={a} busy={busy} nullLabel="งบอยู่ที่แคมเปญ (CBO)" onSave={(amount) => act(() => api.setBudget(a.id, amount, a.daily_budget, a.name))} />
+      <Budget entity={a} busy={busy || readOnly} nullLabel="งบอยู่ที่แคมเปญ (CBO)" onSave={(amount) => act(() => api.setBudget(a.id, amount, a.daily_budget, a.name))} />
     </div>
   );
 }

@@ -112,6 +112,16 @@ npm test
 npm run typecheck
 ```
 
+## ดูข้อมูลจริงก่อนมี Meta token (snapshot ผ่าน Claude)
+
+ขอให้ Claude ดึงข้อมูลผ่าน meta-ads MCP แล้วเขียนลง `.dev-snapshot/pkjeans.json` (ไม่ขึ้น git) จากนั้น:
+
+```bash
+npm run snapshot:load
+```
+
+เว็บบนเครื่อง (ที่ตั้ง `DEV_MOCK_META=true`) จะแสดงข้อมูลนั้นแทนข้อมูลตัวอย่าง: แคมเปญ 7/30 วัน และ ad set 7 วัน ดูได้อย่างเดียว ปุ่มเปิด/หยุด/แก้งบถูกล็อก ไม่อัปเดตเอง ต้องให้ Claude ดึงใหม่ ใช้ขั้นนี้แค่ชั่วคราวจนกว่าจะมี System User token
+
 ## โครงสร้าง
 
 | ไฟล์ | หน้าที่ |
@@ -122,7 +132,8 @@ npm run typecheck
 | `worker/index.ts` | API + cron |
 | `worker/auth.ts` | ตรวจ JWT ของ Cloudflare Access |
 | `worker/costs.ts` | ดึงต้นทุนจาก Google Sheet |
-| `worker/mock.ts` | ข้อมูลตัวอย่าง (แคมเปญจริง 21–27 ก.ย.) สำหรับ dev |
+| `worker/mock.ts` | แทน Meta ตอน dev: อ่าน snapshot จริงถ้าโหลดไว้ ไม่งั้นใช้ข้อมูลตัวอย่าง |
+| `scripts/load-snapshot.mjs` | โหลด snapshot เข้า D1 บนเครื่อง |
 | `web/src/` | หน้าเว็บ React |
 | `migrations/` | ตาราง D1 + 4 กลุ่ม (เริ่มแบบไม่มีกฎ) |
 | `web/src/stageTemplates.ts` | กฎแนะนำของแต่ละกลุ่ม ใช้ผ่านปุ่ม "ใส่กฎแนะนำ" |
