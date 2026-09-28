@@ -1,0 +1,111 @@
+{
+  "_calibration": "ตั้งจากข้อมูลจริง PkJeans 21-27 ก.ย. 2026: ROAS บัญชี 3.01, CPA 132, AOV 399, งบใช้จริง ~15,600/วัน, 59 จาก 61 ad set อยู่ใต้ CBO. ยอดซื้อคือ onsite purchase ที่ Meta นับเอง ไม่ใช่ยอดจริงหลังหักคืน/ยกเลิก",
+  "scope": {
+    "campaign_name_prefixes": [],
+    "campaign_ids": []
+  },
+  "guardrails": {
+    "max_change_pct_per_run": 20,
+    "min_daily_budget": 50,
+    "max_daily_budget": 3000,
+    "max_total_daily_budget": 20000
+  },
+  "rules": [
+    {
+      "id": "kill-no-sale",
+      "description": "7 วันใช้เงินเกินราคาขายเฉลี่ย 1 ออเดอร์ แต่ขายไม่ได้เลย → หยุด ad set",
+      "level": "adset",
+      "window": "last_7d",
+      "metric": "purchases",
+      "op": "<=",
+      "value": 0,
+      "min_spend": 400,
+      "action": { "type": "pause" },
+      "cooldown_hours": 72
+    },
+    {
+      "id": "kill-loser",
+      "description": "ROAS 7 วันต่ำกว่า 1 ใช้เงินไปแล้วพอสมควร → หยุด ad set",
+      "level": "adset",
+      "window": "last_7d",
+      "metric": "roas",
+      "op": "<",
+      "value": 1,
+      "min_spend": 500,
+      "action": { "type": "pause" },
+      "cooldown_hours": 72
+    },
+    {
+      "id": "cut-weak-cbo",
+      "description": "แคมเปญ CBO ROAS 7 วันต่ำกว่า 2 → ลดงบแคมเปญ 20%",
+      "level": "campaign",
+      "window": "last_7d",
+      "metric": "roas",
+      "op": "<",
+      "value": 2,
+      "min_spend": 1000,
+      "action": { "type": "budget_pct", "pct": -20 },
+      "cooldown_hours": 48
+    },
+    {
+      "id": "scale-winner-cbo",
+      "description": "แคมเปญ CBO ROAS 7 วันตั้งแต่ 4 และขายได้ต่อเนื่อง → เพิ่มงบแคมเปญ 20%",
+      "level": "campaign",
+      "window": "last_7d",
+      "metric": "roas",
+      "op": ">=",
+      "value": 4,
+      "min_spend": 1000,
+      "action": { "type": "budget_pct", "pct": 20 },
+      "cooldown_hours": 48
+    },
+    {
+      "id": "cut-weak-abo",
+      "description": "ad set ที่ถืองบเอง (ABO) ROAS 7 วันต่ำกว่า 2 → ลดงบ 20% (ad set ใต้ CBO จะถูกข้ามอัตโนมัติ)",
+      "level": "adset",
+      "window": "last_7d",
+      "metric": "roas",
+      "op": "<",
+      "value": 2,
+      "min_spend": 1000,
+      "action": { "type": "budget_pct", "pct": -20 },
+      "cooldown_hours": 48
+    },
+    {
+      "id": "scale-winner-abo",
+      "description": "ad set ที่ถืองบเอง (ABO) ROAS 7 วันตั้งแต่ 4 → เพิ่มงบ 20%",
+      "level": "adset",
+      "window": "last_7d",
+      "metric": "roas",
+      "op": ">=",
+      "value": 4,
+      "min_spend": 1000,
+      "action": { "type": "budget_pct", "pct": 20 },
+      "cooldown_hours": 48
+    },
+    {
+      "id": "fatigue-alert",
+      "description": "Frequency 7 วันเกิน 3 → แจ้งเตือนให้เปลี่ยนครีเอทีฟ",
+      "level": "adset",
+      "window": "last_7d",
+      "metric": "frequency",
+      "op": ">",
+      "value": 3,
+      "action": { "type": "notify" },
+      "cooldown_hours": 72
+    },
+    {
+      "id": "chat-too-expensive",
+      "description": "สำหรับบัญชีที่ใช้ objective Messages จริง (PkJeans ไม่มีตัวเลขนี้ จึงปิดไว้)",
+      "enabled": false,
+      "level": "adset",
+      "window": "last_3d",
+      "metric": "cost_per_message",
+      "op": ">",
+      "value": 60,
+      "min_spend": 500,
+      "action": { "type": "pause" },
+      "cooldown_hours": 24
+    }
+  ]
+}
