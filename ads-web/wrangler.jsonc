@@ -1,0 +1,33 @@
+// Cloudflare Worker: API + scheduled rule runs + the React dashboard (static assets).
+// Secrets (set with `npx wrangler secret put NAME`, never in this file):
+//   META_ACCESS_TOKEN, LINE_CHANNEL_ACCESS_TOKEN (optional), LINE_TO (optional)
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pkjeans-ads",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pkjeans-ads",
+      // Replace with the id printed by `npx wrangler d1 create pkjeans-ads` before the first deploy.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // Rules at 08:00 and 20:00 Bangkok (UTC+7); costs re-sync from the Google Sheet at 07:30. Keep in sync with worker/index.ts.
+  "triggers": { "crons": ["0 1,13 * * *", "30 0 * * *"] },
+  "vars": {
+    "META_AD_ACCOUNT_ID": "act_2149666808519411",
+    "META_API_VERSION": "v21.0",
+    // From Cloudflare Zero Trust → Access → your application (see README). Empty = every /api call is refused.
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": ""
+  },
+  "observability": { "enabled": true }
+}
