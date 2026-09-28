@@ -86,7 +86,6 @@ async function route(req: Request, env: Env, url: URL, user: string): Promise<Re
 
   if (method === 'GET' && path === '/api/me') return json({ email: user, mock: env.DEV_MOCK_META === 'true' });
 
-
   if (method === 'GET' && path === '/api/overview') {
     const w = url.searchParams.get('window') as Window;
     return json(await overview(env, DASHBOARD_WINDOWS.includes(w) ? w : 'last_7d'));
@@ -216,14 +215,16 @@ async function overview(env: Env, window: Window) {
     meta.accountName(), meta.listEntities(), loadSections(env.DB), loadStages(env.DB), loadCampaignSettings(env.DB),
     loadCosts(env.DB), loadSettings(env.DB), listRuns(env.DB, 1),
   ]);
-  const windows = new Set<Window>([window, ECONOMICS_WINDOW]);
-  for (const level of ['campaign', 'adset'] as const) {
-    for (const w of level === 'campaign' ? windows : [window]) {
-      const m = await meta.insights(level, w);
-      // A campaign with no row simply had no delivery (zero); an ad set without a row shows "–".
-      for (const e of entities) if (e.level === level) e.metrics[w] = m.get(e.id) ?? (level === 'campaign' ? zeroMetrics() : undefined);
-    }
-  }
+  // Insights calls run in parallel: live Meta answers take seconds each.
+  const calls = [
+    ...[...new Set<Window>([window, ECONOMICS_WINDOW])].map((w) => ['campaign', w] as const),
+    ['adset', window] as const,
+  ];
+  const results = await Promise.all(calls.map(([level, w]) => meta.insights(level, w)));
+  calls.forEach(([level, w], i) => {
+    // A campaign with no row simply had no delivery (zero); an ad set without a row shows "–".
+    for (const e of entities) if (e.level === level) e.metrics[w] = results[i].get(e.id) ?? (level === 'campaign' ? zeroMetrics() : undefined);
+  });
   const snapshot = meta instanceof MockMeta ? await meta.snapshotInfo() : null;
   const sectionOf = sectionMap(entities, sections, campaignSettings);
   const totals = sectionTotals(entities, sectionOf, window);
@@ -238,7 +239,11 @@ async function overview(env: Env, window: Window) {
   const view = (e: Entity) => ({ id: e.id, name: e.name, status: e.status, daily_budget: e.daily_budget, metrics: finite(e.metrics[window]) });
   const beOf = (e: Economics) => (e.breakeven_roas !== null && Number.isFinite(e.breakeven_roas) ? e.breakeven_roas : null);
 
-  const campaigns = entities.filter((e) => e.level === 'campaign').map((c) => {
+  // Meta returns every campaign ever made (hundreds of long-paused ones). Show those that matter now:
+  // running, spent in the window being viewed, or placed in a stage by the user.
+  const relevant = (c: Entity) =>
+    c.status === 'ACTIVE' || (c.metrics[window]?.spend ?? 0) > 0 || Boolean(campaignSettings.get(c.id)?.stage_id);
+  const campaigns = entities.filter((e) => e.level === 'campaign' && relevant(e)).map((c) => {
     const setting = campaignSettings.get(c.id);
     const sectionId = sectionOf.get(c.id) ?? DEFAULT_SECTION_ID;
     const e = econ.get(sectionId);
@@ -273,7 +278,7 @@ async function overview(env: Env, window: Window) {
         ...s,
         totals: totals.get(s.id) ?? zero,
         economics: { ...e.window, breakeven_roas: beOf(e.be), never_profitable: e.be.breakeven_roas === Infinity },
-        campaign_count: [...sectionOf.values()].filter((id) => id === s.id).length,
+        campaign_count: campaigns.filter((c) => c.section_id === s.id).length,
       };
     }),
     campaigns,

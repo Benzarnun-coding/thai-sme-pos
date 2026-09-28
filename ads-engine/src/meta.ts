@@ -67,14 +67,16 @@ export class MetaClient {
 
   /** Campaigns and ad sets that are not deleted/archived, with their own daily budget when they hold one. */
   async listEntities(): Promise<Entity[]> {
-    const campaigns = await this.getAll(`${this.accountId}/campaigns`, {
-      fields: 'id,name,status,daily_budget,lifetime_budget',
-      effective_status: JSON.stringify(['ACTIVE', 'PAUSED']),
-    });
-    const adsets = await this.getAll(`${this.accountId}/adsets`, {
-      fields: 'id,name,status,daily_budget,lifetime_budget,campaign_id',
-      effective_status: JSON.stringify(['ACTIVE', 'PAUSED']),
-    });
+    const [campaigns, adsets] = await Promise.all([
+      this.getAll(`${this.accountId}/campaigns`, {
+        fields: 'id,name,status,daily_budget,lifetime_budget',
+        effective_status: JSON.stringify(['ACTIVE', 'PAUSED']),
+      }),
+      this.getAll(`${this.accountId}/adsets`, {
+        fields: 'id,name,status,daily_budget,lifetime_budget,campaign_id',
+        effective_status: JSON.stringify(['ACTIVE', 'PAUSED']),
+      }),
+    ]);
     const campaignName = new Map(campaigns.map((c: any) => [c.id, c.name as string]));
 
     const toBudget = (v?: string) => (v && Number(v) > 0 ? Number(v) / 100 : null);
