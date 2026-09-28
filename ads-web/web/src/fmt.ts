@@ -13,6 +13,10 @@ export function roas(value: number, spend: number): string {
   return spend > 0 ? num(value / spend, 2) : '–';
 }
 
+export function time(iso: string): string {
+  return new Date(iso).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' });
+}
+
 export function when(iso: string): string {
   return new Date(iso).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Bangkok' });
 }

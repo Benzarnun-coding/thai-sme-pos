@@ -28,10 +28,10 @@ export function App() {
   const [run, setRun] = useState<RunReport | null>(null);
   const [running, setRunning] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (fresh = false) => {
     setLoading(true);
     try {
-      setData(await api.overview(window));
+      setData(await api.overview(window, fresh));
       setError('');
     } catch (e: any) {
       setError(e.message);
@@ -41,6 +41,7 @@ export function App() {
   }, [window]);
 
   useEffect(() => { load(); }, [load]);
+  const refresh = () => load(true);
   // A snapshot only has some windows; don't sit on one it can't show.
   useEffect(() => {
     if (data?.snapshot && !data.snapshot.windows.includes(window)) setWindow(data.snapshot.windows[0]);
@@ -104,11 +105,12 @@ export function App() {
       </nav>
 
       <main>
-        {error && <div className="error">{error} <button className="ghost small" onClick={load}>ลองใหม่</button></div>}
+        {error && <div className="error">{error} <button className="ghost small" onClick={refresh}>ลองใหม่</button></div>}
+        {data?.meta_warning && <div className="banner">{data.meta_warning} · กำลังแสดงข้อมูลเมื่อ {when(data.meta_fetched_at)}</div>}
         {(tab === 'overview' || tab === 'rules' || tab === 'products') && !data && !error && <p className="muted">กำลังโหลดข้อมูลจาก Meta…</p>}
         {tab === 'overview' && data && (
           <div className={loading ? 'loading' : ''}>
-            <Overview data={data} window={window} onWindow={setWindow} onReload={load} onOpenRules={openRules} stageTab={currentStageTab} onStageTab={setStageTab} />
+            <Overview data={data} window={window} onWindow={setWindow} onReload={() => load()} onRefresh={refresh} onOpenRules={openRules} stageTab={currentStageTab} onStageTab={setStageTab} />
           </div>
         )}
         {tab === 'rules' && data && <RulesPage data={data} target={rulesTarget} onTarget={(t) => { setRulesTarget(t); scrollTo({ top: 0 }); }} stageTab={currentStageTab} onStageTab={setStageTab} onReload={load} />}

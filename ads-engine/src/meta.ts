@@ -52,7 +52,7 @@ export class MetaClient {
     const out: any[] = [];
     let after: string | undefined;
     for (let i = 0; i < 50; i++) {
-      const body = await this.get(path, { ...params, limit: '200', ...(after ? { after } : {}) });
+      const body = await this.get(path, { ...params, limit: '500', ...(after ? { after } : {}) });
       out.push(...(body.data ?? []));
       after = body.paging?.cursors?.after;
       if (!body.paging?.next || !after) break;

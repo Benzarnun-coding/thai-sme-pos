@@ -88,7 +88,7 @@ async function route(req: Request, env: Env, url: URL, user: string): Promise<Re
 
   if (method === 'GET' && path === '/api/overview') {
     const w = url.searchParams.get('window') as Window;
-    return json(await overview(env, DASHBOARD_WINDOWS.includes(w) ? w : 'last_7d'));
+    return json(await overview(env, DASHBOARD_WINDOWS.includes(w) ? w : 'last_7d', url.searchParams.get('fresh') === '1'));
   }
 
   // ---- sections ----
@@ -152,6 +152,7 @@ async function route(req: Request, env: Env, url: URL, user: string): Promise<Re
     if (what === 'status') {
       if (input?.status !== 'ACTIVE' && input?.status !== 'PAUSED') throw new BadRequest('status ต้องเป็น ACTIVE หรือ PAUSED');
       await meta.setStatus(id, input.status);
+      await patchCachedEntity(env.DB, id, { status: input.status });
       await audit(env.DB, user, 'meta.status', id, { status: input.status, name: input.name });
       return json({ ok: true });
     }
@@ -161,6 +162,7 @@ async function route(req: Request, env: Env, url: URL, user: string): Promise<Re
       throw new BadRequest(`งบต่อวันต้องอยู่ระหว่าง ${guardrails.min_daily_budget}–${guardrails.max_daily_budget} บาท (ปรับได้ที่หน้าตั้งค่า)`);
     }
     await meta.setDailyBudget(id, Math.round(amount));
+    await patchCachedEntity(env.DB, id, { daily_budget: Math.round(amount) });
     await audit(env.DB, user, 'meta.budget', id, { from: input.from ?? null, to: Math.round(amount), name: input.name });
     return json({ ok: true });
   }
@@ -209,22 +211,90 @@ async function route(req: Request, env: Env, url: URL, user: string): Promise<Re
   return json({ error: 'ไม่พบ endpoint' }, 404);
 }
 
-async function overview(env: Env, window: Window) {
-  const meta = metaFor(env);
-  const [account, entities, sections, stages, campaignSettings, costs, settings, runs] = await Promise.all([
-    meta.accountName(), meta.listEntities(), loadSections(env.DB), loadStages(env.DB), loadCampaignSettings(env.DB),
-    loadCosts(env.DB), loadSettings(env.DB), listRuns(env.DB, 1),
-  ]);
-  // Insights calls run in parallel: live Meta answers take seconds each.
-  const calls = [
-    ...[...new Set<Window>([window, ECONOMICS_WINDOW])].map((w) => ['campaign', w] as const),
-    ['adset', window] as const,
-  ];
-  const results = await Promise.all(calls.map(([level, w]) => meta.insights(level, w)));
-  calls.forEach(([level, w], i) => {
-    // A campaign with no row simply had no delivery (zero); an ad set without a row shows "–".
-    for (const e of entities) if (e.level === level) e.metrics[w] = results[i].get(e.id) ?? (level === 'campaign' ? zeroMetrics() : undefined);
+// ---- Meta data for the dashboard, cached ----
+// The Stat app is on Meta's development access tier (few Marketing API calls allowed), so one dashboard view
+// is reused for a few minutes, "รีเฟรช" can force it at most once a minute, and a rate-limited Meta falls
+// back to the last answer with a warning instead of an error screen.
+
+const CACHE_TTL_MS = 5 * 60_000;
+const MIN_REFRESH_MS = 60_000;
+
+interface MetaView {
+  account: string;
+  entities: Entity[];
+  fetched_at: string;
+  /** Set when Meta refused and an older answer is shown */
+  warning?: string;
+}
+
+/** JSON has no Infinity: cost-per metrics come back as null and are restored here. */
+function reviveView(data: string): Omit<MetaView, 'fetched_at'> {
+  return JSON.parse(data, (k, v) => ((k === 'cpa' || k === 'cost_per_message') && v === null ? Infinity : v));
+}
+
+function friendlyMetaError(err: any): string {
+  const msg: string = err?.message ?? String(err);
+  if (/request limit|rate limit|too many calls/i.test(msg)) {
+    return 'Meta จำกัดจำนวนคำขอชั่วคราว (แอป Stat ยังอยู่ระดับ development) — รอประมาณ 5 นาทีแล้วกดรีเฟรช';
+  }
+  return msg;
+}
+
+async function metaView(env: Env, meta: MetaLike, window: Window, fresh: boolean, staged: Set<string>): Promise<MetaView> {
+  const cacheable = !(meta instanceof MockMeta);
+  const key = `overview:${window}`;
+  const cached = cacheable
+    ? await env.DB.prepare('SELECT fetched_at, data FROM meta_cache WHERE key = ?').bind(key).first<{ fetched_at: string; data: string }>()
+    : null;
+  const age = cached ? Date.now() - Date.parse(cached.fetched_at) : Infinity;
+  if (cached && age < (fresh ? MIN_REFRESH_MS : CACHE_TTL_MS)) return { ...reviveView(cached.data), fetched_at: cached.fetched_at };
+
+  try {
+    // Parallel: live Meta answers take seconds each.
+    const windows = [...new Set<Window>([window, ECONOMICS_WINDOW])];
+    const calls = [...windows.map((w) => ['campaign', w] as const), ['adset', window] as const];
+    const [account, entities, ...results] = await Promise.all([
+      meta.accountName(), meta.listEntities(), ...calls.map(([level, w]) => meta.insights(level, w)),
+    ]);
+    calls.forEach(([level, w], i) => {
+      // A campaign with no row simply had no delivery (zero); an ad set without a row shows "–".
+      for (const e of entities) if (e.level === level) e.metrics[w] = results[i].get(e.id) ?? (level === 'campaign' ? zeroMetrics() : undefined);
+    });
+    // Meta returns every campaign ever made (hundreds long paused). Keep what the dashboard can show:
+    // running, spent in the viewed or 7-day window, or placed in a stage.
+    const spent = (e: Entity) => windows.some((w) => (e.metrics[w]?.spend ?? 0) > 0);
+    const keep = new Set(entities.filter((e) => e.level === 'campaign' && (e.status === 'ACTIVE' || spent(e) || staged.has(e.id))).map((e) => e.id));
+    const view = { account, entities: entities.filter((e) => keep.has(e.campaign_id)) };
+    const fetched_at = new Date().toISOString();
+    if (cacheable) {
+      await env.DB.prepare('INSERT INTO meta_cache (key, fetched_at, data) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET fetched_at = excluded.fetched_at, data = excluded.data')
+        .bind(key, fetched_at, JSON.stringify(view)).run();
+    }
+    return { ...view, fetched_at };
+  } catch (err) {
+    if (cached) return { ...reviveView(cached.data), fetched_at: cached.fetched_at, warning: friendlyMetaError(err) };
+    throw new BadRequest(friendlyMetaError(err));
+  }
+}
+
+/** After a manual change on Meta, update cached views so the dashboard shows it without another Meta call. */
+async function patchCachedEntity(db: D1Database, id: string, patch: Partial<Pick<Entity, 'status' | 'daily_budget'>>): Promise<void> {
+  const { results } = await db.prepare('SELECT key, data FROM meta_cache').all<{ key: string; data: string }>();
+  const updates = results.map((r) => {
+    const view = reviveView(r.data);
+    for (const e of view.entities) if (e.id === id) Object.assign(e, patch);
+    return db.prepare('UPDATE meta_cache SET data = ? WHERE key = ?').bind(JSON.stringify(view), r.key);
   });
+  if (updates.length) await db.batch(updates);
+}
+
+async function overview(env: Env, window: Window, fresh: boolean) {
+  const meta = metaFor(env);
+  const [sections, stages, campaignSettings, costs, settings, runs] = await Promise.all([
+    loadSections(env.DB), loadStages(env.DB), loadCampaignSettings(env.DB), loadCosts(env.DB), loadSettings(env.DB), listRuns(env.DB, 1),
+  ]);
+  const staged = new Set([...campaignSettings.values()].filter((c) => c.stage_id).map((c) => c.campaign_id));
+  const { account, entities, fetched_at, warning } = await metaView(env, meta, window, fresh, staged);
   const snapshot = meta instanceof MockMeta ? await meta.snapshotInfo() : null;
   const sectionOf = sectionMap(entities, sections, campaignSettings);
   const totals = sectionTotals(entities, sectionOf, window);
@@ -268,6 +338,8 @@ async function overview(env: Env, window: Window) {
     window,
     /** Set when showing a Claude-pulled snapshot: read-only, limited windows. */
     snapshot,
+    meta_fetched_at: fetched_at,
+    meta_warning: warning ?? null,
     settings: { dry_run: settings.dry_run, kill_switch: settings.kill_switch, guardrails: settings.guardrails },
     costs_loaded: costs.length,
     last_run: runs[0] ? { run_at: runs[0].run_at, summary: runs[0].summary, dry_run: runs[0].dry_run } : null,

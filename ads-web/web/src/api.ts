@@ -86,6 +86,10 @@ export interface Overview {
   window: Window;
   /** Claude-pulled snapshot: read-only, only these windows have data */
   snapshot: { taken_at: string; windows: Window[] } | null;
+  /** When this Meta data was fetched (the server reuses it for a few minutes) */
+  meta_fetched_at: string;
+  /** Meta refused (e.g. rate limit) and older data is shown */
+  meta_warning: string | null;
   settings: { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails };
   costs_loaded: number;
   last_run: { run_at: string; summary: string; dry_run: boolean } | null;
@@ -132,7 +136,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 export const api = {
   me: () => call<{ email: string; mock: boolean }>('GET', '/api/me'),
-  overview: (window: Window) => call<Overview>('GET', `/api/overview?window=${window}`),
+  overview: (window: Window, fresh = false) => call<Overview>('GET', `/api/overview?window=${window}${fresh ? '&fresh=1' : ''}`),
   createSection: (s: Partial<Section>) => call<Section>('POST', '/api/sections', s),
   saveSection: (s: Section) => call<Section>('PUT', `/api/sections/${s.id}`, s),
   deleteSection: (id: string) => call<{ ok: true }>('DELETE', `/api/sections/${id}`),

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api, MODE_LABEL, WINDOW_LABEL, type CampaignView, type EntityView, type Overview as OverviewData, type Stage, type Window } from './api.ts';
-import { baht, num, roas, roasTone, when } from './fmt.ts';
+import { baht, num, roas, roasTone, time, when } from './fmt.ts';
 import type { RulesTarget } from './RulesPage.tsx';
 import { NONE, StageTabs, campaignsIn, type StageTab } from './StageTabs.tsx';
 
@@ -9,12 +9,14 @@ interface Props {
   window: Window;
   onWindow: (w: Window) => void;
   onReload: () => void;
+  /** Ask Meta again instead of the few-minutes cache */
+  onRefresh: () => void;
   onOpenRules: (t: RulesTarget) => void;
   stageTab: StageTab;
   onStageTab: (t: StageTab) => void;
 }
 
-export function Overview({ data, window, onWindow, onReload, onOpenRules, stageTab, onStageTab }: Props) {
+export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRules, stageTab, onStageTab }: Props) {
   const all = data.campaigns.reduce(
     (t, c) => ({ spend: t.spend + (c.metrics?.spend ?? 0), purchases: t.purchases + (c.metrics?.purchases ?? 0), value: t.value + (c.metrics?.purchase_value ?? 0) }),
     { spend: 0, purchases: 0, value: 0 },
@@ -32,7 +34,10 @@ export function Overview({ data, window, onWindow, onReload, onOpenRules, stageT
             <button key={w} className={w === window ? 'on' : ''} onClick={() => onWindow(w)}>{WINDOW_LABEL[w]}</button>
           ))}
         </div>
-        <button className="ghost" onClick={onReload}>รีเฟรช</button>
+        <div className="row">
+          {!data.snapshot && <span className="muted small">ข้อมูล Meta เมื่อ {time(data.meta_fetched_at)}</span>}
+          <button className="ghost" onClick={onRefresh} title="ดึงข้อมูลใหม่จาก Meta (ไม่เกินนาทีละครั้ง)">รีเฟรช</button>
+        </div>
       </div>
 
       <div className="kpis">
