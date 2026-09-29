@@ -10,7 +10,9 @@ Direction: e-commerce system for Thai SMEs. The React app in `src/` is an early 
 - Rule action `move` (campaign level, `min_days_in_stage`, usually `min_purchases`) changes the stage in D1 only; evaluated separately from Meta actions and applied only outside dry-run. A campaign can also use its own rules (`custom`) or none (`off`).
 - Owns the daily schedule (08:00/20:00 BKK). The GitHub Actions workflow is manual-only so the two never both act.
 - Free-plan limits shape the code: cost sheet is aggregated by Google (`COST_QUERY`), D1 bulk writes via `json_each`, ≤25 changes per run. Google takes 5–15 s per tab on this workbook.
-- Local: `cd ads-web && npm run dev` (mock Meta data via `.dev.vars`), `npm test`, `npm run typecheck`.
+- Production: https://pkjeans-ads.ads-web.workers.dev (Cloudflare free plan, D1 `pkjeans-ads` in APAC). Behind Cloudflare Access (Zero Trust Free, team `broad-cell-d05a`): Cloudflare-account members + reusable policy "PkJeans team" (emails, one-time PIN). Adding a person = edit that policy's email list. Meta token is a Worker secret. Deploy: `cd ads-web && npm run deploy`.
+- Meta app "Stat" (1410718820800711, System User Ads_ai) is on development access tier: few API calls, so the dashboard caches Meta data 5 min (`meta_cache`).
+- Local: `cd ads-web && npm run dev` (`.dev.vars` holds the real token + auth bypass; local D1 is separate from production — edit stages/rules on the production site), `npm test`, `npm run typecheck`.
 - Cost sheet: `SKU+Price` (id kept out of git — the repo is public and the sheet is link-shared; it's entered in the dashboard's settings), one tab per warehouse, B SKU · C product code · D description · H cost · I price. Shared "anyone with link" — that's how ads-web reads it.
 
 ## ads-engine (Meta Ads, rule-based)
