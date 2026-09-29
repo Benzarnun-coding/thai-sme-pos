@@ -15,8 +15,7 @@
     {
       "binding": "DB",
       "database_name": "pkjeans-ads",
-      // Replace with the id printed by `npx wrangler d1 create pkjeans-ads` before the first deploy.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "a1064631-6b86-4df4-b121-afcf994be552",
       "migrations_dir": "migrations"
     }
   ],
@@ -25,9 +24,9 @@
   "vars": {
     "META_AD_ACCOUNT_ID": "act_2149666808519411",
     "META_API_VERSION": "v21.0",
-    // From Cloudflare Zero Trust → Access → your application (see README). Empty = every /api call is refused.
-    "ACCESS_TEAM_DOMAIN": "",
-    "ACCESS_AUD": ""
+    // Cloudflare Access (Worker → Access tab → Application values). Empty = every /api call is refused.
+    "ACCESS_TEAM_DOMAIN": "https://broad-cell-d05a.cloudflareaccess.com",
+    "ACCESS_AUD": "468421c1e47c4a4bde081a9e8b6dfe02f22dfa4305edd0faf64a16f08cc48a0a"
   },
   "observability": { "enabled": true }
 }
