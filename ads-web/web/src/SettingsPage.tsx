@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { useUi } from './ui.tsx';
 import { api, type Settings } from './api.ts';
 
 export function SettingsPage({ costsLoaded, onSaved }: { costsLoaded: number; onSaved: () => void }) {
+  const { confirm } = useUi();
   const [s, setS] = useState<Settings | null>(null);
   const [tabsText, setTabsText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -34,9 +36,15 @@ export function SettingsPage({ costsLoaded, onSaved }: { costsLoaded: number; on
       <section className="card">
         <h2>โหมดการทำงาน</h2>
         <label className="check big">
-          <input type="checkbox" checked={!s.dry_run} onChange={(e) => {
-            if (e.target.checked && !confirm('เปิดโหมดทำจริง: ระบบจะหยุด/ปรับงบแคมเปญบน Meta เองตามกฎ วันละ 2 รอบ (08:00, 20:00) ยืนยัน?')) return;
-            save({ ...s, dry_run: !e.target.checked });
+          <input type="checkbox" checked={!s.dry_run} onChange={async (e) => {
+            const on = e.target.checked;
+            if (on && !(await confirm({
+              title: 'เปิดโหมดทำจริง?',
+              body: <p>ระบบจะหยุด/ปรับงบแคมเปญบน Meta เองตามกฎ วันละ 2 รอบ (08:00, 20:00) — รวมถึงเพิ่มงบถ้ามีกฎเพิ่มงบ</p>,
+              confirmLabel: 'เปิดทำจริง',
+              tone: 'danger',
+            }))) return;
+            save({ ...s, dry_run: !on });
           }} />
           <span><b>ทำจริง</b> — ปิดไว้ = โหมดทดลอง ระบบแค่บอกว่าจะทำอะไร ไม่แตะ Meta</span>
         </label>

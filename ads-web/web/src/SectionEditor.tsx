@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useUi } from './ui.tsx';
 import { api, type CostRow, type Section, type SectionView } from './api.ts';
 import { baht, num } from './fmt.ts';
 
@@ -11,6 +12,7 @@ interface Props {
 const key = (p: { tab: string; code: string }) => `${p.tab}:${p.code}`;
 
 export function SectionEditor({ section, campaignNames, onSaved }: Props) {
+  const { confirm } = useUi();
   const [draft, setDraft] = useState<Section>(() => strip(section));
   const [keywordText, setKeywordText] = useState(section.keywords.join(', '));
   const [known, setKnown] = useState<Map<string, CostRow>>(new Map());
@@ -69,7 +71,7 @@ export function SectionEditor({ section, campaignNames, onSaved }: Props) {
   }
 
   async function remove() {
-    if (!confirm(`ลบสินค้า "${section.name}"? แคมเปญที่ผูกไว้จะกลับไปจับตามคำค้น`)) return;
+    if (!(await confirm({ title: `ลบสินค้า "${section.name}"?`, body: <p className="muted">แคมเปญที่ผูกไว้จะกลับไปจับตามคำค้น</p>, confirmLabel: 'ลบ', tone: 'danger' }))) return;
     setBusy(true);
     try { await api.deleteSection(section.id); onSaved(); } catch (e: any) { setError(e.message); setBusy(false); }
   }

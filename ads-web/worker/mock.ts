@@ -3,6 +3,7 @@
 // Otherwise it serves built-in sample numbers (PkJeans 21–27 Sep 2026); sample changes live in memory until restart.
 
 import type { Entity, Level, Metrics, Window } from '../../ads-engine/src/types.ts';
+import type { DailyRow } from '../../ads-engine/src/meta.ts';
 import { BadRequest } from './validate.ts';
 
 // [id, name, daily budget (CBO) or null (ABO), spend 7d, purchases 7d, ROAS 7d, frequency 7d]
@@ -149,8 +150,27 @@ export class MockMeta {
     const k = scale[window];
     return new Map(this.rows.filter((r) => r.e.level === level).map((r) => {
       const m = r.m7;
-      return [r.e.id, { ...m, spend: round(m.spend * k), purchases: Math.round(m.purchases * k), purchase_value: Math.round(m.purchase_value * k), impressions: Math.round(m.impressions * k), clicks: Math.round(m.clicks * k) }];
+      // Longer windows drift per campaign so trends (rising / dying) show up in the ideas tab.
+      const drift = k > 1 ? 1 + 0.45 * Math.sin(Number(r.e.campaign_id.slice(-7, -3))) : 1;
+      const purchases = Math.round(m.purchases * k * drift);
+      const purchase_value = Math.round(m.purchase_value * k * drift);
+      const spend = round(m.spend * k);
+      return [r.e.id, { ...m, spend, purchases, purchase_value, roas: spend ? purchase_value / spend : 0, cpa: purchases ? spend / purchases : Infinity, frequency: m.frequency * (k > 1 ? 1.6 : 1), impressions: Math.round(m.impressions * k), clicks: Math.round(m.clicks * k) }];
     }));
+  }
+
+  /** Dev only: spreads the 7-day numbers over 7 days with a deterministic wobble so charts have a shape. */
+  async dailyInsights(campaignId: string, window: Window): Promise<DailyRow[]> {
+    const m = (await this.insights('campaign', 'last_7d')).get(campaignId);
+    const days = window === 'last_30d' ? 30 : window === 'last_14d' ? 14 : 7;
+    const out: DailyRow[] = [];
+    for (let i = days; i >= 1; i--) {
+      const d = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
+      const k = m ? (1 + 0.35 * Math.sin(i * 1.7 + campaignId.length)) / 7 : 0;
+      const p = m ? Math.round(m.purchases * k * (1 + 0.25 * Math.cos(i))) : 0;
+      out.push({ date: d, spend: m ? m.spend * k : 0, impressions: m ? Math.round(m.impressions * k) : 0, clicks: m ? Math.round(m.clicks * k) : 0, purchases: p, purchase_value: m && m.purchases ? p * (m.purchase_value / m.purchases) : 0 });
+    }
+    return out;
   }
 
   async setStatus(id: string, status: 'ACTIVE' | 'PAUSED'): Promise<void> {

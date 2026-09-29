@@ -1,17 +1,20 @@
 // Worker entry: JSON API for the dashboard + cron triggers. Static files in dist/ are served by Cloudflare before this runs.
 
 import { MetaClient } from '../../ads-engine/src/meta.ts';
-import type { Entity, Window } from '../../ads-engine/src/types.ts';
+import { applyDecisions } from '../../ads-engine/src/apply.ts';
+import type { Entity, Level, Window } from '../../ads-engine/src/types.ts';
 import { authenticate } from './auth.ts';
 import { syncCosts } from './costs.ts';
 import {
   audit, deleteSection, insertRun, listAudit, listRuns, loadCampaignSettings, loadCosts, loadSections, loadSettings,
-  loadStages, saveCampaignSetting, saveSection, saveSettings, saveStage,
+  loadStages, loadState, saveCampaignSetting, saveCampaignSettings, auditMany, campaignHistory, saveSection, saveSettings, saveStage,
 } from './db.ts';
 import { ECONOMICS_WINDOW, sectionMap, sectionTotals } from './engine.ts';
 import { MockMeta } from './mock.ts';
-import { DEFAULT_SECTION_ID, economics, suggestProducts, type Economics } from './model.ts';
-import { runAutomation, zeroMetrics, type MetaLike } from './run.ts';
+import { DEFAULT_SECTION_ID, economics, suggestProducts, type CampaignSetting, type CostRow, type Economics, type Section } from './model.ts';
+import { capChanges, planRun, runAutomation, zeroMetrics, type MetaLike } from './run.ts';
+import { buildIdeas } from './ideas.ts';
+import { friendlyMetaError, loadMetaData, MetaCacheError, patchCachedEntity, type MetaData } from './metadata.ts';
 import { BadRequest, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
 export interface Env {
@@ -167,6 +170,68 @@ async function route(req: Request, env: Env, url: URL, user: string): Promise<Re
     return json({ ok: true });
   }
 
+  // ---- bulk (several campaigns at once) ----
+  if (method === 'POST' && path === '/api/bulk/stage') {
+    const input = await body();
+    const items = bulkItems(input?.items);
+    const [stages, all] = await Promise.all([loadStages(env.DB), loadCampaignSettings(env.DB)]);
+    const next = items.map(({ id }) => {
+      const prev = all.get(id);
+      // Keep product pin and rule mode; only the stage changes.
+      return validateCampaignSetting(id, { ...prev, stage_id: input?.stage_id ?? null }, stages.map((s) => s.id), prev);
+    });
+    await saveCampaignSettings(env.DB, next);
+    const changed = items.filter(({ id }) => (all.get(id)?.stage_id ?? null) !== (input?.stage_id ?? null));
+    await auditMany(env.DB, user, 'campaign.stage', changed.map(({ id, name }) => ({ target: id, detail: { name, from: all.get(id)?.stage_id ?? null, to: input?.stage_id ?? null } })));
+    return json({ ok: true, changed: changed.length });
+  }
+  if (method === 'POST' && path === '/api/bulk/budget') {
+    // One Meta call per campaign, in order; stops at the first Meta error so a problem isn't repeated 25 times.
+    const input = await body();
+    const items = bulkItems(input?.items);
+    const pct = Number(input?.pct);
+    if (!Number.isFinite(pct) || pct === 0 || Math.abs(pct) > 100) throw new BadRequest('เปอร์เซ็นต์ต้องอยู่ระหว่าง −100 ถึง 100 และไม่เป็น 0');
+    const [{ meta, data }, { guardrails }] = await Promise.all([metaData(env), loadSettings(env.DB)]);
+    const byId = new Map(data.entities.map((e) => [e.id, e]));
+    const results: { id: string; name: string; from: number | null; to?: number; ok: boolean; message?: string }[] = [];
+    let stopped = false;
+    for (const { id, name } of items) {
+      const e = byId.get(id);
+      const from = e?.daily_budget ?? null;
+      if (stopped) { results.push({ id, name, from, ok: false, message: 'ไม่ได้ทำ (หยุดหลังข้อผิดพลาดก่อนหน้า)' }); continue; }
+      if (from === null) { results.push({ id, name, from, ok: false, message: 'งบอยู่ที่ชุดโฆษณา (ABO) — ปรับในหน้ารายละเอียด' }); continue; }
+      const to = Math.round(Math.min(guardrails.max_daily_budget, Math.max(guardrails.min_daily_budget, from * (1 + pct / 100))));
+      if (to === from) { results.push({ id, name, from, to, ok: false, message: 'ติดขอบเขตงบต่ำสุด/สูงสุด' }); continue; }
+      try {
+        await meta.setDailyBudget(id, to);
+        await patchCachedEntity(env.DB, id, { daily_budget: to });
+        results.push({ id, name, from, to, ok: true });
+      } catch (err: any) {
+        stopped = true;
+        results.push({ id, name, from, to, ok: false, message: friendlyMetaError(err) });
+      }
+    }
+    await auditMany(env.DB, user, 'meta.budget', results.filter((r) => r.ok).map((r) => ({ target: r.id, detail: { name: r.name, from: r.from, to: r.to, bulk_pct: pct } })));
+    return json({ results });
+  }
+
+  // ---- read-only helpers for the dashboard ----
+  if (method === 'GET' && path === '/api/ideas') return json(await ideas(env));
+  if (method === 'GET' && path === '/api/preview') return json(await preview(env));
+  if (method === 'GET' && (m = path.match(/^\/api\/campaigns\/(\d+)\/daily$/))) {
+    const w = url.searchParams.get('window') as Window;
+    const { data } = await metaData(env);
+    if (!data.entities.some((e) => e.level === 'campaign' && e.id === m![1])) return json({ error: 'ไม่พบแคมเปญ' }, 404);
+    const days = await data.daily(m[1], (['last_7d', 'last_14d', 'last_30d'] as Window[]).includes(w) ? w : 'last_14d').catch((err) => {
+      throw new BadRequest(err instanceof MetaCacheError ? err.message : friendlyMetaError(err));
+    });
+    return json({ days });
+  }
+  if (method === 'GET' && (m = path.match(/^\/api\/campaigns\/(\d+)\/history$/))) {
+    const adsets = await metaData(env).then(({ data }) => data.entities.filter((e) => e.level === 'adset' && e.campaign_id === m![1]).map((e) => e.id)).catch(() => []);
+    return json(await campaignHistory(env.DB, m[1], adsets));
+  }
+
   // ---- costs ----
   if (method === 'GET' && path === '/api/costs') {
     const q = (url.searchParams.get('q') ?? '').trim().toLowerCase();
@@ -211,90 +276,36 @@ async function route(req: Request, env: Env, url: URL, user: string): Promise<Re
   return json({ error: 'ไม่พบ endpoint' }, 404);
 }
 
-// ---- Meta data for the dashboard, cached ----
-// The Stat app is on Meta's development access tier (few Marketing API calls allowed), so one dashboard view
-// is reused for a few minutes, "รีเฟรช" can force it at most once a minute, and a rate-limited Meta falls
-// back to the last answer with a warning instead of an error screen.
+// ---- Meta data for the dashboard ----
 
-const CACHE_TTL_MS = 5 * 60_000;
-const MIN_REFRESH_MS = 60_000;
-
-interface MetaView {
-  account: string;
-  entities: Entity[];
-  fetched_at: string;
-  /** Set when Meta refused and an older answer is shown */
-  warning?: string;
-}
-
-/** JSON has no Infinity: cost-per metrics come back as null and are restored here. */
-function reviveView(data: string): Omit<MetaView, 'fetched_at'> {
-  return JSON.parse(data, (k, v) => ((k === 'cpa' || k === 'cost_per_message') && v === null ? Infinity : v));
-}
-
-function friendlyMetaError(err: any): string {
-  const msg: string = err?.message ?? String(err);
-  if (/request limit|rate limit|too many calls/i.test(msg)) {
-    return 'Meta จำกัดจำนวนคำขอชั่วคราว (แอป Stat ยังอยู่ระดับ development) — รอประมาณ 5 นาทีแล้วกดรีเฟรช';
-  }
-  return msg;
-}
-
-async function metaView(env: Env, meta: MetaLike, window: Window, fresh: boolean, staged: Set<string>): Promise<MetaView> {
-  const cacheable = !(meta instanceof MockMeta);
-  const key = `overview:${window}`;
-  const cached = cacheable
-    ? await env.DB.prepare('SELECT fetched_at, data FROM meta_cache WHERE key = ?').bind(key).first<{ fetched_at: string; data: string }>()
-    : null;
-  const age = cached ? Date.now() - Date.parse(cached.fetched_at) : Infinity;
-  if (cached && age < (fresh ? MIN_REFRESH_MS : CACHE_TTL_MS)) return { ...reviveView(cached.data), fetched_at: cached.fetched_at };
-
+async function metaData(env: Env, fresh = false): Promise<{ meta: MetaLike; data: MetaData }> {
+  const meta = metaFor(env);
   try {
-    // Parallel: live Meta answers take seconds each.
-    const windows = [...new Set<Window>([window, ECONOMICS_WINDOW])];
-    const calls = [...windows.map((w) => ['campaign', w] as const), ['adset', window] as const];
-    const [account, entities, ...results] = await Promise.all([
-      meta.accountName(), meta.listEntities(), ...calls.map(([level, w]) => meta.insights(level, w)),
-    ]);
-    calls.forEach(([level, w], i) => {
-      // A campaign with no row simply had no delivery (zero); an ad set without a row shows "–".
-      for (const e of entities) if (e.level === level) e.metrics[w] = results[i].get(e.id) ?? (level === 'campaign' ? zeroMetrics() : undefined);
-    });
-    // Meta returns every campaign ever made (hundreds long paused). Keep what the dashboard can show:
-    // running, spent in the viewed or 7-day window, or placed in a stage.
-    const spent = (e: Entity) => windows.some((w) => (e.metrics[w]?.spend ?? 0) > 0);
-    const keep = new Set(entities.filter((e) => e.level === 'campaign' && (e.status === 'ACTIVE' || spent(e) || staged.has(e.id))).map((e) => e.id));
-    const view = { account, entities: entities.filter((e) => keep.has(e.campaign_id)) };
-    const fetched_at = new Date().toISOString();
-    if (cacheable) {
-      await env.DB.prepare('INSERT INTO meta_cache (key, fetched_at, data) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET fetched_at = excluded.fetched_at, data = excluded.data')
-        .bind(key, fetched_at, JSON.stringify(view)).run();
-    }
-    return { ...view, fetched_at };
+    return { meta, data: await loadMetaData(env.DB, meta, fresh) };
   } catch (err) {
-    if (cached) return { ...reviveView(cached.data), fetched_at: cached.fetched_at, warning: friendlyMetaError(err) };
-    throw new BadRequest(friendlyMetaError(err));
+    throw new BadRequest(err instanceof MetaCacheError ? err.message : friendlyMetaError(err));
   }
 }
 
-/** After a manual change on Meta, update cached views so the dashboard shows it without another Meta call. */
-async function patchCachedEntity(db: D1Database, id: string, patch: Partial<Pick<Entity, 'status' | 'daily_budget'>>): Promise<void> {
-  const { results } = await db.prepare('SELECT key, data FROM meta_cache').all<{ key: string; data: string }>();
-  const updates = results.map((r) => {
-    const view = reviveView(r.data);
-    for (const e of view.entities) if (e.id === id) Object.assign(e, patch);
-    return db.prepare('UPDATE meta_cache SET data = ? WHERE key = ?').bind(JSON.stringify(view), r.key);
+/** Fresh copies of the cached entities with metrics for the given windows attached. */
+async function withMetrics(data: MetaData, calls: (readonly [Level, Window])[]): Promise<Entity[]> {
+  const entities: Entity[] = data.entities.map((e) => ({ ...e, metrics: {} }));
+  const results = await Promise.all(calls.map(([level, w]) => data.insights(level, w).catch((err) => {
+    throw new BadRequest(err instanceof MetaCacheError ? err.message : friendlyMetaError(err));
+  })));
+  calls.forEach(([level, w], i) => {
+    // A campaign with no row simply had no delivery (zero); an ad set without a row shows "–".
+    for (const e of entities) if (e.level === level) e.metrics[w] = results[i].get(e.id) ?? (level === 'campaign' ? zeroMetrics() : undefined);
   });
-  if (updates.length) await db.batch(updates);
+  return entities;
 }
 
 async function overview(env: Env, window: Window, fresh: boolean) {
-  const meta = metaFor(env);
-  const [sections, stages, campaignSettings, costs, settings, runs] = await Promise.all([
-    loadSections(env.DB), loadStages(env.DB), loadCampaignSettings(env.DB), loadCosts(env.DB), loadSettings(env.DB), listRuns(env.DB, 1),
+  const [{ meta, data }, sections, stages, campaignSettings, costs, settings, runs] = await Promise.all([
+    metaData(env, fresh), loadSections(env.DB), loadStages(env.DB), loadCampaignSettings(env.DB), loadCosts(env.DB), loadSettings(env.DB), listRuns(env.DB, 1),
   ]);
-  const staged = new Set([...campaignSettings.values()].filter((c) => c.stage_id).map((c) => c.campaign_id));
-  const { account, entities, fetched_at, warning } = await metaView(env, meta, window, fresh, staged);
+  const windows = [...new Set<Window>([window, ECONOMICS_WINDOW])];
+  const entities = await withMetrics(data, [...windows.map((w) => ['campaign', w] as const), ['adset', window] as const]);
   const snapshot = meta instanceof MockMeta ? await meta.snapshotInfo() : null;
   const sectionOf = sectionMap(entities, sections, campaignSettings);
   const totals = sectionTotals(entities, sectionOf, window);
@@ -310,9 +321,9 @@ async function overview(env: Env, window: Window, fresh: boolean) {
   const beOf = (e: Economics) => (e.breakeven_roas !== null && Number.isFinite(e.breakeven_roas) ? e.breakeven_roas : null);
 
   // Meta returns every campaign ever made (hundreds of long-paused ones). Show those that matter now:
-  // running, spent in the window being viewed, or placed in a stage by the user.
+  // running, spent in the viewed or 7-day window, or placed in a stage by the user.
   const relevant = (c: Entity) =>
-    c.status === 'ACTIVE' || (c.metrics[window]?.spend ?? 0) > 0 || Boolean(campaignSettings.get(c.id)?.stage_id);
+    c.status === 'ACTIVE' || windows.some((w) => (c.metrics[w]?.spend ?? 0) > 0) || Boolean(campaignSettings.get(c.id)?.stage_id);
   const campaigns = entities.filter((e) => e.level === 'campaign' && relevant(e)).map((c) => {
     const setting = campaignSettings.get(c.id);
     const sectionId = sectionOf.get(c.id) ?? DEFAULT_SECTION_ID;
@@ -334,12 +345,12 @@ async function overview(env: Env, window: Window, fresh: boolean) {
   });
 
   return {
-    account,
+    account: data.account,
     window,
     /** Set when showing a Claude-pulled snapshot: read-only, limited windows. */
     snapshot,
-    meta_fetched_at: fetched_at,
-    meta_warning: warning ?? null,
+    meta_fetched_at: data.fetchedAt(),
+    meta_warning: data.warning(),
     settings: { dry_run: settings.dry_run, kill_switch: settings.kill_switch, guardrails: settings.guardrails },
     costs_loaded: costs.length,
     last_run: runs[0] ? { run_at: runs[0].run_at, summary: runs[0].summary, dry_run: runs[0].dry_run } : null,
@@ -354,6 +365,68 @@ async function overview(env: Env, window: Window, fresh: boolean) {
       };
     }),
     campaigns,
+  };
+}
+
+const MAX_BULK = 25;
+
+function bulkItems(input: unknown): { id: string; name: string }[] {
+  if (!Array.isArray(input) || input.length === 0) throw new BadRequest('ยังไม่ได้เลือกแคมเปญ');
+  if (input.length > MAX_BULK) throw new BadRequest(`เลือกได้ครั้งละไม่เกิน ${MAX_BULK} แคมเปญ`);
+  return input.map((x: any) => {
+    const id = String(x?.id ?? '');
+    if (!/^\d+$/.test(id)) throw new BadRequest('รหัสแคมเปญไม่ถูกต้อง');
+    return { id, name: String(x?.name ?? '').slice(0, 200) };
+  });
+}
+
+/** Product break-even per campaign, from 7-day numbers (same as the engine). */
+function breakevens(entities: Entity[], sections: Section[], settings: Map<string, CampaignSetting>, costs: CostRow[]): Map<string, number | null> {
+  const sectionOf = sectionMap(entities, sections, settings);
+  const totals = sectionTotals(entities, sectionOf, ECONOMICS_WINDOW);
+  const zero = { spend: 0, purchases: 0, purchase_value: 0 };
+  const be = new Map(sections.map((s) => {
+    const r = economics(s, costs, totals.get(s.id) ?? zero).breakeven_roas;
+    return [s.id, r !== null && Number.isFinite(r) ? r : null];
+  }));
+  return new Map([...sectionOf].map(([cid, sid]) => [cid, be.get(sid) ?? null]));
+}
+
+async function ideas(env: Env) {
+  const [{ data }, sections, campaignSettings, costs] = await Promise.all([
+    metaData(env), loadSections(env.DB), loadCampaignSettings(env.DB), loadCosts(env.DB),
+  ]);
+  const entities = await withMetrics(data, [['campaign', 'last_7d'], ['campaign', 'last_30d']]);
+  const be = breakevens(entities, sections, campaignSettings, costs);
+  const list = buildIdeas(entities.filter((e) => e.level === 'campaign').map((c) => ({
+    campaign: c,
+    m7: c.metrics.last_7d,
+    m30: c.metrics.last_30d,
+    stage_id: campaignSettings.get(c.id)?.stage_id ?? null,
+    breakeven: be.get(c.id) ?? null,
+  })));
+  return { ideas: list, costs_loaded: costs.length > 0, meta_fetched_at: data.fetchedAt(), meta_warning: data.warning() };
+}
+
+/** What the next scheduled run would do, computed from cached data. Changes nothing on Meta or in D1. */
+async function preview(env: Env) {
+  const [{ data }, settings, state] = await Promise.all([metaData(env), loadSettings(env.DB), loadState(env.DB)]);
+  const entities: Entity[] = data.entities.map((e) => ({ ...e, metrics: {} }));
+  const now = new Date();
+  const { plan } = await planRun(env.DB, entities, (level, w) => data.insights(level, w), state, now);
+  capChanges(plan);
+  const noop = { setStatus: async () => {}, setDailyBudget: async () => {} };
+  await applyDecisions(plan.decisions, entities, noop, settings.guardrails, { last_action: { ...state.last_action } }, { dryRun: true, now });
+  const campaignOf = new Map(entities.map((e) => [e.id, e.campaign_id]));
+  const pick = (d: { entity: { id: string; level: string; name: string }; plan: string; skipped_reason?: string; action: { type: string } }) => ({
+    campaign_id: campaignOf.get(d.entity.id) ?? d.entity.id, entity_id: d.entity.id, level: d.entity.level, name: d.entity.name,
+    action: d.action.type, plan: d.plan, skipped_reason: d.skipped_reason ?? null,
+  });
+  return {
+    dry_run: settings.dry_run,
+    kill_switch: settings.kill_switch,
+    items: [...plan.decisions.map((d) => ({ ...pick(d), after: (d as any).after ?? null })), ...plan.moves.map((m) => ({ ...pick(m), action: 'move', move_to: m.move_to, after: null }))],
+    notes: plan.notes,
   };
 }
 

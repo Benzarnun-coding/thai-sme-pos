@@ -92,6 +92,18 @@ export async function saveCampaignSetting(db: D1Database, c: CampaignSetting): P
 }
 
 /** Automatic stage moves from one run: one statement for all campaigns, plus one audit statement. */
+/** Several campaign settings in one statement (bulk stage change). */
+export async function saveCampaignSettings(db: D1Database, list: CampaignSetting[]): Promise<void> {
+  if (!list.length) return;
+  await db.prepare(
+    `INSERT INTO campaigns (campaign_id, section_id, stage_id, stage_since, mode, rules, updated_at)
+     SELECT value ->> '$.campaign_id', value ->> '$.section_id', value ->> '$.stage_id', value ->> '$.stage_since', value ->> '$.mode', value ->> '$.rules', ?1
+     FROM json_each(?2)
+     WHERE true ON CONFLICT(campaign_id) DO UPDATE SET section_id = excluded.section_id, stage_id = excluded.stage_id,
+       stage_since = excluded.stage_since, mode = excluded.mode, rules = excluded.rules, updated_at = excluded.updated_at`,
+  ).bind(new Date().toISOString(), JSON.stringify(list.map((c) => ({ ...c, rules: c.rules ? JSON.stringify(c.rules) : null })))).run();
+}
+
 export async function applyMoves(db: D1Database, moves: { campaign_id: string; name: string; from: string | null; to: string }[], at: string): Promise<void> {
   if (!moves.length) return;
   const json = JSON.stringify(moves);
@@ -157,6 +169,33 @@ export async function listRuns(db: D1Database, limit = 30) {
 export async function audit(db: D1Database, actor: string, action: string, target: string, detail: unknown): Promise<void> {
   await db.prepare('INSERT INTO audit (at, actor, action, target, detail) VALUES (?, ?, ?, ?, ?)')
     .bind(new Date().toISOString(), actor, action, target, JSON.stringify(detail)).run();
+}
+
+export async function auditMany(db: D1Database, actor: string, action: string, entries: { target: string; detail: unknown }[]): Promise<void> {
+  if (!entries.length) return;
+  await db.prepare(
+    `INSERT INTO audit (at, actor, action, target, detail)
+     SELECT ?1, ?2, ?3, value ->> '$.target', value ->> '$.detail' FROM json_each(?4)`,
+  ).bind(new Date().toISOString(), actor, action, JSON.stringify(entries.map((e) => ({ target: e.target, detail: JSON.stringify(e.detail) })))).run();
+}
+
+/** Manual changes to one campaign (or its ad sets) plus what automated runs did to it. */
+export async function campaignHistory(db: D1Database, campaignId: string, adsetIds: string[] = []) {
+  const targets = [campaignId, ...adsetIds];
+  const [audits, runs] = await Promise.all([
+    db.prepare(`SELECT * FROM audit WHERE target IN (SELECT value FROM json_each(?)) ORDER BY id DESC LIMIT 50`).bind(JSON.stringify(targets)).all(),
+    db.prepare(`SELECT id, run_at, trigger, dry_run, report FROM runs WHERE instr(report, ?) > 0 ORDER BY id DESC LIMIT 20`).bind(campaignId)
+      .all<{ id: number; run_at: string; trigger: string; dry_run: number; report: string }>(),
+  ]);
+  const runItems = runs.results.flatMap((r) => {
+    const rep = JSON.parse(r.report);
+    const mine = (d: any) => targets.includes(d.entity?.id);
+    return [...(rep.decisions ?? []), ...(rep.moves ?? [])].filter(mine).map((d: any) => ({
+      run_id: r.id, run_at: r.run_at, trigger: r.trigger, dry_run: r.dry_run === 1,
+      plan: d.plan as string, skipped_reason: d.skipped_reason ?? null, applied: Boolean(d.applied), error: d.error ?? null,
+    }));
+  });
+  return { audit: audits.results, runs: runItems };
 }
 
 export async function listAudit(db: D1Database, limit = 100) {

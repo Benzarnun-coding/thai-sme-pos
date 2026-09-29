@@ -2,9 +2,10 @@
 
 import { applyDecisions, sumBudget, type Mutator } from '../../ads-engine/src/apply.ts';
 import { formatReport, pushLine } from '../../ads-engine/src/notify.ts';
-import type { Entity, Level, Metrics, RunReport, Window } from '../../ads-engine/src/types.ts';
+import type { DailyRow } from '../../ads-engine/src/meta.ts';
+import type { Entity, Level, Metrics, RunReport, State, Window } from '../../ads-engine/src/types.ts';
 import { applyMoves, insertRun, loadCampaignSettings, loadCosts, loadSections, loadSettings, loadStages, loadState, saveState } from './db.ts';
-import { buildGroups, neededWindows, planDecisions, sectionMap, type MoveDecision } from './engine.ts';
+import { buildGroups, neededWindows, planDecisions, sectionMap, type MoveDecision, type Plan } from './engine.ts';
 
 /** Keeps a run well inside the Workers free plan's 50 outbound requests, and limits damage from a bad rule. */
 export const MAX_CHANGES_PER_RUN = 25;
@@ -13,6 +14,7 @@ export interface MetaLike extends Mutator {
   accountName(): Promise<string>;
   listEntities(): Promise<Entity[]>;
   insights(level: Level, window: Window): Promise<Map<string, Metrics>>;
+  dailyInsights(campaignId: string, window: Window): Promise<DailyRow[]>;
 }
 
 export interface RunEnv {
@@ -52,28 +54,13 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
   }
 
   try {
-    const [entities, sections, stages, campaignSettings, costs, state] = await Promise.all([
-      meta.listEntities(), loadSections(env.DB), loadStages(env.DB), loadCampaignSettings(env.DB), loadCosts(env.DB), loadState(env.DB),
-    ]);
-    const sectionOf = sectionMap(entities, sections, campaignSettings);
-    const groups = buildGroups(entities, sections, stages, campaignSettings, sectionOf);
-    for (const [level, windows] of neededWindows(groups)) {
-      for (const window of windows) {
-        const m = await meta.insights(level, window);
-        for (const e of entities) if (e.level === level) e.metrics[window] = m.get(e.id) ?? zeroMetrics();
-      }
-    }
-    report.entities_evaluated = entities.filter((e) => groups.some((g) => g.campaignIds.has(e.campaign_id))).length;
+    const [entities, state] = await Promise.all([meta.listEntities(), loadState(env.DB)]);
+    const { plan, evaluated } = await planRun(env.DB, entities, (level, window) => meta.insights(level, window), state, now);
+    report.entities_evaluated = evaluated;
     report.totals.daily_budget_before = sumBudget(entities);
-
-    const plan = planDecisions(groups, entities, sectionOf, costs, campaignSettings, stages, state, now);
     report.notes.push(...plan.notes);
     report.moves = plan.moves;
-    let actionable = 0;
-    for (const d of plan.decisions) {
-      if (d.skipped_reason || d.action.type === 'notify') continue;
-      if (++actionable > MAX_CHANGES_PER_RUN) d.skipped_reason = `เกิน ${MAX_CHANGES_PER_RUN} การเปลี่ยนต่อรอบ — รอรอบถัดไป`;
-    }
+    capChanges(plan);
     report.decisions = plan.decisions;
 
     const applied = await applyDecisions(plan.decisions, entities, meta, settings.guardrails, state, { dryRun, now });
@@ -103,6 +90,34 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
   ].join('\n');
   await pushLine(text, env.LINE_CHANNEL_ACCESS_TOKEN, env.LINE_TO).catch(() => false);
   return report;
+}
+
+/**
+ * Everything a run decides, without touching Meta or saving anything. Shared by real runs and the dashboard's
+ * "next run" preview (which passes cached insights). Fills entity metrics for the windows the rules need.
+ */
+export async function planRun(
+  db: D1Database, entities: Entity[], insights: (level: Level, window: Window) => Promise<Map<string, Metrics>>, state: State, now: Date,
+): Promise<{ plan: Plan; evaluated: number }> {
+  const [sections, stages, campaignSettings, costs] = await Promise.all([loadSections(db), loadStages(db), loadCampaignSettings(db), loadCosts(db)]);
+  const sectionOf = sectionMap(entities, sections, campaignSettings);
+  const groups = buildGroups(entities, sections, stages, campaignSettings, sectionOf);
+  const calls = [...neededWindows(groups)].flatMap(([level, windows]) => [...windows].map((w) => [level, w] as const));
+  const results = await Promise.all(calls.map(([level, w]) => insights(level, w)));
+  calls.forEach(([level, w], i) => {
+    for (const e of entities) if (e.level === level) e.metrics[w] = results[i].get(e.id) ?? zeroMetrics();
+  });
+  const evaluated = entities.filter((e) => groups.some((g) => g.campaignIds.has(e.campaign_id))).length;
+  return { plan: planDecisions(groups, entities, sectionOf, costs, campaignSettings, stages, state, now), evaluated };
+}
+
+/** Marks everything past MAX_CHANGES_PER_RUN as skipped. */
+export function capChanges(plan: Plan): void {
+  let actionable = 0;
+  for (const d of plan.decisions) {
+    if (d.skipped_reason || d.action.type === 'notify') continue;
+    if (++actionable > MAX_CHANGES_PER_RUN) d.skipped_reason = `เกิน ${MAX_CHANGES_PER_RUN} การเปลี่ยนต่อรอบ — รอรอบถัดไป`;
+  }
 }
 
 export function zeroMetrics(): Metrics {

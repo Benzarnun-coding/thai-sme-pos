@@ -1,8 +1,12 @@
-import { useState } from 'react';
-import { api, MODE_LABEL, WINDOW_LABEL, type CampaignView, type EntityView, type Overview as OverviewData, type Stage, type Window } from './api.ts';
-import { baht, num, roas, roasTone, time, when } from './fmt.ts';
+import { useMemo, useState } from 'react';
+import { WINDOW_LABEL, type CampaignView, type Idea, type Overview as OverviewData, type Preview, type PreviewItem, type Stage, type Window } from './api.ts';
+import { stageLabel, useCampaignActions } from './actions.tsx';
+import { baht, num, roasTone, time, when } from './fmt.ts';
 import type { RulesTarget } from './RulesPage.tsx';
 import { NONE, StageTabs, campaignsIn, type StageTab } from './StageTabs.tsx';
+import { Icon, StatusSwitch } from './ui.tsx';
+
+export { Modal } from './ui.tsx';
 
 interface Props {
   data: OverviewData;
@@ -12,11 +16,21 @@ interface Props {
   /** Ask Meta again instead of the few-minutes cache */
   onRefresh: () => void;
   onOpenRules: (t: RulesTarget) => void;
+  onOpenCampaign: (id: string) => void;
   stageTab: StageTab;
   onStageTab: (t: StageTab) => void;
+  preview: Preview | null;
+  ideas: Idea[];
 }
 
-export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRules, stageTab, onStageTab }: Props) {
+type SortKey = 'spend' | 'roas_desc' | 'roas_asc' | 'profit' | 'budget' | 'name';
+const SORT_LABEL: Record<SortKey, string> = {
+  spend: 'ใช้จ่ายมากสุด', roas_desc: 'ROAS สูงสุด', roas_asc: 'ROAS ต่ำสุด', profit: 'กำไรมากสุด', budget: 'งบ/วันมากสุด', name: 'ชื่อ ก–ฮ',
+};
+
+const roasOf = (c: CampaignView) => (c.metrics && c.metrics.spend > 0 ? c.metrics.purchase_value / c.metrics.spend : null);
+
+export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRules, onOpenCampaign, stageTab, onStageTab, preview, ideas }: Props) {
   const all = data.campaigns.reduce(
     (t, c) => ({ spend: t.spend + (c.metrics?.spend ?? 0), purchases: t.purchases + (c.metrics?.purchases ?? 0), value: t.value + (c.metrics?.purchase_value ?? 0) }),
     { spend: 0, purchases: 0, value: 0 },
@@ -24,44 +38,76 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
   const withProfit = data.campaigns.filter((c) => c.profit !== null && (c.metrics?.spend ?? 0) > 0);
   const spending = data.campaigns.filter((c) => (c.metrics?.spend ?? 0) > 0).length;
   const profit = withProfit.reduce((t, c) => t + (c.profit ?? 0), 0);
+  const running = data.campaigns.filter((c) => c.status === 'ACTIVE').length;
+  const budget = data.campaigns.filter((c) => c.status === 'ACTIVE').reduce((t, c) => t + (c.daily_budget ?? c.adsets.reduce((a, s) => a + (s.status === 'ACTIVE' ? (s.daily_budget ?? 0) : 0), 0)), 0);
   const stage = data.stages.find((s) => s.id === stageTab) ?? null;
 
   return (
     <>
-      <div className="row between wrap">
+      <div className="toolbar">
         <div className="segmented" role="tablist" aria-label="ช่วงเวลา">
           {(data.snapshot?.windows ?? (Object.keys(WINDOW_LABEL) as Window[])).map((w) => (
-            <button key={w} className={w === window ? 'on' : ''} onClick={() => onWindow(w)}>{WINDOW_LABEL[w]}</button>
+            <button key={w} role="tab" aria-selected={w === window} className={w === window ? 'on' : ''} onClick={() => onWindow(w)}>{WINDOW_LABEL[w]}</button>
           ))}
         </div>
-        <div className="row">
-          {!data.snapshot && <span className="muted small">ข้อมูล Meta เมื่อ {time(data.meta_fetched_at)}</span>}
-          <button className="ghost" onClick={onRefresh} title="ดึงข้อมูลใหม่จาก Meta (ไม่เกินนาทีละครั้ง)">รีเฟรช</button>
-        </div>
+        {!data.snapshot && (
+          <button className="ghost small fresh" onClick={onRefresh} title="ดึงข้อมูลใหม่จาก Meta (ไม่เกินนาทีละครั้ง)">
+            <Icon name="refresh" size={16} /> อัปเดต {time(data.meta_fetched_at)}
+          </button>
+        )}
       </div>
 
       <div className="kpis">
-        <div className="kpi"><span>ใช้จ่าย</span><b>{baht(all.spend)}</b></div>
-        <div className="kpi"><span>ยอดซื้อ</span><b>{num(all.purchases)}</b></div>
-        <div className="kpi"><span>ROAS</span><b>{roas(all.value, all.spend)}</b></div>
-        <div className="kpi">
-          <span>กำไรหลังหักทุนและค่าแอด</span>
-          <b className={profit < 0 ? 'bad' : ''}>{withProfit.length ? baht(profit) : '–'}</b>
-          <small>{withProfit.length ? `นับ ${withProfit.length}/${spending} แคมเปญที่ผูกต้นทุนแล้ว` : 'ผูกต้นทุนในแท็บสินค้าก่อน'}</small>
-        </div>
+        <Kpi label="ใช้จ่าย" value={baht(all.spend)} sub={`${spending} แคมเปญที่ใช้เงิน`} />
+        <Kpi label="ออเดอร์" value={num(all.purchases)} sub={all.purchases ? `ต้นทุน ${baht(all.spend / all.purchases)}/ออเดอร์` : undefined} />
+        <Kpi label="ROAS" value={all.spend ? num(all.value / all.spend, 2) : '–'} sub={`ยอดขาย ${baht(all.value)}`} />
+        <Kpi
+          label="กำไรหลังหักทุน+แอด"
+          value={withProfit.length ? baht(profit) : '–'}
+          tone={withProfit.length ? (profit < 0 ? 'bad' : 'good') : undefined}
+          sub={withProfit.length ? `นับ ${withProfit.length}/${spending} แคมเปญที่ผูกต้นทุน` : 'ผูกต้นทุนในแท็บสินค้าก่อน'}
+        />
       </div>
-
-      {data.last_run && <p className="muted small">รันล่าสุด {when(data.last_run.run_at)} · {data.last_run.summary}</p>}
+      <p className="muted small meta-line">
+        เปิดอยู่ {running} แคมเปญ · งบรวม {baht(budget)}/วัน
+        {data.last_run && <> · รันกฎล่าสุด {when(data.last_run.run_at)} — {data.last_run.summary}</>}
+      </p>
 
       <StageTabs stages={data.stages} campaigns={data.campaigns} value={stageTab} onChange={onStageTab} />
-      <StageCard key={stageTab} stage={stageTab === NONE ? null : stage} campaigns={campaignsIn(stageTab, data.campaigns)} data={data} onReload={onReload} onOpenRules={onOpenRules} />
+      <StageSection
+        key={stageTab}
+        stage={stageTab === NONE ? null : stage}
+        campaigns={campaignsIn(stageTab, data.campaigns)}
+        data={data}
+        preview={preview}
+        ideas={ideas}
+        onReload={onReload}
+        onOpenRules={onOpenRules}
+        onOpenCampaign={onOpenCampaign}
+      />
     </>
   );
 }
 
-function StageCard({ stage, campaigns, data, onReload, onOpenRules }: {
-  stage: Stage | null; campaigns: CampaignView[]; data: OverviewData; onReload: () => void; onOpenRules: (t: RulesTarget) => void;
+function Kpi({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: 'good' | 'bad' }) {
+  return (
+    <div className="kpi">
+      <span>{label}</span>
+      <b className={tone ?? ''}>{value}</b>
+      {sub && <small>{sub}</small>}
+    </div>
+  );
+}
+
+function StageSection({ stage, campaigns, data, preview, ideas, onReload, onOpenRules, onOpenCampaign }: {
+  stage: Stage | null; campaigns: CampaignView[]; data: OverviewData; preview: Preview | null; ideas: Idea[];
+  onReload: () => void; onOpenRules: (t: RulesTarget) => void; onOpenCampaign: (id: string) => void;
 }) {
+  const [q, setQ] = useState('');
+  const [sort, setSort] = useState<SortKey>(() => readSort());
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const actions = useCampaignActions({ stages: data.stages, guardrails: data.settings.guardrails, readOnly: data.snapshot !== null, onDone: onReload });
+
   const t = campaigns.reduce(
     (a, c) => ({ spend: a.spend + (c.metrics?.spend ?? 0), purchases: a.purchases + (c.metrics?.purchases ?? 0), value: a.value + (c.metrics?.purchase_value ?? 0) }),
     { spend: 0, purchases: 0, value: 0 },
@@ -70,192 +116,190 @@ function StageCard({ stage, campaigns, data, onReload, onOpenRules }: {
   const profit = profits.reduce((a, c) => a + (c.profit ?? 0), 0);
   const actionRules = stage?.rules.filter((r) => r.enabled !== false && r.action.type !== 'move').length ?? 0;
   const moveRules = stage?.rules.filter((r) => r.enabled !== false && r.action.type === 'move') ?? [];
-  const sorted = [...campaigns].sort((a, b) => (b.metrics?.spend ?? 0) - (a.metrics?.spend ?? 0));
+
+  const list = useMemo(() => {
+    const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const hit = campaigns.filter((c) => words.every((w) => c.name.toLowerCase().includes(w) || c.id.includes(w)));
+    const by: Record<SortKey, (a: CampaignView, b: CampaignView) => number> = {
+      spend: (a, b) => (b.metrics?.spend ?? 0) - (a.metrics?.spend ?? 0),
+      roas_desc: (a, b) => (roasOf(b) ?? -1) - (roasOf(a) ?? -1),
+      roas_asc: (a, b) => (roasOf(a) ?? Infinity) - (roasOf(b) ?? Infinity),
+      profit: (a, b) => (b.profit ?? -Infinity) - (a.profit ?? -Infinity),
+      budget: (a, b) => (b.daily_budget ?? 0) - (a.daily_budget ?? 0),
+      name: (a, b) => a.name.localeCompare(b.name, 'th'),
+    };
+    // Running campaigns first, then the chosen order.
+    return [...hit].sort((a, b) => Number(b.status === 'ACTIVE') - Number(a.status === 'ACTIVE') || by[sort](a, b));
+  }, [campaigns, q, sort]);
+
+  const nextOf = useMemo(() => {
+    const m = new Map<string, PreviewItem[]>();
+    for (const i of preview?.items ?? []) if (!i.skipped_reason && i.action !== 'notify') m.set(i.campaign_id, [...(m.get(i.campaign_id) ?? []), i]);
+    return m;
+  }, [preview]);
+  const ideaOf = useMemo(() => {
+    const m = new Map<string, Idea>();
+    for (const i of ideas) if (i.campaign_id && !m.has(i.campaign_id)) m.set(i.campaign_id, i);
+    return m;
+  }, [ideas]);
+
+  const chosen = list.filter((c) => selected.has(c.id));
+  const allOn = list.length > 0 && chosen.length === list.length;
+  const toggle = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const clear = () => setSelected(new Set());
 
   return (
-    <section className={`card stage stage-${stage?.id ?? 'none'}`}>
-      <header className="card-head">
-        <div>
-          <h2>{stage?.name ?? 'ยังไม่จัดกลุ่ม'} <span className="muted small">{campaigns.length} แคมเปญ</span></h2>
+    <section className={`stage-panel stage-${stage?.id ?? 'none'}`}>
+      <header className="stage-head">
+        <div className="stage-title">
+          <h2>{stage?.name ?? 'ยังไม่จัดกลุ่ม'}</h2>
           {stage ? (
             <div className="tags">
-              <span className={`tag ${stage.automation && actionRules ? 'on' : ''}`}>{stage.automation ? `อัตโนมัติ ${actionRules} กฎ` : 'ปิดอัตโนมัติ'}</span>
-              {stage.automation && moveRules.map((r) => (
-                <span key={r.id} className="tag">↪ {data.stages.find((s) => s.id === r.action.to)?.name}</span>
-              ))}
+              <span className={`tag ${stage.automation && actionRules ? 'on' : ''}`}>{stage.automation ? (actionRules ? `อัตโนมัติ ${actionRules} กฎ` : 'ยังไม่มีกฎ — ดูอย่างเดียว') : 'ปิดอัตโนมัติ'}</span>
+              {stage.automation && moveRules.map((r) => <span key={r.id} className="tag">ย้ายอัตโนมัติ → {stageLabel(data.stages, r.action.to ?? null)}</span>)}
               {stage.description && <span className="muted small">{stage.description}</span>}
             </div>
           ) : (
-            <p className="muted small">ระบบไม่แตะแคมเปญกลุ่มนี้ — เลือกกลุ่มให้แต่ละตัวก่อน</p>
+            <p className="muted small">ระบบไม่แตะแคมเปญกลุ่มนี้ — เลือกหลายตัวแล้วกด "ย้ายไป" ได้ทีเดียว</p>
           )}
         </div>
         <div className="stats">
           <div><span>ใช้จ่าย</span><b>{baht(t.spend)}</b></div>
-          <div><span>ยอดซื้อ</span><b>{num(t.purchases)}</b></div>
-          <div><span>ROAS</span><b>{roas(t.value, t.spend)}</b></div>
+          <div><span>ออเดอร์</span><b>{num(t.purchases)}</b></div>
+          <div><span>ROAS</span><b>{t.spend ? num(t.value / t.spend, 2) : '–'}</b></div>
           <div><span>กำไร</span><b className={profit < 0 ? 'bad' : ''}>{profits.length ? baht(profit) : '–'}</b></div>
         </div>
-        {stage ? <button className="ghost" onClick={() => onOpenRules({ kind: 'stage', id: stage.id })}>กฎของกลุ่ม ›</button> : <span />}
+        {stage && <button className="ghost small" onClick={() => onOpenRules({ kind: 'stage', id: stage.id })}>กฎของกลุ่ม <Icon name="chevron" size={14} /></button>}
       </header>
-      <div className="campaigns">
-        {sorted.length === 0 && (
-          <p className="muted">{stage ? 'ยังไม่มีแคมเปญในกลุ่มนี้ — ย้ายเข้ามาจากช่อง "กลุ่ม" ของแต่ละแคมเปญ' : 'จัดกลุ่มครบทุกแคมเปญแล้ว'}</p>
+
+      {campaigns.length > 0 && (
+        <div className="list-tools">
+          <label className="search">
+            <Icon name="search" size={16} />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาชื่อแคมเปญ" aria-label="ค้นหาแคมเปญ" />
+            {q && <button className="icon-btn" onClick={() => setQ('')} aria-label="ล้าง"><Icon name="x" size={14} /></button>}
+          </label>
+          <label className="sort">
+            <Icon name="sort" size={16} />
+            <select value={sort} onChange={(e) => { setSort(e.target.value as SortKey); saveSort(e.target.value); }} aria-label="เรียงตาม">
+              {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => <option key={k} value={k}>{SORT_LABEL[k]}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
+
+      <div className="table" role="table" aria-label="แคมเปญ">
+        {list.length > 0 && (
+          <div className="tr th" role="row">
+            <span className="cell-check">
+              <input type="checkbox" checked={allOn} ref={(el) => { if (el) el.indeterminate = chosen.length > 0 && !allOn; }} onChange={() => setSelected(allOn ? new Set() : new Set(list.map((c) => c.id)))} aria-label="เลือกทั้งหมด" />
+            </span>
+            <span />
+            <span>แคมเปญ ({list.length})</span>
+            <span className="num">ใช้จ่าย</span>
+            <span className="num">ออเดอร์</span>
+            <span className="num">ROAS</span>
+            <span className="num">กำไร</span>
+            <span className="num">งบ/วัน</span>
+          </div>
         )}
-        {sorted.map((c) => <CampaignRow key={c.id} c={c} data={data} onReload={onReload} onOpenRules={onOpenRules} />)}
+        {list.map((c) => (
+          <CampaignRow
+            key={c.id}
+            c={c}
+            data={data}
+            selected={selected.has(c.id)}
+            onSelect={() => toggle(c.id)}
+            next={nextOf.get(c.id) ?? []}
+            idea={ideaOf.get(c.id)}
+            onOpen={() => onOpenCampaign(c.id)}
+            onStatus={(s) => actions.setStatus(c.id, c.name, s)}
+          />
+        ))}
+        {campaigns.length === 0 && (
+          <div className="empty">
+            <p>{stage ? 'ยังไม่มีแคมเปญในกลุ่มนี้' : 'จัดกลุ่มครบทุกแคมเปญแล้ว 🎉'}</p>
+            {stage && <p className="muted small">ไปที่แท็บ "ยังไม่จัด" หรือกลุ่มอื่น เลือกแคมเปญ แล้วกด "ย้ายไป"</p>}
+          </div>
+        )}
+        {campaigns.length > 0 && list.length === 0 && <div className="empty muted">ไม่พบแคมเปญที่ชื่อมี "{q}"</div>}
       </div>
+
+      {chosen.length > 0 && (
+        <div className="bulk-bar" role="toolbar" aria-label="ทำกับที่เลือก">
+          <span className="bulk-count"><b>{chosen.length}</b> ที่เลือก</span>
+          <label className="bulk-move">
+            <Icon name="move" size={16} />
+            <select value="" onChange={async (e) => { const v = e.target.value; if (!v) return; if (await actions.moveStage(chosen, v === NONE ? null : v)) clear(); }} aria-label="ย้ายไปกลุ่ม">
+              <option value="">ย้ายไป…</option>
+              {data.stages.filter((s) => s.id !== stage?.id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {stage && <option value={NONE}>ยังไม่จัด</option>}
+            </select>
+          </label>
+          <div className="bulk-budget" aria-label="ปรับงบ">
+            <span className="muted small">งบ</span>
+            {[-20, -10, 10, 20].map((p) => (
+              <button key={p} className={`small ${p < 0 ? 'down' : 'up'}`} disabled={data.snapshot !== null} onClick={async () => { if (await actions.changeBudget(chosen, p)) clear(); }}>
+                {p > 0 ? '+' : '−'}{Math.abs(p)}%
+              </button>
+            ))}
+          </div>
+          <button className="icon-btn" onClick={clear} aria-label="ยกเลิกที่เลือก"><Icon name="x" /></button>
+        </div>
+      )}
     </section>
   );
 }
 
-function CampaignRow({ c, data, onReload, onOpenRules }: { c: CampaignView; data: OverviewData; onReload: () => void; onOpenRules: (t: RulesTarget) => void }) {
-  const [busy, setBusy] = useState(false);
-  const [showAdsets, setShowAdsets] = useState(false);
+function CampaignRow({ c, data, selected, onSelect, next, idea, onOpen, onStatus }: {
+  c: CampaignView; data: OverviewData; selected: boolean; onSelect: () => void; next: PreviewItem[]; idea?: Idea;
+  onOpen: () => void; onStatus: (s: 'ACTIVE' | 'PAUSED') => Promise<void>;
+}) {
   const m = c.metrics;
-  const r = m && m.spend > 0 ? m.purchase_value / m.spend : null;
+  const r = roasOf(c);
   const section = data.sections.find((s) => s.id === c.section_id);
-  const readOnly = data.snapshot !== null;
   const days = c.stage_since ? Math.floor((Date.now() - new Date(c.stage_since).getTime()) / 86_400_000) : null;
-
-  async function act(fn: () => Promise<unknown>) {
-    setBusy(true);
-    try { await fn(); onReload(); } catch (e: any) { alert(e.message); } finally { setBusy(false); }
-  }
-
-  const save = (patch: { section_id?: string | null; stage_id?: string | null }) => act(() => api.saveCampaign(c.id, {
-    name: c.name,
-    section_id: patch.section_id !== undefined ? patch.section_id : (c.pinned ? c.section_id : null),
-    stage_id: patch.stage_id !== undefined ? patch.stage_id : c.stage_id,
-    mode: c.mode,
-    rules: c.rules,
-  }));
-
   return (
-    <div className={`campaign ${c.status !== 'ACTIVE' ? 'paused' : ''}`}>
-      <div className="c-main">
-        <StatusSwitch entity={c} busy={busy || readOnly} onToggle={(status) => act(() => api.setStatus(c.id, status, c.name))} />
-        <div className="c-name">
-          <b>{c.name}</b>
-          <div className="c-metrics">
-            <span>{baht(m?.spend)}</span>
-            <span>{num(m?.purchases)} ออเดอร์</span>
-            <span className={roasTone(r, c.breakeven_roas)} title={c.breakeven_roas ? `คุ้มทุนที่ ${num(c.breakeven_roas, 2)}` : 'ยังไม่ผูกต้นทุน'}>
-              ROAS {r === null ? '–' : num(r, 2)}{c.breakeven_roas ? ` / คุ้มทุน ${num(c.breakeven_roas, 2)}` : ''}
-            </span>
-            {c.profit !== null && <span className={c.profit < 0 ? 'bad' : ''}>กำไร {baht(c.profit)}</span>}
-            {m && m.frequency > 0 && <span>Freq {num(m.frequency, 2)}</span>}
-            {days !== null && <span>อยู่กลุ่มนี้ {days} วัน</span>}
-          </div>
-        </div>
-        <Budget entity={c} busy={busy || readOnly} nullLabel="งบอยู่ที่ ad set" onSave={(amount) => act(() => api.setBudget(c.id, amount, c.daily_budget, c.name))} />
-      </div>
-      <div className="c-controls">
-        <label>กลุ่ม
-          <select value={c.stage_id ?? ''} disabled={busy} onChange={(e) => save({ stage_id: e.target.value || null })}>
-            <option value="">— ยังไม่จัด —</option>
-            {data.stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        </label>
-        <label>สินค้า
-          <select value={c.pinned ? c.section_id : ''} disabled={busy} onChange={(e) => save({ section_id: e.target.value || null })}>
-            <option value="">อัตโนมัติจากชื่อ ({section?.name ?? '–'})</option>
-            {data.sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        </label>
-        <button className={`small ${c.mode === 'custom' ? 'warn' : 'ghost'}`} onClick={() => onOpenRules({ kind: 'campaign', id: c.id })}>
-          กฎ: {MODE_LABEL[c.mode]}{c.mode === 'custom' ? ` (${c.rules?.length ?? 0})` : ''} ›
-        </button>
-        {c.adsets.length > 0 && (
-          <button className="ghost small" onClick={() => setShowAdsets(!showAdsets)}>{showAdsets ? 'ซ่อน' : 'ดู'} ad set ({c.adsets.length})</button>
-        )}
-      </div>
-      {showAdsets && (
-        <div className="adsets">
-          {c.adsets.map((a) => <AdsetRow key={a.id} a={a} breakeven={c.breakeven_roas} readOnly={readOnly} onReload={onReload} />)}
-          {c.adsets.length > 0 && c.adsets.every((a) => !a.metrics) && <p className="muted small">ยังไม่มีตัวเลขระดับ ad set ในช่วงเวลานี้</p>}
-        </div>
-      )}
+    <div className={`tr campaign ${c.status !== 'ACTIVE' ? 'paused' : ''} ${selected ? 'selected' : ''}`} role="row" onClick={onOpen}>
+      <span className="cell-check" onClick={(e) => e.stopPropagation()}>
+        <input type="checkbox" checked={selected} onChange={onSelect} aria-label={`เลือก ${c.name}`} />
+      </span>
+      <span onClick={(e) => e.stopPropagation()}>
+        <StatusSwitch name={c.name} status={c.status} disabled={data.snapshot !== null} onToggle={onStatus} />
+      </span>
+      <span className="cell-name">
+        <button className="name-link" onClick={(e) => { e.stopPropagation(); onOpen(); }}>{c.name}</button>
+        <span className="badges">
+          {next.map((n, i) => <span key={i} className="badge next" title={n.plan}><Icon name="clock" size={12} />{previewText(n, data.stages)}</span>)}
+          {idea && <span className={`badge idea ${idea.severity}`} title={idea.detail}><Icon name="bulb" size={12} />{idea.title}</span>}
+          {section && section.id !== 'default' && <span className="badge">{section.name}</span>}
+          {c.mode !== 'stage' && <span className="badge warn">{c.mode === 'custom' ? 'กฎเฉพาะ' : 'ไม่อัตโนมัติ'}</span>}
+          {days !== null && <span className="badge plain">{days} วันในกลุ่ม</span>}
+        </span>
+      </span>
+      <span className="num" data-label="ใช้จ่าย">{baht(m?.spend)}</span>
+      <span className="num" data-label="ออเดอร์">{num(m?.purchases)}</span>
+      <span className={`num strong ${roasTone(r, c.breakeven_roas)}`} data-label="ROAS" title={c.breakeven_roas ? `คุ้มทุนที่ ${num(c.breakeven_roas, 2)}` : 'ยังไม่ผูกต้นทุน'}>
+        {r === null ? '–' : num(r, 2)}
+      </span>
+      <span className={`num ${c.profit !== null && c.profit < 0 ? 'bad' : ''}`} data-label="กำไร">{c.profit === null ? '–' : baht(c.profit)}</span>
+      <span className="num" data-label="งบ/วัน">{c.daily_budget === null ? <span className="muted small">ที่ ad set</span> : baht(c.daily_budget)}</span>
     </div>
   );
 }
 
-function AdsetRow({ a, breakeven, readOnly, onReload }: { a: EntityView; breakeven: number | null; readOnly: boolean; onReload: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const m = a.metrics;
-  const r = m && m.spend > 0 ? m.purchase_value / m.spend : null;
-  const act = async (fn: () => Promise<unknown>) => {
-    setBusy(true);
-    try { await fn(); onReload(); } catch (e: any) { alert(e.message); } finally { setBusy(false); }
-  };
-  return (
-    <div className={`c-main adset ${a.status !== 'ACTIVE' ? 'paused' : ''}`}>
-      <StatusSwitch entity={a} busy={busy || readOnly} onToggle={(status) => act(() => api.setStatus(a.id, status, a.name))} />
-      <div className="c-name">
-        <span>{a.name}</span>
-        <div className="c-metrics">
-          <span>{baht(m?.spend)}</span>
-          <span>{num(m?.purchases)} ออเดอร์</span>
-          <span className={roasTone(r, breakeven)}>ROAS {r === null ? '–' : num(r, 2)}</span>
-          {m && m.frequency > 0 && <span>Freq {num(m.frequency, 2)}</span>}
-        </div>
-      </div>
-      <Budget entity={a} busy={busy || readOnly} nullLabel="งบอยู่ที่แคมเปญ (CBO)" onSave={(amount) => act(() => api.setBudget(a.id, amount, a.daily_budget, a.name))} />
-    </div>
-  );
+export function previewText(i: PreviewItem, stages: Stage[]): string {
+  const who = i.level === 'adset' ? 'ad set: ' : '';
+  if (i.action === 'move') return `ย้าย → ${stageLabel(stages, i.move_to ?? null)}`;
+  if (i.action === 'pause') return `${who}หยุด`;
+  if (i.action === 'enable') return `${who}เปิด`;
+  if (i.action === 'budget_pct') return `${who}งบ → ${baht(i.after?.daily_budget ?? null)}`;
+  return `${who}แจ้งเตือน`;
 }
 
-function StatusSwitch({ entity, busy, onToggle }: { entity: EntityView; busy: boolean; onToggle: (s: 'ACTIVE' | 'PAUSED') => void }) {
-  const on = entity.status === 'ACTIVE';
-  return (
-    <button
-      className={`switch ${on ? 'on' : ''}`}
-      disabled={busy}
-      role="switch"
-      aria-checked={on}
-      aria-label={on ? 'กำลังเปิด — กดเพื่อหยุด' : 'หยุดอยู่ — กดเพื่อเปิด'}
-      onClick={() => {
-        const next = on ? 'PAUSED' : 'ACTIVE';
-        if (confirm(`${next === 'PAUSED' ? 'หยุด' : 'เปิด'} "${entity.name}" บน Meta จริงเลยใช่ไหม?`)) onToggle(next);
-      }}
-    >
-      <span />
-    </button>
-  );
+function readSort(): SortKey {
+  try { return (localStorage.getItem('sort') as SortKey) || 'spend'; } catch { return 'spend'; }
 }
-
-function Budget({ entity, busy, onSave, nullLabel }: { entity: EntityView; busy: boolean; onSave: (amount: number) => void; nullLabel: string }) {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(String(entity.daily_budget ?? ''));
-  if (entity.daily_budget === null) return <div className="budget muted small">{nullLabel}</div>;
-  if (!editing) {
-    return (
-      <button className="budget ghost" disabled={busy} onClick={() => { setValue(String(entity.daily_budget)); setEditing(true); }}>
-        {baht(entity.daily_budget)}<small>/วัน ✎</small>
-      </button>
-    );
-  }
-  return (
-    <form className="budget edit" onSubmit={(e) => {
-      e.preventDefault();
-      const amount = Number(value);
-      if (!Number.isFinite(amount) || amount <= 0) return;
-      if (confirm(`เปลี่ยนงบ "${entity.name}" จาก ${baht(entity.daily_budget)} เป็น ${baht(amount)} ต่อวัน บน Meta จริงเลยใช่ไหม?`)) onSave(amount);
-      setEditing(false);
-    }}>
-      <input type="number" autoFocus value={value} onChange={(e) => setValue(e.target.value)} aria-label="งบต่อวัน" />
-      <button className="primary small" disabled={busy}>ตั้ง</button>
-      <button type="button" className="ghost small" onClick={() => setEditing(false)}>ยกเลิก</button>
-    </form>
-  );
+function saveSort(v: string) {
+  try { localStorage.setItem('sort', v); } catch { /* private mode */ }
 }
-
-export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return (
-    <div className="modal-bg" onClick={onClose}>
-      <div className="modal" role="dialog" aria-label={title} onClick={(e) => e.stopPropagation()}>
-        <div className="row between"><h2>{title}</h2><button className="ghost" onClick={onClose}>ปิด</button></div>
-        {children}
-      </div>
-    </div>
-  );
-}
-

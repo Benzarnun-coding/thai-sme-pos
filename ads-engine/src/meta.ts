@@ -4,6 +4,16 @@ import type { Entity, Level, Metrics, Window } from './types.ts';
 
 const DEFAULT_API_VERSION = 'v21.0';
 
+/** One day of one campaign, for trend charts */
+export interface DailyRow {
+  date: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  purchases: number;
+  purchase_value: number;
+}
+
 const WINDOW_TO_PRESET: Record<Window, string> = {
   today: 'today',
   yesterday: 'yesterday',
@@ -135,6 +145,23 @@ export class MetaClient {
       });
     }
     return out;
+  }
+
+  /** Day-by-day numbers for one campaign (one call). */
+  async dailyInsights(campaignId: string, window: Window): Promise<DailyRow[]> {
+    const rows = await this.getAll(`${campaignId}/insights`, {
+      date_preset: WINDOW_TO_PRESET[window],
+      time_increment: '1',
+      fields: 'spend,impressions,clicks,actions,action_values',
+    });
+    return rows.map((r) => ({
+      date: r.date_start,
+      spend: num(r.spend),
+      impressions: num(r.impressions),
+      clicks: num(r.clicks),
+      purchases: sumPurchases(r.actions),
+      purchase_value: sumPurchases(r.action_values),
+    }));
   }
 
   async setStatus(id: string, status: 'ACTIVE' | 'PAUSED'): Promise<void> {

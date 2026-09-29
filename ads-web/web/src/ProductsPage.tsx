@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { api, type Overview } from './api.ts';
 import { baht, num } from './fmt.ts';
+import { useUi } from './ui.tsx';
 
 /** Product lines: which sheet codes each sells and its per-order cost model → break-even ROAS used by every stage rule. */
 export function ProductsPage({ data, onEdit, onReload }: { data: Overview; onEdit: (id: string) => void; onReload: () => void }) {
+  const { toast } = useUi();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
 
@@ -17,7 +19,7 @@ export function ProductsPage({ data, onEdit, onReload }: { data: Overview; onEdi
       onReload();
       onEdit(s.id);
     } catch (err: any) {
-      alert(err.message);
+      toast(err.message, 'bad');
     } finally {
       setCreating(false);
     }
@@ -26,7 +28,7 @@ export function ProductsPage({ data, onEdit, onReload }: { data: Overview; onEdi
   return (
     <>
       <p className="muted small">
-        สินค้าแต่ละตัวบอกต้นทุนจากชีต → ได้ ROAS คุ้มทุน ซึ่งกฎ "× จุดคุ้มทุน" ในทุกกลุ่มจะใช้ แคมเปญจับคู่สินค้าเองจากคำในชื่อ หรือเลือกเองในหน้าภาพรวม
+        สินค้าแต่ละตัวบอกต้นทุนจากชีต → ได้ ROAS คุ้มทุน ซึ่งกฎ "× จุดคุ้มทุน" ในทุกกลุ่มจะใช้ แคมเปญจับคู่สินค้าเองจากคำในชื่อ หรือเลือกเองในหน้ารายละเอียดแคมเปญ
         {data.costs_loaded === 0 && <b className="warn"> · ยังไม่มีต้นทุนในระบบ ไปที่ตั้งค่า → ดึงต้นทุนจากชีต</b>}
       </p>
       {data.sections.map((s) => {

@@ -95,23 +95,28 @@ export function History({ stages }: { stages: Stage[] }) {
         <h2>ใครแก้อะไร</h2>
         {auditRows.length === 0 && <p className="muted">ยังไม่มี</p>}
         <ul className="audit">
-          {auditRows.map((a) => {
-            const d = safeParse(a.detail);
-            const name = d?.name ?? d?.after?.name ?? d?.before?.name;
-            return (
-              <li key={a.id}>
-                <span className="muted small">{when(a.at)}</span> <b>{a.actor}</b> {AUDIT_LABEL[a.action] ?? a.action}
-                {name ? ` "${name}"` : ` ${a.target}`}
-                {a.action === 'meta.budget' && d ? ` ${baht(d.from)} → ${baht(d.to)}` : ''}
-                {a.action === 'meta.status' && d ? ` → ${d.status === 'ACTIVE' ? 'เปิด' : 'หยุด'}` : ''}
-                {a.action === 'campaign.stage' && d ? ` ${stageName(d.from)} → ${stageName(d.to)}` : ''}
-              </li>
-            );
-          })}
+          {auditRows.map((a) => (
+            <li key={a.id}>
+              <span className="muted small">{when(a.at)}</span> <b>{a.actor}</b> {auditText(a, stageName, true)}
+            </li>
+          ))}
         </ul>
       </section>
     </>
   );
+}
+
+/** One audit row in words; withName adds the campaign/section name. */
+export function auditText(a: AuditRow, stageName: (id: string | null) => string, withName: boolean): string {
+  const d = safeParse(a.detail);
+  const name = d?.name ?? d?.after?.name ?? d?.before?.name;
+  return [
+    AUDIT_LABEL[a.action] ?? a.action,
+    withName ? (name ? ` "${name}"` : ` ${a.target}`) : '',
+    a.action === 'meta.budget' && d ? ` ${baht(d.from)} → ${baht(d.to)}${d.bulk_pct ? ` (ปรับหลายตัว ${d.bulk_pct > 0 ? '+' : ''}${d.bulk_pct}%)` : ''}` : '',
+    a.action === 'meta.status' && d ? ` → ${d.status === 'ACTIVE' ? 'เปิด' : 'หยุด'}` : '',
+    a.action === 'campaign.stage' && d ? ` ${stageName(d.from)} → ${stageName(d.to)}` : '',
+  ].join('');
 }
 
 function safeParse(s: string): any {

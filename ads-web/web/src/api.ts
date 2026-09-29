@@ -123,6 +123,41 @@ export interface RunReport {
 export interface RunRow { id: number; run_at: string; trigger: string; dry_run: boolean; summary: string; report: RunReport }
 export interface AuditRow { id: number; at: string; actor: string; action: string; target: string; detail: string }
 
+export type IdeaAction =
+  | { type: 'move'; to: string }
+  | { type: 'budget_pct'; pct: number }
+  | { type: 'pause' }
+  | { type: 'open_stage_tab'; tab: string };
+
+export interface Idea {
+  id: string;
+  kind: 'declining' | 'rising' | 'underfunded' | 'money_sink' | 'no_sales' | 'fatigue' | 'weak_winner' | 'unassigned';
+  severity: 'high' | 'medium' | 'low';
+  campaign_id: string | null;
+  campaign_name: string;
+  title: string;
+  detail: string;
+  action: IdeaAction | null;
+  facts: { label: string; value: string }[];
+}
+
+export interface PreviewItem {
+  campaign_id: string; entity_id: string; level: Level; name: string;
+  action: ActionType; plan: string; skipped_reason: string | null;
+  after: { status?: string; daily_budget?: number | null } | null;
+  move_to?: string;
+}
+export interface Preview { dry_run: boolean; kill_switch: boolean; items: PreviewItem[]; notes: string[] }
+
+export interface DailyRow { date: string; spend: number; impressions: number; clicks: number; purchases: number; purchase_value: number }
+
+export interface CampaignHistory {
+  audit: AuditRow[];
+  runs: { run_id: number; run_at: string; trigger: string; dry_run: boolean; plan: string; skipped_reason: string | null; applied: boolean; error: string | null }[];
+}
+
+export interface BulkBudgetResult { id: string; name: string; from: number | null; to?: number; ok: boolean; message?: string }
+
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
@@ -152,6 +187,12 @@ export const api = {
   runs: () => call<RunRow[]>('GET', '/api/runs'),
   audit: () => call<AuditRow[]>('GET', '/api/audit'),
   settings: () => call<Settings>('GET', '/api/settings'),
+  ideas: () => call<{ ideas: Idea[]; costs_loaded: boolean; meta_fetched_at: string; meta_warning: string | null }>('GET', '/api/ideas'),
+  preview: () => call<Preview>('GET', '/api/preview'),
+  daily: (id: string, window: Window) => call<{ days: DailyRow[] }>('GET', `/api/campaigns/${id}/daily?window=${window}`),
+  history: (id: string) => call<CampaignHistory>('GET', `/api/campaigns/${id}/history`),
+  bulkStage: (items: { id: string; name: string }[], stage_id: string | null) => call<{ ok: true; changed: number }>('POST', '/api/bulk/stage', { items, stage_id }),
+  bulkBudget: (items: { id: string; name: string }[], pct: number) => call<{ results: BulkBudgetResult[] }>('POST', '/api/bulk/budget', { items, pct }),
   saveSettings: (s: Settings) => call<Settings>('PUT', '/api/settings', s),
 };
 
