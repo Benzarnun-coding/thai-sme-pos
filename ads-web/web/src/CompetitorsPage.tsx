@@ -212,6 +212,7 @@ function CompetitorCard({ c, cd, data, onChanged }: { c: Competitor; cd: Competi
           <button className="ghost small danger" onClick={remove}>ลบ</button>
         </div>
       </header>
+      <PageStats ads={ads} checks={cd.checks} competitorId={c.id} />
       {!c.page_id && <p className="small muted">ใส่ลิงก์เพจแบบ profile.php?id=… หรือ Page ID จะเปิด Ad Library ตรงเพจ (ตอนนี้ค้นด้วยชื่อ)</p>}
 
       <div className="comp-ads">
@@ -247,6 +248,32 @@ function CompetitorCard({ c, cd, data, onChanged }: { c: Competitor; cd: Competi
           : <button className="ghost add-ad" onClick={() => setAddingAd(true)}>+ บันทึกแอดของ {c.name}</button>}
       </div>
     </section>
+  );
+}
+
+/** Stats strip for one page, from what the team saved. Empty cells say what to fill in. */
+function PageStats({ ads, checks, competitorId }: { ads: CompetitorAd[]; checks: CompetitorData['checks']; competitorId: string }) {
+  const now = today();
+  const t = trend(checks, competitorId);
+  const d = t?.before ? t.now.active_ads - t.before.active_ads : null;
+  const active = ads.filter((a) => a.status === 'active');
+  const longest = Math.max(-1, ...ads.map((a) => daysRunning(a, now) ?? -1));
+  const prices = ads.map((a) => pricePerPiece(a.promo)).filter((x): x is number => x !== null);
+  const angle = angleCounts(ads)[0];
+  const format = formatMix(ads.filter((a) => a.format))[0];
+  const cell = (label: string, value: React.ReactNode, sub: React.ReactNode, empty: boolean) => (
+    <div className={empty ? 'empty-stat' : ''}><span>{label}</span><b>{value}</b><small>{sub}</small></div>
+  );
+  return (
+    <div className="page-stats">
+      {cell('แอดที่วิ่งอยู่', t ? t.now.active_ads : '–',
+        t ? (d === null ? 'เช็กครั้งแรก' : d === 0 ? 'เท่าครั้งก่อน' : <span className={d > 0 ? 'warn' : 'good'}>{d > 0 ? `+${d}` : d} จากครั้งก่อน</span>) : 'ดูใน Ad Library แล้วกด "บันทึกการเช็ก"', !t)}
+      {cell('แอดที่บันทึกไว้', ads.length, ads.length ? `วิ่งอยู่ ${active.length} · หยุด ${ads.length - active.length}` : 'กด "+ บันทึกแอด"', !ads.length)}
+      {cell('วิ่งนานสุด', longest >= 0 ? `${longest} วัน` : '–', longest >= 30 ? 'น่าจะเป็นแอดทำเงิน' : longest >= 0 ? 'ยังไม่ถึงเดือน' : 'ใส่ "เริ่มวิ่ง" ของแอด', longest < 0)}
+      {cell('ราคาต่ำสุด/ตัว', prices.length ? baht(Math.min(...prices)) : '–', prices.length ? `จาก ${prices.length} โปร` : 'เขียนโปรแบบ "3 ตัว 499"', !prices.length)}
+      {cell('มุมขายหลัก', angle ? angle.label : '–', angle ? `${angle.count} จาก ${ads.length} แอด` : 'ใส่โปร/ประโยคเปิด', !angle)}
+      {cell('รูปแบบหลัก', format ? format.format : '–', format ? `${format.count} แอด` : 'เลือกรูปแบบของแอด', !format)}
+    </div>
   );
 }
 
