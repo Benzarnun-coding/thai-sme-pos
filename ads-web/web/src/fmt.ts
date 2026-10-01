@@ -43,3 +43,8 @@ export function profitTone(low: number | null, high: number | null): 'good' | 'b
   if (high !== null && high > 0) return 'warn';
   return 'bad';
 }
+
+/** Conversion rate: orders ÷ clicks, as a percent. */
+export function cvr(purchases: number | undefined, clicks: number | undefined): number | null {
+  return purchases !== undefined && clicks ? (purchases / clicks) * 100 : null;
+}

@@ -42,7 +42,9 @@ export function DailyChart({ days, breakeven }: { days: DailyRow[]; breakeven: n
         <span className="muted">{thaiDate(d.date)}</span>
         <span><i className="dot spend" />ใช้จ่าย <b>{baht(d.spend)}</b></span>
         <span><i className="dot roas" />ROAS <b>{roas[sel] === null ? '–' : num(roas[sel], 2)}</b></span>
+        <span>ยอดขาย <b>{baht(d.purchase_value)}</b></span>
         <span>ออเดอร์ <b>{num(d.purchases)}</b></span>
+        <span>CVR <b>{d.clicks ? `${num((d.purchases / d.clicks) * 100, 2)}%` : '–'}</b></span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="กราฟใช้จ่ายและ ROAS รายวัน" onMouseLeave={() => setHover(null)}>
         {[0.25, 0.5, 0.75, 1].map((f) => (

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { WINDOW_LABEL, type CampaignView, type Idea, type Overview as OverviewData, type Preview, type PreviewItem, type Stage, type Window } from './api.ts';
 import { stageLabel, useCampaignActions } from './actions.tsx';
-import { baht, bahtRange, num, profitTone, roasTone, time, when } from './fmt.ts';
+import { baht, bahtRange, cvr, num, profitTone, roasTone, time, when } from './fmt.ts';
 import type { RulesTarget } from './RulesPage.tsx';
 import { NONE, StageTabs, campaignsIn, type StageTab } from './StageTabs.tsx';
 import { Icon, StatusSwitch } from './ui.tsx';
@@ -23,17 +23,17 @@ interface Props {
   ideas: Idea[];
 }
 
-type SortKey = 'spend' | 'roas_desc' | 'roas_asc' | 'profit' | 'budget' | 'name';
+type SortKey = 'spend' | 'value' | 'roas_desc' | 'roas_asc' | 'cvr' | 'cpa' | 'profit' | 'budget' | 'name';
 const SORT_LABEL: Record<SortKey, string> = {
-  spend: 'ใช้จ่ายมากสุด', roas_desc: 'ROAS สูงสุด', roas_asc: 'ROAS ต่ำสุด', profit: 'กำไรมากสุด', budget: 'งบ/วันมากสุด', name: 'ชื่อ ก–ฮ',
+  spend: 'ใช้จ่ายมากสุด', value: 'ยอดขายมากสุด', roas_desc: 'ROAS สูงสุด', roas_asc: 'ROAS ต่ำสุด', cvr: 'CVR สูงสุด', cpa: 'ค่าแอด/ออเดอร์ ถูกสุด', profit: 'กำไรมากสุด', budget: 'งบ/วันมากสุด', name: 'ชื่อ ก–ฮ',
 };
 
 const roasOf = (c: CampaignView) => (c.metrics && c.metrics.spend > 0 ? c.metrics.purchase_value / c.metrics.spend : null);
 
 export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRules, onOpenCampaign, stageTab, onStageTab, preview, ideas }: Props) {
   const all = data.campaigns.reduce(
-    (t, c) => ({ spend: t.spend + (c.metrics?.spend ?? 0), purchases: t.purchases + (c.metrics?.purchases ?? 0), value: t.value + (c.metrics?.purchase_value ?? 0) }),
-    { spend: 0, purchases: 0, value: 0 },
+    (t, c) => ({ spend: t.spend + (c.metrics?.spend ?? 0), purchases: t.purchases + (c.metrics?.purchases ?? 0), value: t.value + (c.metrics?.purchase_value ?? 0), clicks: t.clicks + (c.metrics?.clicks ?? 0) }),
+    { spend: 0, purchases: 0, value: 0, clicks: 0 },
   );
   const withProfit = data.campaigns.filter((c) => c.profit !== null && (c.metrics?.spend ?? 0) > 0);
   const spending = data.campaigns.filter((c) => (c.metrics?.spend ?? 0) > 0).length;
@@ -60,7 +60,7 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
 
       <div className="kpis">
         <Kpi label="ใช้จ่าย" value={baht(all.spend)} sub={`${spending} แคมเปญที่ใช้เงิน`} />
-        <Kpi label="ออเดอร์" value={num(all.purchases)} sub={all.purchases ? `ต้นทุน ${baht(all.spend / all.purchases)}/ออเดอร์` : undefined} />
+        <Kpi label="ออเดอร์" value={num(all.purchases)} sub={all.purchases ? `ค่าแอด ${baht(all.spend / all.purchases)}/ออเดอร์${all.clicks ? ` · CVR ${num((all.purchases / all.clicks) * 100, 2)}%` : ''}` : undefined} />
         <Kpi label="ROAS" value={all.spend ? num(all.value / all.spend, 2) : '–'} sub={`ยอดขาย ${baht(all.value)}`} />
         <Kpi
           label="กำไรหลังหักทุน+แอด"
@@ -125,8 +125,11 @@ function StageSection({ stage, campaigns, data, preview, ideas, onReload, onOpen
     const hit = campaigns.filter((c) => words.every((w) => c.name.toLowerCase().includes(w) || c.id.includes(w)));
     const by: Record<SortKey, (a: CampaignView, b: CampaignView) => number> = {
       spend: (a, b) => (b.metrics?.spend ?? 0) - (a.metrics?.spend ?? 0),
+      value: (a, b) => (b.metrics?.purchase_value ?? 0) - (a.metrics?.purchase_value ?? 0),
       roas_desc: (a, b) => (roasOf(b) ?? -1) - (roasOf(a) ?? -1),
       roas_asc: (a, b) => (roasOf(a) ?? Infinity) - (roasOf(b) ?? Infinity),
+      cvr: (a, b) => (cvr(b.metrics?.purchases, b.metrics?.clicks) ?? -1) - (cvr(a.metrics?.purchases, a.metrics?.clicks) ?? -1),
+      cpa: (a, b) => (a.metrics?.cpa ?? Infinity) - (b.metrics?.cpa ?? Infinity),
       profit: (a, b) => (b.profit ?? -Infinity) - (a.profit ?? -Infinity),
       budget: (a, b) => (b.daily_budget ?? 0) - (a.daily_budget ?? 0),
       name: (a, b) => a.name.localeCompare(b.name, 'th'),
@@ -168,6 +171,7 @@ function StageSection({ stage, campaigns, data, preview, ideas, onReload, onOpen
         </div>
         <div className="stats">
           <div><span>ใช้จ่าย</span><b>{baht(t.spend)}</b></div>
+          <div><span>ยอดขาย</span><b>{baht(t.value)}</b></div>
           <div><span>ออเดอร์</span><b>{num(t.purchases)}</b></div>
           <div><span>ROAS</span><b>{t.spend ? num(t.value / t.spend, 2) : '–'}</b></div>
           <div><span>กำไร</span><b className={profit < 0 ? 'bad' : ''}>{profits.length ? baht(profit) : '–'}</b></div>
@@ -200,7 +204,9 @@ function StageSection({ stage, campaigns, data, preview, ideas, onReload, onOpen
             <span />
             <span>แคมเปญ ({list.length})</span>
             <span className="num">ใช้จ่าย</span>
+            <span className="num" title="มูลค่าคอนเวอร์ชั่นที่แอดมินติ๊กใน Meta">ยอดขาย</span>
             <span className="num">ออเดอร์</span>
+            <span className="num" title="ค่าแอดต่อออเดอร์">ค่าแอด/ออเดอร์</span>
             <span className="num">ROAS</span>
             <span className="num">กำไร</span>
             <span className="num">งบ/วัน</span>
@@ -281,7 +287,9 @@ function CampaignRow({ c, data, selected, onSelect, next, idea, onOpen, onStatus
         </span>
       </span>
       <span className="num" data-label="ใช้จ่าย">{baht(m?.spend)}</span>
-      <span className="num" data-label="ออเดอร์">{num(m?.purchases)}</span>
+      <span className="num" data-label="ยอดขาย">{baht(m?.purchase_value)}</span>
+      <span className="num" data-label="ออเดอร์" title={cvr(m?.purchases, m?.clicks) === null ? undefined : `CVR ${num(cvr(m?.purchases, m?.clicks), 2)}% (${num(m?.purchases)} ออเดอร์ ÷ ${num(m?.clicks)} คลิก)`}>{num(m?.purchases)}</span>
+      <span className="num" data-label="ค่าแอด/ออเดอร์">{baht(m?.cpa ?? null)}</span>
       <span className={`num strong ${roasTone(r, c.breakeven_roas)}`} data-label="ROAS" title={c.breakeven_roas ? `คุ้มทุนที่ ${num(c.breakeven_roas, 2)}` : 'ยังไม่ผูกต้นทุน'}>
         {r === null ? '–' : num(r, 2)}
       </span>
