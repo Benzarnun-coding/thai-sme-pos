@@ -11,7 +11,7 @@ import {
 } from './db.ts';
 import { ECONOMICS_WINDOW, sectionMap, sectionTotals } from './engine.ts';
 import { MockMeta } from './mock.ts';
-import { DEFAULT_SECTION_ID, WEB_TAB, economics, profitRange, suggestProducts, type CampaignSetting, type Cod, type CostRow, type Economics, type Section } from './model.ts';
+import { DEFAULT_SECTION_ID, WEB_TAB, campaignEconomics, economics, profitRange, suggestProducts, type CampaignSetting, type Cod, type CostRow, type Economics, type Section } from './model.ts';
 import { capChanges, planRun, runAutomation, zeroMetrics, type MetaLike } from './run.ts';
 import { buildIdeas } from './ideas.ts';
 import { friendlyMetaError, loadMetaData, MetaCacheError, patchCachedEntity, type MetaData } from './metadata.ts';
@@ -344,9 +344,11 @@ async function overview(env: Env, window: Window, fresh: boolean) {
   const campaigns = entities.filter((e) => e.level === 'campaign' && relevant(e)).map((c) => {
     const setting = campaignSettings.get(c.id);
     const sectionId = sectionOf.get(c.id) ?? DEFAULT_SECTION_ID;
-    const e = econ.get(sectionId);
+    const section = sections.find((s) => s.id === sectionId);
+    // Priced with the promos in this campaign's own name (falls back to the product's prices).
+    const ce = section ? campaignEconomics(section, costs, totals7.get(sectionId) ?? zero, codOf(settings), c.name) : null;
     const m = c.metrics[window];
-    const range = e && m ? profitRange(e.be, sections.find((s) => s.id === sectionId)?.extra_cost_per_order ?? 0, m, codOf(settings)) : null;
+    const range = ce && m ? profitRange(ce, section!.extra_cost_per_order, m, codOf(settings)) : null;
     return {
       ...view(c),
       section_id: sectionId,
@@ -355,7 +357,12 @@ async function overview(env: Env, window: Window, fresh: boolean) {
       stage_since: setting?.stage_since ?? null,
       mode: setting?.mode ?? 'stage',
       rules: setting?.rules ?? null,
-      breakeven_roas: e ? beOf(e.be) : null,
+      breakeven_roas: ce ? beOf(ce) : null,
+      /** Promo prices read from the campaign name */
+      name_tiers: ce?.name_tiers ?? [],
+      /** Selling price per piece used for this campaign, low–high */
+      price_per_unit_min: ce?.price_per_unit_min ?? null,
+      price_per_unit_max: ce?.price_per_unit_max ?? null,
       /** Conservative (most pieces at the cheapest promo price) and best case */
       profit: range ? range.low : null,
       profit_high: range ? range.high : null,
@@ -406,11 +413,14 @@ function breakevens(entities: Entity[], sections: Section[], settings: Map<strin
   const sectionOf = sectionMap(entities, sections, settings);
   const totals = sectionTotals(entities, sectionOf, ECONOMICS_WINDOW);
   const zero = { spend: 0, purchases: 0, purchase_value: 0 };
-  const be = new Map(sections.map((s) => {
-    const r = economics(s, costs, totals.get(s.id) ?? zero, cod).breakeven_roas;
-    return [s.id, r !== null && Number.isFinite(r) ? r : null];
-  }));
-  return new Map([...sectionOf].map(([cid, sid]) => [cid, be.get(sid) ?? null]));
+  const out = new Map<string, number | null>();
+  for (const c of entities) {
+    if (c.level !== 'campaign') continue;
+    const section = sections.find((s) => s.id === (sectionOf.get(c.id) ?? DEFAULT_SECTION_ID));
+    const r = section ? campaignEconomics(section, costs, totals.get(section.id) ?? zero, cod, c.name).breakeven_roas : null;
+    out.set(c.id, r !== null && Number.isFinite(r) ? r : null);
+  }
+  return out;
 }
 
 /** Side-by-side numbers for one campaign: yesterday, 3, 7 and 30 days, each with product cost and profit. */
@@ -428,7 +438,7 @@ async function campaignStats(env: Env, id: string) {
   const sectionOf = sectionMap(entities, sections, campaignSettings);
   const section = sections.find((s) => s.id === (sectionOf.get(id) ?? DEFAULT_SECTION_ID));
   const totals7 = sectionTotals(entities, sectionOf, ECONOMICS_WINDOW);
-  const econ = section ? economics(section, costs, totals7.get(section.id) ?? { spend: 0, purchases: 0, purchase_value: 0 }, cod) : null;
+  const econ = section ? campaignEconomics(section, costs, totals7.get(section.id) ?? { spend: 0, purchases: 0, purchase_value: 0 }, cod, c.name) : null;
   const be = econ?.breakeven_roas;
   return {
     breakeven_roas: be !== null && be !== undefined && Number.isFinite(be) ? be : null,

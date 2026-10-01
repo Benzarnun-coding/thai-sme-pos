@@ -189,6 +189,30 @@ function breakeven(pricePerUnit: number, costPerUnit: number, extraPerOrder: num
   return margin > 0 ? 1 / margin : Infinity;
 }
 
+/**
+ * Promo prices written in a campaign name: "โพสผี : 801 กระบอกยืด 1 ตัว 189 (3ตัว549)" → 1 for 189, 3 for 549.
+ * Each ad of the same product often runs its own promo, and the name is where the shop writes it.
+ */
+export function tiersFromName(name: string): Tier[] {
+  const out: Tier[] = [];
+  for (const m of name.matchAll(/(\d{1,2})\s*ตัว\s*(\d{2,5})/g)) {
+    const t = { units: Number(m[1]), price: Number(m[2]) };
+    if (t.units >= 1 && t.units <= 20 && t.price / t.units >= 20 && !out.some((x) => x.units === t.units && x.price === t.price)) out.push(t);
+  }
+  return out.sort((a, b) => a.units - b.units);
+}
+
+/**
+ * Economics for one campaign: its product's cost, priced with the promos in its own name plus the product's
+ * promo table (so a campaign selling 3 for 799 isn't priced like one selling 1 for 189). No promo anywhere →
+ * the product's manual or sheet price, as economics() does.
+ */
+export function campaignEconomics(section: Section, costs: CostRow[], sectionTotals7: Money, cod: Cod, campaignName: string): Economics & { name_tiers: Tier[] } {
+  const name_tiers = tiersFromName(campaignName);
+  const tiers = [...section.tiers, ...name_tiers.filter((t) => !section.tiers.some((x) => x.units === t.units && x.price === t.price))];
+  return { ...economics({ ...section, tiers }, costs, sectionTotals7, cod), name_tiers };
+}
+
 /** Pieces and profit for one set of numbers (a campaign or a whole section), low–high. Null when cost or price is unknown. */
 export function profitRange(
   e: Pick<Economics, 'cost_per_unit' | 'price_per_unit_min' | 'price_per_unit_max'>, extraPerOrder: number, m: Money, cod: Cod = NO_COD,

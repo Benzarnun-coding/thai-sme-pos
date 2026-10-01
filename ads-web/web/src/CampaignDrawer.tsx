@@ -304,10 +304,16 @@ function CostPanel({ c, data, onEditSection, onReload }: {
           </div>
         ))}
       </div>
-      {e.cost_per_unit !== null && (
+      {e.cost_per_unit !== null && c.price_per_unit_min === null ? (
+        <div className="banner">
+          มีทุนแล้ว แต่ยังไม่มีราคาขาย ระบบเลยนับจำนวนตัวและคิดกำไรไม่ได้ — ใส่ "ราคาเต็ม/ตัว" ที่ปุ่มแก้ต้นทุน
+          หรือใส่โปรที่ "แก้สินค้า/โปร" (หรือเขียนโปรในชื่อแคมเปญ เช่น "1 ตัว 189 (3ตัว549)")
+        </div>
+      ) : e.cost_per_unit !== null && (
         <p className="small muted">
           ทุนเฉลี่ย {baht(e.cost_per_unit, 2)}/ตัว
-          {e.price_per_unit_min !== null && <> · ขาย {e.price_per_unit_min === e.price_per_unit_max ? baht(e.price_per_unit_min, 2) : `${baht(e.price_per_unit_min, 2)}–${baht(e.price_per_unit_max, 2)}`}/ตัว</>}
+          {c.price_per_unit_min !== null && <> · ขาย {c.price_per_unit_min === c.price_per_unit_max ? baht(c.price_per_unit_min, 2) : `${baht(c.price_per_unit_min, 2)}–${baht(c.price_per_unit_max!, 2)}`}/ตัว</>}
+          {c.name_tiers.length > 0 && <> (โปรจากชื่อแคมเปญ: {c.name_tiers.map((t) => `${t.units} ตัว ${baht(t.price)}`).join(' · ')})</>}
           {c.breakeven_roas !== null && <> · คุ้มทุนที่ ROAS {num(c.breakeven_roas, 2)}</>}
         </p>
       )}
@@ -373,7 +379,9 @@ function StatsTable({ c }: { c: CampaignView }) {
         </tbody>
       </table>
       <p className="small muted stats-note">
-        {be === null ? 'ยังไม่ผูกต้นทุน — กรอกในช่อง "ต้นทุน" ด้านล่างเพื่อดูทุนสินค้าและกำไร' : <>คุ้มทุนที่ ROAS {num(be, 2)} · กำไรคิดแบบระวัง (ทุกออเดอร์เป็นโปรถูกสุด) ชี้ที่ตัวเลขเพื่อดูช่วง</>}
+        {be === null
+          ? (c.section_id !== 'default' && c.price_per_unit_min === null ? 'ยังไม่มีราคาขาย — ใส่ราคาในช่อง "ต้นทุน" ด้านล่างเพื่อดูทุนสินค้าและกำไร' : 'ยังไม่ผูกต้นทุน — กรอกในช่อง "ต้นทุน" ด้านล่างเพื่อดูทุนสินค้าและกำไร')
+          : <>คุ้มทุนที่ ROAS {num(be, 2)} · กำไรคิดแบบระวัง (ทุกออเดอร์เป็นโปรถูกสุด) ชี้ที่ตัวเลขเพื่อดูช่วง</>}
         {' · '}"เมื่อวาน" แทน "วันนี้" เพราะยอดวันนี้แอดมินยังติ๊กไม่ครบ
       </p>
     </section>

@@ -81,6 +81,11 @@ export interface CampaignView extends EntityView {
   rules: Rule[] | null;
   /** Of its product line (7-day), null when no cost is linked */
   breakeven_roas: number | null;
+  /** Promo prices read from the campaign name, e.g. 1 for 189, 3 for 549 */
+  name_tiers: Tier[];
+  /** Selling price per piece this campaign is costed with; null = no price anywhere */
+  price_per_unit_min: number | null;
+  price_per_unit_max: number | null;
   /** After product cost and ad spend over the window, conservative (most pieces at the cheapest promo price) */
   profit: number | null;
   profit_high: number | null;

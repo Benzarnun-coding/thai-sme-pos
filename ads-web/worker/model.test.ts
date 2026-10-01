@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Entity, Metrics } from '../../ads-engine/src/types.ts';
-import { economics, materializeRules, parseCostQuery, parseCsv, resolveSectionId, suggestProducts, type CampaignSetting, type CostRow, type Section, type Stage, type WebRule } from './model.ts';
+import { economics, materializeRules, parseCostQuery, parseCsv, resolveSectionId, suggestProducts, type CampaignSetting, type CostRow, type Section, type Stage, type WebRule, tiersFromName, campaignEconomics, NO_COD } from './model.ts';
 import { buildGroups, planDecisions, sectionMap } from './engine.ts';
 
 function section(over: Partial<Section>): Section {
@@ -81,6 +81,22 @@ test('COD surcharge in the tagged value is income but not pieces', () => {
   assert.ok(Math.abs(e.breakeven_roas! - 1 / (0.5 + 25 / 600)) < 1e-9);
   // Without COD set, the surcharge is counted as pieces (more cost, lower profit)
   assert.ok(economics(s, [cost('PK', 'X', 100)], metrics(1000, 10, 6000)).profit! < e.profit!);
+});
+
+test('promo prices from the campaign name price each campaign on its own', () => {
+  assert.deepEqual(tiersFromName('โพสผี : 801 กระบอกยืด 1 ตัว 189 (3ตัว549) ฿400'), [{ units: 1, price: 189 }, { units: 3, price: 549 }]);
+  assert.deepEqual(tiersFromName('REV 801 - กระบอกยืด 3 ตัว 799 - V1 ฿800'), [{ units: 3, price: 799 }]);
+  assert.deepEqual(tiersFromName('แอดผี : 444/1 (199 ส่งฟรี - 2ตัว 349) - ฿500 V1'), [{ units: 2, price: 349 }]);
+  assert.deepEqual(tiersFromName('อันยอง เกาหลี - 50฿ V2'), []);
+  // Cost only, no price anywhere: the name's promo makes profit countable.
+  const s = section({ products: [{ tab: 'WEB', code: '801' }] });
+  const rows = [{ ...cost('WEB', '801', 139), avg_price: 0 }];
+  assert.equal(economics(s, rows, metrics(1000, 10, 5000)).profit, null);
+  const rev = campaignEconomics(s, rows, metrics(1000, 10, 5000), NO_COD, 'REV 801 - กระบอกยืด 3 ตัว 799');
+  assert.ok(Math.abs(rev.price_per_unit_min! - 799 / 3) < 1e-9);
+  const post = campaignEconomics(s, rows, metrics(1000, 10, 5000), NO_COD, 'โพสผี : 801 1 ตัว 189 (3ตัว549)');
+  assert.deepEqual([post.price_per_unit_min, post.price_per_unit_max], [183, 189]);
+  assert.ok(rev.breakeven_roas! < post.breakeven_roas!);
 });
 
 test('extra cost per order lowers the margin through the average order value', () => {
