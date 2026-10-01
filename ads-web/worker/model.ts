@@ -79,6 +79,8 @@ export interface CostRow {
 }
 
 export const DEFAULT_SECTION_ID = 'default';
+/** Costs typed into the dashboard live under this pseudo tab; sheet syncs never touch it. */
+export const WEB_TAB = 'WEB';
 
 /** Explicit assignment wins; otherwise the first section (by sort) whose keyword appears in the campaign name; otherwise default. */
 export function resolveSectionId(

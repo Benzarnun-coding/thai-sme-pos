@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { api, type Overview } from './api.ts';
+import { api, tabLabel, type Overview } from './api.ts';
+import { WebCosts } from './WebCosts.tsx';
 import { baht, bahtRange, num, profitTone } from './fmt.ts';
 import { useUi } from './ui.tsx';
 
@@ -29,8 +30,9 @@ export function ProductsPage({ data, onEdit, onReload }: { data: Overview; onEdi
     <>
       <p className="muted small">
         สินค้าแต่ละตัวบอกต้นทุนจากชีต → ได้ ROAS คุ้มทุน ซึ่งกฎ "× จุดคุ้มทุน" ในทุกกลุ่มจะใช้ แคมเปญจับคู่สินค้าเองจากคำในชื่อ หรือเลือกเองในหน้ารายละเอียดแคมเปญ
-        {data.costs_loaded === 0 && <b className="warn"> · ยังไม่มีต้นทุนในระบบ ไปที่ตั้งค่า → ดึงต้นทุนจากชีต</b>}
+        {data.costs_loaded === 0 && <b className="warn"> · ยังไม่มีต้นทุนในระบบ: กรอกเองด้านล่าง หรือดึงจากชีตในหน้าตั้งค่า</b>}
       </p>
+      <WebCosts sections={data.sections} onChanged={onReload} />
       {data.sections.map((s) => {
         const e = s.economics;
         return (
@@ -40,8 +42,8 @@ export function ProductsPage({ data, onEdit, onReload }: { data: Overview; onEdi
                 <h2>{s.name} <span className="muted small">{s.campaign_count} แคมเปญ</span></h2>
                 <div className="tags">
                   {s.keywords.map((k) => <span key={k} className="tag">คำค้น: {k}</span>)}
-                  {s.products.length === 0 ? <span className="tag warn">ยังไม่ผูกต้นทุน</span> : s.products.map((p) => <span key={`${p.tab}:${p.code}`} className="tag">{p.tab} · {p.code}</span>)}
-                  {e.missing_products.length > 0 && <span className="tag bad">ไม่พบในชีต {e.missing_products.length} รหัส</span>}
+                  {s.products.length === 0 ? <span className="tag warn">ยังไม่ผูกต้นทุน</span> : s.products.map((p) => <span key={`${p.tab}:${p.code}`} className="tag">{tabLabel(p.tab)} · {p.code}</span>)}
+                  {e.missing_products.length > 0 && <span className="tag bad">ไม่พบต้นทุน {e.missing_products.length} รหัส</span>}
                 </div>
               </div>
               <button className="ghost" onClick={() => onEdit(s.id)}>แก้ต้นทุน</button>
@@ -49,7 +51,7 @@ export function ProductsPage({ data, onEdit, onReload }: { data: Overview; onEdi
             <div className="econ">
               <div><span>ทุน/ตัว (รวมส่ง+ตีกลับ)</span><b>{baht(e.cost_per_unit, 2)}</b></div>
               <div>
-                <span>ราคาขาย/ตัว{e.price_source === 'sheet' ? ' (จากชีต)' : e.price_source === 'tiers' ? ` (${s.tiers.length} โปร)` : ''}</span>
+                <span>ราคาขาย/ตัว{e.price_source === 'sheet' ? ' (ราคาเต็ม)' : e.price_source === 'tiers' ? ` (${s.tiers.length} โปร)` : ''}</span>
                 <b>{e.price_per_unit_min === null ? '–' : e.price_per_unit_min === e.price_per_unit_max ? baht(e.price_per_unit_min, 2) : `${baht(e.price_per_unit_min, 2)}–${baht(e.price_per_unit_max, 2)}`}</b>
               </div>
               <div>

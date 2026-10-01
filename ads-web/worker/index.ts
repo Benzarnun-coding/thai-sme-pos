@@ -6,16 +6,16 @@ import type { Entity, Level, Window } from '../../ads-engine/src/types.ts';
 import { authenticate } from './auth.ts';
 import { syncCosts } from './costs.ts';
 import {
-  audit, codOf, deleteSection, insertRun, listAudit, listRuns, loadCampaignSettings, loadCosts, loadSections, loadSettings,
+  audit, codOf, deleteSection, deleteWebCost, saveWebCost, insertRun, listAudit, listRuns, loadCampaignSettings, loadCosts, loadSections, loadSettings,
   loadStages, loadState, saveCampaignSetting, saveCampaignSettings, auditMany, campaignHistory, saveSection, saveSettings, saveStage,
 } from './db.ts';
 import { ECONOMICS_WINDOW, sectionMap, sectionTotals } from './engine.ts';
 import { MockMeta } from './mock.ts';
-import { DEFAULT_SECTION_ID, economics, profitRange, suggestProducts, type CampaignSetting, type Cod, type CostRow, type Economics, type Section } from './model.ts';
+import { DEFAULT_SECTION_ID, WEB_TAB, economics, profitRange, suggestProducts, type CampaignSetting, type Cod, type CostRow, type Economics, type Section } from './model.ts';
 import { capChanges, planRun, runAutomation, zeroMetrics, type MetaLike } from './run.ts';
 import { buildIdeas } from './ideas.ts';
 import { friendlyMetaError, loadMetaData, MetaCacheError, patchCachedEntity, type MetaData } from './metadata.ts';
-import { BadRequest, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
+import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
 export interface Env {
   DB: D1Database;
@@ -233,9 +233,25 @@ async function route(req: Request, env: Env, url: URL, user: string): Promise<Re
   }
 
   // ---- costs ----
+  // Costs typed into the dashboard (tab WEB). The code goes in the body/query: codes like "801/1" contain slashes.
+  if (method === 'POST' && path === '/api/costs') {
+    const c = validateWebCost(await body());
+    const before = (await loadCosts(env.DB)).find((x) => x.tab === WEB_TAB && x.code === c.code) ?? null;
+    await saveWebCost(env.DB, c);
+    await audit(env.DB, user, before ? 'cost.update' : 'cost.create', `${WEB_TAB}:${c.code}`, { name: c.name, before, after: c });
+    return json({ ok: true });
+  }
+  if (method === 'DELETE' && path === '/api/costs') {
+    const code = url.searchParams.get('code') ?? '';
+    if (!(await deleteWebCost(env.DB, code))) return json({ error: 'ไม่พบต้นทุนนี้' }, 404);
+    await audit(env.DB, user, 'cost.delete', `${WEB_TAB}:${code}`, { name: code });
+    return json({ ok: true });
+  }
   if (method === 'GET' && path === '/api/costs') {
     const q = (url.searchParams.get('q') ?? '').trim().toLowerCase();
     const costs = await loadCosts(env.DB);
+    const tab = url.searchParams.get('tab');
+    if (tab) return json({ total: costs.length, results: costs.filter((c) => c.tab === tab).sort((a, b) => a.code.localeCompare(b.code)) });
     const suggest = url.searchParams.get('suggest');
     const hits = suggest
       ? suggestProducts(suggest, costs, 12)

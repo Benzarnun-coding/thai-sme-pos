@@ -1,7 +1,7 @@
 // Input validation for everything the dashboard can write. Throws BadRequest with a Thai message the UI shows as-is.
 
 import type { Guardrails } from '../../ads-engine/src/types.ts';
-import type { CampaignSetting, Product, Section, Stage, WebRule } from './model.ts';
+import { WEB_TAB, type CampaignSetting, type Product, type Section, type Stage, type WebRule } from './model.ts';
 import type { Settings } from './db.ts';
 
 export class BadRequest extends Error {}
@@ -98,6 +98,17 @@ function validateTiers(input: unknown): Section['tiers'] {
   return tiers.sort((a, b) => a.units - b.units);
 }
 
+/** A cost typed into the dashboard: all-in cost per piece, optional full price per piece (0 = unknown). */
+export function validateWebCost(input: any): { code: string; name: string; cost: number; price: number } {
+  const code = str(input?.code, 'รหัสสินค้า', 60);
+  return {
+    code,
+    name: input?.name ? str(input.name, 'ชื่อสินค้า', 120) : code,
+    cost: num(input?.cost, 'ต้นทุนรวมต่อตัว', 0.01, 100000),
+    price: input?.price === undefined || input?.price === null || input?.price === '' ? 0 : num(input.price, 'ราคาขายต่อตัว', 0, 100000),
+  };
+}
+
 export function validateStage(existing: Stage, input: any, stageIds: string[]): Stage {
   const rules = validateRules(input?.rules ?? [], stageIds);
   if (rules.some((r) => r.action.type === 'move' && r.action.to === existing.id)) fail('กฎย้ายกลุ่มต้องย้ายไปกลุ่มอื่น');
@@ -136,6 +147,7 @@ export function validateSettings(input: any, current: Settings): Settings {
   if (guardrails.min_daily_budget > guardrails.max_daily_budget) fail('งบต่ำสุด/วัน ต้องไม่มากกว่างบสูงสุด/วัน');
   const tabs = Array.isArray(input?.sheet_tabs) ? input.sheet_tabs.map((t: unknown) => String(t).trim()).filter(Boolean) : current.sheet_tabs;
   if (tabs.length > 30) fail('แท็บได้ไม่เกิน 30 แท็บ');
+  if (tabs.includes(WEB_TAB)) fail(`ชื่อแท็บ ${WEB_TAB} สงวนไว้สำหรับต้นทุนที่กรอกในเว็บ`);
   return {
     dry_run: typeof input?.dry_run === 'boolean' ? input.dry_run : current.dry_run,
     kill_switch: typeof input?.kill_switch === 'boolean' ? input.kill_switch : current.kill_switch,

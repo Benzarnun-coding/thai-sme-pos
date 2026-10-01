@@ -62,6 +62,7 @@ const AUDIT_LABEL: Record<string, string> = {
   'meta.status': 'เปิด/หยุดบน Meta', 'meta.budget': 'เปลี่ยนงบบน Meta', 'section.create': 'เพิ่มสินค้า', 'section.update': 'แก้ต้นทุนสินค้า',
   'section.delete': 'ลบสินค้า', 'campaign.settings': 'ตั้งค่าแคมเปญ', 'settings.update': 'แก้ตั้งค่า', 'costs.sync': 'ซิงก์ต้นทุน',
   'campaign.stage': 'ย้ายกลุ่ม', 'stage.update': 'แก้กฎของกลุ่ม',
+  'cost.create': 'เพิ่มต้นทุนในเว็บ', 'cost.update': 'แก้ต้นทุนในเว็บ', 'cost.delete': 'ลบต้นทุนในเว็บ',
 };
 
 export function History({ stages }: { stages: Stage[] }) {
@@ -116,6 +117,7 @@ export function auditText(a: AuditRow, stageName: (id: string | null) => string,
     a.action === 'meta.budget' && d ? ` ${baht(d.from)} → ${baht(d.to)}${d.bulk_pct ? ` (ปรับหลายตัว ${d.bulk_pct > 0 ? '+' : ''}${d.bulk_pct}%)` : ''}` : '',
     a.action === 'meta.status' && d ? ` → ${d.status === 'ACTIVE' ? 'เปิด' : 'หยุด'}` : '',
     a.action === 'campaign.stage' && d ? ` ${stageName(d.from)} → ${stageName(d.to)}` : '',
+    (a.action === 'cost.create' || a.action === 'cost.update') && d?.after ? ` ทุน ${baht(d.after.cost)}/ตัว${d.before ? ` (เดิม ${baht(d.before.avg_cost)})` : ''}` : '',
   ].join('');
 }
 

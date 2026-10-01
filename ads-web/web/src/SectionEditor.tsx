@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useUi } from './ui.tsx';
-import { api, type CostRow, type Section, type SectionView, type Tier } from './api.ts';
+import { api, tabLabel, type CostRow, type Section, type SectionView, type Tier } from './api.ts';
+import { WebCostForm } from './WebCosts.tsx';
 import { baht, bahtRange, num, profitTone } from './fmt.ts';
 
 interface Props {
@@ -22,6 +23,7 @@ export function SectionEditor({ section, campaignNames, cod, onSaved }: Props) {
   const [results, setResults] = useState<CostRow[]>([]);
   const [suggested, setSuggested] = useState<CostRow[]>([]);
   const [busy, setBusy] = useState(false);
+  const [typing, setTyping] = useState(false);
   const [error, setError] = useState('');
   const isDefault = section.id === 'default';
 
@@ -120,12 +122,12 @@ export function SectionEditor({ section, campaignNames, cod, onSaved }: Props) {
       </div>
       {isDefault && <p className="muted small">แคมเปญที่ไม่ตรงกับคำค้นของสินค้าไหนเลยจะมาอยู่ที่นี่ ถ้าผูกต้นทุนตรงนี้ จะใช้เป็นต้นทุนกลางของแคมเปญเหล่านั้น</p>}
 
-      <h3>ต้นทุนสินค้า (จาก Google Sheet)</h3>
+      <h3>ต้นทุนสินค้า (จากชีต หรือกรอกเองในเว็บ)</h3>
       <div className="chips">
         {linked.length === 0 && <span className="muted">ยังไม่ผูกสินค้า</span>}
         {linked.map(({ p, row }) => (
           <span key={key(p)} className={`chip ${row ? '' : 'missing'}`}>
-            {p.tab} · {p.code} {row ? `· ทุน ${baht(row.avg_cost)}` : '· ไม่พบในชีต'}
+            {tabLabel(p.tab)} · {p.code} {row ? `· ทุน ${baht(row.avg_cost)}` : '· ไม่พบต้นทุน'}
             <button className="x" onClick={() => setDraft({ ...draft, products: draft.products.filter((x) => key(x) !== key(p)) })} aria-label="เอาออก">×</button>
           </span>
         ))}
@@ -134,17 +136,31 @@ export function SectionEditor({ section, campaignNames, cod, onSaved }: Props) {
         <div className="suggest">
           <span className="muted small">รหัสที่น่าจะใช่ (จากชื่อแคมเปญ):</span>
           {suggested.filter((r) => !has(r)).map((r) => (
-            <button key={key(r)} className="chip add" onClick={() => toggle(r)} title={r.name}>+ {r.tab} · {r.code} · {baht(r.avg_cost)}</button>
+            <button key={key(r)} className="chip add" onClick={() => toggle(r)} title={r.name}>+ {tabLabel(r.tab)} · {r.code} · {baht(r.avg_cost)}</button>
           ))}
         </div>
       )}
-      <input placeholder="ค้นหารหัสหรือชื่อสินค้าในชีต เช่น 801, ni9, ขาสั้น" value={query} onChange={(e) => setQuery(e.target.value)} />
+      <div className="row">
+        <input className="grow" placeholder="ค้นหารหัสหรือชื่อสินค้า เช่น 801, ni9, ขาสั้น" value={query} onChange={(e) => setQuery(e.target.value)} />
+        {!typing && <button className="ghost" onClick={() => setTyping(true)}>+ กรอกต้นทุนเอง</button>}
+      </div>
+      {typing && (
+        <WebCostForm
+          suggestCode={draft.keywords[0] ?? ''}
+          onCancel={() => setTyping(false)}
+          onSaved={(row) => {
+            remember([row]);
+            setDraft((d) => (d.products.some((p) => key(p) === key(row)) ? d : { ...d, products: [...d.products, { tab: row.tab, code: row.code }] }));
+            setTyping(false);
+          }}
+        />
+      )}
       {results.length > 0 && (
         <div className="results">
           {results.map((r) => (
             <label key={key(r)} className="result">
               <input type="checkbox" checked={has(r)} onChange={() => toggle(r)} />
-              <span className="code">{r.tab} · {r.code}</span>
+              <span className="code">{tabLabel(r.tab)} · {r.code}</span>
               <span className="name">{r.name}</span>
               <span className="cost">ทุน {baht(r.avg_cost)}{r.min_cost !== r.max_cost ? ` (${num(r.min_cost)}–${num(r.max_cost)})` : ''}</span>
             </label>
@@ -194,7 +210,7 @@ export function SectionEditor({ section, campaignNames, cod, onSaved }: Props) {
       <div className="econ">
         <div><span>ทุน/ตัว</span><b>{baht(preview.unit, 2)}</b></div>
         <div>
-          <span>ราคาขาย/ตัว{preview.source === 'sheet' ? ' (ชีต)' : ''}</span>
+          <span>ราคาขาย/ตัว{preview.source === 'sheet' ? ' (ราคาเต็ม)' : ''}</span>
           <b>{preview.min === null ? '–' : preview.min === preview.max ? baht(preview.min, 2) : `${baht(preview.min, 2)}–${baht(preview.max, 2)}`}</b>
         </div>
         <div>

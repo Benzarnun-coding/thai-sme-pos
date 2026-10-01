@@ -193,6 +193,9 @@ export const api = {
   setBudget: (id: string, amount: number, from: number | null, name: string) => call('POST', `/api/entities/${id}/budget`, { amount, from, name }),
   searchCosts: (q: string) => call<{ total: number; results: CostRow[] }>('GET', `/api/costs?q=${encodeURIComponent(q)}`),
   suggestCosts: (text: string) => call<{ total: number; results: CostRow[] }>('GET', `/api/costs?suggest=${encodeURIComponent(text)}`),
+  webCosts: () => call<{ total: number; results: CostRow[] }>('GET', `/api/costs?tab=${WEB_TAB}`),
+  saveWebCost: (c: { code: string; name: string; cost: number; price: number | null }) => call<{ ok: true }>('POST', '/api/costs', c),
+  deleteWebCost: (code: string) => call<{ ok: true }>('DELETE', `/api/costs?code=${encodeURIComponent(code)}`),
   syncCostTab: (tab: string) => call<{ tab: string; codes: number; error?: string }[]>('POST', `/api/costs/sync?tab=${encodeURIComponent(tab)}`),
   run: (dry_run: boolean) => call<RunReport>('POST', '/api/run', { dry_run }),
   runs: () => call<RunRow[]>('GET', '/api/runs'),
@@ -208,6 +211,10 @@ export const api = {
 };
 
 // ---- labels ----
+
+/** Costs typed into the dashboard live under this pseudo tab (same as worker/model.ts). */
+export const WEB_TAB = 'WEB';
+export const tabLabel = (tab: string) => (tab === WEB_TAB ? 'กรอกในเว็บ' : tab);
 
 export const WINDOW_LABEL: Record<Window, string> = {
   today: 'วันนี้', yesterday: 'เมื่อวาน', last_3d: '3 วัน', last_7d: '7 วัน', last_14d: '14 วัน', last_30d: '30 วัน',

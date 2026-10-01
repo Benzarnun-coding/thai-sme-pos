@@ -1,7 +1,7 @@
 // D1 access. JSON columns are parsed here so the rest of the worker only sees typed objects.
 
 import type { Guardrails, State } from '../../ads-engine/src/types.ts';
-import type { CampaignMode, CampaignSetting, Cod, CostRow, Section, Stage, WebRule } from './model.ts';
+import { WEB_TAB, type CampaignMode, type CampaignSetting, type Cod, type CostRow, type Section, type Stage, type WebRule } from './model.ts';
 
 export interface Settings {
   dry_run: boolean;
@@ -138,6 +138,20 @@ export async function loadCosts(db: D1Database): Promise<CostRow[]> {
 }
 
 // Bulk writes go through json_each so a whole tab is 2 statements — the Workers free plan caps queries per invocation.
+
+/** One cost typed into the dashboard (tab WEB). Same shape as a sheet code with one SKU. */
+export async function saveWebCost(db: D1Database, c: { code: string; name: string; cost: number; price: number }): Promise<void> {
+  await db.prepare(
+    `INSERT INTO costs (tab, code, name, sku_count, avg_cost, min_cost, max_cost, avg_price) VALUES (?1, ?2, ?3, 1, ?4, ?4, ?4, ?5)
+     ON CONFLICT(tab, code) DO UPDATE SET name = excluded.name, avg_cost = excluded.avg_cost, min_cost = excluded.min_cost,
+       max_cost = excluded.max_cost, avg_price = excluded.avg_price`,
+  ).bind(WEB_TAB, c.code, c.name, c.cost, c.price).run();
+}
+
+export async function deleteWebCost(db: D1Database, code: string): Promise<boolean> {
+  const r = await db.prepare('DELETE FROM costs WHERE tab = ? AND code = ?').bind(WEB_TAB, code).run();
+  return (r.meta.changes ?? 0) > 0;
+}
 
 export async function replaceCosts(db: D1Database, tab: string, rows: CostRow[]): Promise<void> {
   // One batch = one transaction, so a tab is never left half-written.
