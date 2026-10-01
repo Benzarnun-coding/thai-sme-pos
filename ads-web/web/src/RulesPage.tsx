@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ACTION_LABEL, LEVEL_LABEL, METRIC_LABEL, WINDOW_LABEL, api, type CampaignView, type Mode, type Overview, type Rule, type Stage } from './api.ts';
+import { ACTION_LABEL, LEVEL_LABEL, METRIC_LABEL, WINDOW_LABEL, api, type CampaignView, type Mode, type Overview, type Rule, type Stage, sectionName } from './api.ts';
 import { baht, num } from './fmt.ts';
 import { RulesEditor } from './RulesEditor.tsx';
 import { NONE, StageTabs, campaignsIn, type StageTab } from './StageTabs.tsx';
@@ -176,8 +176,8 @@ function CampaignRulesEditor({ c, data, onSaved, onOpenStage, onStageChanged }: 
         </label>
         <label>สินค้า (ใช้คิดจุดคุ้มทุน)
           <select value={c.pinned ? c.section_id : ''} disabled={busy} onChange={(e) => save({ section_id: e.target.value || null })}>
-            <option value="">อัตโนมัติจากชื่อ ({data.sections.find((s) => s.id === c.section_id)?.name ?? '–'})</option>
-            {data.sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            <option value="">อัตโนมัติจากชื่อ ({(() => { const x = data.sections.find((s) => s.id === c.section_id); return x ? sectionName(x) : '–'; })()})</option>
+            {data.sections.map((s) => <option key={s.id} value={s.id}>{sectionName(s)}</option>)}
           </select>
         </label>
       </div>

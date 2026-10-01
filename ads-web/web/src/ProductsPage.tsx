@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api, tabLabel, type Overview } from './api.ts';
+import { api, sectionName, tabLabel, type Overview } from './api.ts';
 import { WebCosts } from './WebCosts.tsx';
 import { baht, bahtRange, num, profitTone } from './fmt.ts';
 import { useUi } from './ui.tsx';
@@ -32,14 +32,14 @@ export function ProductsPage({ data, onEdit, onReload }: { data: Overview; onEdi
         สินค้าแต่ละตัวบอกต้นทุนจากชีต → ได้ ROAS คุ้มทุน ซึ่งกฎ "× จุดคุ้มทุน" ในทุกกลุ่มจะใช้ แคมเปญจับคู่สินค้าเองจากคำในชื่อ หรือเลือกเองในหน้ารายละเอียดแคมเปญ
         {data.costs_loaded === 0 && <b className="warn"> · ยังไม่มีต้นทุนในระบบ: กรอกเองด้านล่าง หรือดึงจากชีตในหน้าตั้งค่า</b>}
       </p>
-      <WebCosts sections={data.sections} onChanged={onReload} />
+      <WebCosts sections={data.sections} campaignNames={data.campaigns.map((c) => c.name)} onChanged={onReload} />
       {data.sections.map((s) => {
         const e = s.economics;
         return (
           <section key={s.id} className="card product">
             <div className="row between wrap">
               <div>
-                <h2>{s.name} <span className="muted small">{s.campaign_count} แคมเปญ</span></h2>
+                <h2>{sectionName(s)} <span className="muted small">{s.campaign_count} แคมเปญ</span></h2>
                 <div className="tags">
                   {s.keywords.map((k) => <span key={k} className="tag">คำค้น: {k}</span>)}
                   {s.products.length === 0 ? <span className="tag warn">ยังไม่ผูกต้นทุน</span> : s.products.map((p) => <span key={`${p.tab}:${p.code}`} className="tag">{tabLabel(p.tab)} · {p.code}</span>)}

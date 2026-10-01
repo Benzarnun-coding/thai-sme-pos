@@ -2,7 +2,7 @@
 // settings (stage, product, rules), budget, ad sets and its history.
 
 import { useEffect, useState } from 'react';
-import { api, MODE_LABEL, WINDOW_LABEL, type CampaignHistory, type CampaignView, type DailyRow, type EntityView, type Idea, type Overview, type Preview, type Window } from './api.ts';
+import { api, MODE_LABEL, sectionName, WINDOW_LABEL, type CampaignHistory, type CampaignView, type DailyRow, type EntityView, type Idea, type Overview, type Preview, type Window } from './api.ts';
 import { ideaActionLabel, stageLabel, useCampaignActions } from './actions.tsx';
 import { DailyChart } from './Chart.tsx';
 import { auditText } from './History.tsx';
@@ -149,8 +149,8 @@ export function CampaignDrawer({ c, data, window, preview, ideas, onClose, onRel
             </label>
             <label>สินค้า (ใช้คิดจุดคุ้มทุน)
               <select value={c.pinned ? c.section_id : ''} onChange={(e) => save({ section_id: e.target.value || null })}>
-                <option value="">อัตโนมัติจากชื่อ ({section?.name ?? '–'})</option>
-                {data.sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                <option value="">อัตโนมัติจากชื่อ ({section ? sectionName(section) : '–'})</option>
+                {data.sections.map((s) => <option key={s.id} value={s.id}>{sectionName(s)}</option>)}
               </select>
             </label>
             <label>งบต่อวัน

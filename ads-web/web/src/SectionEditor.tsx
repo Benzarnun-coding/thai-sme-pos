@@ -111,16 +111,23 @@ export function SectionEditor({ section, campaignNames, cod, onSaved }: Props) {
   return (
     <div className="editor">
       <div className="grid2">
-        <label>ชื่อสินค้า/กลุ่มสินค้า
-          <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-        </label>
+        {!isDefault && (
+          <label>ชื่อสินค้า/กลุ่มสินค้า
+            <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+          </label>
+        )}
         {!isDefault && (
           <label>คำในชื่อแคมเปญที่ให้เข้ากลุ่มนี้อัตโนมัติ (คั่นด้วย ,)
             <input value={keywordText} placeholder="เช่น 801, REV 801" onChange={(e) => setKeywordText(e.target.value)} />
           </label>
         )}
       </div>
-      {isDefault && <p className="muted small">แคมเปญที่ไม่ตรงกับคำค้นของสินค้าไหนเลยจะมาอยู่ที่นี่ ถ้าผูกต้นทุนตรงนี้ จะใช้เป็นต้นทุนกลางของแคมเปญเหล่านั้น</p>}
+      {isDefault && (
+        <div className="banner">
+          นี่ไม่ใช่สินค้าตัวเดียว: ทุกแคมเปญที่ชื่อไม่ตรงคำค้นของสินค้าไหนเลย ({campaignNames.length} แคมเปญ) จะใช้ต้นทุนและโปรที่ตั้งตรงนี้ร่วมกัน
+          — ถ้าจะตั้งต้นทุนให้สินค้าเฉพาะรุ่น ให้ปิดหน้านี้แล้วกด "+ เพิ่มสินค้า"
+        </div>
+      )}
 
       <h3>ต้นทุนสินค้า (จากชีต หรือกรอกเองในเว็บ)</h3>
       <div className="chips">

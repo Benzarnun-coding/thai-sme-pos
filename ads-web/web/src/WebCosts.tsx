@@ -2,7 +2,7 @@
 // so sections link them, rules use them, and a sheet sync never overwrites them.
 
 import { useEffect, useState } from 'react';
-import { api, WEB_TAB, type CostRow, type SectionView } from './api.ts';
+import { api, sectionName, WEB_TAB, type CostRow, type SectionView } from './api.ts';
 import { baht } from './fmt.ts';
 import { useUi } from './ui.tsx';
 
@@ -59,7 +59,7 @@ export function WebCostForm({ initial, suggestCode, onSaved, onCancel }: {
 }
 
 /** The list on the products page: add, edit, delete. */
-export function WebCosts({ sections, onChanged }: { sections: SectionView[]; onChanged: () => void }) {
+export function WebCosts({ sections, campaignNames, onChanged }: { sections: SectionView[]; campaignNames: string[]; onChanged: () => void }) {
   const { confirm, toast } = useUi();
   const [rows, setRows] = useState<CostRow[] | null>(null);
   const [adding, setAdding] = useState(false);
@@ -67,8 +67,35 @@ export function WebCosts({ sections, onChanged }: { sections: SectionView[]; onC
 
   const load = () => api.webCosts().then((r) => setRows(r.results)).catch((e) => toast(e.message, 'bad'));
   useEffect(() => { load(); }, []);
-  const usedBy = (code: string) => sections.filter((s) => s.products.some((p) => p.tab === WEB_TAB && p.code === code)).map((s) => s.name);
+  const usedBy = (code: string) => sections.filter((s) => s.products.some((p) => p.tab === WEB_TAB && p.code === code)).map(sectionName);
   const done = () => { setAdding(false); setEditing(null); load(); onChanged(); };
+
+  /** One click: a product line named after the code, matching campaigns whose name contains it, linked to this cost. */
+  async function makeSection(r: CostRow) {
+    const kw = r.code.trim();
+    const matched = campaignNames.filter((n) => n.toLowerCase().includes(kw.toLowerCase()));
+    const yes = await confirm({
+      title: `สร้างสินค้า "${kw}" และผูกต้นทุนนี้?`,
+      body: (
+        <>
+          <p>แคมเปญที่ชื่อมีคำว่า <b>{kw}</b> จะใช้ทุน {baht(r.avg_cost, 2)}/ตัว{r.avg_price > 0 ? ` ราคาเต็ม ${baht(r.avg_price)}` : ''} คิดกำไร</p>
+          {matched.length
+            ? <ul className="name-list">{matched.slice(0, 8).map((n) => <li key={n} className="clip">{n}</li>)}{matched.length > 8 && <li className="muted">และอีก {matched.length - 8} แคมเปญ</li>}</ul>
+            : <p className="warn small">ตอนนี้ยังไม่มีแคมเปญที่ชื่อมีคำนี้ — แก้คำค้นหรือเลือกสินค้าในหน้ารายละเอียดแคมเปญได้ภายหลัง</p>}
+          <p className="muted small">ใส่ราคาโปร (1 ตัว / 2 ตัว / 3 ตัว) ต่อได้ที่ปุ่ม "แก้ต้นทุน" ของสินค้า</p>
+        </>
+      ),
+      confirmLabel: 'สร้างสินค้า',
+    });
+    if (!yes) return;
+    try {
+      await api.createSection({ name: r.name && r.name !== r.code ? r.name : kw, keywords: [kw], products: [{ tab: WEB_TAB, code: r.code }], tiers: [], units_per_order: 1, extra_cost_per_order: 0, price_per_order: null });
+      toast(`สร้างสินค้า "${kw}" แล้ว`, 'ok');
+      done();
+    } catch (e: any) {
+      toast(e.message, 'bad');
+    }
+  }
 
   async function remove(r: CostRow) {
     const used = usedBy(r.code);
@@ -105,7 +132,9 @@ export function WebCosts({ sections, onChanged }: { sections: SectionView[]; onC
               <div className="clip-wrap"><b>{r.code}</b>{r.name !== r.code && <span className="muted"> · {r.name}</span>}</div>
               <span className="num">ทุน <b>{baht(r.avg_cost, 2)}</b>/ตัว</span>
               <span className="num muted">{r.avg_price > 0 ? `ราคา ${baht(r.avg_price)}` : 'ไม่ระบุราคา'}</span>
-              <span className="small muted clip">{usedBy(r.code).length ? `ใช้ใน ${usedBy(r.code).join(', ')}` : 'ยังไม่ผูก'}</span>
+              {usedBy(r.code).length
+                ? <span className="small muted clip">ใช้ใน {usedBy(r.code).join(', ')}</span>
+                : <span><button className="small warn" onClick={() => makeSection(r)} title="ยังไม่ได้ผูกกับสินค้า — ระบบยังไม่ใช้ต้นทุนนี้">ยังไม่ผูก · สร้างสินค้า</button></span>}
               <span className="row">
                 <button className="ghost small" onClick={() => { setEditing(r.code); setAdding(false); }}>แก้</button>
                 <button className="ghost small danger" onClick={() => remove(r)}>ลบ</button>

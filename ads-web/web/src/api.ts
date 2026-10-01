@@ -214,6 +214,8 @@ export const api = {
 
 /** Costs typed into the dashboard live under this pseudo tab (same as worker/model.ts). */
 export const WEB_TAB = 'WEB';
+/** The catch-all product line has a fixed meaning; its stored name is never shown. */
+export const sectionName = (s: { id: string; name: string }) => (s.id === 'default' ? 'อื่นๆ (ไม่ตรงคำค้น)' : s.name);
 export const tabLabel = (tab: string) => (tab === WEB_TAB ? 'กรอกในเว็บ' : tab);
 
 export const WINDOW_LABEL: Record<Window, string> = {

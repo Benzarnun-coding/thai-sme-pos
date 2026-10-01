@@ -288,7 +288,7 @@ function CampaignRow({ c, data, selected, onSelect, next, idea, onOpen, onStatus
       <span
         className={`num ${profitTone(c.profit, c.profit_high)}`}
         data-label="กำไร"
-        title={c.profit === null ? 'ยังไม่ผูกต้นทุน' : `ประมาณ ${bahtRange(c.profit, c.profit_high)} · ${num(c.units_low)}–${num(c.units_high)} ตัว`}
+        title={c.profit === null ? 'ยังไม่ผูกต้นทุน' : `ประมาณ ${bahtRange(c.profit, c.profit_high)} · ${num(c.units_low) === num(c.units_high) ? num(c.units_low) : `${num(c.units_low)}–${num(c.units_high)}`} ตัว`}
       >
         {c.profit === null ? '–' : baht(c.profit)}{profitTone(c.profit, c.profit_high) === 'warn' && <sup>?</sup>}
       </span>

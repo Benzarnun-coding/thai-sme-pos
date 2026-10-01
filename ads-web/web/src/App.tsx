@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, type Idea, type Overview as OverviewData, type Preview, type RunReport, type Window } from './api.ts';
+import { api, sectionName, type Idea, type Overview as OverviewData, type Preview, type RunReport, type Window } from './api.ts';
 import { useCampaignActions } from './actions.tsx';
 import { CampaignDrawer } from './CampaignDrawer.tsx';
 import { History, RunResult } from './History.tsx';
@@ -182,7 +182,7 @@ export function App() {
         />
       )}
       {editingSection && data && (
-        <Modal title={editingSection.name} onClose={() => setEditing(null)}>
+        <Modal title={sectionName(editingSection)} onClose={() => setEditing(null)}>
           <SectionEditor
             key={editingSection.id}
             section={editingSection}
