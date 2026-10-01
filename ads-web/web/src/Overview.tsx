@@ -60,8 +60,9 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
 
       <div className="kpis">
         <Kpi label="ใช้จ่าย" value={baht(all.spend)} sub={`${spending} แคมเปญที่ใช้เงิน`} />
+        <Kpi label="ยอดขาย" value={baht(all.value)} sub={all.purchases ? `เฉลี่ย ${baht(all.value / all.purchases)}/ออเดอร์` : undefined} />
         <Kpi label="ออเดอร์" value={num(all.purchases)} sub={all.purchases ? `ค่าแอด ${baht(all.spend / all.purchases)}/ออเดอร์${all.clicks ? ` · CVR ${num((all.purchases / all.clicks) * 100, 2)}%` : ''}` : undefined} />
-        <Kpi label="ROAS" value={all.spend ? num(all.value / all.spend, 2) : '–'} sub={`ยอดขาย ${baht(all.value)}`} />
+        <Kpi label="ROAS" value={all.spend ? num(all.value / all.spend, 2) : '–'} sub="ยอดขาย ÷ ค่าแอด" />
         <Kpi
           label="กำไรหลังหักทุน+แอด"
           value={withProfit.length ? baht(profit) : '–'}
@@ -111,12 +112,6 @@ function StageSection({ stage, campaigns, data, preview, ideas, onReload, onOpen
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const actions = useCampaignActions({ stages: data.stages, guardrails: data.settings.guardrails, readOnly: data.snapshot !== null, onDone: onReload });
 
-  const t = campaigns.reduce(
-    (a, c) => ({ spend: a.spend + (c.metrics?.spend ?? 0), purchases: a.purchases + (c.metrics?.purchases ?? 0), value: a.value + (c.metrics?.purchase_value ?? 0) }),
-    { spend: 0, purchases: 0, value: 0 },
-  );
-  const profits = campaigns.filter((c) => c.profit !== null);
-  const profit = profits.reduce((a, c) => a + (c.profit ?? 0), 0);
   const actionRules = stage?.rules.filter((r) => r.enabled !== false && r.action.type !== 'move').length ?? 0;
   const moveRules = stage?.rules.filter((r) => r.enabled !== false && r.action.type === 'move') ?? [];
 
@@ -169,13 +164,6 @@ function StageSection({ stage, campaigns, data, preview, ideas, onReload, onOpen
             <p className="muted small">ระบบไม่แตะแคมเปญกลุ่มนี้ — เลือกหลายตัวแล้วกด "ย้ายไป" ได้ทีเดียว</p>
           )}
         </div>
-        <div className="stats">
-          <div><span>ใช้จ่าย</span><b>{baht(t.spend)}</b></div>
-          <div><span>ยอดขาย</span><b>{baht(t.value)}</b></div>
-          <div><span>ออเดอร์</span><b>{num(t.purchases)}</b></div>
-          <div><span>ROAS</span><b>{t.spend ? num(t.value / t.spend, 2) : '–'}</b></div>
-          <div><span>กำไร</span><b className={profit < 0 ? 'bad' : ''}>{profits.length ? baht(profit) : '–'}</b></div>
-        </div>
         {stage && <button className="ghost small" onClick={() => onOpenRules({ kind: 'stage', id: stage.id })}>กฎของกลุ่ม <Icon name="chevron" size={14} /></button>}
       </header>
 
@@ -225,6 +213,7 @@ function StageSection({ stage, campaigns, data, preview, ideas, onReload, onOpen
             onStatus={(s) => actions.setStatus(c.id, c.name, s)}
           />
         ))}
+        {list.length > 1 && <TotalsRow list={list} filtered={list.length !== campaigns.length} />}
         {campaigns.length === 0 && (
           <div className="empty">
             <p>{stage ? 'ยังไม่มีแคมเปญในกลุ่มนี้' : 'จัดกลุ่มครบทุกแคมเปญแล้ว 🎉'}</p>
@@ -257,6 +246,40 @@ function StageSection({ stage, campaigns, data, preview, ideas, onReload, onOpen
         </div>
       )}
     </section>
+  );
+}
+
+/** One summary row under the table, like Ads Manager: totals of the campaigns listed (after search). */
+function TotalsRow({ list, filtered }: { list: CampaignView[]; filtered: boolean }) {
+  const t = list.reduce(
+    (a, c) => ({
+      spend: a.spend + (c.metrics?.spend ?? 0),
+      value: a.value + (c.metrics?.purchase_value ?? 0),
+      purchases: a.purchases + (c.metrics?.purchases ?? 0),
+      clicks: a.clicks + (c.metrics?.clicks ?? 0),
+      budget: a.budget + (c.status === 'ACTIVE' ? (c.daily_budget ?? c.adsets.reduce((x, s) => x + (s.status === 'ACTIVE' ? (s.daily_budget ?? 0) : 0), 0)) : 0),
+    }),
+    { spend: 0, value: 0, purchases: 0, clicks: 0, budget: 0 },
+  );
+  const withProfit = list.filter((c) => c.profit !== null);
+  const low = withProfit.reduce((a, c) => a + (c.profit ?? 0), 0);
+  const high = withProfit.reduce((a, c) => a + (c.profit_high ?? c.profit ?? 0), 0);
+  return (
+    <div className="tr total" role="row">
+      <span />
+      <span />
+      <span className="cell-name">
+        <b>ผลรวม {list.length} แคมเปญ{filtered ? ' (ที่ค้นเจอ)' : ''}</b>
+        {withProfit.length > 0 && withProfit.length < list.length && <span className="small muted">กำไรนับ {withProfit.length} แคมเปญที่ผูกต้นทุน</span>}
+      </span>
+      <span className="num" data-label="ใช้จ่าย">{baht(t.spend)}</span>
+      <span className="num" data-label="ยอดขาย">{baht(t.value)}</span>
+      <span className="num" data-label="ออเดอร์" title={t.clicks ? `CVR ${num((t.purchases / t.clicks) * 100, 2)}%` : undefined}>{num(t.purchases)}</span>
+      <span className="num" data-label="ค่าแอด/ออเดอร์">{t.purchases ? baht(t.spend / t.purchases) : '–'}</span>
+      <span className="num strong" data-label="ROAS">{t.spend ? num(t.value / t.spend, 2) : '–'}</span>
+      <span className={`num ${withProfit.length ? profitTone(low, high) : ''}`} data-label="กำไร" title={withProfit.length ? `ประมาณ ${bahtRange(low, high)}` : 'ยังไม่ผูกต้นทุน'}>{withProfit.length ? baht(low) : '–'}</span>
+      <span className="num" data-label="งบ/วัน" title="งบรวมต่อวันของแคมเปญที่เปิดอยู่">{baht(t.budget)}</span>
+    </div>
   );
 }
 
