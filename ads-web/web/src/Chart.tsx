@@ -40,9 +40,9 @@ export function DailyChart({ days, breakeven }: { days: DailyRow[]; breakeven: n
     <div className="chart">
       <div className="chart-readout">
         <span className="muted">{thaiDate(d.date)}</span>
+        <span>ยอดขาย <b>{baht(d.purchase_value)}</b></span>
         <span><i className="dot spend" />ใช้จ่าย <b>{baht(d.spend)}</b></span>
         <span><i className="dot roas" />ROAS <b>{roas[sel] === null ? '–' : num(roas[sel], 2)}</b></span>
-        <span>ยอดขาย <b>{baht(d.purchase_value)}</b></span>
         <span>ออเดอร์ <b>{num(d.purchases)}</b></span>
         <span>CVR <b>{d.clicks ? `${num((d.purchases / d.clicks) * 100, 2)}%` : '–'}</b></span>
       </div>

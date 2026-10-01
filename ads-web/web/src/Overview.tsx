@@ -25,7 +25,7 @@ interface Props {
 
 type SortKey = 'spend' | 'value' | 'roas_desc' | 'roas_asc' | 'cvr' | 'cpa' | 'profit' | 'budget' | 'name';
 const SORT_LABEL: Record<SortKey, string> = {
-  spend: 'ใช้จ่ายมากสุด', value: 'ยอดขายมากสุด', roas_desc: 'ROAS สูงสุด', roas_asc: 'ROAS ต่ำสุด', cvr: 'CVR สูงสุด', cpa: 'ค่าแอด/ออเดอร์ ถูกสุด', profit: 'กำไรมากสุด', budget: 'งบ/วันมากสุด', name: 'ชื่อ ก–ฮ',
+  value: 'ยอดขายมากสุด', spend: 'ใช้จ่ายมากสุด', roas_desc: 'ROAS สูงสุด', roas_asc: 'ROAS ต่ำสุด', cvr: 'CVR สูงสุด', cpa: 'ค่าแอด/ออเดอร์ ถูกสุด', profit: 'กำไรมากสุด', budget: 'งบ/วันมากสุด', name: 'ชื่อ ก–ฮ',
 };
 
 const roasOf = (c: CampaignView) => (c.metrics && c.metrics.spend > 0 ? c.metrics.purchase_value / c.metrics.spend : null);
@@ -59,8 +59,8 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
       </div>
 
       <div className="kpis">
-        <Kpi label="ใช้จ่าย" value={baht(all.spend)} sub={`${spending} แคมเปญที่ใช้เงิน`} />
         <Kpi label="ยอดขาย" value={baht(all.value)} sub={all.purchases ? `เฉลี่ย ${baht(all.value / all.purchases)}/ออเดอร์` : undefined} />
+        <Kpi label="ใช้จ่าย" value={baht(all.spend)} sub={`${spending} แคมเปญที่ใช้เงิน`} />
         <Kpi label="ออเดอร์" value={num(all.purchases)} sub={all.purchases ? `ค่าแอด ${baht(all.spend / all.purchases)}/ออเดอร์${all.clicks ? ` · CVR ${num((all.purchases / all.clicks) * 100, 2)}%` : ''}` : undefined} />
         <Kpi label="ROAS" value={all.spend ? num(all.value / all.spend, 2) : '–'} sub="ยอดขาย ÷ ค่าแอด" />
         <Kpi
@@ -191,8 +191,8 @@ function StageSection({ stage, campaigns, data, preview, ideas, onReload, onOpen
             </span>
             <span />
             <span>แคมเปญ ({list.length})</span>
-            <span className="num">ใช้จ่าย</span>
             <span className="num" title="มูลค่าคอนเวอร์ชั่นที่แอดมินติ๊กใน Meta">ยอดขาย</span>
+            <span className="num">ใช้จ่าย</span>
             <span className="num">ออเดอร์</span>
             <span className="num" title="ค่าแอดต่อออเดอร์">ค่าแอด/ออเดอร์</span>
             <span className="num">ROAS</span>
@@ -272,8 +272,8 @@ function TotalsRow({ list, filtered }: { list: CampaignView[]; filtered: boolean
         <b>ผลรวม {list.length} แคมเปญ{filtered ? ' (ที่ค้นเจอ)' : ''}</b>
         {withProfit.length > 0 && withProfit.length < list.length && <span className="small muted">กำไรนับ {withProfit.length} แคมเปญที่ผูกต้นทุน</span>}
       </span>
-      <span className="num" data-label="ใช้จ่าย">{baht(t.spend)}</span>
       <span className="num" data-label="ยอดขาย">{baht(t.value)}</span>
+      <span className="num" data-label="ใช้จ่าย">{baht(t.spend)}</span>
       <span className="num" data-label="ออเดอร์" title={t.clicks ? `CVR ${num((t.purchases / t.clicks) * 100, 2)}%` : undefined}>{num(t.purchases)}</span>
       <span className="num" data-label="ค่าแอด/ออเดอร์">{t.purchases ? baht(t.spend / t.purchases) : '–'}</span>
       <span className="num strong" data-label="ROAS">{t.spend ? num(t.value / t.spend, 2) : '–'}</span>
@@ -309,8 +309,8 @@ function CampaignRow({ c, data, selected, onSelect, next, idea, onOpen, onStatus
           {days !== null && <span className="badge plain">{days} วันในกลุ่ม</span>}
         </span>
       </span>
+      <span className="num strong" data-label="ยอดขาย">{baht(m?.purchase_value)}</span>
       <span className="num" data-label="ใช้จ่าย">{baht(m?.spend)}</span>
-      <span className="num" data-label="ยอดขาย">{baht(m?.purchase_value)}</span>
       <span className="num" data-label="ออเดอร์" title={cvr(m?.purchases, m?.clicks) === null ? undefined : `CVR ${num(cvr(m?.purchases, m?.clicks), 2)}% (${num(m?.purchases)} ออเดอร์ ÷ ${num(m?.clicks)} คลิก)`}>{num(m?.purchases)}</span>
       <span className="num" data-label="ค่าแอด/ออเดอร์">{baht(m?.cpa ?? null)}</span>
       <span className={`num strong ${roasTone(r, c.breakeven_roas)}`} data-label="ROAS" title={c.breakeven_roas ? `คุ้มทุนที่ ${num(c.breakeven_roas, 2)}` : 'ยังไม่ผูกต้นทุน'}>
@@ -338,7 +338,7 @@ export function previewText(i: PreviewItem, stages: Stage[]): string {
 }
 
 function readSort(): SortKey {
-  try { return (localStorage.getItem('sort') as SortKey) || 'spend'; } catch { return 'spend'; }
+  try { return (localStorage.getItem('sort') as SortKey) || 'value'; } catch { return 'value'; }
 }
 function saveSort(v: string) {
   try { localStorage.setItem('sort', v); } catch { /* private mode */ }

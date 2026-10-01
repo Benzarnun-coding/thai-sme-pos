@@ -75,8 +75,8 @@ export function CampaignDrawer({ c, data, window, preview, ideas, onClose, onRel
 
       <div className="drawer-body">
         <div className="mini-kpis">
-          <div><span>ใช้จ่าย · {WINDOW_LABEL[window]}</span><b>{baht(m?.spend)}</b></div>
-          <div><span>ยอดขาย</span><b>{baht(m?.purchase_value)}</b></div>
+          <div><span>ยอดขาย · {WINDOW_LABEL[window]}</span><b>{baht(m?.purchase_value)}</b></div>
+          <div><span>ใช้จ่าย</span><b>{baht(m?.spend)}</b></div>
           <div><span>ออเดอร์</span><b>{num(m?.purchases)}</b></div>
           <div><span>ROAS</span><b className={roasTone(r, c.breakeven_roas)}>{r === null ? '–' : num(r, 2)}</b>{c.breakeven_roas !== null && <small>คุ้มทุน {num(c.breakeven_roas, 2)}</small>}</div>
           <div><span>ค่าแอด/ออเดอร์</span><b>{baht(m?.cpa ?? null)}</b></div>
