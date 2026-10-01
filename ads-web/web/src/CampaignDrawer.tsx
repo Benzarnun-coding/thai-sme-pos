@@ -87,13 +87,11 @@ export function CampaignDrawer({ c, data, window, preview, ideas, onClose, onRel
           <div className="wide-kpi">
             <span>กำไรหลังหักทุนและค่าแอด</span>
             <b className={profitTone(c.profit, c.profit_high)}>{bahtRange(c.profit, c.profit_high)}</b>
-            <small>
-              {c.profit === null
-                ? 'ยังไม่ผูกต้นทุน — ผูกในแท็บสินค้า/ต้นทุน'
-                : profitTone(c.profit, c.profit_high) === 'warn'
-                  ? 'กำไรหรือขาดทุนขึ้นกับว่าลูกค้าซื้อโปรไหน'
-                  : 'ค่าต่ำ = ทุกออเดอร์เป็นโปรถูกสุด · ค่าสูง = ขายราคาเต็ม'}
-            </small>
+            {c.profit === null || !m ? (
+              <small>ยังไม่ผูกต้นทุน — กรอกในช่อง "ต้นทุน" ด้านล่าง</small>
+            ) : (
+              <ProfitBreakdown c={c} m={m} />
+            )}
           </div>
         </div>
 
@@ -338,4 +336,25 @@ function CostPanel({ c, data, onEditSection, onReload }: {
 function strip(s: Overview['sections'][number]) {
   const { totals: _t, economics: _e, campaign_count: _c, ...rest } = s;
   return rest;
+}
+
+/**
+ * ยอดขาย − ทุนสินค้า − ค่าแอด = กำไร. Product cost is derived from the same numbers as profit
+ * (revenue − ad spend − profit), so the equation always adds up, COD and extra costs included.
+ */
+function ProfitBreakdown({ c, m }: { c: CampaignView; m: NonNullable<CampaignView['metrics']> }) {
+  const costHigh = m.purchase_value - m.spend - (c.profit ?? 0);
+  const costLow = m.purchase_value - m.spend - (c.profit_high ?? c.profit ?? 0);
+  const units = c.units_low === null ? '' : num(c.units_low) === num(c.units_high) ? `${num(c.units_low)} ตัว` : `${num(c.units_low)}–${num(c.units_high)} ตัว`;
+  return (
+    <div className="profit-eq">
+      <div><span>ยอดขาย</span><b>{baht(m.purchase_value)}</b></div>
+      <i>−</i>
+      <div><span>ทุนสินค้า{units && ` (${units})`}</span><b>{bahtRange(costLow, costHigh)}</b></div>
+      <i>−</i>
+      <div><span>ค่าแอด</span><b>{baht(m.spend)}</b></div>
+      <i>=</i>
+      <div><span>กำไร</span><b className={profitTone(c.profit, c.profit_high)}>{bahtRange(c.profit, c.profit_high)}</b></div>
+    </div>
+  );
 }
