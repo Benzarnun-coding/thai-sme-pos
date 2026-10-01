@@ -187,6 +187,7 @@ export function App() {
             key={editingSection.id}
             section={editingSection}
             campaignNames={data.campaigns.filter((c) => c.section_id === editingSection.id).map((c) => c.name)}
+            cod={{ share: data.settings.cod_share_pct / 100, fee: data.settings.cod_fee }}
             onSaved={() => { setEditing(null); load(); }}
           />
         </Modal>

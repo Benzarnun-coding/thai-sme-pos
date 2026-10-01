@@ -142,5 +142,7 @@ export function validateSettings(input: any, current: Settings): Settings {
     guardrails,
     sheet_id: input?.sheet_id ? str(input.sheet_id, 'Google Sheet ID', 100) : current.sheet_id,
     sheet_tabs: tabs,
+    cod_share_pct: input?.cod_share_pct === undefined ? current.cod_share_pct : num(input.cod_share_pct, 'สัดส่วนเก็บปลายทาง (%)', 0, 100),
+    cod_fee: input?.cod_fee === undefined ? current.cod_fee : num(input.cod_fee, 'ค่าเก็บปลายทางที่บวกเพิ่ม', 0, 1000),
   };
 }

@@ -66,6 +66,15 @@ export function SettingsPage({ costsLoaded, onSaved }: { costsLoaded: number; on
       </section>
 
       <section className="card">
+        <h2>เก็บเงินปลายทาง</h2>
+        <p className="muted small">แอดมินติ๊กยอดใน Meta รวมค่าเก็บปลายทางไว้แล้ว ระบบนับส่วนนี้เป็นรายได้ แต่หักออกก่อนคำนวณจำนวนตัว จะได้ไม่นับเป็นกางเกงเพิ่ม</p>
+        <div className="grid2">
+          <label>สัดส่วนออเดอร์ที่เก็บปลายทาง (%)<input type="number" min={0} max={100} value={s.cod_share_pct} onChange={(e) => setS({ ...s, cod_share_pct: Number(e.target.value) })} /></label>
+          <label>บวกเพิ่มต่อออเดอร์ปลายทาง (฿)<input type="number" min={0} value={s.cod_fee} onChange={(e) => setS({ ...s, cod_fee: Number(e.target.value) })} /></label>
+        </div>
+      </section>
+
+      <section className="card">
         <h2>Google Sheet ต้นทุน</h2>
         <div className="grid2">
           <label>Sheet ID<input value={s.sheet_id} onChange={(e) => setS({ ...s, sheet_id: e.target.value })} /></label>

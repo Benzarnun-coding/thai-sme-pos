@@ -4,7 +4,7 @@ import { applyDecisions, sumBudget, type Mutator } from '../../ads-engine/src/ap
 import { formatReport, pushLine } from '../../ads-engine/src/notify.ts';
 import type { DailyRow } from '../../ads-engine/src/meta.ts';
 import type { Entity, Level, Metrics, RunReport, State, Window } from '../../ads-engine/src/types.ts';
-import { applyMoves, insertRun, loadCampaignSettings, loadCosts, loadSections, loadSettings, loadStages, loadState, saveState } from './db.ts';
+import { applyMoves, codOf, insertRun, loadCampaignSettings, loadCosts, loadSections, loadSettings, loadStages, loadState, saveState } from './db.ts';
 import { buildGroups, neededWindows, planDecisions, sectionMap, type MoveDecision, type Plan } from './engine.ts';
 
 /** Keeps a run well inside the Workers free plan's 50 outbound requests, and limits damage from a bad rule. */
@@ -99,7 +99,7 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
 export async function planRun(
   db: D1Database, entities: Entity[], insights: (level: Level, window: Window) => Promise<Map<string, Metrics>>, state: State, now: Date,
 ): Promise<{ plan: Plan; evaluated: number }> {
-  const [sections, stages, campaignSettings, costs] = await Promise.all([loadSections(db), loadStages(db), loadCampaignSettings(db), loadCosts(db)]);
+  const [sections, stages, campaignSettings, costs, settings] = await Promise.all([loadSections(db), loadStages(db), loadCampaignSettings(db), loadCosts(db), loadSettings(db)]);
   const sectionOf = sectionMap(entities, sections, campaignSettings);
   const groups = buildGroups(entities, sections, stages, campaignSettings, sectionOf);
   const calls = [...neededWindows(groups)].flatMap(([level, windows]) => [...windows].map((w) => [level, w] as const));
@@ -108,7 +108,7 @@ export async function planRun(
     for (const e of entities) if (e.level === level) e.metrics[w] = results[i].get(e.id) ?? zeroMetrics();
   });
   const evaluated = entities.filter((e) => groups.some((g) => g.campaignIds.has(e.campaign_id))).length;
-  return { plan: planDecisions(groups, entities, sectionOf, costs, campaignSettings, stages, state, now), evaluated };
+  return { plan: planDecisions(groups, entities, sectionOf, costs, campaignSettings, stages, state, now, codOf(settings)), evaluated };
 }
 
 /** Marks everything past MAX_CHANGES_PER_RUN as skipped. */

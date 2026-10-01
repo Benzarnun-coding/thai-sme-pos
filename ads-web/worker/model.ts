@@ -125,7 +125,19 @@ export interface Economics {
 
 type Money = Pick<Metrics, 'spend' | 'purchases' | 'purchase_value'>;
 
-export function economics(section: Section, costs: CostRow[], m: Money): Economics {
+/**
+ * Cash-on-delivery surcharge that admins include in the order value they tag in Meta (e.g. +50).
+ * It is income, but not pieces, so it is taken out before dividing by the price per piece.
+ */
+export interface Cod {
+  /** Share of orders paid on delivery, 0–1 */
+  share: number;
+  /** Surcharge per COD order */
+  fee: number;
+}
+export const NO_COD: Cod = { share: 0, fee: 0 };
+
+export function economics(section: Section, costs: CostRow[], m: Money, cod: Cod = NO_COD): Economics {
   const found: CostRow[] = [];
   const missing: Product[] = [];
   for (const p of section.products) {
@@ -150,8 +162,8 @@ export function economics(section: Section, costs: CostRow[], m: Money): Economi
   const price_per_unit_max = perUnit.length ? Math.max(...perUnit) : null;
 
   const aov = m.purchases > 0 ? m.purchase_value / m.purchases : null;
-  const be = (price: number | null) => (cost_per_unit === null || price === null ? null : breakeven(price, cost_per_unit, section.extra_cost_per_order, aov));
-  const range = profitRange({ cost_per_unit, price_per_unit_min, price_per_unit_max }, section.extra_cost_per_order, m);
+  const be = (price: number | null) => (cost_per_unit === null || price === null ? null : breakeven(price, cost_per_unit, section.extra_cost_per_order, aov, cod));
+  const range = profitRange({ cost_per_unit, price_per_unit_min, price_per_unit_max }, section.extra_cost_per_order, m, cod);
 
   return {
     cost_per_unit, price_per_unit_min, price_per_unit_max, price_source,
@@ -166,22 +178,25 @@ export function economics(section: Section, costs: CostRow[], m: Money): Economi
 }
 
 /**
- * ROAS at which profit is zero: revenue × (1 − cost/price) − orders × extra = spend.
- * The extra-per-order term needs the average order value; without it (or with no extra cost) it is left out.
+ * ROAS at which profit is zero: revenue − (revenue − COD surcharges) × cost/price − orders × extra = spend.
+ * The per-order terms need the average order value; without it they are left out.
  */
-function breakeven(pricePerUnit: number, costPerUnit: number, extraPerOrder: number, aov: number | null): number {
-  const margin = 1 - costPerUnit / pricePerUnit - (extraPerOrder > 0 && aov ? extraPerOrder / aov : 0);
+function breakeven(pricePerUnit: number, costPerUnit: number, extraPerOrder: number, aov: number | null, cod: Cod): number {
+  const perOrder = aov ? (cod.fee * cod.share * costPerUnit / pricePerUnit - extraPerOrder) / aov : 0;
+  const margin = 1 - costPerUnit / pricePerUnit + perOrder;
   return margin > 0 ? 1 / margin : Infinity;
 }
 
 /** Pieces and profit for one set of numbers (a campaign or a whole section), low–high. Null when cost or price is unknown. */
 export function profitRange(
-  e: Pick<Economics, 'cost_per_unit' | 'price_per_unit_min' | 'price_per_unit_max'>, extraPerOrder: number, m: Money,
+  e: Pick<Economics, 'cost_per_unit' | 'price_per_unit_min' | 'price_per_unit_max'>, extraPerOrder: number, m: Money, cod: Cod = NO_COD,
 ): { units_low: number; units_high: number; low: number; high: number } | null {
   if (e.cost_per_unit === null || e.price_per_unit_min === null || e.price_per_unit_max === null) return null;
+  // COD surcharges are in the tagged value but are not pieces.
+  const goods = Math.max(0, m.purchase_value - cod.fee * cod.share * m.purchases);
   // More pieces (cheapest price per piece) = more cost = lower profit.
-  const units_high = m.purchase_value / e.price_per_unit_min;
-  const units_low = m.purchase_value / e.price_per_unit_max;
+  const units_high = goods / e.price_per_unit_min;
+  const units_low = goods / e.price_per_unit_max;
   const rest = m.purchase_value - m.purchases * extraPerOrder - m.spend;
   return { units_low, units_high, low: rest - units_high * e.cost_per_unit, high: rest - units_low * e.cost_per_unit };
 }

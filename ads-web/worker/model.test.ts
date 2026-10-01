@@ -71,6 +71,18 @@ test('price falls back to manual price per order, then the sheet price; Infinity
   assert.deepEqual(unlinked.missing_products, [{ tab: 'PK', code: 'NOPE' }]);
 });
 
+test('COD surcharge in the tagged value is income but not pieces', () => {
+  // 10 orders, all COD (+50 each): value 6,000 = 5,500 of pants at 200/piece + 500 surcharge. Cost 100/piece.
+  const s = section({ products: [{ tab: 'PK', code: 'X' }], tiers: [{ units: 1, price: 200 }] });
+  const e = economics(s, [cost('PK', 'X', 100)], metrics(1000, 10, 6000), { share: 1, fee: 50 });
+  assert.ok(Math.abs(e.units_low! - 27.5) < 1e-9);
+  assert.ok(Math.abs(e.profit! - (6000 - 27.5 * 100 - 1000)) < 1e-9);
+  // Break-even: ROAS where 6000-style revenue covers cost: margin = 1 − 0.5 + 50·0.5/600
+  assert.ok(Math.abs(e.breakeven_roas! - 1 / (0.5 + 25 / 600)) < 1e-9);
+  // Without COD set, the surcharge is counted as pieces (more cost, lower profit)
+  assert.ok(economics(s, [cost('PK', 'X', 100)], metrics(1000, 10, 6000)).profit! < e.profit!);
+});
+
 test('extra cost per order lowers the margin through the average order value', () => {
   const e = economics(section({ products: [{ tab: 'PK', code: 'X' }], tiers: [{ units: 1, price: 200 }], extra_cost_per_order: 40 }), [cost('PK', 'X', 100)], metrics(1000, 10, 4000));
   // margin = 1 − 100/200 − 40/400 = 0.4

@@ -6,12 +6,14 @@ import { baht, bahtRange, num, profitTone } from './fmt.ts';
 interface Props {
   section: SectionView;
   campaignNames: string[];
+  /** COD surcharge included in the tagged value: share 0–1, fee in baht */
+  cod: { share: number; fee: number };
   onSaved: () => void;
 }
 
 const key = (p: { tab: string; code: string }) => `${p.tab}:${p.code}`;
 
-export function SectionEditor({ section, campaignNames, onSaved }: Props) {
+export function SectionEditor({ section, campaignNames, cod, onSaved }: Props) {
   const { confirm } = useUi();
   const [draft, setDraft] = useState<Section>(() => strip(section));
   const [keywordText, setKeywordText] = useState(section.keywords.join(', '));
@@ -64,12 +66,13 @@ export function SectionEditor({ section, campaignNames, onSaved }: Props) {
     const aov = t.purchases ? t.purchase_value / t.purchases : null;
     const be = (p: number | null) => {
       if (unit === null || p === null) return null;
-      const margin = 1 - unit / p - (draft.extra_cost_per_order > 0 && aov ? draft.extra_cost_per_order / aov : 0);
+      const margin = 1 - unit / p + (aov ? (cod.fee * cod.share * unit / p - draft.extra_cost_per_order) / aov : 0);
       return margin > 0 ? 1 / margin : Infinity;
     };
     const rest = t.purchase_value - t.purchases * draft.extra_cost_per_order - t.spend;
-    const profitLow = unit === null || min === null ? null : rest - (t.purchase_value / min) * unit;
-    const profitHigh = unit === null || max === null ? null : rest - (t.purchase_value / max) * unit;
+    const goods = Math.max(0, t.purchase_value - cod.fee * cod.share * t.purchases);
+    const profitLow = unit === null || min === null ? null : rest - (goods / min) * unit;
+    const profitHigh = unit === null || max === null ? null : rest - (goods / max) * unit;
     return { unit, min, max, beWorst: be(min), beBest: be(max), profitLow, profitHigh, source: tiers.length ? 'tiers' : draft.price_per_order !== null ? 'manual' : sheetPrices.length ? 'sheet' : null };
   })();
 

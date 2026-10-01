@@ -1,7 +1,7 @@
 // D1 access. JSON columns are parsed here so the rest of the worker only sees typed objects.
 
 import type { Guardrails, State } from '../../ads-engine/src/types.ts';
-import type { CampaignMode, CampaignSetting, CostRow, Section, Stage, WebRule } from './model.ts';
+import type { CampaignMode, CampaignSetting, Cod, CostRow, Section, Stage, WebRule } from './model.ts';
 
 export interface Settings {
   dry_run: boolean;
@@ -9,6 +9,13 @@ export interface Settings {
   guardrails: Guardrails;
   sheet_id: string;
   sheet_tabs: string[];
+  /** COD surcharge admins include in the value they tag in Meta */
+  cod_share_pct: number;
+  cod_fee: number;
+}
+
+export function codOf(s: Pick<Settings, 'cod_share_pct' | 'cod_fee'>): Cod {
+  return { share: s.cod_share_pct / 100, fee: s.cod_fee };
 }
 
 export async function loadSettings(db: D1Database): Promise<Settings> {
@@ -20,6 +27,8 @@ export async function loadSettings(db: D1Database): Promise<Settings> {
     guardrails: JSON.parse(kv.get('guardrails') ?? '{}'),
     sheet_id: kv.get('sheet_id') ?? '',
     sheet_tabs: JSON.parse(kv.get('sheet_tabs') ?? '[]'),
+    cod_share_pct: Number(kv.get('cod_share_pct') ?? 0),
+    cod_fee: Number(kv.get('cod_fee') ?? 50),
   };
 }
 
@@ -31,6 +40,8 @@ export async function saveSettings(db: D1Database, s: Settings): Promise<void> {
     put.bind('guardrails', JSON.stringify(s.guardrails)),
     put.bind('sheet_id', s.sheet_id),
     put.bind('sheet_tabs', JSON.stringify(s.sheet_tabs)),
+    put.bind('cod_share_pct', String(s.cod_share_pct)),
+    put.bind('cod_fee', String(s.cod_fee)),
   ]);
 }
 

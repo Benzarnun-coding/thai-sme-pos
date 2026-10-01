@@ -6,12 +6,12 @@ import type { Entity, Level, Window } from '../../ads-engine/src/types.ts';
 import { authenticate } from './auth.ts';
 import { syncCosts } from './costs.ts';
 import {
-  audit, deleteSection, insertRun, listAudit, listRuns, loadCampaignSettings, loadCosts, loadSections, loadSettings,
+  audit, codOf, deleteSection, insertRun, listAudit, listRuns, loadCampaignSettings, loadCosts, loadSections, loadSettings,
   loadStages, loadState, saveCampaignSetting, saveCampaignSettings, auditMany, campaignHistory, saveSection, saveSettings, saveStage,
 } from './db.ts';
 import { ECONOMICS_WINDOW, sectionMap, sectionTotals } from './engine.ts';
 import { MockMeta } from './mock.ts';
-import { DEFAULT_SECTION_ID, economics, profitRange, suggestProducts, type CampaignSetting, type CostRow, type Economics, type Section } from './model.ts';
+import { DEFAULT_SECTION_ID, economics, profitRange, suggestProducts, type CampaignSetting, type Cod, type CostRow, type Economics, type Section } from './model.ts';
 import { capChanges, planRun, runAutomation, zeroMetrics, type MetaLike } from './run.ts';
 import { buildIdeas } from './ideas.ts';
 import { friendlyMetaError, loadMetaData, MetaCacheError, patchCachedEntity, type MetaData } from './metadata.ts';
@@ -313,8 +313,8 @@ async function overview(env: Env, window: Window, fresh: boolean) {
   const totals7 = sectionTotals(entities, sectionOf, ECONOMICS_WINDOW);
   const zero = { spend: 0, purchases: 0, purchase_value: 0, impressions: 0, clicks: 0 };
   const econ = new Map<string, { be: Economics; window: Economics }>(sections.map((s) => [s.id, {
-    be: economics(s, costs, totals7.get(s.id) ?? zero),
-    window: economics(s, costs, totals.get(s.id) ?? zero),
+    be: economics(s, costs, totals7.get(s.id) ?? zero, codOf(settings)),
+    window: economics(s, costs, totals.get(s.id) ?? zero, codOf(settings)),
   }]));
   const adsetsOf = (id: string) => entities.filter((e) => e.level === 'adset' && e.campaign_id === id);
   const view = (e: Entity) => ({ id: e.id, name: e.name, status: e.status, daily_budget: e.daily_budget, metrics: finite(e.metrics[window]) });
@@ -329,7 +329,7 @@ async function overview(env: Env, window: Window, fresh: boolean) {
     const sectionId = sectionOf.get(c.id) ?? DEFAULT_SECTION_ID;
     const e = econ.get(sectionId);
     const m = c.metrics[window];
-    const range = e && m ? profitRange(e.be, sections.find((s) => s.id === sectionId)?.extra_cost_per_order ?? 0, m) : null;
+    const range = e && m ? profitRange(e.be, sections.find((s) => s.id === sectionId)?.extra_cost_per_order ?? 0, m, codOf(settings)) : null;
     return {
       ...view(c),
       section_id: sectionId,
@@ -355,7 +355,7 @@ async function overview(env: Env, window: Window, fresh: boolean) {
     snapshot,
     meta_fetched_at: data.fetchedAt(),
     meta_warning: data.warning(),
-    settings: { dry_run: settings.dry_run, kill_switch: settings.kill_switch, guardrails: settings.guardrails },
+    settings: { dry_run: settings.dry_run, kill_switch: settings.kill_switch, guardrails: settings.guardrails, cod_share_pct: settings.cod_share_pct, cod_fee: settings.cod_fee },
     costs_loaded: costs.length,
     last_run: runs[0] ? { run_at: runs[0].run_at, summary: runs[0].summary, dry_run: runs[0].dry_run } : null,
     stages,
@@ -385,12 +385,12 @@ function bulkItems(input: unknown): { id: string; name: string }[] {
 }
 
 /** Product break-even per campaign, from 7-day numbers (same as the engine). */
-function breakevens(entities: Entity[], sections: Section[], settings: Map<string, CampaignSetting>, costs: CostRow[]): Map<string, number | null> {
+function breakevens(entities: Entity[], sections: Section[], settings: Map<string, CampaignSetting>, costs: CostRow[], cod: Cod): Map<string, number | null> {
   const sectionOf = sectionMap(entities, sections, settings);
   const totals = sectionTotals(entities, sectionOf, ECONOMICS_WINDOW);
   const zero = { spend: 0, purchases: 0, purchase_value: 0 };
   const be = new Map(sections.map((s) => {
-    const r = economics(s, costs, totals.get(s.id) ?? zero).breakeven_roas;
+    const r = economics(s, costs, totals.get(s.id) ?? zero, cod).breakeven_roas;
     return [s.id, r !== null && Number.isFinite(r) ? r : null];
   }));
   return new Map([...sectionOf].map(([cid, sid]) => [cid, be.get(sid) ?? null]));
@@ -401,7 +401,7 @@ async function ideas(env: Env) {
     metaData(env), loadSections(env.DB), loadCampaignSettings(env.DB), loadCosts(env.DB),
   ]);
   const entities = await withMetrics(data, [['campaign', 'last_7d'], ['campaign', 'last_30d']]);
-  const be = breakevens(entities, sections, campaignSettings, costs);
+  const be = breakevens(entities, sections, campaignSettings, costs, codOf(await loadSettings(env.DB)));
   const list = buildIdeas(entities.filter((e) => e.level === 'campaign').map((c) => ({
     campaign: c,
     m7: c.metrics.last_7d,

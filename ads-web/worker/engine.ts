@@ -4,8 +4,8 @@
 import { evaluate } from '../../ads-engine/src/rules.ts';
 import type { Decision, Entity, Level, Metrics, Scope, State, Window } from '../../ads-engine/src/types.ts';
 import {
-  DEFAULT_SECTION_ID, daysInStage, economics, materializeRules, resolveSectionId, storedRulesFor, sumMetrics,
-  type CampaignSetting, type CostRow, type Section, type Stage, type WebRule,
+  DEFAULT_SECTION_ID, NO_COD, daysInStage, economics, materializeRules, resolveSectionId, storedRulesFor, sumMetrics,
+  type CampaignSetting, type Cod, type CostRow, type Section, type Stage, type WebRule,
 } from './model.ts';
 
 const NO_SCOPE: Scope = { campaign_name_prefixes: [], campaign_ids: [] };
@@ -94,7 +94,7 @@ export interface Plan {
 /** Entities must already carry metrics for every window from neededWindows(). */
 export function planDecisions(
   groups: Group[], entities: Entity[], sectionOf: Map<string, string>, costs: CostRow[],
-  settings: Map<string, CampaignSetting>, stages: Stage[], state: State, now: Date,
+  settings: Map<string, CampaignSetting>, stages: Stage[], state: State, now: Date, cod: Cod = NO_COD,
 ): Plan {
   const decisions: Plan['decisions'] = [];
   const moves: MoveDecision[] = [];
@@ -105,7 +105,7 @@ export function planDecisions(
 
   for (const g of groups) {
     // Break-even comes from the product line's 7-day numbers across all its campaigns, whatever their stage.
-    const econ = economics(g.section, costs, totals.get(g.section.id) ?? zero);
+    const econ = economics(g.section, costs, totals.get(g.section.id) ?? zero, cod);
     const { actions, moves: moveRules, notes: ruleNotes } = materializeRules(g.stored, econ.breakeven_roas);
     notes.push(...ruleNotes.map((n) => `[${g.label}] ${n}`));
     const members = entities.filter((e) => g.campaignIds.has(e.campaign_id));

@@ -101,7 +101,7 @@ export interface Overview {
   meta_fetched_at: string;
   /** Meta refused (e.g. rate limit) and older data is shown */
   meta_warning: string | null;
-  settings: { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails };
+  settings: { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails; cod_share_pct: number; cod_fee: number };
   costs_loaded: number;
   last_run: { run_at: string; summary: string; dry_run: boolean } | null;
   stages: Stage[];
@@ -109,7 +109,7 @@ export interface Overview {
   campaigns: CampaignView[];
 }
 
-export interface Settings { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails; sheet_id: string; sheet_tabs: string[] }
+export interface Settings { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails; sheet_id: string; sheet_tabs: string[]; cod_share_pct: number; cod_fee: number }
 
 export interface CostRow { tab: string; code: string; name: string; sku_count: number; avg_cost: number; min_cost: number; max_cost: number; avg_price: number }
 
