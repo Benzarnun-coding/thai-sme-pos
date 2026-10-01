@@ -81,6 +81,7 @@ export function validateSection(id: string, input: any, existingSort: number): S
     name: str(input?.name, 'ชื่อ section', 80),
     keywords,
     products: validateProducts(input?.products ?? []),
+    tiers: validateTiers(input?.tiers ?? []),
     units_per_order: num(input?.units_per_order ?? 1, 'จำนวนตัวต่อออเดอร์', 0.1, 50),
     extra_cost_per_order: num(input?.extra_cost_per_order ?? 0, 'ค่าใช้จ่ายอื่นต่อออเดอร์', 0, 10000),
     price_per_order: input?.price_per_order === null || input?.price_per_order === undefined || input?.price_per_order === ''
@@ -88,6 +89,13 @@ export function validateSection(id: string, input: any, existingSort: number): S
       : num(input.price_per_order, 'ราคาขายต่อออเดอร์', 1, 100000),
     sort: typeof input?.sort === 'number' ? input.sort : existingSort,
   };
+}
+
+function validateTiers(input: unknown): Section['tiers'] {
+  if (!Array.isArray(input)) fail('โปรต้องเป็นรายการ');
+  if (input.length > 10) fail('โปรได้ไม่เกิน 10 แบบ');
+  const tiers = input.map((t: any) => ({ units: num(t?.units, 'จำนวนตัวในโปร', 1, 100), price: num(t?.price, 'ราคาโปร', 1, 100000) }));
+  return tiers.sort((a, b) => a.units - b.units);
 }
 
 export function validateStage(existing: Stage, input: any, stageIds: string[]): Stage {

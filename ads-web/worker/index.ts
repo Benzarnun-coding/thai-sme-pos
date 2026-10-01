@@ -11,7 +11,7 @@ import {
 } from './db.ts';
 import { ECONOMICS_WINDOW, sectionMap, sectionTotals } from './engine.ts';
 import { MockMeta } from './mock.ts';
-import { DEFAULT_SECTION_ID, economics, suggestProducts, type CampaignSetting, type CostRow, type Economics, type Section } from './model.ts';
+import { DEFAULT_SECTION_ID, economics, profitRange, suggestProducts, type CampaignSetting, type CostRow, type Economics, type Section } from './model.ts';
 import { capChanges, planRun, runAutomation, zeroMetrics, type MetaLike } from './run.ts';
 import { buildIdeas } from './ideas.ts';
 import { friendlyMetaError, loadMetaData, MetaCacheError, patchCachedEntity, type MetaData } from './metadata.ts';
@@ -329,7 +329,7 @@ async function overview(env: Env, window: Window, fresh: boolean) {
     const sectionId = sectionOf.get(c.id) ?? DEFAULT_SECTION_ID;
     const e = econ.get(sectionId);
     const m = c.metrics[window];
-    const perOrder = e?.be.cogs_per_order == null ? null : e.be.cogs_per_order + (sections.find((s) => s.id === sectionId)?.extra_cost_per_order ?? 0);
+    const range = e && m ? profitRange(e.be, sections.find((s) => s.id === sectionId)?.extra_cost_per_order ?? 0, m) : null;
     return {
       ...view(c),
       section_id: sectionId,
@@ -339,7 +339,11 @@ async function overview(env: Env, window: Window, fresh: boolean) {
       mode: setting?.mode ?? 'stage',
       rules: setting?.rules ?? null,
       breakeven_roas: e ? beOf(e.be) : null,
-      profit: m && perOrder !== null ? m.purchase_value - m.purchases * perOrder - m.spend : null,
+      /** Conservative (most pieces at the cheapest promo price) and best case */
+      profit: range ? range.low : null,
+      profit_high: range ? range.high : null,
+      units_low: range ? range.units_low : null,
+      units_high: range ? range.units_high : null,
       adsets: adsetsOf(c.id).map(view),
     };
   });
@@ -360,7 +364,7 @@ async function overview(env: Env, window: Window, fresh: boolean) {
       return {
         ...s,
         totals: totals.get(s.id) ?? zero,
-        economics: { ...e.window, breakeven_roas: beOf(e.be), never_profitable: e.be.breakeven_roas === Infinity },
+        economics: { ...e.window, breakeven_roas: beOf(e.be), breakeven_best: e.be.breakeven_best !== null && Number.isFinite(e.be.breakeven_best) ? e.be.breakeven_best : null, never_profitable: e.be.breakeven_roas === Infinity },
         campaign_count: campaigns.filter((c) => c.section_id === s.id).length,
       };
     }),

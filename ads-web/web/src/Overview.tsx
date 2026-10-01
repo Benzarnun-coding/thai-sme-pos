@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { WINDOW_LABEL, type CampaignView, type Idea, type Overview as OverviewData, type Preview, type PreviewItem, type Stage, type Window } from './api.ts';
 import { stageLabel, useCampaignActions } from './actions.tsx';
-import { baht, num, roasTone, time, when } from './fmt.ts';
+import { baht, bahtRange, num, profitTone, roasTone, time, when } from './fmt.ts';
 import type { RulesTarget } from './RulesPage.tsx';
 import { NONE, StageTabs, campaignsIn, type StageTab } from './StageTabs.tsx';
 import { Icon, StatusSwitch } from './ui.tsx';
@@ -38,6 +38,7 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
   const withProfit = data.campaigns.filter((c) => c.profit !== null && (c.metrics?.spend ?? 0) > 0);
   const spending = data.campaigns.filter((c) => (c.metrics?.spend ?? 0) > 0).length;
   const profit = withProfit.reduce((t, c) => t + (c.profit ?? 0), 0);
+  const profitHigh = withProfit.reduce((t, c) => t + (c.profit_high ?? c.profit ?? 0), 0);
   const running = data.campaigns.filter((c) => c.status === 'ACTIVE').length;
   const budget = data.campaigns.filter((c) => c.status === 'ACTIVE').reduce((t, c) => t + (c.daily_budget ?? c.adsets.reduce((a, s) => a + (s.status === 'ACTIVE' ? (s.daily_budget ?? 0) : 0), 0)), 0);
   const stage = data.stages.find((s) => s.id === stageTab) ?? null;
@@ -65,7 +66,9 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
           label="กำไรหลังหักทุน+แอด"
           value={withProfit.length ? baht(profit) : '–'}
           tone={withProfit.length ? (profit < 0 ? 'bad' : 'good') : undefined}
-          sub={withProfit.length ? `นับ ${withProfit.length}/${spending} แคมเปญที่ผูกต้นทุน` : 'ผูกต้นทุนในแท็บสินค้าก่อน'}
+          sub={withProfit.length
+            ? `${profitHigh - profit >= 50 ? `ถึง ${baht(profitHigh)} ถ้าขายราคาเต็ม · ` : ''}นับ ${withProfit.length}/${spending} แคมเปญที่ผูกต้นทุน`
+            : 'ผูกต้นทุนในแท็บสินค้าก่อน'}
         />
       </div>
       <p className="muted small meta-line">
@@ -282,7 +285,13 @@ function CampaignRow({ c, data, selected, onSelect, next, idea, onOpen, onStatus
       <span className={`num strong ${roasTone(r, c.breakeven_roas)}`} data-label="ROAS" title={c.breakeven_roas ? `คุ้มทุนที่ ${num(c.breakeven_roas, 2)}` : 'ยังไม่ผูกต้นทุน'}>
         {r === null ? '–' : num(r, 2)}
       </span>
-      <span className={`num ${c.profit !== null && c.profit < 0 ? 'bad' : ''}`} data-label="กำไร">{c.profit === null ? '–' : baht(c.profit)}</span>
+      <span
+        className={`num ${profitTone(c.profit, c.profit_high)}`}
+        data-label="กำไร"
+        title={c.profit === null ? 'ยังไม่ผูกต้นทุน' : `ประมาณ ${bahtRange(c.profit, c.profit_high)} · ${num(c.units_low)}–${num(c.units_high)} ตัว`}
+      >
+        {c.profit === null ? '–' : baht(c.profit)}{profitTone(c.profit, c.profit_high) === 'warn' && <sup>?</sup>}
+      </span>
       <span className="num" data-label="งบ/วัน">{c.daily_budget === null ? <span className="muted small">ที่ ad set</span> : baht(c.daily_budget)}</span>
     </div>
   );

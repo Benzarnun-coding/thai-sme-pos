@@ -28,3 +28,18 @@ export function roasTone(r: number | null, breakeven: number | null): 'good' | '
   if (r < breakeven * 1.3) return 'warn';
   return 'good';
 }
+
+/** "฿4,260 – ฿4,560", or one number when the two are practically the same. */
+export function bahtRange(low: number | null | undefined, high: number | null | undefined): string {
+  if (low === null || low === undefined || !Number.isFinite(low)) return '–';
+  if (high === null || high === undefined || !Number.isFinite(high) || Math.abs(high - low) < Math.max(50, Math.abs(low) * 0.02)) return baht(low);
+  return `${baht(low)} – ${baht(high)}`;
+}
+
+/** Profit tone: sure gain, sure loss, or depends on the promo mix. */
+export function profitTone(low: number | null, high: number | null): 'good' | 'bad' | 'warn' | '' {
+  if (low === null) return '';
+  if (low >= 0) return 'good';
+  if (high !== null && high > 0) return 'warn';
+  return 'bad';
+}

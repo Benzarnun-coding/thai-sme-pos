@@ -26,12 +26,14 @@ export interface Rule {
 }
 
 export interface Product { tab: string; code: string }
+export interface Tier { units: number; price: number }
 
 export interface Section {
   id: string;
   name: string;
   keywords: string[];
   products: Product[];
+  tiers: Tier[];
   units_per_order: number;
   extra_cost_per_order: number;
   price_per_order: number | null;
@@ -57,8 +59,13 @@ export interface Totals { spend: number; purchases: number; purchase_value: numb
 export interface SectionView extends Section {
   totals: Totals;
   economics: {
-    cost_per_unit: number | null; cogs_per_order: number | null; price_per_order: number | null;
-    breakeven_roas: number | null; never_profitable: boolean; profit: number | null; missing_products: Product[];
+    cost_per_unit: number | null; price_per_unit_min: number | null; price_per_unit_max: number | null;
+    price_source: 'tiers' | 'manual' | 'sheet' | null;
+    breakeven_roas: number | null; breakeven_best: number | null; never_profitable: boolean;
+    units_low: number | null; units_high: number | null;
+    /** Conservative (cheapest price per piece) — profit_high is the best case */
+    profit: number | null; profit_high: number | null;
+    missing_products: Product[];
   };
   campaign_count: number;
 }
@@ -74,8 +81,12 @@ export interface CampaignView extends EntityView {
   rules: Rule[] | null;
   /** Of its product line (7-day), null when no cost is linked */
   breakeven_roas: number | null;
-  /** After product cost, extra cost and ad spend over the window */
+  /** After product cost and ad spend over the window, conservative (most pieces at the cheapest promo price) */
   profit: number | null;
+  profit_high: number | null;
+  /** Estimated pieces sold (order value ÷ price per piece) */
+  units_low: number | null;
+  units_high: number | null;
   adsets: EntityView[];
 }
 

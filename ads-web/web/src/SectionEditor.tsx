@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useUi } from './ui.tsx';
-import { api, type CostRow, type Section, type SectionView } from './api.ts';
-import { baht, num } from './fmt.ts';
+import { api, type CostRow, type Section, type SectionView, type Tier } from './api.ts';
+import { baht, bahtRange, num, profitTone } from './fmt.ts';
 
 interface Props {
   section: SectionView;
@@ -51,12 +51,39 @@ export function SectionEditor({ section, campaignNames, onSaved }: Props) {
   const preview = (() => {
     const rows = linked.map((l) => l.row).filter((r): r is CostRow => Boolean(r));
     const unit = rows.length ? rows.reduce((s, r) => s + r.avg_cost, 0) / rows.length : null;
-    const aov = section.totals.purchases ? section.totals.purchase_value / section.totals.purchases : null;
-    const price = draft.price_per_order ?? aov;
-    if (unit === null || price === null) return { unit, price, be: null as number | null, margin: null as number | null };
-    const margin = price - unit * draft.units_per_order - draft.extra_cost_per_order;
-    return { unit, price, margin, be: margin > 0 ? price / margin : Infinity };
+    const tiers = draft.tiers.filter((t) => t.units > 0 && t.price > 0);
+    const sheetPrices = rows.map((r) => r.avg_price).filter((p) => p > 0);
+    const perUnit = tiers.length
+      ? tiers.map((t) => t.price / t.units)
+      : draft.price_per_order !== null
+        ? [draft.price_per_order / draft.units_per_order]
+        : sheetPrices.length ? [sheetPrices.reduce((a, b) => a + b, 0) / sheetPrices.length] : [];
+    const min = perUnit.length ? Math.min(...perUnit) : null;
+    const max = perUnit.length ? Math.max(...perUnit) : null;
+    const t = section.totals;
+    const aov = t.purchases ? t.purchase_value / t.purchases : null;
+    const be = (p: number | null) => {
+      if (unit === null || p === null) return null;
+      const margin = 1 - unit / p - (draft.extra_cost_per_order > 0 && aov ? draft.extra_cost_per_order / aov : 0);
+      return margin > 0 ? 1 / margin : Infinity;
+    };
+    const rest = t.purchase_value - t.purchases * draft.extra_cost_per_order - t.spend;
+    const profitLow = unit === null || min === null ? null : rest - (t.purchase_value / min) * unit;
+    const profitHigh = unit === null || max === null ? null : rest - (t.purchase_value / max) * unit;
+    return { unit, min, max, beWorst: be(min), beBest: be(max), profitLow, profitHigh, source: tiers.length ? 'tiers' : draft.price_per_order !== null ? 'manual' : sheetPrices.length ? 'sheet' : null };
   })();
+
+  // Promo prices written in campaign names, e.g. "1 ตัว 189 (3ตัว549)" → 1 for 189, 3 for 549.
+  const tierHints = (() => {
+    const out = new Map<string, Tier>();
+    for (const n of campaignNames) for (const m of n.matchAll(/(\d{1,2})\s*ตัว\s*(\d{2,5})/g)) {
+      const t = { units: Number(m[1]), price: Number(m[2]) };
+      if (t.units > 0 && !draft.tiers.some((x) => x.units === t.units && x.price === t.price)) out.set(`${t.units}:${t.price}`, t);
+    }
+    return [...out.values()].sort((a, b) => a.units - b.units || a.price - b.price);
+  })();
+  const setTier = (i: number, patch: Partial<Tier>) => setDraft((d) => ({ ...d, tiers: d.tiers.map((t, k) => (k === i ? { ...t, ...patch } : t)) }));
+  const addTier = (t: Tier) => setDraft((d) => ({ ...d, tiers: [...d.tiers, t].sort((a, b) => a.units - b.units) }));
 
   async function save() {
     setBusy(true); setError('');
@@ -122,27 +149,60 @@ export function SectionEditor({ section, campaignNames, onSaved }: Props) {
         </div>
       )}
 
-      <div className="grid3">
-        <label>จำนวนตัวต่อออเดอร์
-          <input type="number" step="0.1" value={draft.units_per_order} onChange={(e) => setDraft({ ...draft, units_per_order: Number(e.target.value) })} />
-          <small>โปร 3 ตัว 799 = 3 · ถ้าลูกค้าซื้อหลายแบบใส่ค่าเฉลี่ย</small>
-        </label>
-        <label>ค่าใช้จ่ายอื่นต่อออเดอร์ (฿)
-          <input type="number" value={draft.extra_cost_per_order} onChange={(e) => setDraft({ ...draft, extra_cost_per_order: Number(e.target.value) })} />
-          <small>ค่าส่ง ค่าแพ็ค ค่าธรรมเนียม</small>
-        </label>
-        <label>ราคาขายต่อออเดอร์ (฿)
-          <input type="number" value={draft.price_per_order ?? ''} placeholder={`ว่าง = ใช้ยอดเฉลี่ยจาก Meta`} onChange={(e) => setDraft({ ...draft, price_per_order: e.target.value === '' ? null : Number(e.target.value) })} />
-          <small>ว่างไว้ = ใช้ยอดขายเฉลี่ยต่อออเดอร์จาก Meta</small>
-        </label>
+      <h3>ราคาโปรที่ขายในแอด</h3>
+      <p className="muted small">ระบบนับกำไรเป็น "ตัว": ยอดขายจาก Meta ÷ ราคาต่อตัว = จำนวนตัวที่ขาย แล้วหักทุนต่อตัว · ว่างไว้ = ใช้ราคาขายจากชีต (คอลัมน์ I)</p>
+      <div className="tiers">
+        {draft.tiers.map((t, i) => (
+          <div key={i} className="tier">
+            <input type="number" min={1} value={t.units} onChange={(e) => setTier(i, { units: Number(e.target.value) })} aria-label="จำนวนตัว" />
+            <span className="muted">ตัว</span>
+            <input type="number" min={1} value={t.price} onChange={(e) => setTier(i, { price: Number(e.target.value) })} aria-label="ราคา" />
+            <span className="per">{t.units > 0 && t.price > 0 ? `= ${baht(t.price / t.units, 2)}/ตัว` : ''}</span>
+            <button className="icon-btn" onClick={() => setDraft((d) => ({ ...d, tiers: d.tiers.filter((_, k) => k !== i) }))} aria-label="ลบโปรนี้">×</button>
+          </div>
+        ))}
+        <div className="chips">
+          <button className="chip add" onClick={() => addTier({ units: (draft.tiers.at(-1)?.units ?? 0) + 1, price: 0 })}>+ เพิ่มโปร</button>
+          {tierHints.length > 0 && <span className="muted small">จากชื่อแคมเปญ:</span>}
+          {tierHints.map((t) => (
+            <button key={`${t.units}:${t.price}`} className="chip add" onClick={() => addTier(t)}>+ {t.units} ตัว {baht(t.price)}</button>
+          ))}
+        </div>
       </div>
+
+      <details className="advanced" open={draft.extra_cost_per_order > 0 || draft.price_per_order !== null}>
+        <summary>ขั้นสูง (ปกติไม่ต้องใส่)</summary>
+        <div className="grid3">
+          <label>ค่าใช้จ่ายเพิ่มต่อออเดอร์ (฿)
+            <input type="number" value={draft.extra_cost_per_order} onChange={(e) => setDraft({ ...draft, extra_cost_per_order: Number(e.target.value) })} />
+            <small>ใส่เฉพาะถ้าทุนในชีตยังไม่รวมค่าส่ง/แพ็ก</small>
+          </label>
+          <label>ราคาขายต่อออเดอร์ (฿)
+            <input type="number" value={draft.price_per_order ?? ''} placeholder="ว่าง" onChange={(e) => setDraft({ ...draft, price_per_order: e.target.value === '' ? null : Number(e.target.value) })} />
+            <small>ใช้เมื่อไม่มีโปรด้านบน</small>
+          </label>
+          <label>จำนวนตัวต่อออเดอร์
+            <input type="number" step="0.1" value={draft.units_per_order} onChange={(e) => setDraft({ ...draft, units_per_order: Number(e.target.value) })} />
+            <small>คู่กับราคาต่อออเดอร์</small>
+          </label>
+        </div>
+      </details>
 
       <div className="econ">
         <div><span>ทุน/ตัว</span><b>{baht(preview.unit, 2)}</b></div>
-        <div><span>ราคา/ออเดอร์</span><b>{baht(preview.price)}</b></div>
-        <div><span>กำไรต่อออเดอร์ (ก่อนค่าแอด)</span><b>{baht(preview.margin)}</b></div>
-        <div><span>ROAS คุ้มทุน</span><b className={preview.be === Infinity ? 'bad' : ''}>{preview.be === null ? '–' : preview.be === Infinity ? 'ขายราคานี้ไม่มีกำไร' : num(preview.be, 2)}</b></div>
+        <div>
+          <span>ราคาขาย/ตัว{preview.source === 'sheet' ? ' (ชีต)' : ''}</span>
+          <b>{preview.min === null ? '–' : preview.min === preview.max ? baht(preview.min, 2) : `${baht(preview.min, 2)}–${baht(preview.max, 2)}`}</b>
+        </div>
+        <div>
+          <span>ROAS คุ้มทุน</span>
+          <b className={preview.beWorst === Infinity ? 'bad' : ''}>
+            {preview.beWorst === null ? '–' : preview.beWorst === Infinity ? 'ราคานี้ไม่มีกำไร' : preview.beBest !== null && preview.beWorst - preview.beBest >= 0.01 ? `${num(preview.beBest, 2)}–${num(preview.beWorst, 2)}` : num(preview.beWorst, 2)}
+          </b>
+        </div>
+        <div><span>กำไร (ช่วงที่ดูอยู่)</span><b className={profitTone(preview.profitLow, preview.profitHigh)}>{bahtRange(preview.profitLow, preview.profitHigh)}</b></div>
       </div>
+      <p className="muted small">กฎอัตโนมัติใช้ค่าคุ้มทุนที่สูงกว่า (สมมติว่าทุกออเดอร์เป็นโปรที่ถูกที่สุด) เพื่อไม่ให้เพิ่มงบเกินจริง</p>
 
       {error && <p className="error">{error}</p>}
       <div className="row between sticky-actions">

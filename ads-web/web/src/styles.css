@@ -485,3 +485,14 @@ main > .sticky-actions { background: var(--bg); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Profit range in the campaign drawer spans the row; "?" marks a profit that depends on the promo mix */
+.mini-kpis .wide-kpi { grid-column: 1 / -1; }
+.num sup { font-size: 10px; margin-left: 1px; }
+.tiers { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.tier { display: grid; grid-template-columns: 90px 20px 120px 1fr auto; gap: 8px; align-items: center; font-size: 14px; }
+.tier input { width: 100%; }
+.tier .per { color: var(--muted); font-size: 13px; }
+details.advanced { margin: 12px 0; }
+details.advanced summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+@media (max-width: 760px) { .tier { grid-template-columns: 70px 16px 100px 1fr auto; } }

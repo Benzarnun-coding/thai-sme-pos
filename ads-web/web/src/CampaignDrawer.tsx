@@ -6,7 +6,7 @@ import { api, MODE_LABEL, WINDOW_LABEL, type CampaignHistory, type CampaignView,
 import { ideaActionLabel, stageLabel, useCampaignActions } from './actions.tsx';
 import { DailyChart } from './Chart.tsx';
 import { auditText } from './History.tsx';
-import { baht, num, roasTone, when } from './fmt.ts';
+import { baht, bahtRange, num, profitTone, roasTone, when } from './fmt.ts';
 import { previewText } from './Overview.tsx';
 import type { RulesTarget } from './RulesPage.tsx';
 import { Drawer, Icon, StatusSwitch, useUi } from './ui.tsx';
@@ -78,9 +78,20 @@ export function CampaignDrawer({ c, data, window, preview, ideas, onClose, onRel
           <div><span>ใช้จ่าย · {WINDOW_LABEL[window]}</span><b>{baht(m?.spend)}</b></div>
           <div><span>ออเดอร์</span><b>{num(m?.purchases)}</b></div>
           <div><span>ROAS</span><b className={roasTone(r, c.breakeven_roas)}>{r === null ? '–' : num(r, 2)}</b>{c.breakeven_roas !== null && <small>คุ้มทุน {num(c.breakeven_roas, 2)}</small>}</div>
-          <div><span>กำไร</span><b className={c.profit !== null && c.profit < 0 ? 'bad' : ''}>{c.profit === null ? '–' : baht(c.profit)}</b>{c.profit === null && <small>ยังไม่ผูกต้นทุน</small>}</div>
-          <div><span>ต้นทุน/ออเดอร์</span><b>{baht(m?.cpa ?? null)}</b></div>
+          <div><span>ค่าแอด/ออเดอร์</span><b>{baht(m?.cpa ?? null)}</b></div>
+          <div><span>ขายไป (ประมาณ)</span><b>{c.units_low === null ? '–' : Math.round(c.units_low) === Math.round(c.units_high ?? c.units_low) ? `${num(c.units_low)} ตัว` : `${num(c.units_low)}–${num(c.units_high)} ตัว`}</b></div>
           <div><span>Frequency</span><b className={m && m.frequency >= 3 ? 'warn' : ''}>{m ? num(m.frequency, 2) : '–'}</b></div>
+          <div className="wide-kpi">
+            <span>กำไรหลังหักทุนและค่าแอด</span>
+            <b className={profitTone(c.profit, c.profit_high)}>{bahtRange(c.profit, c.profit_high)}</b>
+            <small>
+              {c.profit === null
+                ? 'ยังไม่ผูกต้นทุน — ผูกในแท็บสินค้า/ต้นทุน'
+                : profitTone(c.profit, c.profit_high) === 'warn'
+                  ? 'กำไรหรือขาดทุนขึ้นกับว่าลูกค้าซื้อโปรไหน'
+                  : 'ค่าต่ำ = ทุกออเดอร์เป็นโปรถูกสุด · ค่าสูง = ขายราคาเต็ม'}
+            </small>
+          </div>
         </div>
 
         <section className="panel">

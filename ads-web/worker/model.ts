@@ -27,11 +27,19 @@ export interface Product {
   code: string;
 }
 
+/** One promo price: `units` pieces for `price` baht (e.g. 3 for 549). */
+export interface Tier {
+  units: number;
+  price: number;
+}
+
 export interface Section {
   id: string;
   name: string;
   keywords: string[];
   products: Product[];
+  /** Promo prices sold in this product's ads. Empty = use price_per_order / sheet price. */
+  tiers: Tier[];
   units_per_order: number;
   extra_cost_per_order: number;
   price_per_order: number | null;
@@ -89,19 +97,35 @@ export function resolveSectionId(
   return DEFAULT_SECTION_ID;
 }
 
+/**
+ * Profit is counted per piece, not per order: Meta reports orders (conversions) and their value, and an order can be
+ * 1, 2 or 3 pieces at different promo prices. Pieces ≈ value ÷ price per piece, and the promo prices per piece are close,
+ * so the estimate is a narrow range. The sheet cost is all-in (shipping and returns included).
+ */
 export interface Economics {
-  /** Average cost per unit across the section's products, null when no product is linked or found in the sheet */
+  /** Average all-in cost per piece across the section's products; null when nothing is linked or found in the sheet */
   cost_per_unit: number | null;
-  cogs_per_order: number | null;
-  price_per_order: number | null;
-  /** Revenue ÷ ad spend at which profit is zero after product cost and extra cost. Infinity = never profitable at this price. */
+  /** Lowest / highest selling price per piece (cheapest promo / single piece); null when no price is known */
+  price_per_unit_min: number | null;
+  price_per_unit_max: number | null;
+  /** Where the price came from */
+  price_source: 'tiers' | 'manual' | 'sheet' | null;
+  /** Conservative break-even ROAS (at the cheapest price per piece) — what rules use. Infinity = never profitable. */
   breakeven_roas: number | null;
-  /** Profit after product cost, extra cost and ad spend over the metrics window */
+  /** Break-even if every order were sold at the best price per piece */
+  breakeven_best: number | null;
+  /** Over the metrics window: pieces sold and profit after cost and ad spend, low–high */
+  units_low: number | null;
+  units_high: number | null;
+  /** Conservative profit (= profit_low) */
   profit: number | null;
+  profit_high: number | null;
   missing_products: Product[];
 }
 
-export function economics(section: Section, costs: CostRow[], m: Pick<Metrics, 'spend' | 'purchases' | 'purchase_value'>): Economics {
+type Money = Pick<Metrics, 'spend' | 'purchases' | 'purchase_value'>;
+
+export function economics(section: Section, costs: CostRow[], m: Money): Economics {
   const found: CostRow[] = [];
   const missing: Product[] = [];
   for (const p of section.products) {
@@ -109,20 +133,57 @@ export function economics(section: Section, costs: CostRow[], m: Pick<Metrics, '
     if (row) found.push(row); else missing.push(p);
   }
   const cost_per_unit = found.length ? found.reduce((s, c) => s + c.avg_cost, 0) / found.length : null;
-  const cogs_per_order = cost_per_unit === null ? null : cost_per_unit * section.units_per_order;
-  const aov = m.purchases > 0 ? m.purchase_value / m.purchases : null;
-  const price_per_order = section.price_per_order ?? aov;
 
-  let breakeven_roas: number | null = null;
-  if (cogs_per_order !== null && price_per_order !== null && price_per_order > 0) {
-    const margin = price_per_order - cogs_per_order - section.extra_cost_per_order;
-    breakeven_roas = margin > 0 ? price_per_order / margin : Infinity;
+  let perUnit: number[] = [];
+  let price_source: Economics['price_source'] = null;
+  if (section.tiers.length) {
+    perUnit = section.tiers.map((t) => t.price / t.units);
+    price_source = 'tiers';
+  } else if (section.price_per_order !== null) {
+    perUnit = [section.price_per_order / section.units_per_order];
+    price_source = 'manual';
+  } else {
+    const prices = found.map((c) => c.avg_price).filter((p) => p > 0);
+    if (prices.length) { perUnit = [prices.reduce((a, b) => a + b, 0) / prices.length]; price_source = 'sheet'; }
   }
-  const profit = cogs_per_order === null
-    ? null
-    : m.purchase_value - m.purchases * (cogs_per_order + section.extra_cost_per_order) - m.spend;
+  const price_per_unit_min = perUnit.length ? Math.min(...perUnit) : null;
+  const price_per_unit_max = perUnit.length ? Math.max(...perUnit) : null;
 
-  return { cost_per_unit, cogs_per_order, price_per_order, breakeven_roas, profit, missing_products: missing };
+  const aov = m.purchases > 0 ? m.purchase_value / m.purchases : null;
+  const be = (price: number | null) => (cost_per_unit === null || price === null ? null : breakeven(price, cost_per_unit, section.extra_cost_per_order, aov));
+  const range = profitRange({ cost_per_unit, price_per_unit_min, price_per_unit_max }, section.extra_cost_per_order, m);
+
+  return {
+    cost_per_unit, price_per_unit_min, price_per_unit_max, price_source,
+    breakeven_roas: be(price_per_unit_min),
+    breakeven_best: be(price_per_unit_max),
+    units_low: range?.units_low ?? null,
+    units_high: range?.units_high ?? null,
+    profit: range?.low ?? null,
+    profit_high: range?.high ?? null,
+    missing_products: missing,
+  };
+}
+
+/**
+ * ROAS at which profit is zero: revenue × (1 − cost/price) − orders × extra = spend.
+ * The extra-per-order term needs the average order value; without it (or with no extra cost) it is left out.
+ */
+function breakeven(pricePerUnit: number, costPerUnit: number, extraPerOrder: number, aov: number | null): number {
+  const margin = 1 - costPerUnit / pricePerUnit - (extraPerOrder > 0 && aov ? extraPerOrder / aov : 0);
+  return margin > 0 ? 1 / margin : Infinity;
+}
+
+/** Pieces and profit for one set of numbers (a campaign or a whole section), low–high. Null when cost or price is unknown. */
+export function profitRange(
+  e: Pick<Economics, 'cost_per_unit' | 'price_per_unit_min' | 'price_per_unit_max'>, extraPerOrder: number, m: Money,
+): { units_low: number; units_high: number; low: number; high: number } | null {
+  if (e.cost_per_unit === null || e.price_per_unit_min === null || e.price_per_unit_max === null) return null;
+  // More pieces (cheapest price per piece) = more cost = lower profit.
+  const units_high = m.purchase_value / e.price_per_unit_min;
+  const units_low = m.purchase_value / e.price_per_unit_max;
+  const rest = m.purchase_value - m.purchases * extraPerOrder - m.spend;
+  return { units_low, units_high, low: rest - units_high * e.cost_per_unit, high: rest - units_low * e.cost_per_unit };
 }
 
 /**

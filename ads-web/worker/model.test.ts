@@ -6,7 +6,7 @@ import { buildGroups, planDecisions, sectionMap } from './engine.ts';
 
 function section(over: Partial<Section>): Section {
   return {
-    id: 's1', name: 'S1', keywords: [], products: [], units_per_order: 1, extra_cost_per_order: 0,
+    id: 's1', name: 'S1', keywords: [], products: [], tiers: [], units_per_order: 1, extra_cost_per_order: 0,
     price_per_order: null, sort: 0, ...over,
   };
 }
@@ -41,22 +41,41 @@ test('explicit assignment beats keyword, keyword beats default', () => {
   assert.equal(resolveSectionId({ id: 'c1', name: 'REV 801' }, sections, pinned), 's501');
 });
 
-test('break-even ROAS from sheet cost, units per order and extra cost', () => {
-  // 3 pants for 799, cost 117 each, 40 baht shipping/packing: margin 799-351-40 = 408 → BE 799/408
-  const s = section({ products: [{ tab: 'PK', code: '801/1' }], units_per_order: 3, extra_cost_per_order: 40, price_per_order: 799 });
-  const e = economics(s, [cost('PK', '801/1', 117)], metrics(10000, 50, 39950));
-  assert.equal(e.cogs_per_order, 351);
-  assert.ok(Math.abs(e.breakeven_roas! - 799 / 408) < 1e-9);
-  assert.equal(e.profit, 39950 - 50 * (351 + 40) - 10000);
+test('promo tiers: pieces ≈ value ÷ price per piece, profit as a range, break-even at the cheapest price', () => {
+  // 801: 1 for 189, 3 for 549 (183 each). All-in cost 100 per piece. Real 21–27 Sep week: 29 orders, value 16,048, spend 2,114.
+  const s = section({ products: [{ tab: 'PK', code: '801' }], tiers: [{ units: 1, price: 189 }, { units: 3, price: 549 }] });
+  const e = economics(s, [cost('PK', '801', 100)], metrics(2114, 29, 16048));
+  assert.equal(e.price_source, 'tiers');
+  assert.equal(e.price_per_unit_min, 183);
+  assert.equal(e.price_per_unit_max, 189);
+  assert.ok(Math.abs(e.units_high! - 16048 / 183) < 1e-9);
+  assert.ok(Math.abs(e.units_low! - 16048 / 189) < 1e-9);
+  assert.ok(Math.abs(e.profit! - (16048 - (16048 / 183) * 100 - 2114)) < 1e-9);
+  assert.ok(e.profit_high! > e.profit!);
+  // Break-even: 1 / (1 − 100/183) at worst, 1 / (1 − 100/189) at best
+  assert.ok(Math.abs(e.breakeven_roas! - 183 / 83) < 1e-9);
+  assert.ok(Math.abs(e.breakeven_best! - 189 / 89) < 1e-9);
 });
 
-test('break-even falls back to Meta AOV and is Infinity when margin is gone', () => {
-  const s = section({ products: [{ tab: 'PK', code: 'X' }], units_per_order: 2 });
-  assert.equal(economics(s, [cost('PK', 'X', 150)], metrics(1000, 10, 2990)).price_per_order, 299);
-  assert.equal(economics(s, [cost('PK', 'X', 150)], metrics(1000, 10, 2990)).breakeven_roas, Infinity);
+test('price falls back to manual price per order, then the sheet price; Infinity when cost ≥ price', () => {
+  const manual = economics(section({ products: [{ tab: 'PK', code: 'X' }], units_per_order: 3, price_per_order: 600 }), [cost('PK', 'X', 100)], metrics(1000, 10, 6000));
+  assert.deepEqual([manual.price_source, manual.price_per_unit_min, manual.breakeven_roas], ['manual', 200, 2]);
+  const sheet = economics(section({ products: [{ tab: 'PK', code: 'X' }] }), [{ ...cost('PK', 'X', 150), avg_price: 299 }], metrics(1000, 10, 2990));
+  assert.equal(sheet.price_source, 'sheet');
+  assert.ok(Math.abs(sheet.breakeven_roas! - 299 / 149) < 1e-9);
+  const loss = economics(section({ products: [{ tab: 'PK', code: 'X' }], tiers: [{ units: 2, price: 250 }] }), [cost('PK', 'X', 150)], metrics(1000, 10, 2500));
+  assert.equal(loss.breakeven_roas, Infinity);
   const unlinked = economics(section({ products: [{ tab: 'PK', code: 'NOPE' }] }), [], metrics(1000, 10, 3000));
   assert.equal(unlinked.breakeven_roas, null);
+  assert.equal(unlinked.profit, null);
   assert.deepEqual(unlinked.missing_products, [{ tab: 'PK', code: 'NOPE' }]);
+});
+
+test('extra cost per order lowers the margin through the average order value', () => {
+  const e = economics(section({ products: [{ tab: 'PK', code: 'X' }], tiers: [{ units: 1, price: 200 }], extra_cost_per_order: 40 }), [cost('PK', 'X', 100)], metrics(1000, 10, 4000));
+  // margin = 1 − 100/200 − 40/400 = 0.4
+  assert.ok(Math.abs(e.breakeven_roas! - 2.5) < 1e-9);
+  assert.ok(Math.abs(e.profit! - (4000 - 20 * 100 - 10 * 40 - 1000)) < 1e-9);
 });
 
 const beRule: WebRule = { id: 'scale', level: 'campaign', window: 'last_7d', metric: 'roas', op: '>=', value: 1.5, value_mode: 'x_breakeven', action: { type: 'budget_pct', pct: 20 } };

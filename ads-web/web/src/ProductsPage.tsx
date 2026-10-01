@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api, type Overview } from './api.ts';
-import { baht, num } from './fmt.ts';
+import { baht, bahtRange, num, profitTone } from './fmt.ts';
 import { useUi } from './ui.tsx';
 
 /** Product lines: which sheet codes each sells and its per-order cost model → break-even ROAS used by every stage rule. */
@@ -14,7 +14,7 @@ export function ProductsPage({ data, onEdit, onReload }: { data: Overview; onEdi
     if (!name.trim()) return;
     setCreating(true);
     try {
-      const s = await api.createSection({ name: name.trim(), keywords: [], products: [], units_per_order: 1, extra_cost_per_order: 0, price_per_order: null });
+      const s = await api.createSection({ name: name.trim(), keywords: [], products: [], tiers: [], units_per_order: 1, extra_cost_per_order: 0, price_per_order: null });
       setName('');
       onReload();
       onEdit(s.id);
@@ -47,10 +47,18 @@ export function ProductsPage({ data, onEdit, onReload }: { data: Overview; onEdi
               <button className="ghost" onClick={() => onEdit(s.id)}>แก้ต้นทุน</button>
             </div>
             <div className="econ">
-              <div><span>ทุน/ออเดอร์</span><b>{e.cogs_per_order === null ? '–' : baht(e.cogs_per_order + s.extra_cost_per_order)}</b></div>
-              <div><span>ราคา/ออเดอร์</span><b>{baht(e.price_per_order)}</b></div>
-              <div><span>ROAS คุ้มทุน</span><b className={e.never_profitable ? 'bad' : ''}>{e.never_profitable ? 'ไม่มีกำไร' : num(e.breakeven_roas, 2)}</b></div>
-              <div><span>กำไร ({data.window === 'last_7d' ? '7 วัน' : 'ช่วงที่เลือก'})</span><b className={(e.profit ?? 0) < 0 ? 'bad' : ''}>{baht(e.profit)}</b></div>
+              <div><span>ทุน/ตัว (รวมส่ง+ตีกลับ)</span><b>{baht(e.cost_per_unit, 2)}</b></div>
+              <div>
+                <span>ราคาขาย/ตัว{e.price_source === 'sheet' ? ' (จากชีต)' : e.price_source === 'tiers' ? ` (${s.tiers.length} โปร)` : ''}</span>
+                <b>{e.price_per_unit_min === null ? '–' : e.price_per_unit_min === e.price_per_unit_max ? baht(e.price_per_unit_min, 2) : `${baht(e.price_per_unit_min, 2)}–${baht(e.price_per_unit_max, 2)}`}</b>
+              </div>
+              <div>
+                <span>ROAS คุ้มทุน</span>
+                <b className={e.never_profitable ? 'bad' : ''}>
+                  {e.never_profitable ? 'ไม่มีกำไร' : e.breakeven_best !== null && e.breakeven_roas !== null && e.breakeven_roas - e.breakeven_best >= 0.01 ? `${num(e.breakeven_best, 2)}–${num(e.breakeven_roas, 2)}` : num(e.breakeven_roas, 2)}
+                </b>
+              </div>
+              <div><span>กำไร ({data.window === 'last_7d' ? '7 วัน' : 'ช่วงที่เลือก'})</span><b className={profitTone(e.profit, e.profit_high)}>{bahtRange(e.profit, e.profit_high)}</b></div>
             </div>
           </section>
         );

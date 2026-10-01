@@ -35,24 +35,24 @@ export async function saveSettings(db: D1Database, s: Settings): Promise<void> {
 }
 
 interface SectionRow {
-  id: string; name: string; keywords: string; products: string; units_per_order: number;
+  id: string; name: string; keywords: string; products: string; tiers: string; units_per_order: number;
   extra_cost_per_order: number; price_per_order: number | null; sort: number;
 }
 
 export async function loadSections(db: D1Database): Promise<Section[]> {
   const { results } = await db.prepare('SELECT * FROM sections ORDER BY sort, name').all<SectionRow>();
-  return results.map((r) => ({ ...r, keywords: JSON.parse(r.keywords), products: JSON.parse(r.products) }));
+  return results.map((r) => ({ ...r, keywords: JSON.parse(r.keywords), products: JSON.parse(r.products), tiers: JSON.parse(r.tiers ?? '[]') }));
 }
 
 export async function saveSection(db: D1Database, s: Section): Promise<void> {
   await db.prepare(
-    `INSERT INTO sections (id, name, keywords, products, units_per_order, extra_cost_per_order, price_per_order, sort)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET name = excluded.name, keywords = excluded.keywords, products = excluded.products,
+    `INSERT INTO sections (id, name, keywords, products, tiers, units_per_order, extra_cost_per_order, price_per_order, sort)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET name = excluded.name, keywords = excluded.keywords, products = excluded.products, tiers = excluded.tiers,
        units_per_order = excluded.units_per_order, extra_cost_per_order = excluded.extra_cost_per_order,
        price_per_order = excluded.price_per_order, sort = excluded.sort`,
   ).bind(
-    s.id, s.name, JSON.stringify(s.keywords), JSON.stringify(s.products), s.units_per_order, s.extra_cost_per_order,
+    s.id, s.name, JSON.stringify(s.keywords), JSON.stringify(s.products), JSON.stringify(s.tiers), s.units_per_order, s.extra_cost_per_order,
     s.price_per_order, s.sort,
   ).run();
 }
