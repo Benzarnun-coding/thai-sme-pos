@@ -150,7 +150,7 @@ export function CampaignDrawer({ c, data, window, preview, ideas, onClose, onRel
             <label>สินค้า (ใช้คิดจุดคุ้มทุน)
               <select value={c.pinned ? c.section_id : ''} onChange={(e) => save({ section_id: e.target.value || null })}>
                 <option value="">อัตโนมัติจากชื่อ ({section ? sectionName(section) : '–'})</option>
-                {data.sections.map((s) => <option key={s.id} value={s.id}>{sectionName(s)}</option>)}
+                {data.sections.filter((s) => s.id !== 'default' || (c.pinned && c.section_id === 'default')).map((s) => <option key={s.id} value={s.id}>{sectionName(s)}</option>)}
               </select>
             </label>
             <label>งบต่อวัน

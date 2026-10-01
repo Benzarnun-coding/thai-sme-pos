@@ -177,7 +177,7 @@ function CampaignRulesEditor({ c, data, onSaved, onOpenStage, onStageChanged }: 
         <label>สินค้า (ใช้คิดจุดคุ้มทุน)
           <select value={c.pinned ? c.section_id : ''} disabled={busy} onChange={(e) => save({ section_id: e.target.value || null })}>
             <option value="">อัตโนมัติจากชื่อ ({(() => { const x = data.sections.find((s) => s.id === c.section_id); return x ? sectionName(x) : '–'; })()})</option>
-            {data.sections.map((s) => <option key={s.id} value={s.id}>{sectionName(s)}</option>)}
+            {data.sections.filter((s) => s.id !== 'default' || (c.pinned && c.section_id === 'default')).map((s) => <option key={s.id} value={s.id}>{sectionName(s)}</option>)}
           </select>
         </label>
       </div>
