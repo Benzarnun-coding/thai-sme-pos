@@ -557,3 +557,23 @@ details.advanced summary { cursor: pointer; color: var(--muted); font-size: 13px
 .profit-eq span { font-size: 12px; color: var(--muted); }
 .profit-eq b { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .profit-eq > i { font-style: normal; color: var(--muted); font-size: 16px; padding-bottom: 1px; }
+
+/* Campaign drawer: yesterday · 3 · 7 · 30 days side by side */
+.stats-panel { margin-top: 0; padding: 6px 4px 10px; }
+.stats-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 14px; table-layout: fixed; }
+.stats-table th, .stats-table td { padding: 8px 12px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stats-table thead th { font-size: 12px; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--border); }
+.stats-table tbody th { text-align: left; font-weight: 400; color: var(--muted); font-size: 13px; width: 30%; }
+.stats-table tbody tr.strong td { font-weight: 600; font-size: 15px; }
+.stats-table tbody tr.group > * { border-top: 1px solid var(--border); }
+.stats-table tbody tr:hover > * { background: var(--surface-2); }
+.stats-note { margin: 8px 12px 0; }
+@media (max-width: 760px) {
+  .stats-panel { padding: 4px 0 8px; }
+  .stats-table th, .stats-table td { padding: 7px 4px; font-size: 12px; text-overflow: clip; }
+  .stats-table tbody tr.strong td { font-size: 12.5px; }
+  .stats-table thead th:first-child { width: 20%; }
+  .stats-table thead th:last-child { width: 24%; }
+  .stats-table tbody th { white-space: normal; font-size: 11.5px; line-height: 1.25; padding-left: 10px; }
+  .stats-table td:last-child, .stats-table thead th:last-child { padding-right: 10px; }
+}

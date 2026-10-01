@@ -167,6 +167,12 @@ export interface CampaignHistory {
   runs: { run_id: number; run_at: string; trigger: string; dry_run: boolean; plan: string; skipped_reason: string | null; applied: boolean; error: string | null }[];
 }
 
+export interface CampaignStats {
+  breakeven_roas: number | null;
+  windows: { window: Window; metrics?: Metrics; profit_low: number | null; profit_high: number | null; units_low: number | null; units_high: number | null }[];
+  meta_fetched_at: string;
+}
+
 export interface BulkBudgetResult { id: string; name: string; from: number | null; to?: number; ok: boolean; message?: string }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -204,6 +210,7 @@ export const api = {
   ideas: () => call<{ ideas: Idea[]; costs_loaded: boolean; meta_fetched_at: string; meta_warning: string | null }>('GET', '/api/ideas'),
   preview: () => call<Preview>('GET', '/api/preview'),
   daily: (id: string, window: Window) => call<{ days: DailyRow[] }>('GET', `/api/campaigns/${id}/daily?window=${window}`),
+  stats: (id: string) => call<CampaignStats>('GET', `/api/campaigns/${id}/stats`),
   history: (id: string) => call<CampaignHistory>('GET', `/api/campaigns/${id}/history`),
   bulkStage: (items: { id: string; name: string }[], stage_id: string | null) => call<{ ok: true; changed: number }>('POST', '/api/bulk/stage', { items, stage_id }),
   bulkBudget: (items: { id: string; name: string }[], pct: number) => call<{ results: BulkBudgetResult[] }>('POST', '/api/bulk/budget', { items, pct }),

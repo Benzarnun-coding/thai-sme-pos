@@ -217,6 +217,7 @@ async function route(req: Request, env: Env, url: URL, user: string): Promise<Re
 
   // ---- read-only helpers for the dashboard ----
   if (method === 'GET' && path === '/api/ideas') return json(await ideas(env));
+  if (method === 'GET' && (m = path.match(/^\/api\/campaigns\/(\d+)\/stats$/))) return json(await campaignStats(env, m[1]));
   if (method === 'GET' && path === '/api/preview') return json(await preview(env));
   if (method === 'GET' && (m = path.match(/^\/api\/campaigns\/(\d+)\/daily$/))) {
     const w = url.searchParams.get('window') as Window;
@@ -410,6 +411,39 @@ function breakevens(entities: Entity[], sections: Section[], settings: Map<strin
     return [s.id, r !== null && Number.isFinite(r) ? r : null];
   }));
   return new Map([...sectionOf].map(([cid, sid]) => [cid, be.get(sid) ?? null]));
+}
+
+/** Side-by-side numbers for one campaign: yesterday, 3, 7 and 30 days, each with product cost and profit. */
+const STAT_WINDOWS: Window[] = ['yesterday', 'last_3d', 'last_7d', 'last_30d'];
+
+async function campaignStats(env: Env, id: string) {
+  const [{ data }, sections, campaignSettings, costs, settings] = await Promise.all([
+    metaData(env), loadSections(env.DB), loadCampaignSettings(env.DB), loadCosts(env.DB), loadSettings(env.DB),
+  ]);
+  const windows = [...new Set<Window>([...STAT_WINDOWS, ECONOMICS_WINDOW])];
+  const entities = await withMetrics(data, windows.map((w) => ['campaign', w] as const));
+  const c = entities.find((e) => e.level === 'campaign' && e.id === id);
+  if (!c) throw new BadRequest('ไม่พบแคมเปญ');
+  const cod = codOf(settings);
+  const sectionOf = sectionMap(entities, sections, campaignSettings);
+  const section = sections.find((s) => s.id === (sectionOf.get(id) ?? DEFAULT_SECTION_ID));
+  const totals7 = sectionTotals(entities, sectionOf, ECONOMICS_WINDOW);
+  const econ = section ? economics(section, costs, totals7.get(section.id) ?? { spend: 0, purchases: 0, purchase_value: 0 }, cod) : null;
+  const be = econ?.breakeven_roas;
+  return {
+    breakeven_roas: be !== null && be !== undefined && Number.isFinite(be) ? be : null,
+    windows: STAT_WINDOWS.map((w) => {
+      const m = c.metrics[w];
+      const r = econ && m ? profitRange(econ, section!.extra_cost_per_order, m, cod) : null;
+      return {
+        window: w,
+        metrics: finite(m),
+        profit_low: r?.low ?? null, profit_high: r?.high ?? null,
+        units_low: r?.units_low ?? null, units_high: r?.units_high ?? null,
+      };
+    }),
+    meta_fetched_at: data.fetchedAt(),
+  };
 }
 
 async function ideas(env: Env) {

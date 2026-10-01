@@ -2,7 +2,7 @@
 // settings (stage, product, rules), budget, ad sets and its history.
 
 import { useEffect, useState } from 'react';
-import { api, MODE_LABEL, sectionName, WEB_TAB, type CostRow, WINDOW_LABEL, type CampaignHistory, type CampaignView, type DailyRow, type EntityView, type Idea, type Overview, type Preview, type Window } from './api.ts';
+import { api, MODE_LABEL, sectionName, WEB_TAB, type CampaignStats, type CostRow, WINDOW_LABEL, type CampaignHistory, type CampaignView, type DailyRow, type EntityView, type Idea, type Overview, type Preview, type Window } from './api.ts';
 import { ideaActionLabel, stageLabel, useCampaignActions } from './actions.tsx';
 import { DailyChart } from './Chart.tsx';
 import { auditText } from './History.tsx';
@@ -75,25 +75,7 @@ export function CampaignDrawer({ c, data, window, preview, ideas, onClose, onRel
       </header>
 
       <div className="drawer-body">
-        <div className="mini-kpis">
-          <div><span>ยอดขาย · {WINDOW_LABEL[window]}</span><b>{baht(m?.purchase_value)}</b></div>
-          <div><span>ใช้จ่าย</span><b>{baht(m?.spend)}</b></div>
-          <div><span>ออเดอร์</span><b>{num(m?.purchases)}</b></div>
-          <div><span>ROAS</span><b className={roasTone(r, c.breakeven_roas)}>{r === null ? '–' : num(r, 2)}</b>{c.breakeven_roas !== null && <small>คุ้มทุน {num(c.breakeven_roas, 2)}</small>}</div>
-          <div><span>ค่าแอด/ออเดอร์</span><b>{baht(m?.cpa ?? null)}</b></div>
-          <div><span>ขายไป (ประมาณ)</span><b>{c.units_low === null ? '–' : Math.round(c.units_low) === Math.round(c.units_high ?? c.units_low) ? `${num(c.units_low)} ตัว` : `${num(c.units_low)}–${num(c.units_high)} ตัว`}</b></div>
-          <div><span>CVR (ออเดอร์ ÷ คลิก)</span><b>{cvr(m?.purchases, m?.clicks) === null ? '–' : `${num(cvr(m?.purchases, m?.clicks), 2)}%`}</b>{m && <small>{num(m.clicks)} คลิก</small>}</div>
-          <div><span>Frequency</span><b className={m && m.frequency >= 3 ? 'warn' : ''}>{m ? num(m.frequency, 2) : '–'}</b></div>
-          <div className="wide-kpi">
-            <span>กำไรหลังหักทุนและค่าแอด</span>
-            <b className={profitTone(c.profit, c.profit_high)}>{bahtRange(c.profit, c.profit_high)}</b>
-            {c.profit === null || !m ? (
-              <small>ยังไม่ผูกต้นทุน — กรอกในช่อง "ต้นทุน" ด้านล่าง</small>
-            ) : (
-              <ProfitBreakdown c={c} m={m} />
-            )}
-          </div>
-        </div>
+        <StatsTable c={c} />
 
         <CostPanel c={c} data={data} onEditSection={onEditSection} onReload={onReload} />
 
@@ -338,23 +320,62 @@ function strip(s: Overview['sections'][number]) {
   return rest;
 }
 
+const STAT_LABEL: Record<string, string> = { yesterday: 'เมื่อวาน', last_3d: '3 วัน', last_7d: '7 วัน', last_30d: '30 วัน' };
+
 /**
- * ยอดขาย − ทุนสินค้า − ค่าแอด = กำไร. Product cost is derived from the same numbers as profit
- * (revenue − ad spend − profit), so the equation always adds up, COD and extra costs included.
+ * One table, four windows side by side (yesterday · 3 · 7 · 30 days): revenue, ad spend, product cost, profit,
+ * then the ratios. Product cost = revenue − ad spend − profit, so each column adds up.
  */
-function ProfitBreakdown({ c, m }: { c: CampaignView; m: NonNullable<CampaignView['metrics']> }) {
-  const costHigh = m.purchase_value - m.spend - (c.profit ?? 0);
-  const costLow = m.purchase_value - m.spend - (c.profit_high ?? c.profit ?? 0);
-  const units = c.units_low === null ? '' : num(c.units_low) === num(c.units_high) ? `${num(c.units_low)} ตัว` : `${num(c.units_low)}–${num(c.units_high)} ตัว`;
+function StatsTable({ c }: { c: CampaignView }) {
+  const [stats, setStats] = useState<CampaignStats | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    setStats(null);
+    api.stats(c.id).then(setStats).catch((e) => setError(e.message));
+  }, [c.id, c.daily_budget, c.section_id, c.breakeven_roas]);
+
+  if (error) return <p className="muted small">{error}</p>;
+  if (!stats) return <div className="skeleton" style={{ height: 300 }} />;
+  const be = stats.breakeven_roas;
+  const cols = stats.windows;
+  type Col = (typeof cols)[number];
+  const money = (v: number | null | undefined) => (v === null || v === undefined ? '–' : baht(v));
+  const cost = (w: Col) => (w.metrics && w.profit_low !== null ? [w.metrics.purchase_value - w.metrics.spend - (w.profit_high ?? w.profit_low), w.metrics.purchase_value - w.metrics.spend - w.profit_low] as const : null);
+  const units = (w: Col) => (w.units_low === null ? '–' : num(w.units_low) === num(w.units_high) ? num(w.units_low) : `${num(w.units_low)}–${num(w.units_high)}`);
+  const roasOf = (w: Col) => (w.metrics && w.metrics.spend > 0 ? w.metrics.purchase_value / w.metrics.spend : null);
+
+  const rows: { label: string; cell: (w: Col) => React.ReactNode; strong?: boolean; group?: boolean }[] = [
+    { label: 'ยอดขาย', cell: (w) => money(w.metrics?.purchase_value), strong: true },
+    { label: 'ค่าแอด', cell: (w) => money(w.metrics?.spend) },
+    { label: 'ทุนสินค้า', cell: (w) => { const x = cost(w); return x ? <span title={x[0] !== x[1] ? `${baht(x[0])} – ${baht(x[1])}` : undefined}>{baht(x[1])}</span> : '–'; } },
+    { label: 'กำไร', cell: (w) => w.profit_low === null ? '–' : <b className={profitTone(w.profit_low, w.profit_high)} title={`ประมาณ ${bahtRange(w.profit_low, w.profit_high)}`}>{baht(w.profit_low)}</b>, strong: true },
+    { label: 'ROAS', cell: (w) => { const r = roasOf(w); return <span className={roasTone(r, be)}>{r === null ? '–' : num(r, 2)}</span>; }, group: true },
+    { label: 'ออเดอร์', cell: (w) => num(w.metrics?.purchases) },
+    { label: 'ขายไป (ตัว)', cell: units },
+    { label: 'ค่าแอด/ออเดอร์', cell: (w) => money(w.metrics?.cpa ?? null) },
+    { label: 'CVR', cell: (w) => { const v = cvr(w.metrics?.purchases, w.metrics?.clicks); return v === null ? '–' : `${num(v, 2)}%`; } },
+    { label: 'Frequency', cell: (w) => (w.metrics ? <span className={w.metrics.frequency >= 3 ? 'warn' : ''}>{num(w.metrics.frequency, 2)}</span> : '–') },
+  ];
+
   return (
-    <div className="profit-eq">
-      <div><span>ยอดขาย</span><b>{baht(m.purchase_value)}</b></div>
-      <i>−</i>
-      <div><span>ทุนสินค้า{units && ` (${units})`}</span><b>{bahtRange(costLow, costHigh)}</b></div>
-      <i>−</i>
-      <div><span>ค่าแอด</span><b>{baht(m.spend)}</b></div>
-      <i>=</i>
-      <div><span>กำไร</span><b className={profitTone(c.profit, c.profit_high)}>{bahtRange(c.profit, c.profit_high)}</b></div>
-    </div>
+    <section className="panel stats-panel">
+      <table className="stats-table">
+        <thead>
+          <tr><th />{cols.map((w) => <th key={w.window}>{STAT_LABEL[w.window]}</th>)}</tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.label} className={`${r.strong ? 'strong' : ''} ${r.group ? 'group' : ''}`}>
+              <th scope="row">{r.label}</th>
+              {cols.map((w) => <td key={w.window}>{r.cell(w)}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="small muted stats-note">
+        {be === null ? 'ยังไม่ผูกต้นทุน — กรอกในช่อง "ต้นทุน" ด้านล่างเพื่อดูทุนสินค้าและกำไร' : <>คุ้มทุนที่ ROAS {num(be, 2)} · กำไรคิดแบบระวัง (ทุกออเดอร์เป็นโปรถูกสุด) ชี้ที่ตัวเลขเพื่อดูช่วง</>}
+        {' · '}"เมื่อวาน" แทน "วันนี้" เพราะยอดวันนี้แอดมินยังติ๊กไม่ครบ
+      </p>
+    </section>
   );
 }
