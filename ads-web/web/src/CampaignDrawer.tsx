@@ -2,7 +2,7 @@
 // settings (stage, product, rules), budget, ad sets and its history.
 
 import { useEffect, useState } from 'react';
-import { api, MODE_LABEL, sectionName, WINDOW_LABEL, type CampaignHistory, type CampaignView, type DailyRow, type EntityView, type Idea, type Overview, type Preview, type Window } from './api.ts';
+import { api, MODE_LABEL, sectionName, WEB_TAB, type CostRow, WINDOW_LABEL, type CampaignHistory, type CampaignView, type DailyRow, type EntityView, type Idea, type Overview, type Preview, type Window } from './api.ts';
 import { ideaActionLabel, stageLabel, useCampaignActions } from './actions.tsx';
 import { DailyChart } from './Chart.tsx';
 import { auditText } from './History.tsx';
@@ -10,12 +10,13 @@ import { baht, bahtRange, cvr, num, profitTone, roasTone, when } from './fmt.ts'
 import { previewText } from './Overview.tsx';
 import type { RulesTarget } from './RulesPage.tsx';
 import { Drawer, Icon, StatusSwitch, useUi } from './ui.tsx';
+import { WebCostForm } from './WebCosts.tsx';
 
 const CHART_WINDOWS: Window[] = ['last_7d', 'last_14d', 'last_30d'];
 
-export function CampaignDrawer({ c, data, window, preview, ideas, onClose, onReload, onOpenRules, onIdea }: {
+export function CampaignDrawer({ c, data, window, preview, ideas, onClose, onReload, onOpenRules, onIdea, onEditSection }: {
   c: CampaignView; data: Overview; window: Window; preview: Preview | null; ideas: Idea[];
-  onClose: () => void; onReload: () => void; onOpenRules: (t: RulesTarget) => void; onIdea: (i: Idea) => void;
+  onClose: () => void; onReload: () => void; onOpenRules: (t: RulesTarget) => void; onIdea: (i: Idea) => void; onEditSection: (id: string) => void;
 }) {
   const [chartWindow, setChartWindow] = useState<Window>('last_14d');
   const [days, setDays] = useState<DailyRow[] | null>(null);
@@ -95,6 +96,8 @@ export function CampaignDrawer({ c, data, window, preview, ideas, onClose, onRel
             </small>
           </div>
         </div>
+
+        <CostPanel c={c} data={data} onEditSection={onEditSection} onReload={onReload} />
 
         <section className="panel">
           <div className="panel-head">
@@ -242,4 +245,97 @@ function Timeline({ history, stages }: { history: CampaignHistory; stages: Overv
       ))}
     </ol>
   );
+}
+
+/** A product code guessed from a campaign name: "แอดผี : E200 1ตัว199" → E200, "444/1 ขาสั้น" → 444/1. */
+export function guessCode(name: string): string {
+  return name.match(/\b([A-Za-z]{0,3}\d{1,4}(?:\/\d+)?)\b/)?.[1] ?? '';
+}
+
+/**
+ * The cost this campaign's profit is counted with, editable in place.
+ * Linked product → its costs (web costs edit inline; sheet costs are edited in the sheet) + "แก้สินค้า/โปร".
+ * No product yet → one small form that creates the cost, the product and pins this campaign to it.
+ */
+function CostPanel({ c, data, onEditSection, onReload }: {
+  c: CampaignView; data: Overview; onEditSection: (id: string) => void; onReload: () => void;
+}) {
+  const { toast } = useUi();
+  const section = data.sections.find((s) => s.id === c.section_id);
+  const [web, setWeb] = useState<CostRow[] | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  // Re-read when the overview reloads with a different cost (e.g. edited in the product editor on top of this drawer).
+  useEffect(() => { api.webCosts().then((r) => setWeb(r.results)).catch(() => setWeb([])); }, [c.section_id, section?.products.length, section?.economics.cost_per_unit, section?.economics.price_per_unit_max]);
+
+  if (!section || section.id === 'default') {
+    return (
+      <section className="panel">
+        <h3>ต้นทุน</h3>
+        <p className="muted small">แคมเปญนี้ยังไม่ผูกสินค้า เลยยังคิดกำไรไม่ได้ — กรอกต้นทุนตรงนี้ ระบบจะสร้างสินค้าและผูกแคมเปญนี้ให้</p>
+        <WebCostForm
+          suggestCode={guessCode(c.name)}
+          onSaved={async (row) => {
+            try {
+              // Reuse a product already named after this code, else create one that also catches other campaigns with the code in their name.
+              const existing = data.sections.find((s) => s.id !== 'default' && s.name.toLowerCase() === row.code.toLowerCase());
+              const product = { tab: row.tab, code: row.code };
+              const target = existing
+                ? (existing.products.some((p) => p.tab === row.tab && p.code === row.code)
+                  ? existing
+                  : await api.saveSection({ ...strip(existing), products: [...existing.products, product] }))
+                : await api.createSection({ name: row.code, keywords: [row.code], products: [product], tiers: [], units_per_order: 1, extra_cost_per_order: 0, price_per_order: null });
+              await api.saveCampaign(c.id, { name: c.name, section_id: target.id, stage_id: c.stage_id, mode: c.mode, rules: c.rules });
+              toast(`ผูก "${c.name}" กับสินค้า ${target.name} แล้ว`, 'ok');
+              onReload();
+            } catch (e: any) {
+              toast(e.message, 'bad');
+            }
+          }}
+        />
+      </section>
+    );
+  }
+
+  const e = section.economics;
+  const webRows = section.products.filter((p) => p.tab === WEB_TAB).map((p) => web?.find((r) => r.code === p.code)).filter((r): r is CostRow => Boolean(r));
+  const sheetProducts = section.products.filter((p) => p.tab !== WEB_TAB);
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h3>ต้นทุน · {sectionName(section)}</h3>
+        <button className="ghost small" onClick={() => onEditSection(section.id)}>แก้สินค้า/โปร <Icon name="chevron" size={14} /></button>
+      </div>
+      {section.products.length === 0 && <p className="muted small">สินค้านี้ยังไม่ผูกต้นทุน — กด "แก้สินค้า/โปร"</p>}
+      <div className="cost-lines">
+        {webRows.map((r) => editing === r.code ? (
+          <WebCostForm key={r.code} initial={r} onCancel={() => setEditing(null)} onSaved={() => { setEditing(null); setWeb(null); api.webCosts().then((x) => setWeb(x.results)); onReload(); }} />
+        ) : (
+          <div key={r.code} className="cost-line">
+            <span><b>{r.code}</b>{r.name !== r.code && <span className="muted"> · {r.name}</span>}</span>
+            <span>ทุน <b>{baht(r.avg_cost, 2)}</b>/ตัว{r.avg_price > 0 && <span className="muted"> · ราคาเต็ม {baht(r.avg_price)}</span>}</span>
+            <button className="small" onClick={() => setEditing(r.code)}>แก้ต้นทุน</button>
+          </div>
+        ))}
+        {sheetProducts.map((p) => (
+          <div key={`${p.tab}:${p.code}`} className="cost-line">
+            <span><b>{p.code}</b> <span className="muted">· ชีตแท็บ {p.tab}</span></span>
+            <span className="muted small">แก้ทุนในชีต (ดึงใหม่ทุกเช้า 07:30)</span>
+            <span />
+          </div>
+        ))}
+      </div>
+      {e.cost_per_unit !== null && (
+        <p className="small muted">
+          ทุนเฉลี่ย {baht(e.cost_per_unit, 2)}/ตัว
+          {e.price_per_unit_min !== null && <> · ขาย {e.price_per_unit_min === e.price_per_unit_max ? baht(e.price_per_unit_min, 2) : `${baht(e.price_per_unit_min, 2)}–${baht(e.price_per_unit_max, 2)}`}/ตัว</>}
+          {c.breakeven_roas !== null && <> · คุ้มทุนที่ ROAS {num(c.breakeven_roas, 2)}</>}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function strip(s: Overview['sections'][number]) {
+  const { totals: _t, economics: _e, campaign_count: _c, ...rest } = s;
+  return rest;
 }

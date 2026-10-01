@@ -178,7 +178,7 @@ export function App() {
         <CampaignDrawer
           key={openCampaign.id}
           c={openCampaign} data={data} window={window} preview={preview} ideas={ideas.list ?? []}
-          onClose={() => setOpenId(null)} onReload={reload} onOpenRules={openRules} onIdea={actOnIdea}
+          onClose={() => setOpenId(null)} onReload={reload} onOpenRules={openRules} onIdea={actOnIdea} onEditSection={setEditing}
         />
       )}
       {editingSection && data && (
@@ -189,6 +189,7 @@ export function App() {
             campaignNames={data.campaigns.filter((c) => c.section_id === editingSection.id).map((c) => c.name)}
             cod={{ share: data.settings.cod_share_pct / 100, fee: data.settings.cod_fee }}
             onSaved={() => { setEditing(null); load(); }}
+            onCostChanged={reload}
           />
         </Modal>
       )}

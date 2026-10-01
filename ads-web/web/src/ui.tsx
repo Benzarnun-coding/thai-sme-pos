@@ -66,15 +66,20 @@ export function UiProvider({ children }: { children: ReactNode }) {
 // ---- overlays ----
 
 function Overlay({ children, onClose, center, side }: { children: ReactNode; onClose: () => void; center?: boolean; side?: boolean }) {
+  const self = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    // Escape closes only the top-most overlay (e.g. a product editor opened from a campaign drawer).
+    const onKey = (e: KeyboardEvent) => {
+      const all = document.querySelectorAll('.overlay');
+      if (e.key === 'Escape' && all[all.length - 1] === self.current) onClose();
+    };
     addEventListener('keydown', onKey);
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => { removeEventListener('keydown', onKey); document.body.style.overflow = overflow; };
   }, [onClose]);
   return (
-    <div className={`overlay ${center ? 'center' : ''} ${side ? 'side' : ''}`} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div ref={self} className={`overlay ${center ? 'center' : ''} ${side ? 'side' : ''}`} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       {children}
     </div>
   );

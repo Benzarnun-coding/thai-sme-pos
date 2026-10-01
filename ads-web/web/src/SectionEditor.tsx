@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useUi } from './ui.tsx';
-import { api, tabLabel, type CostRow, type Section, type SectionView, type Tier } from './api.ts';
+import { api, tabLabel, WEB_TAB, type CostRow, type Section, type SectionView, type Tier } from './api.ts';
 import { WebCostForm } from './WebCosts.tsx';
 import { baht, bahtRange, num, profitTone } from './fmt.ts';
 
@@ -10,11 +10,13 @@ interface Props {
   /** COD surcharge included in the tagged value: share 0–1, fee in baht */
   cod: { share: number; fee: number };
   onSaved: () => void;
+  /** A linked cost was edited (saved immediately, unlike the rest of the form) */
+  onCostChanged?: () => void;
 }
 
 const key = (p: { tab: string; code: string }) => `${p.tab}:${p.code}`;
 
-export function SectionEditor({ section, campaignNames, cod, onSaved }: Props) {
+export function SectionEditor({ section, campaignNames, cod, onSaved, onCostChanged }: Props) {
   const { confirm } = useUi();
   const [draft, setDraft] = useState<Section>(() => strip(section));
   const [keywordText, setKeywordText] = useState(section.keywords.join(', '));
@@ -24,6 +26,7 @@ export function SectionEditor({ section, campaignNames, cod, onSaved }: Props) {
   const [suggested, setSuggested] = useState<CostRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [typing, setTyping] = useState(false);
+  const [editingCost, setEditingCost] = useState<string | null>(null);
   const [error, setError] = useState('');
   const isDefault = section.id === 'default';
 
@@ -135,10 +138,18 @@ export function SectionEditor({ section, campaignNames, cod, onSaved }: Props) {
         {linked.map(({ p, row }) => (
           <span key={key(p)} className={`chip ${row ? '' : 'missing'}`}>
             {tabLabel(p.tab)} · {p.code} {row ? `· ทุน ${baht(row.avg_cost)}` : '· ไม่พบต้นทุน'}
+            {row && p.tab === WEB_TAB && <button className="x" onClick={() => setEditingCost(p.code)} aria-label="แก้ต้นทุน" title="แก้ต้นทุน">✎</button>}
             <button className="x" onClick={() => setDraft({ ...draft, products: draft.products.filter((x) => key(x) !== key(p)) })} aria-label="เอาออก">×</button>
           </span>
         ))}
       </div>
+      {editingCost && known.get(`${WEB_TAB}:${editingCost}`) && (
+        <WebCostForm
+          initial={known.get(`${WEB_TAB}:${editingCost}`)}
+          onCancel={() => setEditingCost(null)}
+          onSaved={(row) => { remember([row]); setEditingCost(null); onCostChanged?.(); }}
+        />
+      )}
       {suggested.filter((r) => !has(r)).length > 0 && (
         <div className="suggest">
           <span className="muted small">รหัสที่น่าจะใช่ (จากชื่อแคมเปญ):</span>
