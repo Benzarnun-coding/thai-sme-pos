@@ -178,6 +178,15 @@ export interface CampaignStats {
   meta_fetched_at: string;
 }
 
+export interface Competitor { id: string; name: string; page_url: string; page_id: string; notes: string; created_at: string }
+export type AdFormat = '' | 'video' | 'image' | 'carousel';
+export interface CompetitorAd {
+  id: string; competitor_id: string; library_url: string; started_at: string | null; last_seen: string | null;
+  status: 'active' | 'stopped'; format: AdFormat; promo: string; hook: string; notes: string; section_id: string | null; created_at: string;
+}
+export interface CompetitorCheck { id: number; competitor_id: string; checked_at: string; active_ads: number; note: string }
+export interface CompetitorData { competitors: Competitor[]; ads: CompetitorAd[]; checks: CompetitorCheck[] }
+
 export interface BulkBudgetResult { id: string; name: string; from: number | null; to?: number; ok: boolean; message?: string }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -186,7 +195,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  const data: any = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
   if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
   return data as T;
 }
@@ -216,6 +225,12 @@ export const api = {
   preview: () => call<Preview>('GET', '/api/preview'),
   daily: (id: string, window: Window) => call<{ days: DailyRow[] }>('GET', `/api/campaigns/${id}/daily?window=${window}`),
   stats: (id: string) => call<CampaignStats>('GET', `/api/campaigns/${id}/stats`),
+  competitors: () => call<CompetitorData>('GET', '/api/competitors'),
+  saveCompetitor: (c: Partial<Competitor>) => call<Competitor>('POST', '/api/competitors', c),
+  deleteCompetitor: (id: string) => call<{ ok: true }>('DELETE', `/api/competitors/${id}`),
+  saveCompetitorAd: (a: Partial<CompetitorAd>) => call<CompetitorAd>('POST', '/api/competitors/ads', a),
+  deleteCompetitorAd: (id: string) => call<{ ok: true }>('DELETE', `/api/competitors/ads/${id}`),
+  addCompetitorCheck: (id: string, active_ads: number, note: string) => call<{ ok: true }>('POST', `/api/competitors/${id}/checks`, { active_ads, note }),
   history: (id: string) => call<CampaignHistory>('GET', `/api/campaigns/${id}/history`),
   bulkStage: (items: { id: string; name: string }[], stage_id: string | null) => call<{ ok: true; changed: number }>('POST', '/api/bulk/stage', { items, stage_id }),
   bulkBudget: (items: { id: string; name: string }[], pct: number) => call<{ results: BulkBudgetResult[] }>('POST', '/api/bulk/budget', { items, pct }),

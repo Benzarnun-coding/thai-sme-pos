@@ -14,6 +14,7 @@ import { MockMeta } from './mock.ts';
 import { DEFAULT_SECTION_ID, WEB_TAB, campaignEconomics, economics, profitRange, suggestProducts, type CampaignSetting, type Cod, type CostRow, type Economics, type Section } from './model.ts';
 import { capChanges, planRun, runAutomation, zeroMetrics, type MetaLike } from './run.ts';
 import { buildIdeas } from './ideas.ts';
+import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyMetaError, loadMetaData, MetaCacheError, patchCachedEntity, type MetaData } from './metadata.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
@@ -213,6 +214,32 @@ async function route(req: Request, env: Env, url: URL, user: string): Promise<Re
     }
     await auditMany(env.DB, user, 'meta.budget', results.filter((r) => r.ok).map((r) => ({ target: r.id, detail: { name: r.name, from: r.from, to: r.to, bulk_pct: pct } })));
     return json({ results });
+  }
+
+  // ---- competitor watch (typed in by the team) ----
+  if (path === '/api/competitors' && method === 'GET') return json(await listCompetitors(env.DB));
+  if (path === '/api/competitors' && method === 'POST') {
+    const c = await saveCompetitor(env.DB, await body());
+    await audit(env.DB, user, 'competitor.save', c.id, { name: c.name });
+    return json(c);
+  }
+  if (path === '/api/competitors/ads' && method === 'POST') {
+    const a = await saveCompetitorAd(env.DB, await body());
+    await audit(env.DB, user, 'competitor.ad', a.id, { name: a.promo || a.hook.slice(0, 60) });
+    return json(a);
+  }
+  if ((m = path.match(/^\/api\/competitors\/ads\/([\w-]+)$/)) && method === 'DELETE') {
+    await deleteCompetitorAd(env.DB, m[1]);
+    return json({ ok: true });
+  }
+  if ((m = path.match(/^\/api\/competitors\/([\w-]+)\/checks$/)) && method === 'POST') {
+    await addCompetitorCheck(env.DB, m[1], await body());
+    return json({ ok: true });
+  }
+  if ((m = path.match(/^\/api\/competitors\/([\w-]+)$/)) && method === 'DELETE') {
+    await deleteCompetitor(env.DB, m[1]);
+    await audit(env.DB, user, 'competitor.delete', m[1], {});
+    return json({ ok: true });
   }
 
   // ---- read-only helpers for the dashboard ----
