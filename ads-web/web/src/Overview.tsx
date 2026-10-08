@@ -304,7 +304,7 @@ function CampaignRow({ c, data, selected, onSelect, next, idea, onOpen, onStatus
         <span className="badges">
           {next.map((n, i) => <span key={i} className="badge next" title={n.plan}><Icon name="clock" size={12} />{previewText(n, data.stages)}</span>)}
           {idea && <span className={`badge idea ${idea.severity}`} title={idea.detail}><Icon name="bulb" size={12} />{idea.title}</span>}
-          {section && section.id !== 'default' && <span className="badge">{section.name}</span>}
+          {c.cost_source === 'sheet' ? <span className="badge" title="ต้นทุนจากชีตรายแคมเปญ">ทุนจากชีต</span> : section && section.id !== 'default' && <span className="badge">{section.name}</span>}
           {c.mode !== 'stage' && <span className="badge warn">{c.mode === 'custom' ? 'กฎเฉพาะ' : 'ไม่อัตโนมัติ'}</span>}
           {days !== null && <span className="badge plain">{days} วันในกลุ่ม</span>}
         </span>

@@ -247,6 +247,8 @@ function CostPanel({ c, data, onEditSection, onReload }: {
   // Re-read when the overview reloads with a different cost (e.g. edited in the product editor on top of this drawer).
   useEffect(() => { api.webCosts().then((r) => setWeb(r.results)).catch(() => setWeb([])); }, [c.section_id, section?.products.length, section?.economics.cost_per_unit, section?.economics.price_per_unit_max]);
 
+  if (c.cost_source === 'sheet' && c.cost_tiers) return <SheetCostPanel c={c} />;
+
   if (!section || section.id === 'default') {
     return (
       <section className="panel">
@@ -379,10 +381,49 @@ function StatsTable({ c }: { c: CampaignView }) {
         </tbody>
       </table>
       <p className="small muted stats-note">
+        {stats.cost_source === 'sheet' && <>ต้นทุนจากชีตรายแคมเปญ · </>}
         {be === null
           ? (c.section_id !== 'default' && c.price_per_unit_min === null ? 'ยังไม่มีราคาขาย — ใส่ราคาในช่อง "ต้นทุน" ด้านล่างเพื่อดูทุนสินค้าและกำไร' : 'ยังไม่ผูกต้นทุน — กรอกในช่อง "ต้นทุน" ด้านล่างเพื่อดูทุนสินค้าและกำไร')
-          : <>คุ้มทุนที่ ROAS {num(be, 2)} · กำไรคิดแบบระวัง (ทุกออเดอร์เป็นโปรถูกสุด) ชี้ที่ตัวเลขเพื่อดูช่วง</>}
+          : <>คุ้มทุนที่ ROAS {num(be, 2)} · กำไรคิดแบบระวัง ({stats.cost_source === 'sheet' ? 'ทุกออเดอร์เป็นโปรที่ทุนหนักสุด' : 'ทุกออเดอร์เป็นโปรถูกสุด'}) ชี้ที่ตัวเลขเพื่อดูช่วง</>}
         {' · '}"เมื่อวาน" แทน "วันนี้" เพราะยอดวันนี้แอดมินยังติ๊กไม่ครบ
+      </p>
+    </section>
+  );
+}
+
+/** Promo costs for this campaign from the team's sheet: margin per order and break-even per promo. */
+function SheetCostPanel({ c }: { c: CampaignView }) {
+  const tiers = c.cost_tiers ?? [];
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h3>ต้นทุน · จากชีตรายแคมเปญ</h3>
+        <span className="small muted">แก้ในชีต "FB คำนวณค่า ADS" · ดึงใหม่ทุกเช้า 07:30</span>
+      </div>
+      <table className="compare">
+        <thead><tr><th>โปร</th><th className="num">ราคา</th><th className="num">ทุน/ออเดอร์</th><th className="num">เหลือก่อนค่าแอด</th><th className="num">คุ้มทุนที่ ROAS</th></tr></thead>
+        <tbody>
+          {tiers.map((t) => {
+            const margin = t.price - t.cost;
+            return (
+              <tr key={`${t.units}:${t.price}`}>
+                <td>{t.units} ตัว</td>
+                <td className="num">{baht(t.price)}</td>
+                <td className="num">{baht(t.cost, 2)}</td>
+                <td className={`num ${margin <= 0 ? 'bad' : ''}`}>{baht(margin, 2)} <span className="muted small">({num((margin / t.price) * 100)}%)</span></td>
+                <td className="num">{margin > 0 ? num(t.price / margin, 2) : 'ขาดทุนทุกออเดอร์'}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="small muted">
+        {tiers.length === 2 && c.cost_exact
+          ? 'มี 2 โปร: ระบบคำนวณจากยอดขายและจำนวนออเดอร์ว่าขายโปรไหนกี่ออเดอร์ กำไรจึงเป็นตัวเลขเดียว'
+          : tiers.length === 1
+            ? 'มีโปรเดียว: ทุนคิดเป็นสัดส่วนของยอดขาย'
+            : 'ยอดเฉลี่ยต่อออเดอร์อยู่นอกช่วงราคาโปร หรือมีมากกว่า 2 โปร: กำไรแสดงเป็นช่วง (ค่าต่ำ = ทุกออเดอร์เป็นโปรที่ทุนสูงสุด)'}
+        {c.breakeven_roas !== null && <> · กฎใช้คุ้มทุนที่ ROAS {num(c.breakeven_roas, 2)} (โปรที่ทุนหนักสุด)</>}
       </p>
     </section>
   );

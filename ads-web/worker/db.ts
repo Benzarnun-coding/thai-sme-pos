@@ -1,6 +1,7 @@
 // D1 access. JSON columns are parsed here so the rest of the worker only sees typed objects.
 
 import type { Guardrails, State } from '../../ads-engine/src/types.ts';
+import { nameKey, type CampaignCost } from './campaignCosts.ts';
 import { WEB_TAB, type CampaignMode, type CampaignSetting, type Cod, type CostRow, type Section, type Stage, type WebRule } from './model.ts';
 
 export interface Settings {
@@ -12,10 +13,34 @@ export interface Settings {
   /** COD surcharge admins include in the value they tag in Meta */
   cod_share_pct: number;
   cod_fee: number;
+  /** Sheet with per-campaign promo costs ("FB คำนวณค่า ADS"), and its summary tab */
+  ads_cost_sheet_id: string;
+  ads_cost_tab: string;
 }
 
 export function codOf(s: Pick<Settings, 'cod_share_pct' | 'cod_fee'>): Cod {
   return { share: s.cod_share_pct / 100, fee: s.cod_fee };
+}
+
+export async function loadCampaignCosts(db: D1Database): Promise<{ costs: Map<string, CampaignCost>; synced_at: string | null }> {
+  const { results } = await db.prepare('SELECT * FROM campaign_costs').all<{ name_key: string; name: string; tiers: string; synced_at: string }>();
+  return {
+    costs: new Map(results.map((r) => [r.name_key, { name: r.name, tiers: JSON.parse(r.tiers) }])),
+    synced_at: results[0]?.synced_at ?? null,
+  };
+}
+
+/** Replaces the whole set in one transaction (the sheet is the source of truth). */
+export async function replaceCampaignCosts(db: D1Database, list: CampaignCost[]): Promise<void> {
+  const at = new Date().toISOString();
+  await db.batch([
+    db.prepare('DELETE FROM campaign_costs'),
+    db.prepare(
+      `INSERT INTO campaign_costs (name_key, name, tiers, synced_at)
+       SELECT value ->> '$.key', value ->> '$.name', value ->> '$.tiers', ?1 FROM json_each(?2) WHERE true
+       ON CONFLICT(name_key) DO NOTHING`,
+    ).bind(at, JSON.stringify(list.map((c) => ({ key: nameKey(c.name), name: c.name, tiers: JSON.stringify(c.tiers) })))),
+  ]);
 }
 
 export async function loadSettings(db: D1Database): Promise<Settings> {
@@ -29,6 +54,8 @@ export async function loadSettings(db: D1Database): Promise<Settings> {
     sheet_tabs: JSON.parse(kv.get('sheet_tabs') ?? '[]'),
     cod_share_pct: Number(kv.get('cod_share_pct') ?? 0),
     cod_fee: Number(kv.get('cod_fee') ?? 50),
+    ads_cost_sheet_id: kv.get('ads_cost_sheet_id') ?? '',
+    ads_cost_tab: kv.get('ads_cost_tab') ?? 'รวมต้นทุน ที่เปิด ADS ',
   };
 }
 
@@ -42,6 +69,8 @@ export async function saveSettings(db: D1Database, s: Settings): Promise<void> {
     put.bind('sheet_tabs', JSON.stringify(s.sheet_tabs)),
     put.bind('cod_share_pct', String(s.cod_share_pct)),
     put.bind('cod_fee', String(s.cod_fee)),
+    put.bind('ads_cost_sheet_id', s.ads_cost_sheet_id),
+    put.bind('ads_cost_tab', s.ads_cost_tab),
   ]);
 }
 

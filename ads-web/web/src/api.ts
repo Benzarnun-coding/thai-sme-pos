@@ -27,6 +27,7 @@ export interface Rule {
 
 export interface Product { tab: string; code: string }
 export interface Tier { units: number; price: number }
+export interface CostTier { units: number; price: number; cost: number }
 
 export interface Section {
   id: string;
@@ -81,6 +82,11 @@ export interface CampaignView extends EntityView {
   rules: Rule[] | null;
   /** Of its product line (7-day), null when no cost is linked */
   breakeven_roas: number | null;
+  /** sheet = per-campaign promo costs from the team's sheet; product = the product line's cost */
+  cost_source: 'sheet' | 'product' | null;
+  cost_tiers: CostTier[] | null;
+  /** Promo mix solved exactly (two promos) — profit is one number, not a range */
+  cost_exact: boolean;
   /** Promo prices read from the campaign name, e.g. 1 for 189, 3 for 549 */
   name_tiers: Tier[];
   /** Selling price per piece this campaign is costed with; null = no price anywhere */
@@ -114,7 +120,7 @@ export interface Overview {
   campaigns: CampaignView[];
 }
 
-export interface Settings { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails; sheet_id: string; sheet_tabs: string[]; cod_share_pct: number; cod_fee: number }
+export interface Settings { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails; sheet_id: string; sheet_tabs: string[]; cod_share_pct: number; cod_fee: number; ads_cost_sheet_id: string; ads_cost_tab: string }
 
 export interface CostRow { tab: string; code: string; name: string; sku_count: number; avg_cost: number; min_cost: number; max_cost: number; avg_price: number }
 
@@ -174,6 +180,7 @@ export interface CampaignHistory {
 
 export interface CampaignStats {
   breakeven_roas: number | null;
+  cost_source: 'sheet' | 'product' | null;
   windows: { window: Window; metrics?: Metrics; profit_low: number | null; profit_high: number | null; units_low: number | null; units_high: number | null }[];
   meta_fetched_at: string;
 }
@@ -225,6 +232,8 @@ export const api = {
   preview: () => call<Preview>('GET', '/api/preview'),
   daily: (id: string, window: Window) => call<{ days: DailyRow[] }>('GET', `/api/campaigns/${id}/daily?window=${window}`),
   stats: (id: string) => call<CampaignStats>('GET', `/api/campaigns/${id}/stats`),
+  campaignCosts: () => call<{ synced_at: string | null; campaigns: { name: string; tiers: CostTier[] }[] }>('GET', '/api/campaign-costs'),
+  syncCampaignCosts: () => call<{ campaigns: number; error?: string }>('POST', '/api/campaign-costs/sync'),
   competitors: () => call<CompetitorData>('GET', '/api/competitors'),
   saveCompetitor: (c: Partial<Competitor>) => call<Competitor>('POST', '/api/competitors', c),
   deleteCompetitor: (id: string) => call<{ ok: true }>('DELETE', `/api/competitors/${id}`),

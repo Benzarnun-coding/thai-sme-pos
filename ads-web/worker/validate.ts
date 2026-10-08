@@ -136,6 +136,15 @@ export function validateCampaignSetting(campaignId: string, input: any, stageIds
   };
 }
 
+/** Accepts a sheet id or a pasted Google Sheets link. */
+function sheetId(v: string): string {
+  const s = v.trim();
+  if (!s) return '';
+  const id = s.match(/\/spreadsheets\/d\/([\w-]{20,})/)?.[1] ?? s;
+  if (!/^[\w-]{20,100}$/.test(id)) fail('Google Sheet ID ไม่ถูกต้อง');
+  return id;
+}
+
 export function validateSettings(input: any, current: Settings): Settings {
   const g = input?.guardrails ?? current.guardrails;
   const guardrails: Guardrails = {
@@ -156,5 +165,8 @@ export function validateSettings(input: any, current: Settings): Settings {
     sheet_tabs: tabs,
     cod_share_pct: input?.cod_share_pct === undefined ? current.cod_share_pct : num(input.cod_share_pct, 'สัดส่วนเก็บปลายทาง (%)', 0, 100),
     cod_fee: input?.cod_fee === undefined ? current.cod_fee : num(input.cod_fee, 'ค่าเก็บปลายทางที่บวกเพิ่ม', 0, 1000),
+    ads_cost_sheet_id: typeof input?.ads_cost_sheet_id === 'string' ? sheetId(input.ads_cost_sheet_id) : current.ads_cost_sheet_id,
+    // Tab names may end with a space (this one does), so it is kept as typed.
+    ads_cost_tab: typeof input?.ads_cost_tab === 'string' && input.ads_cost_tab.trim() ? input.ads_cost_tab.slice(0, 100) : current.ads_cost_tab,
   };
 }

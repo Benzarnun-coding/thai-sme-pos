@@ -2,7 +2,8 @@
 // Uses the sheet's CSV export, which works while the sheet is shared as "anyone with the link can view".
 // Google takes 5–15 s per tab on this workbook, so tabs are fetched in parallel and each fetch has a timeout.
 
-import { replaceCosts, type Settings } from './db.ts';
+import { replaceCampaignCosts, replaceCosts, type Settings } from './db.ts';
+import { parseCampaignCostSheet } from './campaignCosts.ts';
 import { COST_QUERY, parseCostQuery, parseCsv } from './model.ts';
 
 export interface TabResult {
@@ -44,5 +45,23 @@ async function syncTab(db: D1Database, sheetId: string, tab: string): Promise<Ta
   } catch (err: any) {
     const timeout = err?.name === 'TimeoutError' || err?.name === 'AbortError';
     return { tab, codes: 0, error: timeout ? `Google ตอบช้าเกิน ${FETCH_TIMEOUT_MS / 1000} วินาที — ลองใหม่` : (err?.message ?? String(err)) };
+  }
+}
+
+/** The team's per-campaign cost sheet: whole tab as CSV, parsed into promo blocks. Keeps the old set if empty. */
+export async function syncCampaignCosts(db: D1Database, settings: Settings): Promise<{ campaigns: number; error?: string }> {
+  if (!settings.ads_cost_sheet_id) return { campaigns: 0, error: 'ยังไม่ได้ใส่ Sheet ID ของชีตต้นทุนรายแคมเปญ' };
+  const url = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(settings.ads_cost_sheet_id)}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(settings.ads_cost_tab)}`;
+  try {
+    const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    if (!res.ok || !(res.headers.get('content-type') ?? '').includes('csv')) {
+      return { campaigns: 0, error: `อ่านชีตไม่ได้ (HTTP ${res.status}) — ต้องแชร์แบบ "ทุกคนที่มีลิงก์ดูได้" และชื่อแท็บต้องตรง (รวมเว้นวรรคท้ายชื่อ)` };
+    }
+    const list = parseCampaignCostSheet(parseCsv(await res.text()));
+    if (!list.length) return { campaigns: 0, error: 'ไม่พบแคมเปญที่มี "ราคาขาย … ตัว …" และต้นทุน — ไม่ลบของเดิม' };
+    await replaceCampaignCosts(db, list);
+    return { campaigns: list.length };
+  } catch (err: any) {
+    return { campaigns: 0, error: err?.name === 'TimeoutError' ? 'Google ตอบช้าเกินไป — ลองใหม่' : (err?.message ?? String(err)) };
   }
 }

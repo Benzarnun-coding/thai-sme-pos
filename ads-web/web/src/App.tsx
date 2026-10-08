@@ -173,7 +173,7 @@ export function App() {
         {tab === 'rules' && data && <RulesPage data={data} target={rulesTarget} onTarget={(t) => { setRulesTarget(t); scrollTo({ top: 0 }); }} stageTab={currentStageTab} onStageTab={setStageTab} onReload={load} />}
         {tab === 'products' && data && <ProductsPage data={data} onEdit={setEditing} onReload={load} />}
         {tab === 'history' && <History stages={data?.stages ?? []} />}
-        {tab === 'settings' && <SettingsPage costsLoaded={data?.costs_loaded ?? 0} onSaved={load} />}
+        {tab === 'settings' && <SettingsPage costsLoaded={data?.costs_loaded ?? 0} campaignNames={data?.campaigns.map((c) => c.name) ?? []} onSaved={load} />}
       </main>
 
       {openCampaign && data && (
