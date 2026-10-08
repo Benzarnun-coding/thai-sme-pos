@@ -15,6 +15,7 @@ import { MockMeta } from './mock.ts';
 import { DEFAULT_SECTION_ID, WEB_TAB, campaignEconomics, economics, profitRange, suggestProducts, type CampaignSetting, type Cod, type CostRow, type Economics, type Section } from './model.ts';
 import { capChanges, planRun, runAutomation, zeroMetrics, type MetaLike } from './run.ts';
 import { buildIdeas } from './ideas.ts';
+import { explainDay } from './salesReport.ts';
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
@@ -262,6 +263,10 @@ async function route(req: Request, env: Env, url: URL, user: string): Promise<Re
 
   // ---- read-only helpers for the dashboard ----
   if (method === 'GET' && path === '/api/ideas') return json(await ideas(env));
+  if (method === 'GET' && path === '/api/sales-report') {
+    const w = url.searchParams.get('window') as Window;
+    return json(await salesReport(env, (['last_7d', 'last_14d', 'last_30d'] as Window[]).includes(w) ? w : 'last_14d'));
+  }
   if (method === 'GET' && (m = path.match(/^\/api\/campaigns\/(\d+)\/stats$/))) return json(await campaignStats(env, m[1]));
   if (method === 'GET' && path === '/api/preview') return json(await preview(env));
   if (method === 'GET' && (m = path.match(/^\/api\/campaigns\/(\d+)\/daily$/))) {
@@ -519,6 +524,46 @@ async function campaignStats(env: Env, id: string) {
     }),
     meta_fetched_at: data.fetchedAt(),
   };
+}
+
+/** Every campaign × day in the window, each with its product cost and profit worked out step by step. */
+async function salesReport(env: Env, window: Window) {
+  const [{ data }, sections, campaignSettings, costs, settings, cc] = await Promise.all([
+    metaData(env), loadSections(env.DB), loadCampaignSettings(env.DB), loadCosts(env.DB), loadSettings(env.DB), loadCampaignCosts(env.DB),
+  ]);
+  const [entities, days] = await Promise.all([
+    withMetrics(data, [['campaign', ECONOMICS_WINDOW]]),
+    data.dailyAll(window).catch((err) => { throw new BadRequest(err instanceof MetaCacheError ? err.message : friendlyMetaError(err)); }),
+  ]);
+  const index = new CampaignCostIndex(cc.costs);
+  const cod = codOf(settings);
+  const sectionOf = sectionMap(entities, sections, campaignSettings);
+  const totals7 = sectionTotals(entities, sectionOf, ECONOMICS_WINDOW);
+  const zero = { spend: 0, purchases: 0, purchase_value: 0 };
+  const byId = new Map(entities.filter((e) => e.level === 'campaign').map((e) => [e.id, e]));
+  const sourceCache = new Map<string, Parameters<typeof explainDay>[2]>();
+  const sourceOf = (id: string, name: string): Parameters<typeof explainDay>[2] => {
+    if (sourceCache.has(id)) return sourceCache.get(id)!;
+    let src: Parameters<typeof explainDay>[2];
+    const found = index.find(name);
+    if (found) src = { kind: 'sheet', sheet_name: found.cost.name, tiers: found.cost.tiers };
+    else {
+      const section = sections.find((s) => s.id === (sectionOf.get(id) ?? DEFAULT_SECTION_ID));
+      if (!section || section.id === DEFAULT_SECTION_ID && !section.products.length) src = { kind: 'none', reason: 'ไม่มีในชีตต้นทุน และยังไม่ผูกสินค้า' };
+      else src = { kind: 'product', product: section.name, econ: campaignEconomics(section, costs, totals7.get(section.id) ?? zero, cod, name), extra: section.extra_cost_per_order, cod };
+    }
+    sourceCache.set(id, src);
+    return src;
+  };
+  const rows = days
+    .filter((d) => d.spend > 0 || d.purchases > 0 || d.purchase_value > 0)
+    .map((d) => {
+      const c = byId.get(d.campaign_id);
+      const name = c?.name ?? d.campaign_id;
+      return explainDay({ date: d.date, campaign_id: d.campaign_id, name, stage_id: campaignSettings.get(d.campaign_id)?.stage_id ?? null }, d, sourceOf(d.campaign_id, name));
+    })
+    .sort((a, b) => b.date.localeCompare(a.date) || b.revenue - a.revenue);
+  return { window, rows, fetched_at: data.fetchedAt(), warning: data.warning() };
 }
 
 async function ideas(env: Env) {

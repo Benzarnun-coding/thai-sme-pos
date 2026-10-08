@@ -101,6 +101,8 @@ export interface TierEconomics {
   price_per_unit_max: number;
   /** True when the promo mix was solved exactly (two promos, average order between their prices) */
   exact: boolean;
+  /** Orders per promo when solved exactly, same order as the tiers */
+  mix?: number[];
 }
 
 type Money = Pick<Metrics, 'spend' | 'purchases' | 'purchase_value'>;
@@ -128,7 +130,7 @@ export function tierEconomics(tiers: CostTier[], m: Money | undefined): TierEcon
       const n1 = N - n2;
       const profit = R - (n1 * t1.cost + n2 * t2.cost) - S;
       const units = n1 * t1.units + n2 * t2.units;
-      return { ...base, profit_low: profit, profit_high: profit, units_low: units, units_high: units, exact: true };
+      return { ...base, profit_low: profit, profit_high: profit, units_low: units, units_high: units, exact: true, mix: [n1, n2] };
     }
   }
   return {

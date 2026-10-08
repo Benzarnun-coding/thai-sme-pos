@@ -2,7 +2,7 @@
 
 import { applyDecisions, sumBudget, type Mutator } from '../../ads-engine/src/apply.ts';
 import { formatReport, pushLine } from '../../ads-engine/src/notify.ts';
-import type { DailyRow } from '../../ads-engine/src/meta.ts';
+import type { CampaignDayRow, DailyRow } from '../../ads-engine/src/meta.ts';
 import type { Entity, Level, Metrics, RunReport, State, Window } from '../../ads-engine/src/types.ts';
 import { applyMoves, codOf, insertRun, loadCampaignSettings, loadCosts, loadSections, loadSettings, loadStages, loadState, saveState } from './db.ts';
 import { buildGroups, neededWindows, planDecisions, sectionMap, type MoveDecision, type Plan } from './engine.ts';
@@ -15,6 +15,7 @@ export interface MetaLike extends Mutator {
   listEntities(): Promise<Entity[]>;
   insights(level: Level, window: Window): Promise<Map<string, Metrics>>;
   dailyInsights(campaignId: string, window: Window): Promise<DailyRow[]>;
+  dailyCampaignInsights(window: Window): Promise<CampaignDayRow[]>;
 }
 
 export interface RunEnv {

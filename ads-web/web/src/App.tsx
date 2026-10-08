@@ -3,6 +3,7 @@ import { api, sectionName, type Idea, type Overview as OverviewData, type Previe
 import { useCampaignActions } from './actions.tsx';
 import { CampaignDrawer } from './CampaignDrawer.tsx';
 import { CompetitorsPage } from './CompetitorsPage.tsx';
+import { SalesPage } from './SalesPage.tsx';
 import { History, RunResult } from './History.tsx';
 import { IdeasPage } from './IdeasPage.tsx';
 import { when } from './fmt.ts';
@@ -14,8 +15,8 @@ import { SectionEditor } from './SectionEditor.tsx';
 import { SettingsPage } from './SettingsPage.tsx';
 import { Icon, Modal, useUi } from './ui.tsx';
 
-type Tab = 'overview' | 'ideas' | 'competitors' | 'rules' | 'products' | 'history' | 'settings';
-const TABS: [Tab, string][] = [['overview', 'ภาพรวม'], ['ideas', 'ไอเดีย'], ['competitors', 'คู่แข่ง'], ['rules', 'กฎ'], ['products', 'สินค้า/ต้นทุน'], ['history', 'ประวัติ'], ['settings', 'ตั้งค่า']];
+type Tab = 'overview' | 'sales' | 'ideas' | 'competitors' | 'rules' | 'products' | 'history' | 'settings';
+const TABS: [Tab, string][] = [['overview', 'ภาพรวม'], ['sales', 'ยอดขายรายวัน'], ['ideas', 'ไอเดีย'], ['competitors', 'คู่แข่ง'], ['rules', 'กฎ'], ['products', 'สินค้า/ต้นทุน'], ['history', 'ประวัติ'], ['settings', 'ตั้งค่า']];
 
 function readWindow(): Window {
   try { return (localStorage.getItem('window') as Window) || 'last_7d'; } catch { return 'last_7d'; }
@@ -169,6 +170,7 @@ export function App() {
             onAct={actOnIdea} onOpenCampaign={setOpenId} onReload={loadExtras}
           />
         )}
+        {tab === 'sales' && data && <SalesPage data={data} onOpenCampaign={setOpenId} />}
         {tab === 'competitors' && data && <CompetitorsPage data={data} />}
         {tab === 'rules' && data && <RulesPage data={data} target={rulesTarget} onTarget={(t) => { setRulesTarget(t); scrollTo({ top: 0 }); }} stageTab={currentStageTab === ALL ? NONE : currentStageTab} onStageTab={setStageTab} onReload={load} />}
         {tab === 'products' && data && <ProductsPage data={data} onEdit={setEditing} onReload={load} onOpenCampaign={setOpenId} />}

@@ -3,7 +3,7 @@
 // Otherwise it serves built-in sample numbers (PkJeans 21–27 Sep 2026); sample changes live in memory until restart.
 
 import type { Entity, Level, Metrics, Window } from '../../ads-engine/src/types.ts';
-import type { DailyRow } from '../../ads-engine/src/meta.ts';
+import type { CampaignDayRow, DailyRow } from '../../ads-engine/src/meta.ts';
 import { BadRequest } from './validate.ts';
 
 // [id, name, daily budget (CBO) or null (ABO), spend 7d, purchases 7d, ROAS 7d, frequency 7d]
@@ -170,6 +170,13 @@ export class MockMeta {
       const p = m ? Math.round(m.purchases * k * (1 + 0.25 * Math.cos(i))) : 0;
       out.push({ date: d, spend: m ? m.spend * k : 0, impressions: m ? Math.round(m.impressions * k) : 0, clicks: m ? Math.round(m.clicks * k) : 0, purchases: p, purchase_value: m && m.purchases ? p * (m.purchase_value / m.purchases) : 0 });
     }
+    return out;
+  }
+
+  async dailyCampaignInsights(window: Window): Promise<CampaignDayRow[]> {
+    const ids = (await this.listEntities()).filter((e) => e.level === 'campaign').map((e) => e.id);
+    const out: CampaignDayRow[] = [];
+    for (const id of ids) for (const d of await this.dailyInsights(id, window)) if (d.spend > 0 || d.purchases > 0) out.push({ ...d, campaign_id: id });
     return out;
   }
 

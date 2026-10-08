@@ -197,6 +197,21 @@ export interface CompetitorAd {
 export interface CompetitorCheck { id: number; competitor_id: string; checked_at: string; active_ads: number; note: string }
 export interface CompetitorData { competitors: Competitor[]; ads: CompetitorAd[]; checks: CompetitorCheck[] }
 
+export type SalesCalc =
+  | { method: 'sheet_exact'; sheet_name: string; tiers: CostTier[]; mix: number[] }
+  | { method: 'sheet_ratio'; sheet_name: string; tiers: CostTier[]; ratio_min: number; ratio_max: number }
+  | { method: 'product'; product: string; cost_per_unit: number; price_min: number; price_max: number; cod_deducted: number; extra_per_order: number }
+  | { method: 'none'; reason: string };
+
+export interface SalesRow {
+  date: string; campaign_id: string; name: string; stage_id: string | null;
+  revenue: number; orders: number; spend: number; clicks: number;
+  units_low: number | null; units_high: number | null;
+  cost_low: number | null; cost_high: number | null;
+  profit_low: number | null; profit_high: number | null;
+  calc: SalesCalc;
+}
+
 export interface BulkBudgetResult { id: string; name: string; from: number | null; to?: number; ok: boolean; message?: string }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -235,6 +250,7 @@ export const api = {
   preview: () => call<Preview>('GET', '/api/preview'),
   daily: (id: string, window: Window) => call<{ days: DailyRow[] }>('GET', `/api/campaigns/${id}/daily?window=${window}`),
   stats: (id: string) => call<CampaignStats>('GET', `/api/campaigns/${id}/stats`),
+  salesReport: (window: Window) => call<{ window: Window; rows: SalesRow[]; fetched_at: string; warning: string | null }>('GET', `/api/sales-report?window=${window}`),
   campaignCosts: () => call<{ synced_at: string | null; campaigns: { name: string; tiers: CostTier[] }[] }>('GET', '/api/campaign-costs'),
   syncCampaignCosts: () => call<{ campaigns: number; error?: string }>('POST', '/api/campaign-costs/sync'),
   competitors: () => call<CompetitorData>('GET', '/api/competitors'),

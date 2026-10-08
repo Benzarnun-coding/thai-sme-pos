@@ -4,6 +4,11 @@ import type { Entity, Level, Metrics, Window } from './types.ts';
 
 const DEFAULT_API_VERSION = 'v21.0';
 
+/** One day of one campaign, from the account-wide daily breakdown */
+export interface CampaignDayRow extends DailyRow {
+  campaign_id: string;
+}
+
 /** One day of one campaign, for trend charts */
 export interface DailyRow {
   date: string;
@@ -155,6 +160,25 @@ export class MetaClient {
       fields: 'spend,impressions,clicks,actions,action_values',
     });
     return rows.map((r) => ({
+      date: r.date_start,
+      spend: num(r.spend),
+      impressions: num(r.impressions),
+      clicks: num(r.clicks),
+      purchases: sumPurchases(r.actions),
+      purchase_value: sumPurchases(r.action_values),
+    }));
+  }
+
+  /** Every campaign, one row per day, in one paged call (for the daily sales report). */
+  async dailyCampaignInsights(window: Window): Promise<CampaignDayRow[]> {
+    const rows = await this.getAll(`${this.accountId}/insights`, {
+      level: 'campaign',
+      date_preset: WINDOW_TO_PRESET[window],
+      time_increment: '1',
+      fields: 'campaign_id,spend,impressions,clicks,actions,action_values',
+    });
+    return rows.map((r) => ({
+      campaign_id: r.campaign_id,
       date: r.date_start,
       spend: num(r.spend),
       impressions: num(r.impressions),

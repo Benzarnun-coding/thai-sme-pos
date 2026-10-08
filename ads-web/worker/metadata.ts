@@ -3,7 +3,7 @@
 // each (level, window) insights call and each campaign's daily series are cached separately and shared by
 // every page. "รีเฟรช" shortens the TTL to one minute; a rate-limited Meta falls back to the last answer.
 
-import type { DailyRow } from '../../ads-engine/src/meta.ts';
+import type { CampaignDayRow, DailyRow } from '../../ads-engine/src/meta.ts';
 import type { Entity, Level, Metrics, Window } from '../../ads-engine/src/types.ts';
 import { MockMeta } from './mock.ts';
 import type { MetaLike } from './run.ts';
@@ -16,6 +16,8 @@ export interface MetaData {
   entities: Entity[];
   insights(level: Level, window: Window): Promise<Map<string, Metrics>>;
   daily(campaignId: string, window: Window): Promise<DailyRow[]>;
+  /** Every campaign by day (daily sales report) */
+  dailyAll(window: Window): Promise<CampaignDayRow[]>;
   /** Oldest fetch time among the pieces used so far */
   fetchedAt(): string;
   /** Set when Meta refused and older data is shown */
@@ -74,6 +76,7 @@ export async function loadMetaData(db: D1Database, meta: MetaLike, fresh: boolea
     insights: async (level, window) =>
       new Map(Object.entries(await cached(`ins:${level}:${window}`, 'insights', async () => Object.fromEntries(await meta.insights(level, window))))),
     daily: (campaignId, window) => cached(`daily:${campaignId}:${window}`, 'daily', () => meta.dailyInsights(campaignId, window)),
+    dailyAll: (window) => cached(`dailyall:${window}`, 'daily', () => meta.dailyCampaignInsights(window)),
     fetchedAt: () => (times.length ? times.reduce((a, b) => (a < b ? a : b)) : new Date().toISOString()),
     warning: () => warning,
   };

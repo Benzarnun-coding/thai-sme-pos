@@ -655,3 +655,12 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 14px; font
 .stage-all, .stage-tab.stage-all { --c: var(--text-2); }
 .badge.stage-badge { background: color-mix(in srgb, var(--c) 14%, transparent); color: var(--c); }
 .badge.stage-badge .stage-dot { width: 6px; height: 6px; margin-right: 2px; }
+
+/* Daily sales report */
+.data-table tr.clickable { cursor: pointer; }
+.data-table tr.selected td { background: var(--accent-soft); }
+.data-table tfoot .total-row td { font-weight: 600; background: var(--surface-2); border-top: 1px solid var(--border-strong); }
+.data-table tr.open td { background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+.data-table .formula-row td { background: var(--surface-2); padding: 4px 12px 12px 24px; }
+ol.formula { margin: 6px 0 0; padding-left: 20px; font-size: 13px; line-height: 1.7; color: var(--text-2); font-variant-numeric: tabular-nums; }
+ol.formula li::marker { color: var(--muted); }
