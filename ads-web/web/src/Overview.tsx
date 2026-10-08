@@ -3,7 +3,7 @@ import { WINDOW_LABEL, type CampaignView, type Idea, type Overview as OverviewDa
 import { stageLabel, useCampaignActions } from './actions.tsx';
 import { baht, bahtRange, cvr, num, profitTone, roasTone, time, when } from './fmt.ts';
 import type { RulesTarget } from './RulesPage.tsx';
-import { NONE, StageTabs, campaignsIn, type StageTab } from './StageTabs.tsx';
+import { ALL, NONE, StageTabs, campaignsIn, type StageTab } from './StageTabs.tsx';
 import { Icon, StatusSwitch } from './ui.tsx';
 
 export { Modal } from './ui.tsx';
@@ -77,10 +77,11 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
         {data.last_run && <> · รันกฎล่าสุด {when(data.last_run.run_at)} — {data.last_run.summary}</>}
       </p>
 
-      <StageTabs stages={data.stages} campaigns={data.campaigns} value={stageTab} onChange={onStageTab} />
+      <StageTabs stages={data.stages} campaigns={data.campaigns} value={stageTab} onChange={onStageTab} withAll />
       <StageSection
         key={stageTab}
-        stage={stageTab === NONE ? null : stage}
+        stage={stageTab === NONE || stageTab === ALL ? null : stage}
+        all={stageTab === ALL}
         campaigns={campaignsIn(stageTab, data.campaigns)}
         data={data}
         preview={preview}
@@ -103,8 +104,8 @@ function Kpi({ label, value, sub, tone }: { label: string; value: string; sub?: 
   );
 }
 
-function StageSection({ stage, campaigns, data, preview, ideas, onReload, onOpenRules, onOpenCampaign }: {
-  stage: Stage | null; campaigns: CampaignView[]; data: OverviewData; preview: Preview | null; ideas: Idea[];
+function StageSection({ stage, all, campaigns, data, preview, ideas, onReload, onOpenRules, onOpenCampaign }: {
+  stage: Stage | null; all: boolean; campaigns: CampaignView[]; data: OverviewData; preview: Preview | null; ideas: Idea[];
   onReload: () => void; onOpenRules: (t: RulesTarget) => void; onOpenCampaign: (id: string) => void;
 }) {
   const [q, setQ] = useState('');
@@ -150,11 +151,13 @@ function StageSection({ stage, campaigns, data, preview, ideas, onReload, onOpen
   const clear = () => setSelected(new Set());
 
   return (
-    <section className={`stage-panel stage-${stage?.id ?? 'none'}`}>
+    <section className={`stage-panel stage-${all ? 'all' : (stage?.id ?? 'none')}`}>
       <header className="stage-head">
         <div className="stage-title">
-          <h2>{stage?.name ?? 'ยังไม่จัดกลุ่ม'}</h2>
-          {stage ? (
+          <h2>{all ? 'ทุกกลุ่มรวมกัน' : (stage?.name ?? 'ยังไม่จัดกลุ่ม')}</h2>
+          {all ? (
+            <p className="muted small">ทุกแคมเปญจากทุกกลุ่ม · ป้ายใต้ชื่อบอกว่าอยู่กลุ่มไหน · เลือกหลายตัวแล้ว "ย้ายไป" กลุ่มใดก็ได้</p>
+          ) : stage ? (
             <div className="tags">
               <span className={`tag ${stage.automation && actionRules ? 'on' : ''}`}>{stage.automation ? (actionRules ? `อัตโนมัติ ${actionRules} กฎ` : 'ยังไม่มีกฎ — ดูอย่างเดียว') : 'ปิดอัตโนมัติ'}</span>
               {stage.automation && moveRules.map((r) => <span key={r.id} className="tag">ย้ายอัตโนมัติ → {stageLabel(data.stages, r.action.to ?? null)}</span>)}
@@ -211,6 +214,7 @@ function StageSection({ stage, campaigns, data, preview, ideas, onReload, onOpen
             idea={ideaOf.get(c.id)}
             onOpen={() => onOpenCampaign(c.id)}
             onStatus={(s) => actions.setStatus(c.id, c.name, s)}
+            showStage={all}
           />
         ))}
         {list.length > 1 && <TotalsRow list={list} filtered={list.length !== campaigns.length} />}
@@ -231,7 +235,7 @@ function StageSection({ stage, campaigns, data, preview, ideas, onReload, onOpen
             <select value="" onChange={async (e) => { const v = e.target.value; if (!v) return; if (await actions.moveStage(chosen, v === NONE ? null : v)) clear(); }} aria-label="ย้ายไปกลุ่ม">
               <option value="">ย้ายไป…</option>
               {data.stages.filter((s) => s.id !== stage?.id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              {stage && <option value={NONE}>ยังไม่จัด</option>}
+              {(stage || all) && <option value={NONE}>ยังไม่จัด</option>}
             </select>
           </label>
           <div className="bulk-budget" aria-label="ปรับงบ">
@@ -283,9 +287,9 @@ function TotalsRow({ list, filtered }: { list: CampaignView[]; filtered: boolean
   );
 }
 
-function CampaignRow({ c, data, selected, onSelect, next, idea, onOpen, onStatus }: {
+function CampaignRow({ c, data, selected, onSelect, next, idea, onOpen, onStatus, showStage }: {
   c: CampaignView; data: OverviewData; selected: boolean; onSelect: () => void; next: PreviewItem[]; idea?: Idea;
-  onOpen: () => void; onStatus: (s: 'ACTIVE' | 'PAUSED') => Promise<void>;
+  onOpen: () => void; onStatus: (s: 'ACTIVE' | 'PAUSED') => Promise<void>; showStage?: boolean;
 }) {
   const m = c.metrics;
   const r = roasOf(c);
@@ -306,6 +310,7 @@ function CampaignRow({ c, data, selected, onSelect, next, idea, onOpen, onStatus
           {idea && <span className={`badge idea ${idea.severity}`} title={idea.detail}><Icon name="bulb" size={12} />{idea.title}</span>}
           {c.cost_source === 'sheet' ? <span className="badge" title="ต้นทุนจากชีตรายแคมเปญ">ทุนจากชีต</span> : section && section.id !== 'default' && <span className="badge">{section.name}</span>}
           {c.mode !== 'stage' && <span className="badge warn">{c.mode === 'custom' ? 'กฎเฉพาะ' : 'ไม่อัตโนมัติ'}</span>}
+          {showStage && <span className={`badge stage-badge stage-${c.stage_id ?? 'none'}`}><i className="stage-dot" />{stageLabel(data.stages, c.stage_id)}</span>}
           {days !== null && <span className="badge plain">{days} วันในกลุ่ม</span>}
         </span>
       </span>

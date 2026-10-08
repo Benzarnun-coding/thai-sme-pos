@@ -5,21 +5,24 @@ import type { CampaignView, Stage } from './api.ts';
 export type StageTab = string;
 
 export const NONE: StageTab = 'none';
+/** Every campaign, whatever its stage (overview only) */
+export const ALL: StageTab = 'all';
 
-/** Default: the unassigned bucket while anything is unassigned, else the first stage. */
-export function defaultStageTab(stages: Stage[], campaigns: CampaignView[]): StageTab {
-  return campaigns.some((c) => !c.stage_id) ? NONE : (stages[0]?.id ?? NONE);
+/** Default: all stages together. */
+export function defaultStageTab(_stages: Stage[], _campaigns: CampaignView[]): StageTab {
+  return ALL;
 }
 
 export function campaignsIn(tab: StageTab, campaigns: CampaignView[]): CampaignView[] {
+  if (tab === ALL) return campaigns;
   return campaigns.filter((c) => (tab === NONE ? !c.stage_id : c.stage_id === tab));
 }
 
 /** One tab per lifecycle stage (plus "not assigned"), each with its campaign count and stage colour. */
-export function StageTabs({ stages, campaigns, value, onChange }: {
-  stages: Stage[]; campaigns: CampaignView[]; value: StageTab; onChange: (t: StageTab) => void;
+export function StageTabs({ stages, campaigns, value, onChange, withAll }: {
+  stages: Stage[]; campaigns: CampaignView[]; value: StageTab; onChange: (t: StageTab) => void; withAll?: boolean;
 }) {
-  const tabs = [{ id: NONE, name: 'ยังไม่จัด' }, ...stages];
+  const tabs = [...(withAll ? [{ id: ALL, name: 'ทุกกลุ่มรวมกัน' }] : []), { id: NONE, name: 'ยังไม่จัด' }, ...stages];
   const bar = useRef<HTMLDivElement>(null);
   // On a phone the strip scrolls sideways; keep the selected tab visible (only the strip scrolls, not the page).
   useEffect(() => {

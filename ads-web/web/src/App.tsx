@@ -9,7 +9,7 @@ import { when } from './fmt.ts';
 import { Overview } from './Overview.tsx';
 import { ProductsPage } from './ProductsPage.tsx';
 import { RulesPage, type RulesTarget } from './RulesPage.tsx';
-import { defaultStageTab, type StageTab } from './StageTabs.tsx';
+import { ALL, NONE, defaultStageTab, type StageTab } from './StageTabs.tsx';
 import { SectionEditor } from './SectionEditor.tsx';
 import { SettingsPage } from './SettingsPage.tsx';
 import { Icon, Modal, useUi } from './ui.tsx';
@@ -170,7 +170,7 @@ export function App() {
           />
         )}
         {tab === 'competitors' && data && <CompetitorsPage data={data} />}
-        {tab === 'rules' && data && <RulesPage data={data} target={rulesTarget} onTarget={(t) => { setRulesTarget(t); scrollTo({ top: 0 }); }} stageTab={currentStageTab} onStageTab={setStageTab} onReload={load} />}
+        {tab === 'rules' && data && <RulesPage data={data} target={rulesTarget} onTarget={(t) => { setRulesTarget(t); scrollTo({ top: 0 }); }} stageTab={currentStageTab === ALL ? NONE : currentStageTab} onStageTab={setStageTab} onReload={load} />}
         {tab === 'products' && data && <ProductsPage data={data} onEdit={setEditing} onReload={load} onOpenCampaign={setOpenId} />}
         {tab === 'history' && <History stages={data?.stages ?? []} />}
         {tab === 'settings' && <SettingsPage costsLoaded={data?.costs_loaded ?? 0} campaignNames={data?.campaigns.map((c) => c.name) ?? []} onSaved={load} />}
