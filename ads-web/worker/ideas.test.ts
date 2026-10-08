@@ -63,3 +63,13 @@ test('paused campaigns get no ideas; high severity sorts first', () => {
   assert.equal(ideas.some((x) => x.campaign_id === '8'), false);
   assert.equal(ideas[0].severity, 'high');
 });
+
+test('a budget changed in the last days is not suggested again', () => {
+  const recent = { at: new Date().toISOString(), from: 1000, to: 500 };
+  const ideas = buildIdeas([...steady, { ...input('7', m(5000, 30, 10000)), recent_budget_change: recent }]);
+  const i = ideas.find((x) => x.campaign_id === '7')!;
+  assert.equal(i.kind, 'money_sink');
+  assert.equal(i.action, null);
+  assert.equal(i.severity, 'low');
+  assert.match(i.detail, /ปรับงบแล้ว/);
+});

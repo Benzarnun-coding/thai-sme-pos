@@ -16,7 +16,7 @@ import { DEFAULT_SECTION_ID, WEB_TAB, campaignEconomics, economics, profitRange,
 import { capChanges, planRun, runAutomation, zeroMetrics, type MetaLike } from './run.ts';
 import { buildIdeas } from './ideas.ts';
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
-import { friendlyMetaError, loadMetaData, MetaCacheError, patchCachedEntity, type MetaData } from './metadata.ts';
+import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
 export interface Env {
@@ -171,6 +171,7 @@ async function route(req: Request, env: Env, url: URL, user: string): Promise<Re
     }
     await meta.setDailyBudget(id, Math.round(amount));
     await patchCachedEntity(env.DB, id, { daily_budget: Math.round(amount) });
+    await insertBudgetChanges(env.DB, [{ entity_id: id, name: String(input.name ?? ''), from: input.from ?? null, to: Math.round(amount) }], 'dashboard');
     await audit(env.DB, user, 'meta.budget', id, { from: input.from ?? null, to: Math.round(amount), name: input.name });
     return json({ ok: true });
   }
@@ -210,6 +211,7 @@ async function route(req: Request, env: Env, url: URL, user: string): Promise<Re
       try {
         await meta.setDailyBudget(id, to);
         await patchCachedEntity(env.DB, id, { daily_budget: to });
+        await insertBudgetChanges(env.DB, [{ entity_id: id, name, from, to }], 'dashboard');
         results.push({ id, name, from, to, ok: true });
       } catch (err: any) {
         stopped = true;
@@ -525,8 +527,10 @@ async function ideas(env: Env) {
   ]);
   const entities = await withMetrics(data, [['campaign', 'last_7d'], ['campaign', 'last_30d']]);
   const be = breakevens(entities, sections, campaignSettings, costs, codOf(await loadSettings(env.DB)), new CampaignCostIndex((await loadCampaignCosts(env.DB)).costs));
+  const changes = await recentBudgetChanges(env.DB, 3);
   const list = buildIdeas(entities.filter((e) => e.level === 'campaign').map((c) => ({
     campaign: c,
+    recent_budget_change: changes.get(c.id) ?? null,
     m7: c.metrics.last_7d,
     m30: c.metrics.last_30d,
     stage_id: campaignSettings.get(c.id)?.stage_id ?? null,

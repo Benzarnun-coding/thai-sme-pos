@@ -31,6 +31,8 @@ export interface IdeaInput {
   stage_id: string | null;
   /** Product break-even ROAS when costs are linked */
   breakeven: number | null;
+  /** A budget change in the last few days (here or in Meta): its effect isn't in the 7-day numbers yet */
+  recent_budget_change?: { at: string; from: number | null; to: number | null } | null;
 }
 
 const fmt = (n: number, d = 2) => n.toLocaleString('th-TH', { maximumFractionDigits: d, minimumFractionDigits: d });
@@ -64,9 +66,19 @@ export function buildIdeas(inputs: IdeaInput[]): Idea[] {
       { label: 'ROAS 7 วัน', value: fmt(r7) },
       ...(rPrev !== null ? [{ label: 'ROAS ช่วงก่อน', value: fmt(rPrev) }] : []),
       { label: 'เกณฑ์', value: baseLabel },
+      ...(c.daily_budget !== null ? [{ label: 'งบ/วัน ตอนนี้', value: baht(c.daily_budget) }] : []),
     ];
-    const add = (kind: IdeaKind, severity: Idea['severity'], title: string, detail: string, action: IdeaAction | null) =>
+    const recent = i.recent_budget_change;
+    const add = (kind: IdeaKind, severity: Idea['severity'], title: string, detail: string, action: IdeaAction | null) => {
+      // Budget just changed: the 7-day numbers can't show it yet, so don't suggest another change for now.
+      if (action?.type === 'budget_pct' && recent) {
+        const when = new Date(recent.at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' });
+        detail += ` · ปรับงบแล้ว ${recent.from === null ? '' : `${baht(recent.from)} → `}${baht(recent.to ?? 0)} เมื่อ ${when} — รอดูผล 3 วันก่อนปรับอีก`;
+        action = null;
+        severity = 'low';
+      }
       ideas.push({ id: `${kind}:${c.id}`, kind, severity, campaign_id: c.id, campaign_name: c.name, title, detail, action, facts });
+    };
     const hasBudget = c.daily_budget !== null;
 
     // Spent a real amount (twice the account's cost per order) and sold nothing.

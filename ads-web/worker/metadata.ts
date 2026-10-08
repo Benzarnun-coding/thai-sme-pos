@@ -53,6 +53,7 @@ export async function loadMetaData(db: D1Database, meta: MetaLike, fresh: boolea
     try {
       const value = await load();
       const at = new Date().toISOString();
+      if (key === 'entities' && row) await recordBudgetChanges(db, (revive(row.data) as { entities: Entity[] }).entities, (value as { entities: Entity[] }).entities, at);
       await db.prepare('INSERT INTO meta_cache (key, fetched_at, data) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET fetched_at = excluded.fetched_at, data = excluded.data')
         .bind(key, at, JSON.stringify(value)).run();
       times.push(at);
@@ -85,4 +86,31 @@ export async function patchCachedEntity(db: D1Database, id: string, patch: Parti
   const base = revive(row.data) as { account: string; entities: Entity[] };
   for (const e of base.entities) if (e.id === id) Object.assign(e, patch);
   await db.prepare("UPDATE meta_cache SET data = ? WHERE key = 'entities'").bind(JSON.stringify(base)).run();
+}
+
+/** Budgets that differ between the previous and the new entity list were changed outside this dashboard. */
+async function recordBudgetChanges(db: D1Database, before: Entity[], after: Entity[], at: string): Promise<void> {
+  const old = new Map(before.map((e) => [e.id, e.daily_budget]));
+  const changes = after
+    .filter((e) => old.has(e.id) && old.get(e.id) !== e.daily_budget)
+    .map((e) => ({ entity_id: e.id, name: e.name, from: old.get(e.id) ?? null, to: e.daily_budget }));
+  if (changes.length) await insertBudgetChanges(db, changes, 'meta', at);
+}
+
+export async function insertBudgetChanges(
+  db: D1Database, changes: { entity_id: string; name: string; from: number | null; to: number | null }[], source: 'dashboard' | 'meta', at = new Date().toISOString(),
+): Promise<void> {
+  if (!changes.length) return;
+  await db.prepare(
+    `INSERT INTO budget_changes (entity_id, name, at, from_budget, to_budget, source)
+     SELECT value ->> '$.entity_id', value ->> '$.name', ?1, value ->> '$.from', value ->> '$.to', ?2 FROM json_each(?3)`,
+  ).bind(at, source, JSON.stringify(changes)).run();
+}
+
+/** Latest budget change per entity within the last `days`. */
+export async function recentBudgetChanges(db: D1Database, days = 3): Promise<Map<string, { at: string; from: number | null; to: number | null; source: string }>> {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const { results } = await db.prepare('SELECT entity_id, at, from_budget, to_budget, source FROM budget_changes WHERE at >= ? ORDER BY at')
+    .bind(since).all<{ entity_id: string; at: string; from_budget: number | null; to_budget: number | null; source: string }>();
+  return new Map(results.map((r) => [r.entity_id, { at: r.at, from: r.from_budget, to: r.to_budget, source: r.source }]));
 }
