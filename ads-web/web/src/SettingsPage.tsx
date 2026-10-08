@@ -10,6 +10,7 @@ export function SettingsPage({ costsLoaded, campaignNames, onSaved }: { costsLoa
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
+  const [editorsText, setEditorsText] = useState<string | null>(null);
   const [sync, setSync] = useState<{ tab: string; codes: number; error?: string }[] | null>(null);
 
   useEffect(() => {
@@ -63,6 +64,20 @@ export function SettingsPage({ costsLoaded, campaignNames, onSaved }: { costsLoa
           <label>งบรวมทุกแคมเปญสูงสุด/วัน (฿)<input type="number" value={g.max_total_daily_budget} onChange={(e) => setG('max_total_daily_budget', Number(e.target.value))} /></label>
           <label>งบต่ำสุดต่อแคมเปญ/วัน (฿)<input type="number" value={g.min_daily_budget} onChange={(e) => setG('min_daily_budget', Number(e.target.value))} /></label>
           <label>งบสูงสุดต่อแคมเปญ/วัน (฿)<input type="number" value={g.max_daily_budget} onChange={(e) => setG('max_daily_budget', Number(e.target.value))} /></label>
+        </div>
+      </section>
+
+      <section className="card">
+        <h2>ผู้ใช้ที่แก้ได้เฉพาะต้นทุน</h2>
+        <p className="muted small">
+          อีเมลเหล่านี้ดูได้ทุกหน้า แต่แก้ได้เฉพาะต้นทุน (ต้นทุนในเว็บ, สินค้า/โปร, ดึงต้นทุนจากชีต) — เปิด/ปิดแอด ปรับงบ แก้กฎ ย้ายกลุ่ม และตั้งค่า จะถูกปฏิเสธ
+          · คนที่ไม่อยู่ในรายการนี้ (และเข้าเว็บได้) ทำได้ทุกอย่าง · การให้เข้าเว็บได้ ต้องเพิ่มอีเมลใน Cloudflare Access ด้วย
+        </p>
+        <label>อีเมล (บรรทัดละ 1 หรือคั่นด้วย ,)
+          <textarea rows={3} value={editorsText ?? s.cost_editors.join('\n')} onChange={(e) => setEditorsText(e.target.value)} />
+        </label>
+        <div className="row gap">
+          <button className="ghost" disabled={busy || editorsText === null} onClick={() => save({ ...s, cost_editors: (editorsText ?? '').split(/[\s,]+/).filter(Boolean) })}>บันทึก</button>
         </div>
       </section>
 

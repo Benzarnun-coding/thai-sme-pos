@@ -16,6 +16,8 @@ export interface Settings {
   /** Sheet with per-campaign promo costs ("FB คำนวณค่า ADS"), and its summary tab */
   ads_cost_sheet_id: string;
   ads_cost_tab: string;
+  /** Signed-in emails that may only change costs (see roles.ts) */
+  cost_editors: string[];
 }
 
 export function codOf(s: Pick<Settings, 'cod_share_pct' | 'cod_fee'>): Cod {
@@ -56,6 +58,7 @@ export async function loadSettings(db: D1Database): Promise<Settings> {
     cod_fee: Number(kv.get('cod_fee') ?? 50),
     ads_cost_sheet_id: kv.get('ads_cost_sheet_id') ?? '',
     ads_cost_tab: kv.get('ads_cost_tab') ?? 'รวมต้นทุน ที่เปิด ADS ',
+    cost_editors: JSON.parse(kv.get('cost_editors') ?? '[]'),
   };
 }
 
@@ -71,6 +74,7 @@ export async function saveSettings(db: D1Database, s: Settings): Promise<void> {
     put.bind('cod_fee', String(s.cod_fee)),
     put.bind('ads_cost_sheet_id', s.ads_cost_sheet_id),
     put.bind('ads_cost_tab', s.ads_cost_tab),
+    put.bind('cost_editors', JSON.stringify(s.cost_editors)),
   ]);
 }
 

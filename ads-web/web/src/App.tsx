@@ -27,7 +27,7 @@ export function App() {
   const [tab, setTab] = useState<Tab>('overview');
   const [window, setWindow] = useState<Window>(readWindow);
   const [data, setData] = useState<OverviewData | null>(null);
-  const [me, setMe] = useState<{ email: string; mock: boolean } | null>(null);
+  const [me, setMe] = useState<{ email: string; role: 'admin' | 'costs'; mock: boolean } | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
@@ -151,6 +151,7 @@ export function App() {
       {data?.snapshot ? (
         <div className="banner">ข้อมูลจริง ณ {when(data.snapshot.taken_at)} (ดึงผ่าน Claude) — ดูได้อย่างเดียว · ปุ่มเปิด/หยุด/แก้งบใช้ได้เมื่อใส่ Meta token</div>
       ) : me?.mock && <div className="banner">ใช้ข้อมูลตัวอย่าง (DEV_MOCK_META) — ยังไม่ได้ต่อ Meta จริง</div>}
+      {me?.role === 'costs' && <div className="banner info">สิทธิ์ของบัญชีนี้: ดูได้ทุกหน้า แก้ได้เฉพาะต้นทุน (หน้า สินค้า/ต้นทุน และดึงต้นทุนจากชีต)</div>}
 
       <main>
         {error && <div className="error">{error} <button className="ghost small" onClick={refresh}>ลองใหม่</button></div>}

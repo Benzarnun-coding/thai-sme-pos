@@ -136,6 +136,13 @@ export function validateCampaignSetting(campaignId: string, input: any, stageIds
   };
 }
 
+function emails(list: unknown[]): string[] {
+  const out = [...new Set(list.map((e) => String(e).trim().toLowerCase()).filter(Boolean))];
+  if (out.length > 50) fail('อีเมลได้ไม่เกิน 50 รายการ');
+  for (const e of out) if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) fail(`อีเมลไม่ถูกต้อง: ${e}`);
+  return out;
+}
+
 /** Accepts a sheet id or a pasted Google Sheets link. */
 function sheetId(v: string): string {
   const s = v.trim();
@@ -168,5 +175,6 @@ export function validateSettings(input: any, current: Settings): Settings {
     ads_cost_sheet_id: typeof input?.ads_cost_sheet_id === 'string' ? sheetId(input.ads_cost_sheet_id) : current.ads_cost_sheet_id,
     // Tab names may end with a space (this one does), so it is kept as typed.
     ads_cost_tab: typeof input?.ads_cost_tab === 'string' && input.ads_cost_tab.trim() ? input.ads_cost_tab.slice(0, 100) : current.ads_cost_tab,
+    cost_editors: Array.isArray(input?.cost_editors) ? emails(input.cost_editors) : current.cost_editors,
   };
 }

@@ -664,3 +664,5 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 14px; font
 .data-table .formula-row td { background: var(--surface-2); padding: 4px 12px 12px 24px; }
 ol.formula { margin: 6px 0 0; padding-left: 20px; font-size: 13px; line-height: 1.7; color: var(--text-2); font-variant-numeric: tabular-nums; }
 ol.formula li::marker { color: var(--muted); }
+.banner.info { background: var(--accent-soft); color: var(--accent); }
+textarea { width: 100%; font: inherit; resize: vertical; }

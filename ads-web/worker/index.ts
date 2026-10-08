@@ -4,6 +4,7 @@ import { MetaClient } from '../../ads-engine/src/meta.ts';
 import { applyDecisions } from '../../ads-engine/src/apply.ts';
 import type { Entity, Level, Window } from '../../ads-engine/src/types.ts';
 import { authenticate } from './auth.ts';
+import { canWrite, roleOf, type Role } from './roles.ts';
 import { syncCampaignCosts, syncCosts } from './costs.ts';
 import { CampaignCostIndex, tierEconomics } from './campaignCosts.ts';
 import {
@@ -56,9 +57,12 @@ export default {
       const origin = req.headers.get('Origin');
       if (origin && origin !== url.origin) return json({ error: 'cross-origin request refused' }, 403);
     }
+    // Cost editors can read everything but only change costs.
+    const role = roleOf(user, (await loadSettings(env.DB).catch(() => ({ cost_editors: [] as string[] }))).cost_editors);
+    if (!canWrite(role, req.method, url.pathname)) return json({ error: 'บัญชีนี้แก้ได้เฉพาะต้นทุน — ติดต่อคุณเบ้นถ้าต้องการสิทธิ์เพิ่ม' }, 403);
 
     try {
-      return await route(req, env, url, user);
+      return await route(req, env, url, user, role);
     } catch (err: any) {
       if (err instanceof BadRequest) return json({ error: err.message }, 400);
       console.error(err);
@@ -87,13 +91,13 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-async function route(req: Request, env: Env, url: URL, user: string): Promise<Response> {
+async function route(req: Request, env: Env, url: URL, user: string, role: Role): Promise<Response> {
   const path = url.pathname.replace(/\/$/, '');
   const method = req.method;
   const body = async () => (await req.json().catch(() => { throw new BadRequest('ข้อมูลไม่ใช่ JSON'); })) as any;
   let m: RegExpMatchArray | null;
 
-  if (method === 'GET' && path === '/api/me') return json({ email: user, mock: env.DEV_MOCK_META === 'true' });
+  if (method === 'GET' && path === '/api/me') return json({ email: user, role, mock: env.DEV_MOCK_META === 'true' });
 
   if (method === 'GET' && path === '/api/overview') {
     const w = url.searchParams.get('window') as Window;

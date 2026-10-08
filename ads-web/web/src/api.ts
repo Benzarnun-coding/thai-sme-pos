@@ -123,7 +123,7 @@ export interface Overview {
   campaigns: CampaignView[];
 }
 
-export interface Settings { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails; sheet_id: string; sheet_tabs: string[]; cod_share_pct: number; cod_fee: number; ads_cost_sheet_id: string; ads_cost_tab: string }
+export interface Settings { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails; sheet_id: string; sheet_tabs: string[]; cod_share_pct: number; cod_fee: number; ads_cost_sheet_id: string; ads_cost_tab: string; cost_editors: string[] }
 
 export interface CostRow { tab: string; code: string; name: string; sku_count: number; avg_cost: number; min_cost: number; max_cost: number; avg_price: number }
 
@@ -226,7 +226,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 }
 
 export const api = {
-  me: () => call<{ email: string; mock: boolean }>('GET', '/api/me'),
+  me: () => call<{ email: string; role: 'admin' | 'costs'; mock: boolean }>('GET', '/api/me'),
   overview: (window: Window, fresh = false) => call<Overview>('GET', `/api/overview?window=${window}${fresh ? '&fresh=1' : ''}`),
   createSection: (s: Partial<Section>) => call<Section>('POST', '/api/sections', s),
   saveSection: (s: Section) => call<Section>('PUT', `/api/sections/${s.id}`, s),
