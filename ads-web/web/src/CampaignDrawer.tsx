@@ -400,6 +400,9 @@ function SheetCostPanel({ c }: { c: CampaignView }) {
         <h3>ต้นทุน · จากชีตรายแคมเปญ</h3>
         <span className="small muted">แก้ในชีต "FB คำนวณค่า ADS" · ดึงใหม่ทุกเช้า 07:30</span>
       </div>
+      {c.cost_match === 'similar' && (
+        <p className="small warn">ใช้ทุนของ "{c.cost_sheet_name}" ในชีต (ชื่อเดียวกัน ต่างแค่งบ/เวอร์ชัน) — ถ้าโปรหรือทุนต่างกัน ให้เพิ่มชื่อแคมเปญนี้ในชีต</p>
+      )}
       <table className="compare">
         <thead><tr><th>โปร</th><th className="num">ราคา</th><th className="num">ทุน/ออเดอร์</th><th className="num">เหลือก่อนค่าแอด</th><th className="num">คุ้มทุนที่ ROAS</th></tr></thead>
         <tbody>

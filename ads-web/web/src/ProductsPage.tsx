@@ -32,17 +32,24 @@ function CampaignCostTable({ data, onReload, onOpenCampaign }: { data: Overview;
   const load = () => api.campaignCosts().then(setSheet).catch(() => setSheet({ synced_at: null, campaigns: [] }));
   useEffect(() => { load(); }, []);
 
-  const byKey = useMemo(() => new Map(data.campaigns.map((c) => [key(c.name), c])), [data.campaigns]);
+  // Every campaign using a sheet block: by exact name, or the same name with another budget/version.
+  const bySheet = useMemo(() => {
+    const m = new Map<string, CampaignView[]>();
+    for (const c of data.campaigns) if (c.cost_sheet_name) m.set(key(c.cost_sheet_name), [...(m.get(key(c.cost_sheet_name)) ?? []), c]);
+    return m;
+  }, [data.campaigns]);
+  const profitOf = (cs: CampaignView[]) => (cs.some((c) => c.profit !== null) ? cs.reduce((t, c) => t + (c.profit ?? 0), 0) : null);
   const rows = useMemo(() => {
     const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
     return (sheet?.campaigns ?? [])
-      .map((s) => ({ s, c: byKey.get(key(s.name)) ?? null }))
-      .filter(({ s }) => words.every((w) => s.name.toLowerCase().includes(w)))
-      .filter(({ s, c }) => filter === 'all'
-        || (filter === 'missing' && !c)
-        || (filter === 'loss' && ((c?.profit ?? 0) < 0 || s.tiers.some((t) => t.price <= t.cost))))
-      .sort((a, b) => (a.c?.profit ?? Infinity) - (b.c?.profit ?? Infinity));
-  }, [sheet, byKey, q, filter]);
+      .map((s) => ({ s, cs: bySheet.get(key(s.name)) ?? [] }))
+      .filter(({ s, cs }) => words.every((w) => s.name.toLowerCase().includes(w) || cs.some((c) => c.name.toLowerCase().includes(w))))
+      .filter(({ s, cs }) => filter === 'all'
+        || (filter === 'missing' && !cs.length)
+        || (filter === 'loss' && ((profitOf(cs) ?? 0) < 0 || s.tiers.some((t) => t.price <= t.cost))))
+      .sort((a, b) => (profitOf(a.cs) ?? Infinity) - (profitOf(b.cs) ?? Infinity));
+  }, [sheet, bySheet, q, filter]);
+  const notInSheet = data.campaigns.filter((c) => c.status === 'ACTIVE' && !c.cost_sheet_name);
 
   async function sync() {
     setSyncing(true);
@@ -52,8 +59,8 @@ function CampaignCostTable({ data, onReload, onOpenCampaign }: { data: Overview;
   }
 
   if (!sheet) return <div className="skeleton" style={{ height: 240, margin: '12px 0' }} />;
-  const missing = sheet.campaigns.filter((s) => !byKey.has(key(s.name))).length;
-  const losing = sheet.campaigns.filter((s) => s.tiers.some((t) => t.price <= t.cost) || (byKey.get(key(s.name))?.profit ?? 0) < 0).length;
+  const missing = sheet.campaigns.filter((s) => !bySheet.has(key(s.name))).length;
+  const losing = sheet.campaigns.filter((s) => s.tiers.some((t) => t.price <= t.cost) || (profitOf(bySheet.get(key(s.name)) ?? []) ?? 0) < 0).length;
 
   return (
     <section className="card table-card">
@@ -97,23 +104,36 @@ function CampaignCostTable({ data, onReload, onOpenCampaign }: { data: Overview;
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ s, c }) => s.tiers.map((t, i) => (
-                  <tr key={`${s.name}:${i}`} className={`${i === 0 ? 'group-start' : ''} ${!c ? 'dim' : ''}`}>
+                {rows.map(({ s, cs }) => s.tiers.map((t, i) => (
+                  <tr key={`${s.name}:${i}`} className={`${i === 0 ? 'group-start' : ''} ${!cs.length ? 'dim' : ''}`}>
                     {i === 0 && (
                       <td rowSpan={s.tiers.length} className="campaign-cell">
-                        {c
-                          ? <button className="name-link" onClick={() => onOpenCampaign(c.id)}><i className={`status-dot ${c.status === 'ACTIVE' ? 'on' : ''}`} />{s.name}</button>
-                          : <span>{s.name}<br /><span className="small warn">ไม่เจอชื่อนี้ใน Meta</span></span>}
+                        <b>{s.name}</b>
+                        {cs.length === 0 && <><br /><span className="small warn">ไม่เจอแคมเปญนี้ใน Meta</span></>}
+                        {cs.map((c) => (
+                          <div key={c.id} className="small">
+                            <button className="name-link" onClick={() => onOpenCampaign(c.id)}><i className={`status-dot ${c.status === 'ACTIVE' ? 'on' : ''}`} />{c.cost_match === 'similar' ? c.name : 'เปิดดูแคมเปญ'}</button>
+                            {c.cost_match === 'similar' && <span className="muted"> (ชื่อคล้าย)</span>}
+                          </div>
+                        ))}
                       </td>
                     )}
                     <TierCells t={t} />
-                    {i === 0 && <CampaignResult c={c} rowSpan={s.tiers.length} />}
+                    {i === 0 && <CampaignResult cs={cs} rowSpan={s.tiers.length} />}
                   </tr>
                 )))}
                 {rows.length === 0 && <tr><td colSpan={8} className="muted center">ไม่มีแคมเปญที่ตรงกับตัวกรอง</td></tr>}
               </tbody>
             </table>
           </div>
+          {notInSheet.length > 0 && (
+            <details className="not-in-sheet">
+              <summary className="small"><b className="warn">แคมเปญที่เปิดอยู่แต่ไม่มีในชีต {notInSheet.length} ตัว</b> — ใช้ต้นทุนตามสินค้าแทน ถ้าต้องการต้นทุนแม่นๆ ให้เพิ่มชื่อเหล่านี้ในชีต</summary>
+              <ul className="notes small">
+                {notInSheet.map((c) => <li key={c.id}><button className="name-link" onClick={() => onOpenCampaign(c.id)}>{c.name}</button></li>)}
+              </ul>
+            </details>
+          )}
         </>
       )}
     </section>
@@ -133,15 +153,20 @@ function TierCells({ t }: { t: CostTier }) {
   );
 }
 
-function CampaignResult({ c, rowSpan }: { c: CampaignView | null; rowSpan: number }) {
-  if (!c) return <><td rowSpan={rowSpan} className="num muted">–</td><td rowSpan={rowSpan} className="num muted">–</td></>;
-  const m = c.metrics;
-  const r = m && m.spend > 0 ? m.purchase_value / m.spend : null;
+/** ROAS and profit of every campaign using this sheet block, added up. */
+function CampaignResult({ cs, rowSpan }: { cs: CampaignView[]; rowSpan: number }) {
+  if (!cs.length) return <><td rowSpan={rowSpan} className="num muted">–</td><td rowSpan={rowSpan} className="num muted">–</td></>;
+  const spend = cs.reduce((t, c) => t + (c.metrics?.spend ?? 0), 0);
+  const value = cs.reduce((t, c) => t + (c.metrics?.purchase_value ?? 0), 0);
+  const r = spend > 0 ? value / spend : null;
+  const withProfit = cs.filter((c) => c.profit !== null);
+  const low = withProfit.length ? withProfit.reduce((t, c) => t + c.profit!, 0) : null;
+  const high = withProfit.length ? withProfit.reduce((t, c) => t + (c.profit_high ?? c.profit!), 0) : null;
   return (
     <>
-      <td rowSpan={rowSpan} className={`num strong ${roasTone(r, c.breakeven_roas)}`}>{r === null ? '–' : num(r, 2)}</td>
-      <td rowSpan={rowSpan} className={`num strong ${profitTone(c.profit, c.profit_high)}`} title={c.profit === null ? undefined : `ประมาณ ${bahtRange(c.profit, c.profit_high)}`}>
-        {c.profit === null ? '–' : baht(c.profit)}
+      <td rowSpan={rowSpan} className={`num strong ${roasTone(r, cs[0].breakeven_roas)}`}>{r === null ? '–' : num(r, 2)}</td>
+      <td rowSpan={rowSpan} className={`num strong ${profitTone(low, high)}`} title={low === null ? undefined : `ประมาณ ${bahtRange(low, high)}${cs.length > 1 ? ` · รวม ${cs.length} แคมเปญ` : ''}`}>
+        {low === null ? '–' : baht(low)}
       </td>
     </>
   );

@@ -5,7 +5,7 @@ import { applyDecisions } from '../../ads-engine/src/apply.ts';
 import type { Entity, Level, Window } from '../../ads-engine/src/types.ts';
 import { authenticate } from './auth.ts';
 import { syncCampaignCosts, syncCosts } from './costs.ts';
-import { nameKey, tierEconomics, type CampaignCost } from './campaignCosts.ts';
+import { CampaignCostIndex, tierEconomics } from './campaignCosts.ts';
 import {
   audit, codOf, deleteSection, loadCampaignCosts, deleteWebCost, saveWebCost, insertRun, listAudit, listRuns, loadCampaignSettings, loadCosts, loadSections, loadSettings,
   loadStages, loadState, saveCampaignSetting, saveCampaignSettings, auditMany, campaignHistory, saveSection, saveSettings, saveStage,
@@ -364,7 +364,7 @@ async function overview(env: Env, window: Window, fresh: boolean) {
   const [{ meta, data }, sections, stages, campaignSettings, costs, settings, runs] = await Promise.all([
     metaData(env, fresh), loadSections(env.DB), loadStages(env.DB), loadCampaignSettings(env.DB), loadCosts(env.DB), loadSettings(env.DB), listRuns(env.DB, 1),
   ]);
-  const { costs: campaignCosts } = await loadCampaignCosts(env.DB);
+  const campaignCosts = new CampaignCostIndex((await loadCampaignCosts(env.DB)).costs);
   const windows = [...new Set<Window>([window, ECONOMICS_WINDOW])];
   const entities = await withMetrics(data, [...windows.map((w) => ['campaign', w] as const), ['adset', window] as const]);
   const snapshot = meta instanceof MockMeta ? await meta.snapshotInfo() : null;
@@ -394,7 +394,8 @@ async function overview(env: Env, window: Window, fresh: boolean) {
     const m = c.metrics[window];
     const range = ce && m ? profitRange(ce, section!.extra_cost_per_order, m, codOf(settings)) : null;
     // A campaign listed in the team's cost sheet uses its promo costs instead.
-    const sheet = campaignCosts.get(nameKey(c.name));
+    const found = campaignCosts.find(c.name);
+    const sheet = found?.cost;
     const te = sheet ? tierEconomics(sheet.tiers, m) : null;
     return {
       ...view(c),
@@ -408,6 +409,9 @@ async function overview(env: Env, window: Window, fresh: boolean) {
       /** Where the cost comes from: the per-campaign sheet, the product line, or nowhere */
       cost_source: te ? 'sheet' : ce?.cost_per_unit != null ? 'product' : null,
       cost_tiers: sheet?.tiers ?? null,
+      /** Which sheet block was used, and whether by exact name or the same name with another budget/version */
+      cost_sheet_name: sheet?.name ?? null,
+      cost_match: found?.match ?? null,
       cost_exact: te?.exact ?? false,
       /** Promo prices read from the campaign name */
       name_tiers: ce?.name_tiers ?? [],
@@ -460,7 +464,7 @@ function bulkItems(input: unknown): { id: string; name: string }[] {
 }
 
 /** Product break-even per campaign, from 7-day numbers (same as the engine). */
-function breakevens(entities: Entity[], sections: Section[], settings: Map<string, CampaignSetting>, costs: CostRow[], cod: Cod, campaignCosts: Map<string, CampaignCost>): Map<string, number | null> {
+function breakevens(entities: Entity[], sections: Section[], settings: Map<string, CampaignSetting>, costs: CostRow[], cod: Cod, campaignCosts: CampaignCostIndex): Map<string, number | null> {
   const sectionOf = sectionMap(entities, sections, settings);
   const totals = sectionTotals(entities, sectionOf, ECONOMICS_WINDOW);
   const zero = { spend: 0, purchases: 0, purchase_value: 0 };
@@ -468,7 +472,7 @@ function breakevens(entities: Entity[], sections: Section[], settings: Map<strin
   for (const c of entities) {
     if (c.level !== 'campaign') continue;
     const section = sections.find((s) => s.id === (sectionOf.get(c.id) ?? DEFAULT_SECTION_ID));
-    const sheet = campaignCosts.get(nameKey(c.name));
+    const sheet = campaignCosts.find(c.name)?.cost;
     const r = sheet ? tierEconomics(sheet.tiers, undefined).breakeven_roas : section ? campaignEconomics(section, costs, totals.get(section.id) ?? zero, cod, c.name).breakeven_roas : null;
     out.set(c.id, r !== null && Number.isFinite(r) ? r : null);
   }
@@ -482,7 +486,7 @@ async function campaignStats(env: Env, id: string) {
   const [{ data }, sections, campaignSettings, costs, settings] = await Promise.all([
     metaData(env), loadSections(env.DB), loadCampaignSettings(env.DB), loadCosts(env.DB), loadSettings(env.DB),
   ]);
-  const { costs: campaignCosts } = await loadCampaignCosts(env.DB);
+  const campaignCosts = new CampaignCostIndex((await loadCampaignCosts(env.DB)).costs);
   const windows = [...new Set<Window>([...STAT_WINDOWS, ECONOMICS_WINDOW])];
   const entities = await withMetrics(data, windows.map((w) => ['campaign', w] as const));
   const c = entities.find((e) => e.level === 'campaign' && e.id === id);
@@ -492,7 +496,7 @@ async function campaignStats(env: Env, id: string) {
   const section = sections.find((s) => s.id === (sectionOf.get(id) ?? DEFAULT_SECTION_ID));
   const totals7 = sectionTotals(entities, sectionOf, ECONOMICS_WINDOW);
   const econ = section ? campaignEconomics(section, costs, totals7.get(section.id) ?? { spend: 0, purchases: 0, purchase_value: 0 }, cod, c.name) : null;
-  const sheet = campaignCosts.get(nameKey(c.name));
+  const sheet = campaignCosts.find(c.name)?.cost;
   const be = sheet ? tierEconomics(sheet.tiers, undefined).breakeven_roas : econ?.breakeven_roas;
   return {
     breakeven_roas: finiteOrNull(be),
@@ -520,7 +524,7 @@ async function ideas(env: Env) {
     metaData(env), loadSections(env.DB), loadCampaignSettings(env.DB), loadCosts(env.DB),
   ]);
   const entities = await withMetrics(data, [['campaign', 'last_7d'], ['campaign', 'last_30d']]);
-  const be = breakevens(entities, sections, campaignSettings, costs, codOf(await loadSettings(env.DB)), (await loadCampaignCosts(env.DB)).costs);
+  const be = breakevens(entities, sections, campaignSettings, costs, codOf(await loadSettings(env.DB)), new CampaignCostIndex((await loadCampaignCosts(env.DB)).costs));
   const list = buildIdeas(entities.filter((e) => e.level === 'campaign').map((c) => ({
     campaign: c,
     m7: c.metrics.last_7d,

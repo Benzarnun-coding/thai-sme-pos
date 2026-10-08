@@ -85,6 +85,9 @@ export interface CampaignView extends EntityView {
   /** sheet = per-campaign promo costs from the team's sheet; product = the product line's cost */
   cost_source: 'sheet' | 'product' | null;
   cost_tiers: CostTier[] | null;
+  /** Sheet block used, by exact name or the same name with another budget/version */
+  cost_sheet_name: string | null;
+  cost_match: 'exact' | 'similar' | null;
   /** Promo mix solved exactly (two promos) — profit is one number, not a range */
   cost_exact: boolean;
   /** Promo prices read from the campaign name, e.g. 1 for 189, 3 for 549 */

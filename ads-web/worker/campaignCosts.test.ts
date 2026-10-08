@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { nameKey, parseCampaignCostSheet, tierEconomics } from './campaignCosts.ts';
+import { CampaignCostIndex, coreKey, nameKey, parseCampaignCostSheet, tierEconomics } from './campaignCosts.ts';
 
 const rows = [
   ['โปรลับ : 009 2ตัว299 ฿150', 'ราคาขาย 1 ตัว 199 ', 'ต้นทุน 70+28.93', '98.93'],
@@ -46,4 +46,16 @@ test('average order outside the promos, or three promos: a range from cost ÷ pr
   const one = tierEconomics([{ units: 1, price: 199, cost: 138.93 }], { spend: 100, purchases: 3, purchase_value: 600 });
   assert.equal(one.profit_low, one.profit_high);
   assert.equal(tierEconomics(tiers, undefined).profit_low, null);
+});
+
+test('same campaign with another budget or version finds the cost; exact name wins; costliest when they differ', () => {
+  assert.equal(coreKey('โพสผี : 501 กระบอกไม่ยืด 1 ตัว 199 ฿200'), coreKey('โพสผี : 501 กระบอกไม่ยืด 1 ตัว 199 ฿200 V3'));
+  assert.equal(coreKey('STE 2ตัว399 -50฿'), 'ste 2ตัว399');
+  assert.notEqual(coreKey('โพสผี : 501 กระบอกไม่ยืด 1 ตัว 189 ฿50'), coreKey('โพสผี : 501 กระบอกไม่ยืด 1 ตัว 199 ฿50'));
+  const a = { name: 'X 1 ตัว 199 ฿400', tiers: [{ units: 1, price: 199, cost: 138.93 }] };
+  const b = { name: 'X 1 ตัว 199 ฿300 V2', tiers: [{ units: 1, price: 199, cost: 150 }] };
+  const idx = new CampaignCostIndex(new Map([[nameKey(a.name), a], [nameKey(b.name), b]]));
+  assert.deepEqual(idx.find('X 1 ตัว 199 ฿400'), { cost: a, match: 'exact' });
+  assert.deepEqual(idx.find('X 1 ตัว 199 ฿200'), { cost: b, match: 'similar' });
+  assert.equal(idx.find('Y 1 ตัว 199'), null);
 });

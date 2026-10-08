@@ -21,6 +21,42 @@ export function nameKey(name: string): string {
   return name.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+/**
+ * The name without its budget ("฿200", "-50฿") and version ("V3", "#1"): campaigns duplicated with another
+ * budget or version sell the same promo at the same cost.
+ */
+export function coreKey(name: string): string {
+  return nameKey(name)
+    // "฿200" first, so "189 ฿50" keeps 189; then "-50฿"
+    .replace(/฿\s*[\d,]+/g, ' ')
+    .replace(/[\d,]+\s*฿/g, ' ')
+    .replace(/(^|\s)(v\d+|#\d+)(?=\s|$)/g, ' ')
+    .replace(/[\s\-–:]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Exact name first; otherwise the same name minus budget/version, the costliest if several differ. */
+export class CampaignCostIndex {
+  private exact: Map<string, CampaignCost>;
+  private core = new Map<string, CampaignCost>();
+  constructor(costs: Map<string, CampaignCost>) {
+    this.exact = costs;
+    const worst = (c: CampaignCost) => Math.max(...c.tiers.map((t) => t.cost / t.price));
+    for (const c of costs.values()) {
+      const k = coreKey(c.name);
+      const prev = this.core.get(k);
+      if (!prev || worst(c) > worst(prev)) this.core.set(k, c);
+    }
+  }
+  find(name: string): { cost: CampaignCost; match: 'exact' | 'similar' } | null {
+    const e = this.exact.get(nameKey(name));
+    if (e) return { cost: e, match: 'exact' };
+    const s = this.core.get(coreKey(name));
+    return s ? { cost: s, match: 'similar' } : null;
+  }
+}
+
 const toNum = (s: string | undefined) => {
   const n = Number(String(s ?? '').replace(/[,฿\s]/g, ''));
   return Number.isFinite(n) && n > 0 ? n : null;

@@ -651,3 +651,4 @@ table.data-table { width: 100%; border-collapse: collapse; font-size: 14px; font
 .data-table .campaign-cell .name-link { display: inline; }
 .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--stage-none); margin-right: 7px; vertical-align: 2px; }
 .status-dot.on { background: var(--good); }
+.not-in-sheet { padding: 10px 18px 6px; border-top: 1px solid var(--border); }
