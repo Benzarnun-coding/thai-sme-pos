@@ -48,7 +48,7 @@ export function WebCostForm({ initial, suggestCode, onSaved, onCancel }: {
       </label>
       <label>ราคาเต็ม/ตัว (฿)
         <input type="number" inputMode="decimal" min={0} value={price} placeholder="ไม่บังคับ" onChange={(e) => setPrice(e.target.value)} />
-        <small>ใช้เมื่อชื่อแคมเปญ/สินค้าไม่มีราคาโปร</small>
+        <small className={price === '' ? 'warn' : ''}>{price === '' ? 'ว่าง = คิดกำไรได้เฉพาะแคมเปญที่ชื่อมีโปร เช่น "3ตัว549"' : 'ใช้เมื่อชื่อแคมเปญไม่มีราคาโปร'}</small>
       </label>
       <div className="web-cost-actions">
         {onCancel && <button type="button" className="ghost" onClick={onCancel}>ยกเลิก</button>}
