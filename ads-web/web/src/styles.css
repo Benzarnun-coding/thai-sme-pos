@@ -101,6 +101,14 @@ button {
 }
 button:hover:not(:disabled) { background: var(--surface-2); }
 button:disabled { opacity: 0.45; cursor: default; }
+/* a <label> that looks like a button (file inputs) */
+label.button {
+  font-size: 14px; font-weight: 500; color: var(--text); background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm); padding: 7px 14px; cursor: pointer; min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+label.button.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+label.button:hover { background: var(--surface-2); }
+label.button.disabled { opacity: 0.45; cursor: wait; }
 button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
 button.ghost { background: transparent; border-color: transparent; box-shadow: none; color: var(--text-2); }

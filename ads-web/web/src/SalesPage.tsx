@@ -2,7 +2,8 @@
 // product cost, ad spend, profit — with the working for each row and a CSV for Excel.
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { api, WINDOW_LABEL, type ActualSales, type ConversionCampaign, type Overview, type ReferralSummary, type SalesRow, type Window } from './api.ts';
+import { api, WINDOW_LABEL, type ActualSales, type ConversionCampaign, type Overview, type P365Upload, type ReferralSummary, type SalesRow, type UploadedOrder, type Window } from './api.ts';
+import { readFirstSheet } from './xlsx.ts';
 import { stageLabel } from './actions.tsx';
 import { baht, num, profitTone, roasTone, when } from './fmt.ts';
 import { formulaLines, methodLabel } from './salesFormula.ts';
@@ -34,7 +35,8 @@ const todayBkk = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(
 export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCampaign: (id: string) => void }) {
   const { toast } = useUi();
   const [window, setWindow] = useState<Window>('last_14d');
-  const [report, setReport] = useState<{ rows: SalesRow[]; fetched_at: string; warning: string | null } | null>(null);
+  const [report, setReport] = useState<{ rows: SalesRow[]; uploaded: string[]; fetched_at: string; warning: string | null } | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState('');
   const [date, setDate] = useState<string | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -42,7 +44,7 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
   useEffect(() => {
     setReport(null); setError('');
     api.salesReport(window).then(setReport).catch((e) => setError(e.message));
-  }, [window]);
+  }, [window, reloadKey]);
 
   const days = useMemo(() => {
     const by = new Map<string, SalesRow[]>();
@@ -93,6 +95,7 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
           <button className="ghost small" disabled={!report} onClick={exportCsv}><Icon name="down" size={14} /> CSV (Excel)</button>
         </div>
       </div>
+      <P365UploadCard window={window} onUploaded={() => setReloadKey((k) => k + 1)} />
       {report?.warning && <div className="banner">{report.warning}</div>}
       {error && <div className="error">{error}</div>}
       {!report && !error && <div className="skeleton" style={{ height: 320 }} />}
@@ -112,7 +115,7 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
                 <tbody>
                   {days.map((d) => (
                     <tr key={d.date} className={`clickable ${d.date === selected ? 'selected' : ''}`} onClick={() => setDate(d.date)}>
-                      <td><b>{thaiDay(d.date)}</b>{d.date === todayBkk() && <span className="muted small"> (วันนี้ ยังไม่ครบ)</span>}</td>
+                      <td><b>{thaiDay(d.date)}</b>{d.date === todayBkk() && <span className="muted small"> (วันนี้ ยังไม่ครบ)</span>}{report?.uploaded.includes(d.date) && <span className="badge ok-badge" style={{ marginLeft: 6 }}>ของจริง</span>}</td>
                       <td className="num strong">{baht(d.revenue)}</td>
                       <td className="num">{num(d.orders)}</td>
                       <td className="num">{num(d.units)}</td>
@@ -457,6 +460,81 @@ function ReferralList({ date, data, onOpenCampaign }: { date: string; data: Over
               )))}
             </tbody>
           </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+const numOrNull = (v: string | undefined) => (v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+
+/** Page365's daily export, read in the browser (only the columns the numbers need are sent; names are hashed server-side, never stored). */
+function P365UploadCard({ window, onUploaded }: { window: Window; onUploaded: () => void }) {
+  const { toast } = useUi();
+  const [uploads, setUploads] = useState<P365Upload[] | null>(null);
+  const [busy, setBusy] = useState('');
+  const [showAll, setShowAll] = useState(false);
+  const load = () => api.p365Uploads(window).then((r) => setUploads(r.uploads)).catch(() => setUploads([]));
+  useEffect(() => { load(); }, [window]);
+
+  async function onFile(file: File) {
+    setBusy('กำลังอ่านไฟล์…');
+    try {
+      const { headers, rows } = await readFirstSheet(file);
+      const need = ['Order no.', 'Created At', 'Total'];
+      const missing = need.filter((h) => !headers.includes(h));
+      if (missing.length) throw new Error(`ไฟล์ไม่มีคอลัมน์ ${missing.join(', ')} — ต้องเป็นไฟล์ export ออเดอร์จาก Page365`);
+      const orders: UploadedOrder[] = rows.filter((r) => r['Order no.']).map((r) => ({
+        order_no: r['Order no.'], created_at: r['Created At'], total: Number(r['Total']),
+        subtotal: numOrNull(r['Subtotal']), discount: numOrNull(r['Discount']), shipping: numOrNull(r['Shipping Cost']), cost: numOrNull(r['Cost']),
+        payment: r['Payment Provider'] ?? null, paid_at: r['Paid At'] ?? null, item_detail: r['Item Detail'] ?? null, profile_name: r['Profile name'] ?? r['Customer Name'] ?? null,
+      }));
+      if (!orders.length) throw new Error('ไม่พบออเดอร์ในไฟล์');
+      setBusy(`กำลังส่ง ${orders.length} ออเดอร์…`);
+      const res = await api.p365Upload(orders);
+      const c = Object.values(res.credits).reduce((t, x) => ({ customer: t.customer + x.customer, exact: t.exact + x.exact, approx: t.approx + x.approx, none: t.none + x.none }), { customer: 0, exact: 0, approx: 0, none: 0 });
+      toast(`บันทึก ${res.orders} ออเดอร์ (${res.dates.join(', ')}) · จับคู่แอดได้ ${c.customer + c.exact + c.approx} · ไม่ทราบแอด ${c.none}${res.errors.length ? ` · ข้าม ${res.errors.length} แถว` : ''}`, 'ok');
+      await load();
+      onUploaded();
+    } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(''); }
+  }
+
+  const list = uploads ?? [];
+  const shown = showAll ? list : list.slice(0, 3);
+  return (
+    <section className="card">
+      <div className="table-card-head" style={{ padding: 0, marginBottom: 8 }}>
+        <div>
+          <h2>ไฟล์ออเดอร์จาก Page365</h2>
+          <p className="muted small">
+            อัปโหลดไฟล์ export ออเดอร์ (.xlsx) วันละครั้ง → วันนั้นใช้ยอด ทุน และจำนวนตัวจริงแทนการประมาณ และจับคู่แต่ละออเดอร์กับแอด (จากลูกค้าที่ทักจากแอด หรือจากเวลา+ยอดที่แอดมินติ๊ก)
+            · เก็บเฉพาะตัวเลขและรหัสสินค้า ไม่เก็บชื่อ เบอร์ ที่อยู่
+          </p>
+        </div>
+        <label className={`button ghost ${busy ? 'disabled' : ''}`} style={{ cursor: busy ? 'wait' : 'pointer' }}>
+          <Icon name="up" size={14} /> {busy || 'อัปโหลดไฟล์ .xlsx'}
+          <input type="file" accept=".xlsx" style={{ display: 'none' }} disabled={!!busy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onFile(f); }} />
+        </label>
+      </div>
+      {uploads === null ? null : list.length === 0 ? <p className="muted small">ยังไม่มีไฟล์ในช่วงนี้</p> : (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead><tr><th>วันที่</th><th className="num">ออเดอร์</th><th className="num">ยอด</th><th className="num">ตัว</th><th className="num">จับคู่แอดได้</th><th className="num">ไม่ทราบแอด</th><th>อัปโหลด</th></tr></thead>
+            <tbody>
+              {shown.map((u) => (
+                <tr key={u.date}>
+                  <td><b>{thaiDay(u.date)}</b></td>
+                  <td className="num">{num(u.orders)}</td>
+                  <td className="num">{baht(u.revenue)}</td>
+                  <td className="num">{num(u.units)}</td>
+                  <td className="num">{num(u.credits.customer + u.credits.exact + u.credits.approx)}<span className="muted small"> ({u.credits.customer} ลูกค้า · {u.credits.exact} เวลา/ยอด · {u.credits.approx} ประมาณ)</span></td>
+                  <td className="num">{num(u.credits.none)}</td>
+                  <td className="small muted">{when(u.uploaded_at)} · {u.uploaded_by}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {list.length > 3 && <button className="ghost small" onClick={() => setShowAll(!showAll)}>{showAll ? 'ย่อ' : `ดูทั้งหมด ${list.length} วัน`}</button>}
         </div>
       )}
     </section>

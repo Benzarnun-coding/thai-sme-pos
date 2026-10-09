@@ -15,6 +15,8 @@ export type Calc =
   | { method: 'sheet_ratio'; sheet_name: string; tiers: CostTier[]; ratio_min: number; ratio_max: number }
   /** Product line: pieces = (revenue − COD surcharges) ÷ price per piece, cost = pieces × cost per piece */
   | { method: 'product'; product: string; cost_per_unit: number; price_min: number; price_max: number; cod_deducted: number; extra_per_order: number }
+  /** Real orders from the Page365 upload credited to this campaign */
+  | { method: 'actual'; orders: number; customer: number; exact: number; approx: number; cost_known: number; shipping: number; goods: number; product_cost: number }
   | { method: 'none'; reason: string };
 
 export interface ReportRow {
@@ -75,6 +77,22 @@ export function explainDay(
 }
 
 /** A campaign-day costed order by order (see conversionStore.txCosting). */
+/** Real orders from Page365: revenue is what customers paid; cost is Page365's product cost plus the shipping collected (passed on to the courier). */
+export function explainActual(
+  base: { date: string; campaign_id: string; name: string; stage_id: string | null },
+  m: DayMetrics,
+  a: { orders: number; revenue: number; goods: number; shipping: number; cost: number; units: number; customer: number; exact: number; approx: number; cost_known: number },
+): ReportRow {
+  const known = a.cost_known > 0;
+  const cost = known ? a.cost + a.shipping : null;
+  const profit = cost === null ? null : a.revenue - cost - m.spend;
+  return {
+    ...base, revenue: a.revenue, orders: a.orders, spend: m.spend, clicks: m.clicks,
+    units_low: a.units, units_high: a.units, cost_low: cost, cost_high: cost, profit_low: profit, profit_high: profit,
+    calc: { method: 'actual', orders: a.orders, customer: a.customer, exact: a.exact, approx: a.approx, cost_known: a.cost_known, shipping: a.shipping, goods: a.goods, product_cost: a.cost },
+  };
+}
+
 export function explainOrders(
   base: { date: string; campaign_id: string; name: string; stage_id: string | null },
   m: DayMetrics,

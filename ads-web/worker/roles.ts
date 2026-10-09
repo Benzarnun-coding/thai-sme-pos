@@ -16,6 +16,8 @@ const COST_WRITES: [string, RegExp][] = [
   ['POST', /^\/api\/sections$/],
   ['PUT', /^\/api\/sections\/[\w-]+$/],
   ['PUT', /^\/api\/actual-sales\/\d{4}-\d{2}-\d{2}$/],
+  ['POST', /^\/api\/p365\/upload$/],
+  ['POST', /^\/api\/p365\/recredit$/],
 ];
 
 export function canWrite(role: Role, method: string, path: string): boolean {

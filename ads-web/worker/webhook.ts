@@ -3,6 +3,8 @@
 // (the Graph API refuses to say afterwards), so we store it from the day the webhook is switched on.
 // We keep no names and no message text — only psid, time, ad, and the campaign the ad belongs to.
 
+import { hashName } from './p365.ts';
+
 export interface WebhookEnv {
   DB: D1Database;
   META_ACCESS_TOKEN?: string;
@@ -26,7 +28,7 @@ interface MessagingEvent {
   message?: { is_echo?: boolean; referral?: Referral };
 }
 
-export interface ReferralRow { psid: string; at: string; ad_id: string | null; campaign_id: string | null; source: string | null; ref: string | null; kind: string }
+export interface ReferralRow { psid: string; at: string; ad_id: string | null; campaign_id: string | null; source: string | null; ref: string | null; kind: string; name_hash?: string | null }
 
 /** Meta's one-time check that the URL is ours: echo the challenge when the verify token matches. */
 export function verifyChallenge(url: URL, env: WebhookEnv): Response {
@@ -94,11 +96,14 @@ async function store(env: WebhookEnv, rows: ReferralRow[], events: number): Prom
     env.DB.prepare('INSERT OR REPLACE INTO webhook_status (key, value) VALUES (?, ?)').bind('last_event_at', now),
   ];
   if (rows.length) {
-    const map = await resolveAds(env, rows.map((r) => r.ad_id).filter((x): x is string => !!x));
-    for (const r of rows) r.campaign_id = r.ad_id ? map.get(r.ad_id) ?? null : null;
+    const [map, hashes] = await Promise.all([
+      resolveAds(env, rows.map((r) => r.ad_id).filter((x): x is string => !!x)),
+      nameHashes(env, [...new Set(rows.map((r) => r.psid))]),
+    ]);
+    for (const r of rows) { r.campaign_id = r.ad_id ? map.get(r.ad_id) ?? null : null; r.name_hash = hashes.get(r.psid) ?? null; }
     stmts.push(
-      env.DB.prepare(`INSERT OR IGNORE INTO ad_referrals (psid, at, ad_id, campaign_id, source, ref, kind)
-        SELECT value->>'psid', value->>'at', value->>'ad_id', value->>'campaign_id', value->>'source', value->>'ref', value->>'kind' FROM json_each(?)`).bind(JSON.stringify(rows)),
+      env.DB.prepare(`INSERT OR IGNORE INTO ad_referrals (psid, at, ad_id, campaign_id, source, ref, kind, name_hash)
+        SELECT value->>'psid', value->>'at', value->>'ad_id', value->>'campaign_id', value->>'source', value->>'ref', value->>'kind', value->>'name_hash' FROM json_each(?)`).bind(JSON.stringify(rows)),
       bump(env.DB, 'referrals_total', rows.length),
       env.DB.prepare('INSERT OR REPLACE INTO webhook_status (key, value) VALUES (?, ?)').bind('last_referral_at', now),
     );
@@ -133,6 +138,24 @@ async function resolveAds(env: WebhookEnv, adIds: string[]): Promise<Map<string,
   await env.DB.prepare(`INSERT OR REPLACE INTO ad_map (ad_id, campaign_id, adset_id, name, fetched_at)
     SELECT value->>'ad_id', value->>'campaign_id', value->>'adset_id', value->>'name', ? FROM json_each(?)`).bind(new Date().toISOString(), JSON.stringify(fetched)).run();
   return map;
+}
+
+/**
+ * The customer's profile name, hashed with the same salt as Page365 uploads so the two can be joined — the
+ * name itself is never stored. Meta refuses the lookup for some users; those stay unlinked.
+ */
+async function nameHashes(env: WebhookEnv, psids: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!psids.length || !env.META_WEBHOOK_VERIFY_TOKEN) return out;
+  const pg = await pageOf(env).catch(() => null);
+  if (!pg) return out;
+  for (const psid of psids.slice(0, 20)) {
+    const res = await fetch(`${GRAPH(env)}/${psid}?fields=name&access_token=${encodeURIComponent(pg.token)}`);
+    const body: any = await res.json().catch(() => ({}));
+    const h = await hashName(body.name, env.META_WEBHOOK_VERIFY_TOKEN);
+    if (h) out.set(psid, h);
+  }
+  return out;
 }
 
 async function validSignature(raw: string, header: string, secret: string): Promise<boolean> {

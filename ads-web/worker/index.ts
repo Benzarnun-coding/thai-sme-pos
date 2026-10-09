@@ -16,13 +16,14 @@ import { MockMeta } from './mock.ts';
 import { DEFAULT_SECTION_ID, WEB_TAB, campaignEconomics, economics, profitRange, suggestProducts, type CampaignSetting, type Cod, type CostRow, type Economics, type Section } from './model.ts';
 import { capChanges, planRun, runAutomation, zeroMetrics, type MetaLike } from './run.ts';
 import { buildIdeas } from './ideas.ts';
-import { explainDay, explainOrders } from './salesReport.ts';
+import { explainActual, explainDay, explainOrders } from './salesReport.ts';
 import { campaignDay } from './transactions.ts';
 import { makeTierResolver } from './costing.ts';
 import { bkkDate, loadConversionHours, saveConversionDay, syncConversionHours, txCosting, windowDates } from './conversionStore.ts';
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
+import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
@@ -93,7 +94,7 @@ export default {
         s.ads_cost_sheet_id ? syncCampaignCosts(env.DB, s) : null,
         // Hourly purchases: refresh the last 3 days (late tags) and fill a few missing older days.
         Promise.resolve().then(() => syncConversionHours(env.DB, metaFor(env))).catch(() => null),
-      ])));
+      ]).then(() => recreditDates(env.DB, [bkkDate(1), bkkDate(2), bkkDate(3)]).catch(() => null))));
     } else if (event.cron === RULES_CRON) {
       let meta: MetaLike;
       try {
@@ -285,6 +286,54 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role)
     await audit(env.DB, user, 'conversion-hours.sync', 'meta', r);
     if (r.errors.length && !r.fetched.length) throw new BadRequest(friendlyMetaError({ message: r.errors[0] }));
     return json(r);
+  }
+
+  // ---- Page365 orders (daily export uploaded from the dashboard) ----
+  if (path === '/api/p365/upload' && method === 'POST') {
+    const input = await body();
+    const list: UploadedOrder[] = Array.isArray(input?.orders) ? input.orders : [];
+    if (!list.length) throw new BadRequest('ไม่พบออเดอร์ในไฟล์');
+    if (list.length > 5000) throw new BadRequest('ไฟล์ใหญ่เกินไป (เกิน 5,000 ออเดอร์)');
+    const { orders, errors } = await normaliseOrders(list, env.META_WEBHOOK_VERIFY_TOKEN ?? '');
+    if (!orders.length) throw new BadRequest(errors[0] ?? 'อ่านออเดอร์ไม่ได้');
+    await saveOrders(env.DB, orders, user);
+    const dates = [...new Set(orders.map((o) => o.date))].sort();
+    const credits = await recreditDates(env.DB, dates);
+    // The day's real totals, so the actual-vs-Meta comparison fills itself in.
+    const now = new Date().toISOString();
+    await env.DB.batch(dates.map((d) => {
+      const os = orders.filter((o) => o.date === d);
+      return env.DB.prepare(`INSERT INTO actual_sales (date, orders, pieces, revenue, note, updated_by, updated_at) VALUES (?, ?, ?, ?, 'จากไฟล์ Page365', ?, ?)
+        ON CONFLICT(date) DO UPDATE SET orders = excluded.orders, pieces = excluded.pieces, revenue = excluded.revenue, note = excluded.note, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
+        .bind(d, os.length, os.reduce((n, o) => n + o.units, 0), os.reduce((n, o) => n + o.total, 0), user, now);
+    }));
+    await audit(env.DB, user, 'p365.upload', dates.join(','), { orders: orders.length, errors: errors.length, credits });
+    return json({ dates, orders: orders.length, errors, credits });
+  }
+  if (path === '/api/p365' && method === 'GET') {
+    const w = url.searchParams.get('window') as Window;
+    const dates = [...windowDates((['last_7d', 'last_14d', 'last_30d'] as Window[]).includes(w) ? w : 'last_14d'), bkkDate(0)];
+    const [uploads, orders] = await Promise.all([loadUploads(env.DB, dates), loadOrders(env.DB, dates)]);
+    return json({ uploads: [...uploads.entries()].map(([date, u]) => {
+      const os = orders.filter((o) => o.date === date);
+      const c = { customer: 0, exact: 0, approx: 0, none: 0 };
+      for (const o of os) c[o.match]++;
+      return { date, ...u, credits: c, revenue: os.reduce((n, o) => n + o.total, 0), units: os.reduce((n, o) => n + o.units, 0) };
+    }).sort((a, b) => b.date.localeCompare(a.date)) });
+  }
+  if (path === '/api/p365/orders' && method === 'GET') {
+    const date = url.searchParams.get('date') ?? '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
+    const orders = await loadOrders(env.DB, [date]);
+    return json({ date, orders: orders.map(({ name_hash: _h, ...o }) => o) });
+  }
+  if (path === '/api/p365/recredit' && method === 'POST') {
+    const input = await body();
+    const date = String(input?.date ?? '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
+    const credits = await recreditDates(env.DB, [date]);
+    await audit(env.DB, user, 'p365.recredit', date, credits);
+    return json({ date, credits: credits[date] ?? null });
   }
 
   // ---- Messenger webhook: who came from which ad ----
@@ -658,13 +707,28 @@ async function salesReport(env: Env, window: Window) {
     return src;
   };
   const tiersOf = makeTierResolver({ entities, sections, campaignSettings, costs, cod, campaignCosts: cc.costs });
-  const { byCampaign: hoursBy, stored } = await loadConversionHours(env.DB, windowDates(window));
+  const reportDates = [...windowDates(window), bkkDate(0)];
+  const [{ byCampaign: hoursBy, stored }, uploads] = await Promise.all([loadConversionHours(env.DB, windowDates(window)), loadUploads(env.DB, reportDates)]);
+  const uploadedDates = [...uploads.keys()];
+  const actual = new Map<string, ReturnType<typeof actualByCampaign>>();
+  if (uploadedDates.length) {
+    const all = await loadOrders(env.DB, uploadedDates);
+    for (const d of uploadedDates) actual.set(d, actualByCampaign(all.filter((o) => o.date === d)));
+  }
+  const covered = new Set<string>();
   const rows = days
     .filter((d) => d.spend > 0 || d.purchases > 0 || d.purchase_value > 0)
     .map((d) => {
       const c = byId.get(d.campaign_id);
       const name = c?.name ?? d.campaign_id;
       const base = { date: d.date, campaign_id: d.campaign_id, name, stage_id: campaignSettings.get(d.campaign_id)?.stage_id ?? null };
+      // Real orders from Page365 for that day, credited to this campaign.
+      const a = actual.get(d.date)?.get(d.campaign_id);
+      if (a) { covered.add(`${d.date}|${d.campaign_id}`); return explainActual(base, d, a); }
+      if (actual.has(d.date) && d.purchase_value > 0) {
+        // Uploaded day but nothing credited here: Meta's tagged sales weren't found among the real orders.
+        return { ...explainDay(base, { ...d, purchases: 0, purchase_value: 0 }, { kind: 'none', reason: 'วันนี้มีไฟล์ Page365 แต่ไม่มีออเดอร์ที่จับคู่กับแคมเปญนี้ได้' }), revenue: 0, orders: 0 };
+      }
       // That day's tagged purchases, order by order, when they are stored.
       if (stored.has(d.date) && d.purchase_value > 0) {
         const t = tiersOf(d.campaign_id, name);
@@ -672,9 +736,18 @@ async function salesReport(env: Env, window: Window) {
         if (tx) return explainOrders(base, d, tx, t.tiers, t.source === 'sheet' ? `ชีต "${t.label}"` : `สินค้า "${t.label}"`);
       }
       return explainDay(base, d, sourceOf(d.campaign_id, name));
-    })
-    .sort((a, b) => b.date.localeCompare(a.date) || b.revenue - a.revenue);
-  return { window, rows, fetched_at: data.fetchedAt(), warning: data.warning() };
+    });
+  // Uploaded days: campaigns with real orders but no Meta row, and orders no campaign could be found for.
+  for (const [date, by] of actual) {
+    for (const [cid, a] of by) {
+      if (cid !== null && covered.has(`${date}|${cid}`)) continue;
+      const id = cid ?? 'none';
+      const name = cid ? byId.get(cid)?.name ?? cid : 'ไม่ทราบแอด (ไม่ได้ติ๊กเข้า Meta / organic)';
+      rows.push(explainActual({ date, campaign_id: id, name, stage_id: cid ? campaignSettings.get(cid)?.stage_id ?? null : null }, { spend: 0, purchases: a.orders, purchase_value: a.revenue, clicks: 0 }, a));
+    }
+  }
+  rows.sort((a, b) => b.date.localeCompare(a.date) || b.revenue - a.revenue);
+  return { window, rows, uploaded: uploadedDates, fetched_at: data.fetchedAt(), warning: data.warning() };
 }
 
 /**

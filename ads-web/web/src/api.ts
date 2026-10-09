@@ -205,7 +205,12 @@ export type SalesCalc =
   | { method: 'sheet_exact'; sheet_name: string; tiers: CostTier[]; mix: number[] }
   | { method: 'sheet_ratio'; sheet_name: string; tiers: CostTier[]; ratio_min: number; ratio_max: number }
   | { method: 'product'; product: string; cost_per_unit: number; price_min: number; price_max: number; cod_deducted: number; extra_per_order: number }
+  | { method: 'actual'; orders: number; customer: number; exact: number; approx: number; cost_known: number; shipping: number; goods: number; product_cost: number }
   | { method: 'none'; reason: string };
+
+export interface P365Upload { date: string; orders: number; uploaded_at: string; uploaded_by: string; credits: { customer: number; exact: number; approx: number; none: number }; revenue: number; units: number }
+export interface P365Order { order_no: string; date: string; created_at: string; total: number; subtotal: number | null; discount: number | null; shipping: number | null; cost: number | null; payment: string | null; paid_at: string | null; units: number; items: { code: string; sku: string; name: string; qty: number; price: number }[]; campaign_id: string | null; match: 'customer' | 'exact' | 'approx' | 'none' }
+export interface UploadedOrder { order_no: string; created_at: string; total: number; subtotal?: number | null; discount?: number | null; shipping?: number | null; cost?: number | null; payment?: string | null; paid_at?: string | null; item_detail?: string | null; profile_name?: string | null }
 
 export interface SalesRow {
   date: string; campaign_id: string; name: string; stage_id: string | null;
@@ -285,7 +290,11 @@ export const api = {
   actualSales: () => call<ActualSales[]>('GET', '/api/actual-sales'),
   saveActualSales: (date: string, v: { orders: number | null; pieces: number | null; revenue: number | null }) => call<{ ok: true }>('PUT', `/api/actual-sales/${date}`, v),
   conversions: (date: string, window: Window) => call<{ date: string; cod_fee: number; campaigns: ConversionCampaign[]; fetched_at: string }>('GET', `/api/conversions?date=${date}&window=${window}`),
-  salesReport: (window: Window) => call<{ window: Window; rows: SalesRow[]; fetched_at: string; warning: string | null }>('GET', `/api/sales-report?window=${window}`),
+  salesReport: (window: Window) => call<{ window: Window; rows: SalesRow[]; uploaded: string[]; fetched_at: string; warning: string | null }>('GET', `/api/sales-report?window=${window}`),
+  p365Uploads: (window: Window) => call<{ uploads: P365Upload[] }>('GET', `/api/p365?window=${window}`),
+  p365Orders: (date: string) => call<{ date: string; orders: P365Order[] }>('GET', `/api/p365/orders?date=${date}`),
+  p365Upload: (orders: UploadedOrder[]) => call<{ dates: string[]; orders: number; errors: string[]; credits: Record<string, { customer: number; exact: number; approx: number; none: number }> }>('POST', '/api/p365/upload', { orders }),
+  p365Recredit: (date: string) => call<{ date: string; credits: { customer: number; exact: number; approx: number; none: number } | null }>('POST', '/api/p365/recredit', { date }),
   webhook: () => call<WebhookStatus>('GET', '/api/webhook'),
   setupWebhook: () => call<{ app: unknown; page: unknown }>('POST', '/api/webhook/setup'),
   adReferrals: (q: { date?: string; window?: Window }) => call<{ dates: string[]; rows: ReferralSummary[] }>('GET', `/api/ad-referrals?${q.date ? `date=${q.date}` : `window=${q.window ?? 'last_7d'}`}`),

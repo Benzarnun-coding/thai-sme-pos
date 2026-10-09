@@ -13,6 +13,13 @@ export function formulaLines(r: SalesRow): string[] {
   const R = r.revenue, N = r.orders, S = r.spend;
   const profitLine = (cost: number, profit: number) => `กำไร = ยอดขาย ${b2(R)} − ทุนสินค้า ${b2(cost)} − ค่าแอด ${b2(S)} = ${b2(profit)}`;
   if (c.method === 'none') return [`คิดทุนไม่ได้: ${c.reason}`];
+  if (c.method === 'actual') {
+    const how = [c.customer ? `${num(c.customer)} จากลูกค้าที่ทักจากแอดนี้` : '', c.exact ? `${num(c.exact)} จากเวลา+ยอดที่แอดมินติ๊กเข้า Meta` : '', c.approx ? `${num(c.approx)} จับคู่โดยประมาณ` : ''].filter(Boolean).join(' · ');
+    const lines = [`ออเดอร์จริงจากไฟล์ Page365 ${num(c.orders)} ออเดอร์${how ? ` (${how})` : ''} · ยอดที่ลูกค้าจ่าย ${b2(R)} = ค่าสินค้า ${b2(c.goods)} + ค่าส่งที่เก็บ ${b2(c.shipping)}`];
+    if (c.cost_known < c.orders) lines.push(`มีทุนใน Page365 แค่ ${num(c.cost_known)} จาก ${num(c.orders)} ออเดอร์${c.cost_known === 0 ? ' → คิดกำไรไม่ได้' : ''}`);
+    if (r.cost_high !== null) lines.push(`ทุน = ทุนสินค้าตาม Page365 ${b2(c.product_cost)} + ค่าส่ง ${b2(c.shipping)} = ${b2(r.cost_high)}`, profitLine(r.cost_high, r.profit_low ?? 0));
+    return lines;
+  }
   if (c.method === 'orders') {
     const promos = c.tiers.map((t) => `${t.units} ตัว ${baht(t.price)} (ทุน ${b2(t.cost)})`).join(' · ');
     return [
@@ -55,5 +62,6 @@ export function formulaLines(r: SalesRow): string[] {
 }
 
 export function methodLabel(r: SalesRow): string {
-  return { orders: `รายครั้ง · ตรงโปร ${r.calc.method === 'orders' ? num(r.calc.match_rate * 100) : 0}%`, sheet_exact: 'ประมาณ · ชีต แยกโปรได้', sheet_ratio: 'ประมาณ · ชีต สัดส่วน', product: 'ประมาณ · ตามสินค้า', none: 'ไม่มีทุน' }[r.calc.method];
+  if (r.calc.method === 'actual') return `ของจริง Page365${r.calc.approx ? ' · บางส่วนประมาณ' : ''}`;
+  return { orders: `รายครั้ง · ตรงโปร ${r.calc.method === 'orders' ? num(r.calc.match_rate * 100) : 0}%`, sheet_exact: 'ประมาณ · ชีต แยกโปรได้', sheet_ratio: 'ประมาณ · ชีต สัดส่วน', product: 'ประมาณ · ตามสินค้า', none: 'ไม่มีทุน', actual: '' }[r.calc.method];
 }
