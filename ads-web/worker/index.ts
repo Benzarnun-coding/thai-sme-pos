@@ -296,6 +296,14 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role)
 
   // ---- read-only helpers for the dashboard ----
   if (method === 'GET' && path === '/api/ideas') return json(await ideas(env));
+  if (method === 'GET' && path === '/api/conversions') {
+    const date = url.searchParams.get('date') ?? '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) throw new BadRequest('วันที่ไม่ถูกต้อง');
+    const { data } = await metaData(env);
+    const rows = await data.hourly(date).catch((err) => { throw new BadRequest(err instanceof MetaCacheError ? err.message : friendlyMetaError(err)); });
+    const nameOf = new Map(data.entities.filter((e) => e.level === 'campaign').map((e) => [e.id, e.name]));
+    return json({ date, rows: rows.map((r) => ({ ...r, name: nameOf.get(r.campaign_id) ?? r.campaign_id })).sort((a, b) => a.hour.localeCompare(b.hour) || b.purchase_value - a.purchase_value) });
+  }
   if (method === 'GET' && path === '/api/sales-report') {
     const w = url.searchParams.get('window') as Window;
     return json(await salesReport(env, (['last_7d', 'last_14d', 'last_30d'] as Window[]).includes(w) ? w : 'last_14d'));

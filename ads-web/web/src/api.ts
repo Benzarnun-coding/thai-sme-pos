@@ -254,6 +254,7 @@ export const api = {
   stats: (id: string) => call<CampaignStats>('GET', `/api/campaigns/${id}/stats`),
   actualSales: () => call<ActualSales[]>('GET', '/api/actual-sales'),
   saveActualSales: (date: string, v: { orders: number | null; pieces: number | null; revenue: number | null }) => call<{ ok: true }>('PUT', `/api/actual-sales/${date}`, v),
+  conversions: (date: string) => call<{ date: string; rows: { hour: string; campaign_id: string; name: string; purchases: number; purchase_value: number }[] }>('GET', `/api/conversions?date=${date}`),
   salesReport: (window: Window) => call<{ window: Window; rows: SalesRow[]; fetched_at: string; warning: string | null }>('GET', `/api/sales-report?window=${window}`),
   campaignCosts: () => call<{ synced_at: string | null; campaigns: { name: string; tiers: CostTier[] }[] }>('GET', '/api/campaign-costs'),
   syncCampaignCosts: () => call<{ campaigns: number; error?: string }>('POST', '/api/campaign-costs/sync'),

@@ -3,7 +3,7 @@
 // Otherwise it serves built-in sample numbers (PkJeans 21–27 Sep 2026); sample changes live in memory until restart.
 
 import type { Entity, Level, Metrics, Window } from '../../ads-engine/src/types.ts';
-import type { CampaignDayRow, DailyRow } from '../../ads-engine/src/meta.ts';
+import type { CampaignDayRow, DailyRow, HourlyConversion } from '../../ads-engine/src/meta.ts';
 import { BadRequest } from './validate.ts';
 
 // [id, name, daily budget (CBO) or null (ABO), spend 7d, purchases 7d, ROAS 7d, frequency 7d]
@@ -177,6 +177,21 @@ export class MockMeta {
     const ids = (await this.listEntities()).filter((e) => e.level === 'campaign').map((e) => e.id);
     const out: CampaignDayRow[] = [];
     for (const id of ids) for (const d of await this.dailyInsights(id, window)) if (d.spend > 0 || d.purchases > 0) out.push({ ...d, campaign_id: id });
+    return out;
+  }
+
+  /** Dev only: spreads a day's orders over shop hours, one order per hour where possible. */
+  async hourlyConversions(date: string): Promise<HourlyConversion[]> {
+    const out: HourlyConversion[] = [];
+    for (const d of await this.dailyCampaignInsights('last_14d')) {
+      if (d.date !== date || !d.purchases) continue;
+      const each = d.purchase_value / d.purchases;
+      for (let i = 0; i < d.purchases; i++) {
+        const h = 8 + ((i * 7 + d.campaign_id.length) % 15);
+        const prev = out.find((x) => x.campaign_id === d.campaign_id && x.hour === `${String(h).padStart(2, '0')}:00`);
+        if (prev) { prev.purchases += 1; prev.purchase_value += each; } else out.push({ campaign_id: d.campaign_id, hour: `${String(h).padStart(2, '0')}:00`, purchases: 1, purchase_value: each });
+      }
+    }
     return out;
   }
 

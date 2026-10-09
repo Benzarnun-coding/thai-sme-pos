@@ -204,6 +204,8 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
               </div>
             </section>
           )}
+
+          {selected && <ConversionList date={selected} onOpenCampaign={onOpenCampaign} />}
         </>
       )}
     </div>
@@ -306,5 +308,57 @@ function ActualInputs({ date, a, onSaved }: { date: string; a: ActualSales | und
       <td className="num">{input('revenue', 96)}</td>
       <td>{dirty && <button className="primary small" disabled={busy} onClick={save}>บันทึก</button>}</td>
     </>
+  );
+}
+
+/** Every time revenue came in on that day: which ad, what hour, how many purchases, how much each. */
+function ConversionList({ date, onOpenCampaign }: { date: string; onOpenCampaign: (id: string) => void }) {
+  const [rows, setRows] = useState<{ hour: string; campaign_id: string; name: string; purchases: number; purchase_value: number }[] | null>(null);
+  const [error, setError] = useState('');
+  const [only, setOnly] = useState('');
+  useEffect(() => {
+    setRows(null); setError(''); setOnly('');
+    api.conversions(date).then((r) => setRows(r.rows)).catch((e) => setError(e.message));
+  }, [date]);
+  const campaigns = useMemo(() => [...new Map((rows ?? []).map((r) => [r.campaign_id, r.name])).entries()].sort((a, b) => a[1].localeCompare(b[1], 'th')), [rows]);
+  const list = (rows ?? []).filter((r) => !only || r.campaign_id === only);
+  const total = list.reduce((t, r) => ({ n: t.n + r.purchases, v: t.v + r.purchase_value }), { n: 0, v: 0 });
+
+  return (
+    <section className="card table-card">
+      <div className="table-card-head">
+        <div>
+          <h2>รายการยอดเข้า {thaiDay(date)} <span className="muted small">ทุกครั้งที่แอดมินติ๊กยอดซื้อ แยกตามแอดและชั่วโมง</span></h2>
+          <p className="muted small">Meta ให้ข้อมูลละเอียดสุดระดับ "แอด × ชั่วโมง" — ถ้าชั่วโมงเดียวกันมีหลายครั้ง จะรวมเป็นแถวเดียวและแสดงยอดเฉลี่ยต่อครั้ง</p>
+        </div>
+        {campaigns.length > 1 && (
+          <select value={only} onChange={(e) => setOnly(e.target.value)} aria-label="เลือกแอด">
+            <option value="">ทุกแอด ({campaigns.length})</option>
+            {campaigns.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+        )}
+      </div>
+      {error ? <p className="error" style={{ margin: '0 18px 12px' }}>{error}</p> : !rows ? <div className="skeleton" style={{ height: 160, margin: '0 18px 12px' }} /> : rows.length === 0 ? <p className="muted small" style={{ padding: '0 18px 12px' }}>ไม่มียอดเข้าในวันนี้</p> : (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead><tr><th>เวลา</th><th>แคมเปญ</th><th className="num">ครั้ง</th><th className="num">ยอดเงิน</th><th className="num">ครั้งละ</th></tr></thead>
+            <tbody>
+              {list.map((r, i) => (
+                <tr key={`${r.campaign_id}:${r.hour}:${i}`} className={r.purchase_value === 0 ? 'dim' : ''}>
+                  <td className="num" style={{ textAlign: 'left' }}>{r.hour}</td>
+                  <td className="campaign-cell"><button className="name-link" onClick={() => onOpenCampaign(r.campaign_id)}>{r.name}</button></td>
+                  <td className="num">{num(r.purchases)}</td>
+                  <td className="num strong">{r.purchase_value === 0 ? <span className="warn">ไม่มียอดเงิน</span> : baht(r.purchase_value)}</td>
+                  <td className="num">{r.purchases > 1 ? <span title="หลายครั้งในชั่วโมงเดียวกัน">เฉลี่ย {baht(r.purchase_value / r.purchases)}</span> : r.purchase_value ? baht(r.purchase_value) : '–'}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="total-row"><td>รวม</td><td>{only ? '' : `${campaigns.length} แอด`}</td><td className="num">{num(total.n)}</td><td className="num">{baht(total.v)}</td><td className="num">{total.n ? `เฉลี่ย ${baht(total.v / total.n)}` : ''}</td></tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }

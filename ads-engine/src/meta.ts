@@ -4,6 +4,14 @@ import type { Entity, Level, Metrics, Window } from './types.ts';
 
 const DEFAULT_API_VERSION = 'v21.0';
 
+/** Purchases one campaign got in one hour */
+export interface HourlyConversion {
+  campaign_id: string;
+  hour: string; // "08:00"
+  purchases: number;
+  purchase_value: number;
+}
+
 /** One day of one campaign, from the account-wide daily breakdown */
 export interface CampaignDayRow extends DailyRow {
   campaign_id: string;
@@ -186,6 +194,24 @@ export class MetaClient {
       purchases: sumPurchases(r.actions),
       purchase_value: sumPurchases(r.action_values),
     }));
+  }
+
+  /** One day, every campaign, by hour of the ad account's time zone — only hours with purchases. */
+  async hourlyConversions(date: string): Promise<HourlyConversion[]> {
+    const rows = await this.getAll(`${this.accountId}/insights`, {
+      level: 'campaign',
+      breakdowns: 'hourly_stats_aggregated_by_advertiser_time_zone',
+      time_range: JSON.stringify({ since: date, until: date }),
+      fields: 'campaign_id,actions,action_values',
+    });
+    return rows
+      .map((r) => ({
+        campaign_id: r.campaign_id,
+        hour: String(r.hourly_stats_aggregated_by_advertiser_time_zone ?? '').slice(0, 5),
+        purchases: sumPurchases(r.actions),
+        purchase_value: sumPurchases(r.action_values),
+      }))
+      .filter((r) => r.purchases > 0 || r.purchase_value > 0);
   }
 
   async setStatus(id: string, status: 'ACTIVE' | 'PAUSED'): Promise<void> {
