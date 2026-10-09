@@ -18,6 +18,8 @@ export interface Order {
   /** COD surcharge found in the value (not goods, not cost) */
   cod: number;
   cost: number;
+  /** Pieces: from the matched sets, or value ÷ cheapest price per piece when unmatched */
+  units: number;
 }
 
 const TOLERANCE = 1;
@@ -47,12 +49,14 @@ function combos(tiers: CostTier[], codFee: number): Combo[] {
 export function matchHour(hour: string, purchases: number, value: number, tiers: CostTier[], codFee: number): Order[] {
   const n = Math.max(1, Math.round(purchases));
   const ratio = tiers.length ? Math.max(...tiers.map((t) => t.cost / t.price)) : 0;
-  const fallback = (status: Order['status'], v: number, count: number): Order => ({ hour, value: v, count, status, sets: [], cod: 0, cost: v * ratio });
+  const ppu = tiers.length ? Math.min(...tiers.map((t) => t.price / t.units)) : 0;
+  const fallback = (status: Order['status'], v: number, count: number): Order => ({ hour, value: v, count, status, sets: [], cod: 0, cost: v * ratio, units: ppu ? v / ppu : 0 });
+  const unitsOf = (sets: PromoSet[]) => sets.reduce((t, x) => t + x.units, 0);
   if (value <= 0) return Array.from({ length: n }, () => fallback('no_value', 0, 1));
   const all = combos(tiers, codFee);
   if (n === 1) {
     const c = all.find((x) => Math.abs(x.total - value) <= TOLERANCE);
-    return [c ? { hour, value, count: 1, status: 'match', sets: c.sets, cod: c.cod, cost: c.cost } : fallback('mismatch', value, 1)];
+    return [c ? { hour, value, count: 1, status: 'match', sets: c.sets, cod: c.cod, cost: c.cost, units: unitsOf(c.sets) } : fallback('mismatch', value, 1)];
   }
   if (n <= MAX_SPLIT) {
     // n orders whose values add up to the hour's total, each a promo combination (multiset search, fewest sets first).
@@ -67,7 +71,7 @@ export function matchHour(hour: string, purchases: number, value: number, tiers:
       }
       return false;
     };
-    if (dfs(0, value, n)) return found.map((c) => ({ hour, value: c.total, count: 1, status: 'match', sets: c.sets, cod: c.cod, cost: c.cost }));
+    if (dfs(0, value, n)) return found.map((c) => ({ hour, value: c.total, count: 1, status: 'match', sets: c.sets, cod: c.cod, cost: c.cost, units: unitsOf(c.sets) }));
   }
   return [fallback('unsplit', value, n)];
 }
@@ -77,6 +81,7 @@ export interface CampaignDay {
   count: number;
   value: number;
   cost: number;
+  units: number;
   matched: number;
   /** Share of value that matched a promo (1 = every baht explained by the ad's promos) */
   match_rate: number;
@@ -91,6 +96,7 @@ export function campaignDay(hours: { hour: string; purchases: number; purchase_v
     count: orders.reduce((t, o) => t + o.count, 0),
     value,
     cost: orders.reduce((t, o) => t + o.cost, 0),
+    units: orders.reduce((t, o) => t + o.units, 0),
     matched: orders.filter((o) => o.status === 'match').length,
     match_rate: value > 0 ? matchedValue / value : 0,
   };

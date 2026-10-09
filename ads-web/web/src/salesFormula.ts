@@ -13,6 +13,16 @@ export function formulaLines(r: SalesRow): string[] {
   const R = r.revenue, N = r.orders, S = r.spend;
   const profitLine = (cost: number, profit: number) => `กำไร = ยอดขาย ${b2(R)} − ทุนสินค้า ${b2(cost)} − ค่าแอด ${b2(S)} = ${b2(profit)}`;
   if (c.method === 'none') return [`คิดทุนไม่ได้: ${c.reason}`];
+  if (c.method === 'orders') {
+    const promos = c.tiers.map((t) => `${t.units} ตัว ${baht(t.price)} (ทุน ${b2(t.cost)})`).join(' · ');
+    return [
+      `คิดรายครั้ง จากยอดที่แอดมินติ๊กวันนั้น ${num(c.orders)} ครั้ง · ทุนจาก${c.source}: ${promos}`,
+      `ตรงโปร ${num(c.matched)} ครั้ง (${num(c.match_rate * 100)}% ของยอด) ใช้ทุนจริงของโปร · ที่ไม่ตรงโปรคิดทุนแบบระวัง (ดูรายครั้งในตาราง "รายการยอดเข้า")`,
+      `ทุนรวมทุกครั้ง ÷ ยอดรวม = ${pct(c.cost_ratio)} → ทุนสินค้า = ${b2(R)} × ${pct(c.cost_ratio)} = ${b2(r.cost_high ?? 0)}`,
+      `จำนวนตัว ≈ ${n1(r.units_high ?? 0)} ตัว (จากโปรที่จับคู่ได้)`,
+      profitLine(r.cost_high ?? 0, r.profit_low ?? 0),
+    ];
+  }
   if (c.method === 'sheet_exact' || c.method === 'sheet_ratio') {
     const promos = c.tiers.map((t) => `${t.units} ตัว ${baht(t.price)} (ทุน ${b2(t.cost)})`).join(' · ');
     const lines = [`ต้นทุนจากชีต "${c.sheet_name}": ${promos}`];
@@ -45,5 +55,5 @@ export function formulaLines(r: SalesRow): string[] {
 }
 
 export function methodLabel(r: SalesRow): string {
-  return { sheet_exact: 'ชีต · แยกโปรได้', sheet_ratio: 'ชีต · สัดส่วน', product: 'ตามสินค้า', none: 'ไม่มีทุน' }[r.calc.method];
+  return { orders: `รายครั้ง · ตรงโปร ${r.calc.method === 'orders' ? num(r.calc.match_rate * 100) : 0}%`, sheet_exact: 'ประมาณ · ชีต แยกโปรได้', sheet_ratio: 'ประมาณ · ชีต สัดส่วน', product: 'ประมาณ · ตามสินค้า', none: 'ไม่มีทุน' }[r.calc.method];
 }

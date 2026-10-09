@@ -7,6 +7,8 @@ import { profitRange, type Cod, type Economics } from './model.ts';
 export interface DayMetrics { spend: number; purchases: number; purchase_value: number; clicks: number }
 
 export type Calc =
+  /** Each tagged purchase matched to the campaign's promos; cost ÷ revenue applied to the day's revenue */
+  | { method: 'orders'; source: string; tiers: CostTier[]; orders: number; matched: number; match_rate: number; cost_ratio: number; units_per_baht: number }
   /** Two promos from the cost sheet, mix solved from orders and revenue */
   | { method: 'sheet_exact'; sheet_name: string; tiers: CostTier[]; mix: number[] }
   /** Cost sheet, mix unknown: revenue × cost ÷ price of the promos */
@@ -70,4 +72,21 @@ export function explainDay(
     source = { kind: 'none', reason: source.econ.cost_per_unit === null ? 'สินค้ายังไม่มีทุน' : 'ยังไม่มีราคาขาย' };
   }
   return { ...row, units_low: null, units_high: null, cost_low: null, cost_high: null, profit_low: null, profit_high: null, calc: { method: 'none', reason: source.reason } };
+}
+
+/** A campaign-day costed order by order (see conversionStore.txCosting). */
+export function explainOrders(
+  base: { date: string; campaign_id: string; name: string; stage_id: string | null },
+  m: DayMetrics,
+  t: { cost_ratio: number; units_per_baht: number; orders: number; matched: number; match_rate: number },
+  tiers: CostTier[], source: string,
+): ReportRow {
+  const cost = m.purchase_value * t.cost_ratio;
+  const units = m.purchase_value * t.units_per_baht;
+  const profit = m.purchase_value - cost - m.spend;
+  return {
+    ...base, revenue: m.purchase_value, orders: m.purchases, spend: m.spend, clicks: m.clicks,
+    units_low: units, units_high: units, cost_low: cost, cost_high: cost, profit_low: profit, profit_high: profit,
+    calc: { method: 'orders', source, tiers, orders: t.orders, matched: t.matched, match_rate: t.match_rate, cost_ratio: t.cost_ratio, units_per_baht: t.units_per_baht },
+  };
 }

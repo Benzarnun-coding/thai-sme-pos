@@ -381,6 +381,7 @@ function StatsTable({ c }: { c: CampaignView }) {
         </tbody>
       </table>
       <p className="small muted stats-note">
+        {stats.windows.some((w) => w.method === 'orders') && <>กำไรคิดรายครั้ง (จับคู่ยอดแต่ละครั้งกับโปร{(() => { const w = stats.windows.find((x) => x.window === 'last_7d' && x.match_rate != null); return w ? ` · 7 วันตรงโปร ${num(w.match_rate! * 100)}%` : ''; })()}) · </>}
         {stats.cost_source === 'sheet' && <>ต้นทุนจากชีตรายแคมเปญ · </>}
         {be === null
           ? (c.section_id !== 'default' && c.price_per_unit_min === null ? 'ยังไม่มีราคาขาย — ใส่ราคาในช่อง "ต้นทุน" ด้านล่างเพื่อดูทุนสินค้าและกำไร' : 'ยังไม่ผูกต้นทุน — กรอกในช่อง "ต้นทุน" ด้านล่างเพื่อดูทุนสินค้าและกำไร')

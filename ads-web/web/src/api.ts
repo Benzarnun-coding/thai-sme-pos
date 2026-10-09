@@ -90,6 +90,9 @@ export interface CampaignView extends EntityView {
   cost_match: 'exact' | 'similar' | null;
   /** Promo mix solved exactly (two promos) — profit is one number, not a range */
   cost_exact: boolean;
+  /** orders = costed order by order from hourly purchases; estimate = from daily totals */
+  cost_method?: 'orders' | 'estimate';
+  tx?: { match_rate: number; orders: number; matched: number; days: number; window_days: number } | null;
   /** Promo prices read from the campaign name, e.g. 1 for 189, 3 for 549 */
   name_tiers: Tier[];
   /** Selling price per piece this campaign is costed with; null = no price anywhere */
@@ -184,7 +187,7 @@ export interface CampaignHistory {
 export interface CampaignStats {
   breakeven_roas: number | null;
   cost_source: 'sheet' | 'product' | null;
-  windows: { window: Window; metrics?: Metrics; profit_low: number | null; profit_high: number | null; units_low: number | null; units_high: number | null }[];
+  windows: { window: Window; metrics?: Metrics; profit_low: number | null; profit_high: number | null; units_low: number | null; units_high: number | null; method?: 'orders' | 'estimate'; match_rate?: number }[];
   meta_fetched_at: string;
 }
 
@@ -198,6 +201,7 @@ export interface CompetitorCheck { id: number; competitor_id: string; checked_at
 export interface CompetitorData { competitors: Competitor[]; ads: CompetitorAd[]; checks: CompetitorCheck[] }
 
 export type SalesCalc =
+  | { method: 'orders'; source: string; tiers: CostTier[]; orders: number; matched: number; match_rate: number; cost_ratio: number; units_per_baht: number }
   | { method: 'sheet_exact'; sheet_name: string; tiers: CostTier[]; mix: number[] }
   | { method: 'sheet_ratio'; sheet_name: string; tiers: CostTier[]; ratio_min: number; ratio_max: number }
   | { method: 'product'; product: string; cost_per_unit: number; price_min: number; price_max: number; cod_deducted: number; extra_per_order: number }
@@ -269,6 +273,8 @@ export const api = {
   saveActualSales: (date: string, v: { orders: number | null; pieces: number | null; revenue: number | null }) => call<{ ok: true }>('PUT', `/api/actual-sales/${date}`, v),
   conversions: (date: string, window: Window) => call<{ date: string; cod_fee: number; campaigns: ConversionCampaign[]; fetched_at: string }>('GET', `/api/conversions?date=${date}&window=${window}`),
   salesReport: (window: Window) => call<{ window: Window; rows: SalesRow[]; fetched_at: string; warning: string | null }>('GET', `/api/sales-report?window=${window}`),
+  conversionHours: () => call<{ stored: number; of: number; dates: string[] }>('GET', '/api/conversion-hours'),
+  syncConversionHours: () => call<{ fetched: string[]; missing: number; errors: string[] }>('POST', '/api/conversion-hours/sync'),
   campaignCosts: () => call<{ synced_at: string | null; campaigns: { name: string; tiers: CostTier[] }[] }>('GET', '/api/campaign-costs'),
   syncCampaignCosts: () => call<{ campaigns: number; error?: string }>('POST', '/api/campaign-costs/sync'),
   competitors: () => call<CompetitorData>('GET', '/api/competitors'),

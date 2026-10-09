@@ -81,6 +81,8 @@ export function SettingsPage({ costsLoaded, campaignNames, onSaved }: { costsLoa
         </div>
       </section>
 
+      <ConversionHoursCard />
+
       <CampaignCostSheet s={s} setS={setS} busy={busy} onSave={() => save(s)} campaignNames={campaignNames} onSynced={onSaved} />
 
       <section className="card">
@@ -195,6 +197,36 @@ function CampaignCostSheet({ s, setS, busy, onSave, campaignNames, onSynced }: {
           )}
         </div>
       )}
+    </section>
+  );
+}
+
+/** Stored hourly purchases: how many of the last 30 days are there, and a button to fetch more now. */
+function ConversionHoursCard() {
+  const { toast } = useUi();
+  const [st, setSt] = useState<{ stored: number; of: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => api.conversionHours().then(setSt).catch(() => setSt(null));
+  useEffect(() => { load(); }, []);
+  async function sync() {
+    setBusy(true);
+    try {
+      const r = await api.syncConversionHours();
+      toast(`ดึงแล้ว ${r.fetched.length} วัน · เหลือ ${r.missing} วัน${r.errors.length ? ` · ${r.errors[0]}` : ''}`, r.errors.length ? 'bad' : 'ok');
+      await load();
+    } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
+  }
+  return (
+    <section className="card">
+      <h2>ข้อมูลยอดเข้ารายครั้ง</h2>
+      <p className="muted small">
+        กำไรทุกหน้าคิดรายครั้ง: ยอดที่แอดมินติ๊กแต่ละครั้ง (จาก Meta รายชั่วโมง) จับคู่กับราคาโปรและทุนของแอด
+        · ระบบดึงเมื่อวานกับ 2 วันก่อนหน้าทุกเช้า 07:30 และเติมย้อนหลังวันละ 5 วัน · ช่วงที่ยังไม่มีข้อมูลใช้วิธีประมาณจากยอดรวม
+      </p>
+      <div className="row gap">
+        <b>{st ? `มีข้อมูล ${st.stored} จาก ${st.of} วันล่าสุด` : '–'}</b>
+        <button className="ghost" disabled={busy || (st !== null && st.stored >= st.of)} onClick={sync}>{busy ? 'กำลังดึง…' : 'ดึงย้อนหลังเพิ่มตอนนี้ (ทีละ 6 วัน)'}</button>
+      </div>
     </section>
   );
 }

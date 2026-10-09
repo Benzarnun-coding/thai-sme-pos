@@ -16,8 +16,10 @@ import { MockMeta } from './mock.ts';
 import { DEFAULT_SECTION_ID, WEB_TAB, campaignEconomics, economics, profitRange, suggestProducts, type CampaignSetting, type Cod, type CostRow, type Economics, type Section } from './model.ts';
 import { capChanges, planRun, runAutomation, zeroMetrics, type MetaLike } from './run.ts';
 import { buildIdeas } from './ideas.ts';
-import { explainDay } from './salesReport.ts';
+import { explainDay, explainOrders } from './salesReport.ts';
 import { campaignDay } from './transactions.ts';
+import { makeTierResolver } from './costing.ts';
+import { bkkDate, loadConversionHours, saveConversionDay, syncConversionHours, txCosting, windowDates } from './conversionStore.ts';
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
@@ -76,6 +78,8 @@ export default {
       ctx.waitUntil(loadSettings(env.DB).then((s) => Promise.all([
         s.sheet_id ? syncCosts(env.DB, s) : [],
         s.ads_cost_sheet_id ? syncCampaignCosts(env.DB, s) : null,
+        // Hourly purchases: refresh the last 3 days (late tags) and fill a few missing older days.
+        Promise.resolve().then(() => syncConversionHours(env.DB, metaFor(env))).catch(() => null),
       ])));
     } else if (event.cron === RULES_CRON) {
       let meta: MetaLike;
@@ -257,6 +261,19 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role)
     return json({ ok: true });
   }
 
+  // ---- stored hourly purchases (order-by-order costing) ----
+  if (path === '/api/conversion-hours' && method === 'GET') {
+    const dates = Array.from({ length: 30 }, (_, i) => bkkDate(i + 1));
+    const { results } = await env.DB.prepare('SELECT date FROM conversion_days WHERE date IN (SELECT value FROM json_each(?))').bind(JSON.stringify(dates)).all<{ date: string }>();
+    return json({ stored: results.length, of: dates.length, dates: results.map((r) => r.date).sort() });
+  }
+  if (path === '/api/conversion-hours/sync' && method === 'POST') {
+    const r = await syncConversionHours(env.DB, metaFor(env), { recent: 1, backfill: 6 });
+    await audit(env.DB, user, 'conversion-hours.sync', 'meta', r);
+    if (r.errors.length && !r.fetched.length) throw new BadRequest(friendlyMetaError({ message: r.errors[0] }));
+    return json(r);
+  }
+
   // ---- per-campaign costs from the team's sheet ----
   if (path === '/api/campaign-costs' && method === 'GET') {
     const { costs: cc, synced_at } = await loadCampaignCosts(env.DB);
@@ -411,9 +428,13 @@ async function overview(env: Env, window: Window, fresh: boolean) {
   const [{ meta, data }, sections, stages, campaignSettings, costs, settings, runs] = await Promise.all([
     metaData(env, fresh), loadSections(env.DB), loadStages(env.DB), loadCampaignSettings(env.DB), loadCosts(env.DB), loadSettings(env.DB), listRuns(env.DB, 1),
   ]);
-  const campaignCosts = new CampaignCostIndex((await loadCampaignCosts(env.DB)).costs);
+  const ccRaw = (await loadCampaignCosts(env.DB)).costs;
+  const campaignCosts = new CampaignCostIndex(ccRaw);
   const windows = [...new Set<Window>([window, ECONOMICS_WINDOW])];
   const entities = await withMetrics(data, [...windows.map((w) => ['campaign', w] as const), ['adset', window] as const]);
+  // Order-by-order costing from stored hourly purchases (today's come live).
+  const tx = await txContext(env, data, window);
+  const tiersOf = makeTierResolver({ entities, sections, campaignSettings, costs, cod: codOf(settings), campaignCosts: ccRaw });
   const snapshot = meta instanceof MockMeta ? await meta.snapshotInfo() : null;
   const sectionOf = sectionMap(entities, sections, campaignSettings);
   const totals = sectionTotals(entities, sectionOf, window);
@@ -444,6 +465,8 @@ async function overview(env: Env, window: Window, fresh: boolean) {
     const found = campaignCosts.find(c.name);
     const sheet = found?.cost;
     const te = sheet ? tierEconomics(sheet.tiers, m) : null;
+    const t = m && m.purchase_value > 0 ? txCosting(tx.hours.get(c.id), tiersOf(c.id, c.name).tiers, codOf(settings).fee, tx.days) : null;
+    const txProfit = t && m ? m.purchase_value * (1 - t.cost_ratio) - m.spend : null;
     return {
       ...view(c),
       section_id: sectionId,
@@ -466,10 +489,13 @@ async function overview(env: Env, window: Window, fresh: boolean) {
       price_per_unit_min: te ? te.price_per_unit_min : (ce?.price_per_unit_min ?? null),
       price_per_unit_max: te ? te.price_per_unit_max : (ce?.price_per_unit_max ?? null),
       /** Conservative (most pieces at the cheapest promo price) and best case */
-      profit: te ? te.profit_low : range ? range.low : null,
-      profit_high: te ? te.profit_high : range ? range.high : null,
-      units_low: te ? te.units_low : range ? range.units_low : null,
-      units_high: te ? te.units_high : range ? range.units_high : null,
+      profit: txProfit ?? (te ? te.profit_low : range ? range.low : null),
+      profit_high: txProfit ?? (te ? te.profit_high : range ? range.high : null),
+      units_low: t && m ? m.purchase_value * t.units_per_baht : te ? te.units_low : range ? range.units_low : null,
+      units_high: t && m ? m.purchase_value * t.units_per_baht : te ? te.units_high : range ? range.units_high : null,
+      /** orders = costed order by order from hourly purchases; estimate = from daily totals */
+      cost_method: t ? 'orders' : 'estimate',
+      tx: t ? { match_rate: t.match_rate, orders: t.orders, matched: t.matched, days: t.days, window_days: tx.windowDays } : null,
       adsets: adsetsOf(c.id).map(view),
     };
   });
@@ -545,14 +571,22 @@ async function campaignStats(env: Env, id: string) {
   const econ = section ? campaignEconomics(section, costs, totals7.get(section.id) ?? { spend: 0, purchases: 0, purchase_value: 0 }, cod, c.name) : null;
   const sheet = campaignCosts.find(c.name)?.cost;
   const be = sheet ? tierEconomics(sheet.tiers, undefined).breakeven_roas : econ?.breakeven_roas;
+  const tiers = makeTierResolver({ entities, sections, campaignSettings, costs, cod, campaignCosts: (await loadCampaignCosts(env.DB)).costs })(c.id, c.name).tiers;
+  const txs = new Map(await Promise.all(STAT_WINDOWS.map(async (w) => [w, await txContext(env, data, w)] as const)));
   return {
     breakeven_roas: finiteOrNull(be),
     cost_source: sheet ? 'sheet' : econ?.cost_per_unit != null ? 'product' : null,
     windows: STAT_WINDOWS.map((w) => {
       const m = c.metrics[w];
+      const ctx = txs.get(w)!;
+      const t = m && m.purchase_value > 0 ? txCosting(ctx.hours.get(c.id), tiers, cod.fee, ctx.days) : null;
+      if (t && m) {
+        const p = m.purchase_value * (1 - t.cost_ratio) - m.spend, u = m.purchase_value * t.units_per_baht;
+        return { window: w, metrics: finite(m), profit_low: p, profit_high: p, units_low: u, units_high: u, method: 'orders', match_rate: t.match_rate };
+      }
       if (sheet) {
-        const t = tierEconomics(sheet.tiers, m);
-        return { window: w, metrics: finite(m), profit_low: t.profit_low, profit_high: t.profit_high, units_low: t.units_low, units_high: t.units_high };
+        const te = tierEconomics(sheet.tiers, m);
+        return { window: w, metrics: finite(m), profit_low: te.profit_low, profit_high: te.profit_high, units_low: te.units_low, units_high: te.units_high, method: 'estimate' };
       }
       const r = econ && m ? profitRange(econ, section!.extra_cost_per_order, m, cod) : null;
       return {
@@ -560,6 +594,7 @@ async function campaignStats(env: Env, id: string) {
         metrics: finite(m),
         profit_low: r?.low ?? null, profit_high: r?.high ?? null,
         units_low: r?.units_low ?? null, units_high: r?.units_high ?? null,
+        method: 'estimate',
       };
     }),
     meta_fetched_at: data.fetchedAt(),
@@ -595,12 +630,21 @@ async function salesReport(env: Env, window: Window) {
     sourceCache.set(id, src);
     return src;
   };
+  const tiersOf = makeTierResolver({ entities, sections, campaignSettings, costs, cod, campaignCosts: cc.costs });
+  const { byCampaign: hoursBy, stored } = await loadConversionHours(env.DB, windowDates(window));
   const rows = days
     .filter((d) => d.spend > 0 || d.purchases > 0 || d.purchase_value > 0)
     .map((d) => {
       const c = byId.get(d.campaign_id);
       const name = c?.name ?? d.campaign_id;
-      return explainDay({ date: d.date, campaign_id: d.campaign_id, name, stage_id: campaignSettings.get(d.campaign_id)?.stage_id ?? null }, d, sourceOf(d.campaign_id, name));
+      const base = { date: d.date, campaign_id: d.campaign_id, name, stage_id: campaignSettings.get(d.campaign_id)?.stage_id ?? null };
+      // That day's tagged purchases, order by order, when they are stored.
+      if (stored.has(d.date) && d.purchase_value > 0) {
+        const t = tiersOf(d.campaign_id, name);
+        const tx = txCosting(hoursBy.get(d.campaign_id)?.filter((h) => h.date === d.date), t.tiers, cod.fee, 1);
+        if (tx) return explainOrders(base, d, tx, t.tiers, t.source === 'sheet' ? `ชีต "${t.label}"` : `สินค้า "${t.label}"`);
+      }
+      return explainDay(base, d, sourceOf(d.campaign_id, name));
     })
     .sort((a, b) => b.date.localeCompare(a.date) || b.revenue - a.revenue);
   return { window, rows, fetched_at: data.fetchedAt(), warning: data.warning() };
@@ -616,25 +660,12 @@ async function conversions(env: Env, date: string, window: Window) {
   ]);
   const err = (e: unknown) => { throw new BadRequest(e instanceof MetaCacheError ? e.message : friendlyMetaError(e)); };
   const [hours, days, entities] = await Promise.all([data.hourly(date).catch(err), data.dailyAll(window).catch(() => []), withMetrics(data, [['campaign', ECONOMICS_WINDOW]])]);
-  const index = new CampaignCostIndex(cc.costs);
   const cod = codOf(settings);
-  const sectionOf = sectionMap(entities, sections, campaignSettings);
-  const totals7 = sectionTotals(entities, sectionOf, ECONOMICS_WINDOW);
   const nameOf = new Map(entities.filter((e) => e.level === 'campaign').map((e) => [e.id, e.name]));
   const spendOf = new Map(days.filter((d) => d.date === date).map((d) => [d.campaign_id, d.spend]));
-
-  /** Promos with the all-in cost of one order of each. */
-  const tiersOf = (id: string, name: string): { tiers: CostTier[]; source: 'sheet' | 'product' | null; label: string } => {
-    const found = index.find(name);
-    if (found) return { tiers: found.cost.tiers, source: 'sheet', label: found.cost.name };
-    const section = sections.find((s) => s.id === (sectionOf.get(id) ?? DEFAULT_SECTION_ID));
-    if (!section) return { tiers: [], source: null, label: '' };
-    const e = campaignEconomics(section, costs, totals7.get(section.id) ?? { spend: 0, purchases: 0, purchase_value: 0 }, cod, name);
-    if (e.cost_per_unit === null) return { tiers: [], source: null, label: '' };
-    const promos = [...section.tiers, ...e.name_tiers];
-    const list = promos.length ? promos : e.price_per_unit_max !== null ? [{ units: 1, price: e.price_per_unit_max }] : [];
-    return { tiers: list.map((t) => ({ units: t.units, price: t.price, cost: t.units * e.cost_per_unit! })), source: list.length ? 'product' : null, label: section.name };
-  };
+  const tiersOf = makeTierResolver({ entities, sections, campaignSettings, costs, cod, campaignCosts: cc.costs });
+  // Keep the store fresh with what was just fetched (except today, still being tagged).
+  if (date < bkkDate(0)) await saveConversionDay(env.DB, date, hours).catch(() => {});
 
   const byCampaign = new Map<string, typeof hours>();
   for (const h of hours) byCampaign.set(h.campaign_id, [...(byCampaign.get(h.campaign_id) ?? []), h]);
@@ -696,6 +727,22 @@ async function preview(env: Env) {
     items: [...plan.decisions.map((d) => ({ ...pick(d), after: (d as any).after ?? null })), ...plan.moves.map((m) => ({ ...pick(m), action: 'move', move_to: m.move_to, after: null }))],
     notes: plan.notes,
   };
+}
+
+/** Stored hourly purchases for a window's dates (today live from Meta), and how many of its days are covered. */
+async function txContext(env: Env, data: MetaData, window: Window) {
+  const dates = windowDates(window);
+  const { byCampaign, stored } = await loadConversionHours(env.DB, dates);
+  let days = stored.size;
+  const today = bkkDate(0);
+  if (dates.includes(today)) {
+    const live = await data.hourly(today).catch(() => null);
+    if (live) {
+      days += 1;
+      for (const r of live) byCampaign.set(r.campaign_id, [...(byCampaign.get(r.campaign_id) ?? []), { date: today, hour: r.hour, purchases: r.purchases, purchase_value: r.purchase_value }]);
+    }
+  }
+  return { hours: byCampaign, days, windowDays: dates.length };
 }
 
 const finiteOrNull = (v: number | null | undefined) => (v !== null && v !== undefined && Number.isFinite(v) ? v : null);
