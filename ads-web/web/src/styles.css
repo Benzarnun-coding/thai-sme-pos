@@ -666,3 +666,7 @@ ol.formula { margin: 6px 0 0; padding-left: 20px; font-size: 13px; line-height: 
 ol.formula li::marker { color: var(--muted); }
 .banner.info { background: var(--accent-soft); color: var(--accent); }
 textarea { width: 100%; font: inherit; resize: vertical; }
+.cell-input { min-height: 30px; padding: 3px 6px; font-size: 13.5px; text-align: right; background: var(--surface-2); border-color: transparent; }
+.cell-input:focus { background: var(--surface); border-color: var(--border-strong); }
+.mult-stat { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.mult-stat b { font-size: 22px; color: var(--accent); }

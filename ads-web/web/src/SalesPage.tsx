@@ -2,7 +2,7 @@
 // product cost, ad spend, profit — with the working for each row and a CSV for Excel.
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { api, WINDOW_LABEL, type Overview, type SalesRow, type Window } from './api.ts';
+import { api, WINDOW_LABEL, type ActualSales, type Overview, type SalesRow, type Window } from './api.ts';
 import { stageLabel } from './actions.tsx';
 import { baht, num, profitTone, roasTone, when } from './fmt.ts';
 import { formulaLines, methodLabel } from './salesFormula.ts';
@@ -10,7 +10,7 @@ import { Icon, useUi } from './ui.tsx';
 
 const WINDOWS: Window[] = ['last_7d', 'last_14d', 'last_30d'];
 
-interface DayTotal { date: string; revenue: number; orders: number; units: number; cost: number; spend: number; profit: number; campaigns: number; uncosted: number }
+interface DayTotal { date: string; revenue: number; orders: number; units: number; cost: number; spend: number; profit: number; campaigns: number; uncosted: number; costedRevenue: number }
 
 /** Conservative figures (higher cost, lower profit) throughout, matching the rest of the dashboard. */
 function totalOf(rows: SalesRow[], date = ''): DayTotal {
@@ -24,7 +24,8 @@ function totalOf(rows: SalesRow[], date = ''): DayTotal {
     profit: t.profit + (r.profit_low ?? 0),
     campaigns: t.campaigns + 1,
     uncosted: t.uncosted + (r.calc.method === 'none' ? 1 : 0),
-  }), { date, revenue: 0, orders: 0, units: 0, cost: 0, spend: 0, profit: 0, campaigns: 0, uncosted: 0 });
+    costedRevenue: t.costedRevenue + (r.calc.method === 'none' ? 0 : r.revenue),
+  }), { date, revenue: 0, orders: 0, units: 0, cost: 0, spend: 0, profit: 0, campaigns: 0, uncosted: 0, costedRevenue: 0 });
 }
 
 const thaiDay = (iso: string) => new Date(`${iso}T00:00:00+07:00`).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' });
@@ -136,6 +137,8 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
             </div>
           </section>
 
+          <ActualCompare days={days} />
+
           {selected && (
             <section className="card table-card">
               <div className="table-card-head">
@@ -204,5 +207,104 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Real totals from Page365 (typed in daily) against what Meta attributes to ads. The gap is sales without an ad
+ * click — organic, people who saw an ad and came back another way, untagged chats. MER and shop profit use the
+ * real totals; product cost for them uses that day's cost ÷ revenue from the costed campaigns.
+ */
+function ActualCompare({ days }: { days: DayTotal[] }) {
+  const { toast } = useUi();
+  const [actual, setActual] = useState<Map<string, ActualSales> | null>(null);
+  const load = () => api.actualSales().then((rows) => setActual(new Map(rows.map((r) => [r.date, r])))).catch(() => setActual(new Map()));
+  useEffect(() => { load(); }, []);
+  if (!actual) return null;
+
+  const rows = days.map((d) => {
+    const a = actual.get(d.date);
+    const ratio = d.costedRevenue > 0 ? d.cost / d.costedRevenue : null;
+    const shopProfit = a?.revenue != null && ratio !== null ? a.revenue - a.revenue * ratio - d.spend : null;
+    return { d, a, ratio, shopProfit, mult: a?.orders != null && d.orders ? a.orders / d.orders : null, mer: a?.revenue != null && d.spend ? a.revenue / d.spend : null };
+  });
+  const last7 = rows.filter((r) => r.a?.orders != null && r.d.orders).slice(0, 7);
+  const avgMult = last7.length ? last7.reduce((t, r) => t + r.a!.orders!, 0) / last7.reduce((t, r) => t + r.d.orders, 0) : null;
+
+  return (
+    <section className="card table-card">
+      <div className="table-card-head">
+        <div>
+          <h2>ยอดจริง (Page365) เทียบกับยอดจาก Meta</h2>
+          <p className="muted small">
+            กรอกยอดจากใบปะหน้าใน Page365 วันละครั้ง · ส่วนต่าง = ยอดที่ไม่ได้มาจากการกดแอด (organic, เห็นแอดแล้วทักทีหลัง, ไม่ได้ติ๊ก)
+            · MER = ยอดขายจริง ÷ ค่าแอดทั้งหมด · กำไรทั้งร้าน = ยอดจริง − ทุน (สัดส่วนทุนของวันนั้น) − ค่าแอด
+          </p>
+        </div>
+        {avgMult !== null && (
+          <div className="mult-stat" title={`จาก ${last7.length} วันล่าสุดที่กรอกยอดจริง`}>
+            <span className="small muted">ยอดจริง ÷ ยอด Meta (เฉลี่ย {last7.length} วัน)</span>
+            <b>× {num(avgMult, 2)}</b>
+            <span className="small muted">ROAS จริงของแอด ≈ ROAS ใน Meta × {num(avgMult, 2)}</span>
+          </div>
+        )}
+      </div>
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>วันที่</th>
+              <th className="num">ออเดอร์จริง</th><th className="num">ชิ้นจริง</th><th className="num">ยอดเงินจริง</th><th />
+              <th className="num">ออเดอร์ Meta</th><th className="num">ส่วนต่าง</th><th className="num">ตัวคูณ</th>
+              <th className="num">ค่าแอด</th><th className="num">MER</th><th className="num">กำไรทั้งร้าน</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ d, a, ratio, shopProfit, mult, mer }) => (
+              <tr key={d.date}>
+                <td><b>{thaiDay(d.date)}</b></td>
+                <ActualInputs date={d.date} a={a} onSaved={() => { toast('บันทึกยอดจริงแล้ว', 'ok'); load(); }} />
+                <td className="num">{num(d.orders)}</td>
+                <td className="num">{a?.orders != null ? <>{a.orders - d.orders >= 0 ? '+' : ''}{num(a.orders - d.orders)} <span className="muted small">({num(d.orders ? ((a.orders - d.orders) / d.orders) * 100 : 0)}%)</span></> : '–'}</td>
+                <td className="num strong">{mult === null ? '–' : `× ${num(mult, 2)}`}</td>
+                <td className="num">{baht(d.spend)}</td>
+                <td className="num">{mer === null ? '–' : num(mer, 2)}</td>
+                <td className={`num strong ${shopProfit === null ? '' : shopProfit < 0 ? 'bad' : 'good'}`} title={shopProfit === null ? (a?.revenue == null ? 'กรอกยอดเงินจริงก่อน' : 'วันนั้นยังไม่มีแคมเปญที่มีทุน') : `${baht(a!.revenue!)} − ทุน ${num(ratio! * 100, 1)}% − ค่าแอด ${baht(d.spend)}`}>
+                  {shopProfit === null ? '–' : baht(shopProfit)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ActualInputs({ date, a, onSaved }: { date: string; a: ActualSales | undefined; onSaved: () => void }) {
+  const { toast } = useUi();
+  const init = { orders: a?.orders?.toString() ?? '', pieces: a?.pieces?.toString() ?? '', revenue: a?.revenue?.toString() ?? '' };
+  const [v, setV] = useState(init);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setV(init); }, [a?.updated_at]);
+  const dirty = v.orders !== init.orders || v.pieces !== init.pieces || v.revenue !== init.revenue;
+  const toNum = (x: string) => (x.trim() === '' ? null : Number(x));
+  async function save() {
+    setBusy(true);
+    try { await api.saveActualSales(date, { orders: toNum(v.orders), pieces: toNum(v.pieces), revenue: toNum(v.revenue) }); onSaved(); }
+    catch (e: any) { toast(e.message, 'bad'); }
+    finally { setBusy(false); }
+  }
+  const input = (k: keyof typeof v, w: number) => (
+    <input className="cell-input" style={{ width: w }} type="number" inputMode="decimal" min={0} value={v[k]} placeholder="–"
+      onChange={(e) => setV({ ...v, [k]: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter' && dirty) save(); }} />
+  );
+  return (
+    <>
+      <td className="num">{input('orders', 64)}</td>
+      <td className="num">{input('pieces', 64)}</td>
+      <td className="num">{input('revenue', 96)}</td>
+      <td>{dirty && <button className="primary small" disabled={busy} onClick={save}>บันทึก</button>}</td>
+    </>
   );
 }

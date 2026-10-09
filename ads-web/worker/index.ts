@@ -227,6 +227,35 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role)
     return json({ results });
   }
 
+  // ---- real daily totals from the order system (typed in) ----
+  if (path === '/api/actual-sales' && method === 'GET') {
+    const { results } = await env.DB.prepare('SELECT * FROM actual_sales ORDER BY date DESC LIMIT 120').all();
+    return json(results);
+  }
+  if ((m = path.match(/^\/api\/actual-sales\/(\d{4}-\d{2}-\d{2})$/)) && method === 'PUT') {
+    const date = m[1];
+    if (Number.isNaN(Date.parse(date))) throw new BadRequest('วันที่ไม่ถูกต้อง');
+    const input = await body();
+    const n = (v: unknown, what: string, int: boolean) => {
+      if (v === null || v === undefined || v === '') return null;
+      const x = Number(v);
+      if (!Number.isFinite(x) || x < 0 || (int && !Number.isInteger(x))) throw new BadRequest(`${what}ไม่ถูกต้อง`);
+      return x;
+    };
+    const row = { orders: n(input?.orders, 'จำนวนออเดอร์', true), pieces: n(input?.pieces, 'จำนวนชิ้น', true), revenue: n(input?.revenue, 'ยอดเงิน', false) };
+    if (row.orders === null && row.pieces === null && row.revenue === null) {
+      await env.DB.prepare('DELETE FROM actual_sales WHERE date = ?').bind(date).run();
+    } else {
+      await env.DB.prepare(
+        `INSERT INTO actual_sales (date, orders, pieces, revenue, note, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(date) DO UPDATE SET orders = excluded.orders, pieces = excluded.pieces, revenue = excluded.revenue,
+           note = excluded.note, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+      ).bind(date, row.orders, row.pieces, row.revenue, String(input?.note ?? '').slice(0, 300), user, new Date().toISOString()).run();
+    }
+    await audit(env.DB, user, 'actual-sales.save', date, row);
+    return json({ ok: true });
+  }
+
   // ---- per-campaign costs from the team's sheet ----
   if (path === '/api/campaign-costs' && method === 'GET') {
     const { costs: cc, synced_at } = await loadCampaignCosts(env.DB);

@@ -212,6 +212,8 @@ export interface SalesRow {
   calc: SalesCalc;
 }
 
+export interface ActualSales { date: string; orders: number | null; pieces: number | null; revenue: number | null; note: string; updated_by: string; updated_at: string }
+
 export interface BulkBudgetResult { id: string; name: string; from: number | null; to?: number; ok: boolean; message?: string }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -250,6 +252,8 @@ export const api = {
   preview: () => call<Preview>('GET', '/api/preview'),
   daily: (id: string, window: Window) => call<{ days: DailyRow[] }>('GET', `/api/campaigns/${id}/daily?window=${window}`),
   stats: (id: string) => call<CampaignStats>('GET', `/api/campaigns/${id}/stats`),
+  actualSales: () => call<ActualSales[]>('GET', '/api/actual-sales'),
+  saveActualSales: (date: string, v: { orders: number | null; pieces: number | null; revenue: number | null }) => call<{ ok: true }>('PUT', `/api/actual-sales/${date}`, v),
   salesReport: (window: Window) => call<{ window: Window; rows: SalesRow[]; fetched_at: string; warning: string | null }>('GET', `/api/sales-report?window=${window}`),
   campaignCosts: () => call<{ synced_at: string | null; campaigns: { name: string; tiers: CostTier[] }[] }>('GET', '/api/campaign-costs'),
   syncCampaignCosts: () => call<{ campaigns: number; error?: string }>('POST', '/api/campaign-costs/sync'),
