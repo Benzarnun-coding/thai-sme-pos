@@ -214,6 +214,19 @@ export interface SalesRow {
 
 export interface ActualSales { date: string; orders: number | null; pieces: number | null; revenue: number | null; note: string; updated_by: string; updated_at: string }
 
+export interface ConversionOrder {
+  hour: string; value: number; count: number;
+  status: 'match' | 'mismatch' | 'no_value' | 'unsplit';
+  sets: { units: number; price: number; cost: number }[]; cod: number; cost: number;
+}
+export interface ConversionCampaign {
+  campaign_id: string; name: string; stage_id: string | null;
+  tiers: CostTier[]; cost_source: 'sheet' | 'product' | null; cost_label: string;
+  count: number; value: number; matched: number; match_rate: number;
+  cost: number | null; spend: number | null; profit: number | null;
+  orders: ConversionOrder[];
+}
+
 export interface BulkBudgetResult { id: string; name: string; from: number | null; to?: number; ok: boolean; message?: string }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -254,7 +267,7 @@ export const api = {
   stats: (id: string) => call<CampaignStats>('GET', `/api/campaigns/${id}/stats`),
   actualSales: () => call<ActualSales[]>('GET', '/api/actual-sales'),
   saveActualSales: (date: string, v: { orders: number | null; pieces: number | null; revenue: number | null }) => call<{ ok: true }>('PUT', `/api/actual-sales/${date}`, v),
-  conversions: (date: string) => call<{ date: string; rows: { hour: string; campaign_id: string; name: string; purchases: number; purchase_value: number }[] }>('GET', `/api/conversions?date=${date}`),
+  conversions: (date: string, window: Window) => call<{ date: string; cod_fee: number; campaigns: ConversionCampaign[]; fetched_at: string }>('GET', `/api/conversions?date=${date}&window=${window}`),
   salesReport: (window: Window) => call<{ window: Window; rows: SalesRow[]; fetched_at: string; warning: string | null }>('GET', `/api/sales-report?window=${window}`),
   campaignCosts: () => call<{ synced_at: string | null; campaigns: { name: string; tiers: CostTier[] }[] }>('GET', '/api/campaign-costs'),
   syncCampaignCosts: () => call<{ campaigns: number; error?: string }>('POST', '/api/campaign-costs/sync'),

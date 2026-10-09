@@ -2,7 +2,7 @@
 // product cost, ad spend, profit — with the working for each row and a CSV for Excel.
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { api, WINDOW_LABEL, type ActualSales, type Overview, type SalesRow, type Window } from './api.ts';
+import { api, WINDOW_LABEL, type ActualSales, type ConversionCampaign, type Overview, type SalesRow, type Window } from './api.ts';
 import { stageLabel } from './actions.tsx';
 import { baht, num, profitTone, roasTone, when } from './fmt.ts';
 import { formulaLines, methodLabel } from './salesFormula.ts';
@@ -205,7 +205,7 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
             </section>
           )}
 
-          {selected && <ConversionList date={selected} onOpenCampaign={onOpenCampaign} />}
+          {selected && <ConversionList date={selected} window={window} onOpenCampaign={onOpenCampaign} />}
         </>
       )}
     </div>
@@ -311,50 +311,96 @@ function ActualInputs({ date, a, onSaved }: { date: string; a: ActualSales | und
   );
 }
 
-/** Every time revenue came in on that day: which ad, what hour, how many purchases, how much each. */
-function ConversionList({ date, onOpenCampaign }: { date: string; onOpenCampaign: (id: string) => void }) {
-  const [rows, setRows] = useState<{ hour: string; campaign_id: string; name: string; purchases: number; purchase_value: number }[] | null>(null);
+/**
+ * Every time revenue came in on that day, per ad: "1,500 บาท · 3 ครั้ง: 450, 550, 500", each order matched to the
+ * ad's promos (ตรงโปร → its real cost; ไม่ตรงโปร → probably another model, costed as a share of its value).
+ */
+function ConversionList({ date, window, onOpenCampaign }: { date: string; window: Window; onOpenCampaign: (id: string) => void }) {
+  const [res, setRes] = useState<{ cod_fee: number; campaigns: ConversionCampaign[] } | null>(null);
   const [error, setError] = useState('');
-  const [only, setOnly] = useState('');
+  const [open, setOpen] = useState<Set<string>>(new Set());
   useEffect(() => {
-    setRows(null); setError(''); setOnly('');
-    api.conversions(date).then((r) => setRows(r.rows)).catch((e) => setError(e.message));
-  }, [date]);
-  const campaigns = useMemo(() => [...new Map((rows ?? []).map((r) => [r.campaign_id, r.name])).entries()].sort((a, b) => a[1].localeCompare(b[1], 'th')), [rows]);
-  const list = (rows ?? []).filter((r) => !only || r.campaign_id === only);
-  const total = list.reduce((t, r) => ({ n: t.n + r.purchases, v: t.v + r.purchase_value }), { n: 0, v: 0 });
+    setRes(null); setError(''); setOpen(new Set());
+    api.conversions(date, window).then(setRes).catch((e) => setError(e.message));
+  }, [date, window]);
+  const cs = res?.campaigns ?? [];
+  const t = cs.reduce((a, c) => ({ n: a.n + c.count, v: a.v + c.value, m: a.m + c.orders.filter((o) => o.status === 'match').reduce((x, o) => x + o.value, 0) }), { n: 0, v: 0, m: 0 });
 
   return (
     <section className="card table-card">
       <div className="table-card-head">
         <div>
-          <h2>รายการยอดเข้า {thaiDay(date)} <span className="muted small">ทุกครั้งที่แอดมินติ๊กยอดซื้อ แยกตามแอดและชั่วโมง</span></h2>
-          <p className="muted small">Meta ให้ข้อมูลละเอียดสุดระดับ "แอด × ชั่วโมง" — ถ้าชั่วโมงเดียวกันมีหลายครั้ง จะรวมเป็นแถวเดียวและแสดงยอดเฉลี่ยต่อครั้ง</p>
+          <h2>รายการยอดเข้า {thaiDay(date)} <span className="muted small">แต่ละแอดเข้ากี่ครั้ง ครั้งละเท่าไร</span></h2>
+          <p className="muted small">
+            ยอดแต่ละครั้งจับคู่กับราคาโปรของแอด (รวม +{res?.cod_fee ?? 50} เก็บปลายทาง และหลายชุดในออเดอร์เดียว) ·
+            <span className="badge ok-badge">ตรงโปร</span> ใช้ทุนของโปรนั้น ·
+            <span className="badge warn">ไม่ตรงโปร</span> น่าจะซื้อรุ่นอื่น/ราคาอื่น คิดทุนแบบระวังเป็นสัดส่วน
+            {t.v > 0 && <> · ทั้งวันตรงโปร <b>{num((t.m / t.v) * 100)}%</b> ของยอด</>}
+          </p>
         </div>
-        {campaigns.length > 1 && (
-          <select value={only} onChange={(e) => setOnly(e.target.value)} aria-label="เลือกแอด">
-            <option value="">ทุกแอด ({campaigns.length})</option>
-            {campaigns.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-          </select>
-        )}
+        {cs.length > 0 && <button className="ghost small" onClick={() => setOpen(open.size ? new Set() : new Set(cs.map((c) => c.campaign_id)))}>{open.size ? 'ย่อทั้งหมด' : 'แสดงทุกครั้ง'}</button>}
       </div>
-      {error ? <p className="error" style={{ margin: '0 18px 12px' }}>{error}</p> : !rows ? <div className="skeleton" style={{ height: 160, margin: '0 18px 12px' }} /> : rows.length === 0 ? <p className="muted small" style={{ padding: '0 18px 12px' }}>ไม่มียอดเข้าในวันนี้</p> : (
+      {error ? <p className="error" style={{ margin: '0 18px 12px' }}>{error}</p> : !res ? <div className="skeleton" style={{ height: 160, margin: '0 18px 12px' }} /> : cs.length === 0 ? <p className="muted small" style={{ padding: '0 18px 12px' }}>ไม่มียอดเข้าในวันนี้</p> : (
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>เวลา</th><th>แคมเปญ</th><th className="num">ครั้ง</th><th className="num">ยอดเงิน</th><th className="num">ครั้งละ</th></tr></thead>
+            <thead><tr><th>แคมเปญ</th><th className="num">ยอดรวม</th><th>ยอดแต่ละครั้ง</th><th className="num">ตรงโปร</th><th className="num">ทุนสินค้า</th><th className="num">ค่าแอด</th><th className="num">กำไร</th></tr></thead>
             <tbody>
-              {list.map((r, i) => (
-                <tr key={`${r.campaign_id}:${r.hour}:${i}`} className={r.purchase_value === 0 ? 'dim' : ''}>
-                  <td className="num" style={{ textAlign: 'left' }}>{r.hour}</td>
-                  <td className="campaign-cell"><button className="name-link" onClick={() => onOpenCampaign(r.campaign_id)}>{r.name}</button></td>
-                  <td className="num">{num(r.purchases)}</td>
-                  <td className="num strong">{r.purchase_value === 0 ? <span className="warn">ไม่มียอดเงิน</span> : baht(r.purchase_value)}</td>
-                  <td className="num">{r.purchases > 1 ? <span title="หลายครั้งในชั่วโมงเดียวกัน">เฉลี่ย {baht(r.purchase_value / r.purchases)}</span> : r.purchase_value ? baht(r.purchase_value) : '–'}</td>
-                </tr>
-              ))}
+              {cs.map((c) => {
+                const isOpen = open.has(c.campaign_id);
+                const toggle = () => setOpen((s) => { const n = new Set(s); if (n.has(c.campaign_id)) n.delete(c.campaign_id); else n.add(c.campaign_id); return n; });
+                return (
+                  <Fragment key={c.campaign_id}>
+                    <tr className={isOpen ? 'open' : ''}>
+                      <td className="campaign-cell">
+                        <button className="name-link" onClick={() => onOpenCampaign(c.campaign_id)}>{c.name}</button>
+                        <div className="small muted">{c.count} ครั้ง{c.cost_source === 'sheet' ? ' · ทุนจากชีต' : c.cost_source === 'product' ? ` · ทุนตามสินค้า ${c.cost_label}` : ' · ยังไม่มีทุน'}</div>
+                      </td>
+                      <td className="num strong">{baht(c.value)}</td>
+                      <td>
+                        <button className="chips-btn" onClick={toggle} title="ดูรายละเอียดแต่ละครั้ง">
+                          {c.orders.map((o, i) => (
+                            <span key={i} className={`order-chip ${o.status}`}>{o.status === 'no_value' ? '฿0' : `${o.count > 1 ? `${o.count}× ` : ''}${num(o.value)}`}</span>
+                          ))}
+                          <Icon name={isOpen ? 'up' : 'down'} size={12} />
+                        </button>
+                      </td>
+                      <td className={`num ${c.match_rate >= 0.9 ? 'good' : c.match_rate >= 0.6 ? '' : 'warn'}`}>{c.tiers.length ? `${c.matched}/${c.orders.length} · ${num(c.match_rate * 100)}%` : '–'}</td>
+                      <td className="num">{c.cost === null ? '–' : baht(c.cost)}</td>
+                      <td className="num">{c.spend === null ? '–' : baht(c.spend)}</td>
+                      <td className={`num strong ${c.profit === null ? '' : c.profit < 0 ? 'bad' : 'good'}`}>{c.profit === null ? '–' : baht(c.profit)}</td>
+                    </tr>
+                    {isOpen && (
+                      <tr className="formula-row">
+                        <td colSpan={7}>
+                          {c.tiers.length > 0 && <p className="small muted" style={{ margin: '6px 0' }}>โปรของแอดนี้: {c.tiers.map((x) => `${x.units} ตัว ${baht(x.price)} (ทุน ${baht(x.cost, 2)})`).join(' · ')}</p>}
+                          <ol className="formula">
+                            {c.orders.map((o, i) => (
+                              <li key={i}>
+                                <span className="muted">{o.hour}</span> · <b>{o.status === 'no_value' ? '฿0' : baht(o.value)}</b>{o.count > 1 && ` (${o.count} ครั้งในชั่วโมงนี้)`} —{' '}
+                                {o.status === 'match' && <><span className="badge ok-badge">ตรงโปร</span> {o.sets.map((s2) => `${s2.units} ตัว ${num(s2.price)}`).join(' + ')}{o.cod ? ` + เก็บปลายทาง ${num(o.cod)}` : ''} → ทุน {baht(o.cost, 2)}</>}
+                                {o.status === 'mismatch' && (c.tiers.length
+                                  ? <><span className="badge warn">ไม่ตรงโปร</span> ไม่ตรงกับราคาโปรของแอดนี้ อาจซื้อรุ่นอื่น → ทุนประมาณ {baht(o.cost, 2)} ({num((o.cost / o.value) * 100, 1)}% ของยอด)</>
+                                  : <span className="muted">ยังไม่มีทุน/ราคาโปรของแอดนี้</span>)}
+                                {o.status === 'unsplit' && <><span className="badge warn">แยกไม่ได้</span> {o.count} ครั้งรวมกันไม่ตรงกับโปร → ทุนประมาณ {baht(o.cost, 2)}</>}
+                                {o.status === 'no_value' && <span className="badge">ไม่มียอดเงิน</span>}
+                              </li>
+                            ))}
+                          </ol>
+                          {c.cost !== null && c.spend !== null && <p className="small" style={{ margin: '6px 0 0' }}>กำไร = ยอด {baht(c.value, 2)} − ทุน {baht(c.cost, 2)} − ค่าแอด {baht(c.spend, 2)} = <b>{baht(c.profit ?? 0, 2)}</b></p>}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
             <tfoot>
-              <tr className="total-row"><td>รวม</td><td>{only ? '' : `${campaigns.length} แอด`}</td><td className="num">{num(total.n)}</td><td className="num">{baht(total.v)}</td><td className="num">{total.n ? `เฉลี่ย ${baht(total.v / total.n)}` : ''}</td></tr>
+              <tr className="total-row">
+                <td>รวม {cs.length} แอด · {num(t.n)} ครั้ง</td><td className="num">{baht(t.v)}</td><td /><td className="num">{t.v ? `${num((t.m / t.v) * 100)}%` : ''}</td>
+                <td className="num">{baht(cs.reduce((a, c) => a + (c.cost ?? 0), 0))}</td>
+                <td className="num">{baht(cs.reduce((a, c) => a + (c.spend ?? 0), 0))}</td>
+                <td className="num">{baht(cs.reduce((a, c) => a + (c.profit ?? 0), 0))}</td>
+              </tr>
             </tfoot>
           </table>
         </div>

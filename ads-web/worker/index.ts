@@ -6,7 +6,7 @@ import type { Entity, Level, Window } from '../../ads-engine/src/types.ts';
 import { authenticate } from './auth.ts';
 import { canWrite, roleOf, type Role } from './roles.ts';
 import { syncCampaignCosts, syncCosts } from './costs.ts';
-import { CampaignCostIndex, tierEconomics } from './campaignCosts.ts';
+import { CampaignCostIndex, tierEconomics, type CostTier } from './campaignCosts.ts';
 import {
   audit, codOf, deleteSection, loadCampaignCosts, deleteWebCost, saveWebCost, insertRun, listAudit, listRuns, loadCampaignSettings, loadCosts, loadSections, loadSettings,
   loadStages, loadState, saveCampaignSetting, saveCampaignSettings, auditMany, campaignHistory, saveSection, saveSettings, saveStage,
@@ -17,6 +17,7 @@ import { DEFAULT_SECTION_ID, WEB_TAB, campaignEconomics, economics, profitRange,
 import { capChanges, planRun, runAutomation, zeroMetrics, type MetaLike } from './run.ts';
 import { buildIdeas } from './ideas.ts';
 import { explainDay } from './salesReport.ts';
+import { campaignDay } from './transactions.ts';
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
@@ -299,10 +300,8 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role)
   if (method === 'GET' && path === '/api/conversions') {
     const date = url.searchParams.get('date') ?? '';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) throw new BadRequest('วันที่ไม่ถูกต้อง');
-    const { data } = await metaData(env);
-    const rows = await data.hourly(date).catch((err) => { throw new BadRequest(err instanceof MetaCacheError ? err.message : friendlyMetaError(err)); });
-    const nameOf = new Map(data.entities.filter((e) => e.level === 'campaign').map((e) => [e.id, e.name]));
-    return json({ date, rows: rows.map((r) => ({ ...r, name: nameOf.get(r.campaign_id) ?? r.campaign_id })).sort((a, b) => a.hour.localeCompare(b.hour) || b.purchase_value - a.purchase_value) });
+    const w = url.searchParams.get('window') as Window;
+    return json(await conversions(env, date, (['last_7d', 'last_14d', 'last_30d'] as Window[]).includes(w) ? w : 'last_14d'));
   }
   if (method === 'GET' && path === '/api/sales-report') {
     const w = url.searchParams.get('window') as Window;
@@ -605,6 +604,58 @@ async function salesReport(env: Env, window: Window) {
     })
     .sort((a, b) => b.date.localeCompare(a.date) || b.revenue - a.revenue);
   return { window, rows, fetched_at: data.fetchedAt(), warning: data.warning() };
+}
+
+/**
+ * One day's revenue events per campaign, each order matched to the campaign's promos (from the cost sheet, or
+ * the product line's cost with the promos in the campaign name) and costed, with that day's ad spend.
+ */
+async function conversions(env: Env, date: string, window: Window) {
+  const [{ data }, sections, campaignSettings, costs, settings, cc] = await Promise.all([
+    metaData(env), loadSections(env.DB), loadCampaignSettings(env.DB), loadCosts(env.DB), loadSettings(env.DB), loadCampaignCosts(env.DB),
+  ]);
+  const err = (e: unknown) => { throw new BadRequest(e instanceof MetaCacheError ? e.message : friendlyMetaError(e)); };
+  const [hours, days, entities] = await Promise.all([data.hourly(date).catch(err), data.dailyAll(window).catch(() => []), withMetrics(data, [['campaign', ECONOMICS_WINDOW]])]);
+  const index = new CampaignCostIndex(cc.costs);
+  const cod = codOf(settings);
+  const sectionOf = sectionMap(entities, sections, campaignSettings);
+  const totals7 = sectionTotals(entities, sectionOf, ECONOMICS_WINDOW);
+  const nameOf = new Map(entities.filter((e) => e.level === 'campaign').map((e) => [e.id, e.name]));
+  const spendOf = new Map(days.filter((d) => d.date === date).map((d) => [d.campaign_id, d.spend]));
+
+  /** Promos with the all-in cost of one order of each. */
+  const tiersOf = (id: string, name: string): { tiers: CostTier[]; source: 'sheet' | 'product' | null; label: string } => {
+    const found = index.find(name);
+    if (found) return { tiers: found.cost.tiers, source: 'sheet', label: found.cost.name };
+    const section = sections.find((s) => s.id === (sectionOf.get(id) ?? DEFAULT_SECTION_ID));
+    if (!section) return { tiers: [], source: null, label: '' };
+    const e = campaignEconomics(section, costs, totals7.get(section.id) ?? { spend: 0, purchases: 0, purchase_value: 0 }, cod, name);
+    if (e.cost_per_unit === null) return { tiers: [], source: null, label: '' };
+    const promos = [...section.tiers, ...e.name_tiers];
+    const list = promos.length ? promos : e.price_per_unit_max !== null ? [{ units: 1, price: e.price_per_unit_max }] : [];
+    return { tiers: list.map((t) => ({ units: t.units, price: t.price, cost: t.units * e.cost_per_unit! })), source: list.length ? 'product' : null, label: section.name };
+  };
+
+  const byCampaign = new Map<string, typeof hours>();
+  for (const h of hours) byCampaign.set(h.campaign_id, [...(byCampaign.get(h.campaign_id) ?? []), h]);
+  const campaigns = [...byCampaign].map(([id, hs]) => {
+    const name = nameOf.get(id) ?? id;
+    const t = tiersOf(id, name);
+    const day = campaignDay(hs.sort((a, b) => a.hour.localeCompare(b.hour)), t.tiers, cod.fee);
+    const spend = spendOf.get(id) ?? null;
+    const costed = t.tiers.length > 0;
+    return {
+      campaign_id: id, name, stage_id: campaignSettings.get(id)?.stage_id ?? null,
+      tiers: t.tiers, cost_source: t.source, cost_label: t.label,
+      count: day.count, value: day.value, matched: day.matched, match_rate: day.match_rate,
+      cost: costed ? day.cost : null,
+      spend,
+      // COD surcharges are in the value (income) and not in the cost.
+      profit: costed && spend !== null ? day.value - day.cost - spend : null,
+      orders: day.orders,
+    };
+  }).sort((a, b) => b.value - a.value);
+  return { date, cod_fee: cod.fee, campaigns, fetched_at: data.fetchedAt() };
 }
 
 async function ideas(env: Env) {
