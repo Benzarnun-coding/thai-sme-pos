@@ -69,7 +69,7 @@ export function extractReferrals(entries: { messaging?: MessagingEvent[]; standb
       const [r, kind] = found as [Referral, string];
       out.push({
         psid: ev.sender.id,
-        at: new Date(ev.timestamp ?? Date.now()).toISOString(),
+        at: eventTime(ev.timestamp),
         ad_id: r.ad_id ?? null,
         campaign_id: null,
         source: r.source ?? null,
@@ -79,6 +79,12 @@ export function extractReferrals(entries: { messaging?: MessagingEvent[]; standb
     }
   }
   return out;
+}
+
+/** Meta documents timestamps in milliseconds but delivers some in seconds; anything before 2001 in ms is seconds. */
+function eventTime(ts: number | undefined): string {
+  if (!ts) return new Date().toISOString();
+  return new Date(ts < 1e11 ? ts * 1000 : ts).toISOString();
 }
 
 async function store(env: WebhookEnv, rows: ReferralRow[], events: number): Promise<void> {
