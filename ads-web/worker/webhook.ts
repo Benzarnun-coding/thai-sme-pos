@@ -12,7 +12,8 @@ export interface WebhookEnv {
   META_API_VERSION?: string;
 }
 
-const SUBSCRIBED_FIELDS = 'messages,messaging_postbacks,messaging_referrals';
+// standby: when another app (e.g. the chat tool) owns the thread, Meta delivers the same events there instead.
+const SUBSCRIBED_FIELDS = 'messages,messaging_postbacks,messaging_referrals,standby';
 const GRAPH = (env: WebhookEnv) => `https://graph.facebook.com/${env.META_API_VERSION ?? 'v21.0'}`;
 
 interface Referral { ref?: string; source?: string; type?: string; ad_id?: string }
@@ -41,7 +42,7 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
   const sig = req.headers.get('X-Hub-Signature-256') ?? '';
   if (!(await validSignature(raw, sig, env.META_APP_SECRET))) return new Response('bad signature', { status: 401 });
 
-  let body: { object?: string; entry?: { id?: string; messaging?: MessagingEvent[] }[] };
+  let body: { object?: string; entry?: { id?: string; messaging?: MessagingEvent[]; standby?: MessagingEvent[] }[] };
   try {
     body = JSON.parse(raw);
   } catch {
@@ -50,17 +51,17 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
   if (body.object !== 'page') return new Response('ignored', { status: 200 });
 
   const rows = extractReferrals(body.entry ?? []);
-  const events = (body.entry ?? []).reduce((n, e) => n + (e.messaging?.length ?? 0), 0);
+  const events = (body.entry ?? []).reduce((n, e) => n + (e.messaging?.length ?? 0) + (e.standby?.length ?? 0), 0);
   // Answer Meta right away; the writes finish in the background (Meta retries deliveries that get no 200).
   ctx.waitUntil(store(env, rows, events).catch((err) => console.error('webhook store', err)));
   return new Response('ok', { status: 200 });
 }
 
 /** One row per event that carries a referral (ad click, m.me link, ...). Echoes of our own messages are skipped. */
-export function extractReferrals(entries: { messaging?: MessagingEvent[] }[]): ReferralRow[] {
+export function extractReferrals(entries: { messaging?: MessagingEvent[]; standby?: MessagingEvent[] }[]): ReferralRow[] {
   const out: ReferralRow[] = [];
   for (const e of entries) {
-    for (const ev of e.messaging ?? []) {
+    for (const ev of [...(e.messaging ?? []), ...(e.standby ?? [])]) {
       if (ev.message?.is_echo || !ev.sender?.id) continue;
       const pick: [Referral | undefined, string][] = [[ev.referral, 'referral'], [ev.postback?.referral, 'postback'], [ev.message?.referral, 'message']];
       const found = pick.find(([r]) => r && (r.ad_id || r.ref || r.source));

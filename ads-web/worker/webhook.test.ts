@@ -11,11 +11,13 @@ test('referrals are read from referral, postback and first-message events; echoe
       { sender: { id: 'page' }, timestamp: 1_791_500_003_000, message: { is_echo: true, referral: { source: 'ADS', ad_id: 'x' } } },
       { sender: { id: 'u4' }, timestamp: 1_791_500_004_000, message: {} },
     ] },
+    { standby: [{ sender: { id: 'u5' }, timestamp: 1_791_500_005_000, referral: { source: 'ADS', type: 'OPEN_THREAD', ad_id: '120249724151120069' } }] },
   ]);
   assert.deepEqual(rows.map((r) => [r.psid, r.kind, r.ad_id, r.source, r.ref]), [
     ['u1', 'referral', '120250097923720069', 'ADS', ''],
     ['u2', 'postback', '120249738735280069', 'ADS', null],
     ['u3', 'message', null, 'SHORTLINK', 'promo'],
+    ['u5', 'referral', '120249724151120069', 'ADS', null],
   ]);
   assert.equal(rows[0].at, '2026-10-08T22:53:20.000Z');
   assert.equal(rows[0].campaign_id, null);
