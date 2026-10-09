@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useUi } from './ui.tsx';
-import { api, type CostTier, type Settings } from './api.ts';
+import { api, type CostTier, type Settings, type WebhookStatus } from './api.ts';
 import { when } from './fmt.ts';
 
 export function SettingsPage({ costsLoaded, campaignNames, onSaved }: { costsLoaded: number; campaignNames: string[]; onSaved: () => void }) {
@@ -82,6 +82,8 @@ export function SettingsPage({ costsLoaded, campaignNames, onSaved }: { costsLoa
       </section>
 
       <ConversionHoursCard />
+
+      <WebhookCard />
 
       <CampaignCostSheet s={s} setS={setS} busy={busy} onSave={() => save(s)} campaignNames={campaignNames} onSynced={onSaved} />
 
@@ -202,6 +204,54 @@ function CampaignCostSheet({ s, setS, busy, onSave, campaignNames, onSynced }: {
 }
 
 /** Stored hourly purchases: how many of the last 30 days are there, and a button to fetch more now. */
+/** Messenger webhook: Meta tells us which ad each customer came from, from the day it is switched on. */
+function WebhookCard() {
+  const { toast } = useUi();
+  const [st, setSt] = useState<WebhookStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => api.webhook().then(setSt).catch(() => setSt(null));
+  useEffect(() => { load(); }, []);
+  async function setup() {
+    setBusy(true);
+    try {
+      await api.setupWebhook();
+      toast('เชื่อมต่อแล้ว — ข้อมูลจะเริ่มเข้าเมื่อมีลูกค้าทักจากแอด', 'ok');
+      await load();
+    } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
+  }
+  const ready = st && st.configured.app_secret && st.configured.verify_token && st.configured.app_id;
+  const connected = st && st.app_subscribed && st.page?.subscribed;
+  return (
+    <section className="card">
+      <h2>ลูกค้าทักจากแอดไหน (Messenger webhook)</h2>
+      <p className="muted small">
+        Meta ส่งมาบอกทันทีที่ลูกค้ากดทักจากแอด ว่าลูกค้า (รหัส) คนนี้มาจากแอดตัวไหน · เก็บแค่รหัสลูกค้า แอด และเวลา ไม่เก็บชื่อหรือข้อความ
+        · ย้อนหลังก่อนวันเชื่อมต่อไม่มี (Meta ไม่ให้ดึง) · ดูผลได้ในหน้ายอดขายรายวัน
+      </p>
+      {!st ? <div className="skeleton" style={{ height: 60 }} /> : (
+        <>
+          <div className="grid2">
+            <div><div className="small muted">สถานะ</div><b>{connected ? 'เชื่อมต่อแล้ว' : ready ? 'ยังไม่ได้เชื่อมต่อ' : 'ยังไม่ได้ตั้งค่า'}</b></div>
+            <div><div className="small muted">เพจ</div><b>{st.page ? `${st.page.name}${st.page.subscribed ? '' : ' (ยังไม่ส่งข้อมูล)'}` : '–'}</b></div>
+            <div><div className="small muted">เหตุการณ์ที่รับมาทั้งหมด</div><b>{st.events_total.toLocaleString('th-TH')}</b>{st.last_event_at && <span className="small muted"> · ล่าสุด {when(st.last_event_at)}</span>}</div>
+            <div><div className="small muted">ลูกค้าทักจากแอด</div><b>{st.referrals_total.toLocaleString('th-TH')}</b>{st.last_referral_at && <span className="small muted"> · ล่าสุด {when(st.last_referral_at)}</span>}</div>
+          </div>
+          {!ready && (
+            <p className="small warn">
+              ต้องตั้ง secret ใน Worker ก่อน:{!st.configured.app_secret && ' META_APP_SECRET (รหัสลับแอป Stat)'}{!st.configured.verify_token && ' META_WEBHOOK_VERIFY_TOKEN'}{!st.configured.app_id && ' META_APP_ID'}
+            </p>
+          )}
+          {st.error && <p className="small warn">{st.error}</p>}
+          <div className="row gap">
+            <button className="ghost" disabled={busy || !ready} onClick={setup}>{busy ? 'กำลังเชื่อมต่อ…' : connected ? 'เชื่อมต่อใหม่' : 'เชื่อมต่อ'}</button>
+            <span className="small muted">URL: {st.callback_url}</span>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function ConversionHoursCard() {
   const { toast } = useUi();
   const [st, setSt] = useState<{ stored: number; of: number } | null>(null);

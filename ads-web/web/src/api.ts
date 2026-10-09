@@ -223,6 +223,19 @@ export interface ConversionOrder {
   status: 'match' | 'mismatch' | 'no_value' | 'unsplit';
   sets: { units: number; price: number; cost: number }[]; cod: number; cost: number;
 }
+export interface WebhookStatus {
+  configured: { app_secret: boolean; verify_token: boolean; app_id: boolean };
+  callback_url: string;
+  app_subscribed: boolean | null;
+  page: { id: string; name: string; subscribed: boolean } | null;
+  events_total: number;
+  referrals_total: number;
+  last_event_at: string | null;
+  last_referral_at: string | null;
+  error: string | null;
+}
+export interface ReferralSummary { date: string; campaign_id: string | null; ad_id: string | null; ad_name: string | null; people: number; events: number }
+
 export interface ConversionCampaign {
   campaign_id: string; name: string; stage_id: string | null;
   tiers: CostTier[]; cost_source: 'sheet' | 'product' | null; cost_label: string;
@@ -273,6 +286,9 @@ export const api = {
   saveActualSales: (date: string, v: { orders: number | null; pieces: number | null; revenue: number | null }) => call<{ ok: true }>('PUT', `/api/actual-sales/${date}`, v),
   conversions: (date: string, window: Window) => call<{ date: string; cod_fee: number; campaigns: ConversionCampaign[]; fetched_at: string }>('GET', `/api/conversions?date=${date}&window=${window}`),
   salesReport: (window: Window) => call<{ window: Window; rows: SalesRow[]; fetched_at: string; warning: string | null }>('GET', `/api/sales-report?window=${window}`),
+  webhook: () => call<WebhookStatus>('GET', '/api/webhook'),
+  setupWebhook: () => call<{ app: unknown; page: unknown }>('POST', '/api/webhook/setup'),
+  adReferrals: (q: { date?: string; window?: Window }) => call<{ dates: string[]; rows: ReferralSummary[] }>('GET', `/api/ad-referrals?${q.date ? `date=${q.date}` : `window=${q.window ?? 'last_7d'}`}`),
   conversionHours: () => call<{ stored: number; of: number; dates: string[] }>('GET', '/api/conversion-hours'),
   syncConversionHours: () => call<{ fetched: string[]; missing: number; errors: string[] }>('POST', '/api/conversion-hours/sync'),
   campaignCosts: () => call<{ synced_at: string | null; campaigns: { name: string; tiers: CostTier[] }[] }>('GET', '/api/campaign-costs'),

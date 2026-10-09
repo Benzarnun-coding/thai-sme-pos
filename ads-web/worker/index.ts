@@ -22,6 +22,7 @@ import { makeTierResolver } from './costing.ts';
 import { bkkDate, loadConversionHours, saveConversionDay, syncConversionHours, txCosting, windowDates } from './conversionStore.ts';
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
+import { receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
 export interface Env {
@@ -33,6 +34,10 @@ export interface Env {
   ACCESS_AUD?: string;
   LINE_CHANNEL_ACCESS_TOKEN?: string;
   LINE_TO?: string;
+  /** Messenger webhook (see worker/webhook.ts): app id is a var, the other two are secrets */
+  META_APP_ID?: string;
+  META_APP_SECRET?: string;
+  META_WEBHOOK_VERIFY_TOKEN?: string;
   /** Local development only (.dev.vars) */
   DEV_MOCK_META?: string;
   DEV_BYPASS_AUTH?: string;
@@ -49,8 +54,14 @@ function metaFor(env: Env): MetaLike {
 }
 
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
+    // Meta's webhook comes from outside Cloudflare Access (bypassed for /webhook/* there); it is signed instead.
+    if (url.pathname === '/webhook/meta') {
+      if (req.method === 'GET') return verifyChallenge(url, env);
+      if (req.method === 'POST') return receiveWebhook(req, env, ctx);
+      return new Response('method not allowed', { status: 405 });
+    }
     if (!url.pathname.startsWith('/api/')) return new Response('Not found', { status: 404 });
 
     const user = await authenticate(req, env).catch(() => null);
@@ -272,6 +283,20 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role)
     await audit(env.DB, user, 'conversion-hours.sync', 'meta', r);
     if (r.errors.length && !r.fetched.length) throw new BadRequest(friendlyMetaError({ message: r.errors[0] }));
     return json(r);
+  }
+
+  // ---- Messenger webhook: who came from which ad ----
+  if (path === '/api/webhook' && method === 'GET') return json(await webhookStatus(env, `${url.origin}/webhook/meta`));
+  if (path === '/api/webhook/setup' && method === 'POST') {
+    const r = await setupWebhook(env, `${url.origin}/webhook/meta`).catch((err) => { throw new BadRequest(err.message); });
+    await audit(env.DB, user, 'webhook.setup', 'meta', r);
+    return json(r);
+  }
+  if (path === '/api/ad-referrals' && method === 'GET') {
+    const w = url.searchParams.get('window') as Window;
+    const date = url.searchParams.get('date');
+    const dates = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? [date] : [...windowDates((['last_7d', 'last_14d', 'last_30d'] as Window[]).includes(w) ? w : 'last_7d'), bkkDate(0)];
+    return json({ dates, rows: await referralSummary(env.DB, dates) });
   }
 
   // ---- per-campaign costs from the team's sheet ----
