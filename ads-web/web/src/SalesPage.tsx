@@ -425,36 +425,38 @@ function ReferralList({ date, data, onOpenCampaign }: { date: string; data: Over
     api.adReferrals({ date }).then((r) => setRows(r.rows)).catch((e) => setError(e.message));
   }, [date]);
   const byCampaign = useMemo(() => {
-    const m = new Map<string, { campaign_id: string | null; people: number; events: number; ads: ReferralSummary[] }>();
+    const m = new Map<string, { campaign_id: string | null; people: number; bought: number; events: number; ads: ReferralSummary[] }>();
     for (const r of rows ?? []) {
       const k = r.campaign_id ?? '';
-      const g = m.get(k) ?? { campaign_id: r.campaign_id, people: 0, events: 0, ads: [] };
-      g.people += r.people; g.events += r.events; g.ads.push(r);
+      const g = m.get(k) ?? { campaign_id: r.campaign_id, people: 0, bought: 0, events: 0, ads: [] };
+      g.people += r.people; g.bought += r.bought; g.events += r.events; g.ads.push(r);
       m.set(k, g);
     }
     return [...m.values()].sort((a, b) => b.people - a.people);
   }, [rows]);
   const nameOf = (id: string | null) => (id ? data.campaigns.find((c) => c.id === id)?.name ?? `แคมเปญ ${id}` : 'ไม่ทราบแอด/ลิงก์อื่น');
   const total = byCampaign.reduce((t, g) => t + g.people, 0);
+  const bought = byCampaign.reduce((t, g) => t + g.bought, 0);
 
   return (
     <section className="card table-card">
       <div className="table-card-head">
         <div>
-          <h2>ลูกค้าทักจากแอด {thaiDay(date)} <span className="muted small">{total ? `${num(total)} คน` : ''}</span></h2>
-          <p className="muted small">นับคนที่กดทักเพจจากแอด (Messenger webhook) · มีข้อมูลตั้งแต่วันที่เชื่อมต่อในหน้าตั้งค่า · ยังไม่ใช่ยอดซื้อ</p>
+          <h2>ลูกค้าทักจากแอด {thaiDay(date)} <span className="muted small">{total ? `${num(total)} คน${bought ? ` · ซื้อแล้ว ${num(bought)} (${num((bought / total) * 100)}%)` : ''}` : ''}</span></h2>
+          <p className="muted small">นับคนที่กดทักเพจจากแอด (Messenger webhook) · มีข้อมูลตั้งแต่วันที่เชื่อมต่อในหน้าตั้งค่า · "ซื้อแล้ว" = คนที่มีออเดอร์ในไฟล์ Page365 หลังจากทัก (ภายใน 14 วัน)</p>
         </div>
       </div>
       {error ? <p className="error" style={{ margin: '0 18px 12px' }}>{error}</p> : !rows ? <div className="skeleton" style={{ height: 80, margin: '0 18px 12px' }} /> : rows.length === 0 ? <p className="muted small" style={{ padding: '0 18px 12px' }}>ไม่มีข้อมูลวันนี้ (ถ้ายังไม่ได้เชื่อมต่อ webhook ให้เปิดในหน้าตั้งค่า)</p> : (
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>แคมเปญ</th><th>แอด</th><th className="num">คน</th><th className="num">ครั้ง</th></tr></thead>
+            <thead><tr><th>แคมเปญ</th><th>แอด</th><th className="num">คน</th><th className="num">ซื้อแล้ว</th><th className="num">ครั้ง</th></tr></thead>
             <tbody>
               {byCampaign.map((g) => g.ads.map((a, i) => (
                 <tr key={`${g.campaign_id}-${a.ad_id}`}>
                   <td className="campaign-cell">{i === 0 && (g.campaign_id ? <button className="name-link" onClick={() => onOpenCampaign(g.campaign_id!)}>{nameOf(g.campaign_id)}</button> : <span className="muted">{nameOf(null)}</span>)}</td>
                   <td className="small">{a.ad_name ?? a.ad_id ?? '–'}</td>
                   <td className="num strong">{num(a.people)}</td>
+                  <td className="num">{a.bought ? <span className="good">{num(a.bought)}</span> : <span className="muted">0</span>}</td>
                   <td className="num">{num(a.events)}</td>
                 </tr>
               )))}
@@ -511,7 +513,7 @@ function P365UploadCard({ window, onUploaded }: { window: Window; onUploaded: ()
             · เก็บเฉพาะตัวเลขและรหัสสินค้า ไม่เก็บชื่อ เบอร์ ที่อยู่
           </p>
         </div>
-        <label className={`button ghost ${busy ? 'disabled' : ''}`} style={{ cursor: busy ? 'wait' : 'pointer' }}>
+        <label className={`button ${busy ? 'disabled' : ''}`} style={{ cursor: busy ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>
           <Icon name="up" size={14} /> {busy || 'อัปโหลดไฟล์ .xlsx'}
           <input type="file" accept=".xlsx" style={{ display: 'none' }} disabled={!!busy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onFile(f); }} />
         </label>

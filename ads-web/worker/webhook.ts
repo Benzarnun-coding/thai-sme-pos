@@ -257,14 +257,20 @@ async function graph(env: WebhookEnv, path: string, params: Record<string, strin
 
 // ---- what the pages read ----
 
-export interface ReferralSummary { date: string; campaign_id: string | null; ad_id: string | null; ad_name: string | null; people: number; events: number }
+export interface ReferralSummary { date: string; campaign_id: string | null; ad_id: string | null; ad_name: string | null; people: number; bought: number; events: number }
 
-/** People who opened a chat from an ad, per Bangkok day × campaign × ad, for the given dates. */
+/**
+ * People who opened a chat from an ad, per Bangkok day × campaign × ad, for the given dates. "bought" = of
+ * those people, how many have a Page365 order (same name hash) within 14 days after the chat.
+ */
 export async function referralSummary(db: D1Database, dates: string[]): Promise<ReferralSummary[]> {
   if (!dates.length) return [];
   const { results } = await db.prepare(`
     SELECT date(r.at, '+7 hours') AS date, r.campaign_id, r.ad_id, m.name AS ad_name,
-           COUNT(DISTINCT r.psid) AS people, COUNT(*) AS events
+           COUNT(DISTINCT r.psid) AS people, COUNT(*) AS events,
+           COUNT(DISTINCT CASE WHEN EXISTS (
+             SELECT 1 FROM p365_orders o WHERE o.name_hash = r.name_hash AND o.created_at >= r.at AND o.created_at <= datetime(r.at, '+14 days')
+           ) THEN r.psid END) AS bought
     FROM ad_referrals r LEFT JOIN ad_map m ON m.ad_id = r.ad_id
     WHERE date(r.at, '+7 hours') IN (SELECT value FROM json_each(?))
     GROUP BY 1, 2, 3, 4 ORDER BY 1 DESC, people DESC`).bind(JSON.stringify(dates)).all<ReferralSummary>();

@@ -239,7 +239,7 @@ export interface WebhookStatus {
   last_referral_at: string | null;
   error: string | null;
 }
-export interface ReferralSummary { date: string; campaign_id: string | null; ad_id: string | null; ad_name: string | null; people: number; events: number }
+export interface ReferralSummary { date: string; campaign_id: string | null; ad_id: string | null; ad_name: string | null; people: number; bought: number; events: number }
 
 export interface ConversionCampaign {
   campaign_id: string; name: string; stage_id: string | null;
