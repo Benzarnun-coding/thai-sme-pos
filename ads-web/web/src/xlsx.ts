@@ -1,6 +1,8 @@
 // Reads the first sheet of an .xlsx in the browser (no library): unzip with DecompressionStream, parse the
 // shared strings and the sheet XML. Enough for Page365's export; not a general spreadsheet reader.
 
+import { inflate, zipEntries } from './zip.ts';
+
 export type SheetRow = Record<string, string>;
 
 export async function readFirstSheet(file: File): Promise<{ sheet: string; headers: string[]; rows: SheetRow[] }> {
@@ -45,37 +47,4 @@ export async function readFirstSheet(file: File): Promise<{ sheet: string; heade
     return o;
   });
   return { sheet: sheetName, headers: cols.map((c) => header[c]), rows };
-}
-
-interface Entry { start: number; size: number; method: number }
-
-/** Local-file entries by name, from the central directory at the end of the zip. */
-function zipEntries(b: Uint8Array): Map<string, Entry> {
-  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
-  let eocd = -1;
-  for (let i = b.length - 22; i >= Math.max(0, b.length - 70_000); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
-  if (eocd < 0) throw new Error('ไฟล์ไม่ใช่ zip/xlsx');
-  const count = dv.getUint16(eocd + 10, true);
-  let p = dv.getUint32(eocd + 16, true);
-  const out = new Map<string, Entry>();
-  for (let i = 0; i < count; i++) {
-    if (dv.getUint32(p, true) !== 0x02014b50) break;
-    const method = dv.getUint16(p + 10, true);
-    const csize = dv.getUint32(p + 20, true);
-    const nlen = dv.getUint16(p + 28, true), elen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true);
-    const off = dv.getUint32(p + 42, true);
-    const name = new TextDecoder().decode(b.subarray(p + 46, p + 46 + nlen));
-    const lnlen = dv.getUint16(off + 26, true), lelen = dv.getUint16(off + 28, true);
-    out.set(name, { start: off + 30 + lnlen + lelen, size: csize, method });
-    p += 46 + nlen + elen + clen;
-  }
-  return out;
-}
-
-async function inflate(data: Uint8Array, method: number): Promise<Uint8Array> {
-  if (method === 0) return data;
-  if (method !== 8) throw new Error(`zip method ${method} ไม่รองรับ`);
-  const ds = new DecompressionStream('deflate-raw');
-  const stream = new Blob([data as BlobPart]).stream().pipeThrough(ds);
-  return new Uint8Array(await new Response(stream).arrayBuffer());
 }

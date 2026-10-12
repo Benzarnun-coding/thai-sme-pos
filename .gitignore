@@ -27,3 +27,6 @@ dist-ssr
 ads-engine/.env
 ads-engine/state.json
 ads-engine/reports/
+
+# Order exports with customer names/phones/addresses — never commit (public repo)
+Gosell/
