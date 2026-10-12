@@ -25,6 +25,7 @@ import { bkkDate, loadConversionHours, saveConversionDay, syncConversionHours, t
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
+import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
@@ -38,6 +39,7 @@ export interface Env {
   ACCESS_AUD?: string;
   LINE_CHANNEL_ACCESS_TOKEN?: string;
   LINE_TO?: string;
+  DISCORD_WEBHOOK_URL?: string;
   /** Messenger webhook (see worker/webhook.ts): app id is a var, the other two are secrets */
   META_APP_ID?: string;
   META_APP_SECRET?: string;
@@ -105,7 +107,8 @@ export default {
         s.ads_cost_sheet_id ? syncCampaignCosts(env.DB, s) : null,
         // Hourly purchases: refresh the last 3 days (late tags) and fill a few missing older days.
         Promise.resolve().then(() => syncConversionHours(env.DB, metaFor(env))).catch(() => null),
-      ]).then(() => recreditDates(env.DB, [bkkDate(1), bkkDate(2), bkkDate(3)]).catch(() => null))));
+      ]).then(() => recreditDates(env.DB, [bkkDate(1), bkkDate(2), bkkDate(3)]).catch(() => null))
+        .then(() => dailyDigest(env).catch((err) => console.error('digest', err)))));
     } else if (event.cron === RULES_CRON) {
       let meta: MetaLike;
       try {
@@ -930,6 +933,32 @@ const finiteOrNull = (v: number | null | undefined) => (v !== null && v !== unde
 function finite<T extends object | undefined>(m: T): T {
   if (!m) return m;
   return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, typeof v === 'number' && !Number.isFinite(v) ? null : v])) as T;
+}
+
+/** 07:30 Discord note: yesterday's real numbers (Page365) when the file is in, otherwise a reminder to upload. */
+async function dailyDigest(env: Env): Promise<void> {
+  if (!env.DISCORD_WEBHOOK_URL) return;
+  const date = bkkDate(1);
+  const thai = new Date(`${date}T00:00:00+07:00`).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' });
+  const [uploads, orders, settings] = await Promise.all([loadUploads(env.DB, [date]), loadOrders(env.DB, [date]), loadSettings(env.DB)]);
+  if (!uploads.has(date)) {
+    await pushDiscord(`📂 **${thai}** ยังไม่มีไฟล์ Page365 — มอส export ของเมื่อวานแล้วอัปโหลดที่หน้ายอดขายรายวันด้วยครับ`, env.DISCORD_WEBHOOK_URL);
+    return;
+  }
+  const n = (f: (o: typeof orders[number]) => number) => orders.reduce((t, o) => t + f(o), 0);
+  const revenue = n((o) => o.total), cost = n((o) => o.cost ?? 0), fees = n((o) => orderFees(o, settings.order_fees));
+  const organic = orders.filter((o) => o.match === 'none');
+  let ads: number | null = null;
+  try { ads = (await metaFor(env).dailyCampaignInsights('yesterday')).filter((d) => d.date === date).reduce((t, d) => t + d.spend, 0); } catch { ads = null; }
+  const b = (x: number) => Math.round(x).toLocaleString('th-TH');
+  const gross = revenue - cost - fees;
+  const lines = [
+    `📊 **ของจริง ${thai}** (Page365 ${orders.length} ออเดอร์)`,
+    `ยอดขาย ${b(revenue)} · ทุนสินค้า ${b(cost)} (${revenue ? Math.round((cost / revenue) * 100) : 0}%) · ค่าใช้จ่ายต่อออเดอร์ ${b(fees)}`,
+    `กำไรขั้นต้น **${b(gross)}**${ads === null ? '' : ` · ค่าแอด ${b(ads)} (${revenue ? Math.round((ads / revenue) * 100) : 0}% ของยอด) · กำไรสุทธิ **${b(gross - ads)}** · MER ${ads ? (revenue / ads).toFixed(2) : '–'}`}`,
+    `ไม่ใช่แอด ${organic.length} ออเดอร์ ${b(n((o) => (o.match === 'none' ? o.total : 0)))} (${orders.length ? Math.round((organic.length / orders.length) * 100) : 0}%)`,
+  ];
+  await pushDiscord(lines.join('\n'), env.DISCORD_WEBHOOK_URL);
 }
 
 /** After a user change: push the email list to Cloudflare Access when the token is set; a failure is reported, not fatal. */
