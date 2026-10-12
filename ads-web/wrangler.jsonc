@@ -26,7 +26,7 @@
     "META_API_VERSION": "v21.0",
     "META_APP_ID": "1410718820800711",
     // Owners: always allowed to manage users on the ผู้ใช้ page (comma separated).
-    "OWNER_EMAILS": "arnun.tre@benzarnun.com",
+    "OWNER_EMAILS": "arnun.tre@benzarnun.com,ps.maxpollawat@gmail.com",
     // Cloudflare Access sync: account + the reusable policy "PkJeans team" (token is the secret CF_API_TOKEN).
     "CF_ACCOUNT_ID": "bbad0b69f4554a5d9e58085286f3eb9b",
     "CF_ACCESS_POLICY_ID": "c21b794b-dd95-4d8f-86df-ad7347a24fe5",
