@@ -62,6 +62,13 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
         <Kpi label="ยอดขาย" value={baht(all.value)} sub={all.purchases ? `เฉลี่ย ${baht(all.value / all.purchases)}/ออเดอร์` : undefined} />
         <Kpi label="ใช้จ่าย" value={baht(all.spend)} sub={`${spending} แคมเปญที่ใช้เงิน`} />
         <Kpi label="ออเดอร์" value={num(all.purchases)} sub={all.purchases ? `ค่าแอด ${baht(all.spend / all.purchases)}/ออเดอร์${all.clicks ? ` · CVR ${num((all.purchases / all.clicks) * 100, 2)}%` : ''}` : undefined} />
+        <Kpi
+          label={data.actual ? 'ทุนสินค้า · ของจริง' : 'ทุนสินค้า'}
+          value={data.actual ? baht(data.actual.cost) : '–'}
+          sub={data.actual
+            ? `${data.actual.revenue ? num((data.actual.cost / data.actual.revenue) * 100) : 0}% ของยอด · ${num(data.actual.units)} ตัว · + ค่าใช้จ่ายต่อออเดอร์ ${baht(data.actual.fees)} (COD, ของเสีย, ส่ง, VAT, ซอง)`
+            : 'อัปโหลดไฟล์ Page365 เพื่อดูทุนจริง'}
+        />
         <Kpi label="ROAS" value={all.spend ? num(all.value / all.spend, 2) : '–'} sub="ยอดขาย ÷ ค่าแอด" />
         {data.actual ? (
           <Kpi
