@@ -262,17 +262,39 @@ export interface ReferralSummary { date: string; campaign_id: string | null; ad_
 /**
  * People who opened a chat from an ad, per Bangkok day × campaign × ad, for the given dates. "bought" = of
  * those people, how many have a Page365 order (same name hash) within 14 days after the chat.
+ * Two indexed reads and the grouping in code: a correlated subquery here once read 160k rows per call and
+ * used up D1's free daily read allowance (12 Oct 2026).
  */
 export async function referralSummary(db: D1Database, dates: string[]): Promise<ReferralSummary[]> {
   if (!dates.length) return [];
-  const { results } = await db.prepare(`
-    SELECT date(r.at, '+7 hours') AS date, r.campaign_id, r.ad_id, m.name AS ad_name,
-           COUNT(DISTINCT r.psid) AS people, COUNT(*) AS events,
-           COUNT(DISTINCT CASE WHEN EXISTS (
-             SELECT 1 FROM p365_orders o WHERE o.name_hash = r.name_hash AND o.created_at >= r.at AND o.created_at <= datetime(r.at, '+14 days')
-           ) THEN r.psid END) AS bought
+  const sorted = [...dates].sort();
+  const from = new Date(`${sorted[0]}T00:00:00+07:00`).toISOString();
+  const to = new Date(Date.parse(`${sorted[sorted.length - 1]}T00:00:00+07:00`) + 86_400_000).toISOString();
+  const { results: refs } = await db.prepare(`
+    SELECT r.psid, r.at, r.campaign_id, r.ad_id, r.name_hash, m.name AS ad_name
     FROM ad_referrals r LEFT JOIN ad_map m ON m.ad_id = r.ad_id
-    WHERE date(r.at, '+7 hours') IN (SELECT value FROM json_each(?))
-    GROUP BY 1, 2, 3, 4 ORDER BY 1 DESC, people DESC`).bind(JSON.stringify(dates)).all<ReferralSummary>();
-  return results;
+    WHERE r.at >= ? AND r.at < ?`).bind(from, to).all<{ psid: string; at: string; campaign_id: string | null; ad_id: string | null; name_hash: string | null; ad_name: string | null }>();
+  const wanted = new Set(dates);
+  const bkk = (iso: string) => new Date(Date.parse(iso) + 7 * 3_600_000).toISOString().slice(0, 10);
+  const rows = refs.filter((r) => wanted.has(bkk(r.at)));
+  const hashes = [...new Set(rows.map((r) => r.name_hash).filter((h): h is string => !!h))];
+  const ordersBy = new Map<string, string[]>();
+  if (hashes.length) {
+    const { results } = await db.prepare('SELECT name_hash, created_at FROM p365_orders WHERE name_hash IN (SELECT value FROM json_each(?))')
+      .bind(JSON.stringify(hashes)).all<{ name_hash: string; created_at: string }>();
+    for (const o of results) (ordersBy.get(o.name_hash) ?? ordersBy.set(o.name_hash, []).get(o.name_hash)!).push(o.created_at);
+  }
+  const groups = new Map<string, ReferralSummary & { _people: Set<string>; _bought: Set<string> }>();
+  for (const r of rows) {
+    const date = bkk(r.at);
+    const key = `${date}|${r.campaign_id ?? ''}|${r.ad_id ?? ''}`;
+    const g = groups.get(key) ?? { date, campaign_id: r.campaign_id, ad_id: r.ad_id, ad_name: r.ad_name, people: 0, bought: 0, events: 0, _people: new Set(), _bought: new Set() };
+    g.events++; g._people.add(r.psid);
+    const t = Date.parse(r.at);
+    if (r.name_hash && (ordersBy.get(r.name_hash) ?? []).some((c) => { const x = Date.parse(c); return x >= t && x <= t + 14 * 86_400_000; })) g._bought.add(r.psid);
+    groups.set(key, g);
+  }
+  return [...groups.values()]
+    .map(({ _people, _bought, ...g }) => ({ ...g, people: _people.size, bought: _bought.size }))
+    .sort((a, b) => b.date.localeCompare(a.date) || b.people - a.people);
 }
