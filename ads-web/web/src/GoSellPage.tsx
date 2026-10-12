@@ -1,12 +1,31 @@
 // Bigseller order export → GoSell import file, entirely in the browser (customer names/phones/addresses never
-// leave the page). Conversion rules live in gosell.ts.
+// leave the page). Conversion rules live in gosell.ts. Served on its own at /gosell (main.tsx), outside the Ads dashboard.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import templateUrl from './gosellTemplate.xlsx?url';
 import { buildWorkbook, parseExport, REQUIRED_COLUMNS, toGoSell, type GoSellOrder, type SourceRow } from './gosell.ts';
 import { baht, num } from './fmt.ts';
 import { Icon, useUi } from './ui.tsx';
 import { readFirstSheet } from './xlsx.ts';
+
+/** The whole /gosell site: just a header and the converter. */
+export function GoSellApp() {
+  useEffect(() => { document.title = 'แปลงออเดอร์ GoSell'; }, []);
+  return (
+    <div className="app">
+      <header className="top">
+        <div className="brand">
+          <span className="logo" aria-hidden="true">GS</span>
+          <div>
+            <h1>แปลงออเดอร์ Bigseller → GoSell</h1>
+            <p className="muted small clip">PkJeans</p>
+          </div>
+        </div>
+      </header>
+      <main><GoSellPage /></main>
+    </div>
+  );
+}
 
 interface Loaded { file: string; orders: GoSellOrder[]; skipped: { orderNo: string; reason: string }[]; items: number }
 
@@ -57,7 +76,7 @@ export function GoSellPage() {
       <section className="card">
         <div className="table-card-head" style={{ padding: 0 }}>
           <div>
-            <h2>แปลงออเดอร์ Bigseller → GoSell</h2>
+            <h2>ไฟล์ออเดอร์จาก Bigseller</h2>
             <p className="muted small">
               อัปโหลดไฟล์ export ออเดอร์จาก Bigseller (.csv หรือ .xlsx, แถวละ 1 สินค้า) → ได้ไฟล์นำเข้าคำสั่งซื้อของ GoSell
               · แปลงในเบราว์เซอร์นี้เท่านั้น ไม่ส่งชื่อ เบอร์ ที่อยู่ขึ้นเซิร์ฟเวอร์

@@ -3,7 +3,6 @@ import { api, sectionName, type Idea, type Overview as OverviewData, type Previe
 import { useCampaignActions } from './actions.tsx';
 import { CampaignDrawer } from './CampaignDrawer.tsx';
 import { CompetitorsPage } from './CompetitorsPage.tsx';
-import { GoSellPage } from './GoSellPage.tsx';
 import { SalesPage } from './SalesPage.tsx';
 import { History, RunResult } from './History.tsx';
 import { IdeasPage } from './IdeasPage.tsx';
@@ -16,8 +15,8 @@ import { SectionEditor } from './SectionEditor.tsx';
 import { SettingsPage } from './SettingsPage.tsx';
 import { Icon, Modal, useUi } from './ui.tsx';
 
-type Tab = 'overview' | 'sales' | 'ideas' | 'competitors' | 'rules' | 'products' | 'gosell' | 'history' | 'settings';
-const TABS: [Tab, string][] = [['overview', 'ภาพรวม'], ['sales', 'ยอดขายรายวัน'], ['ideas', 'ไอเดีย'], ['competitors', 'คู่แข่ง'], ['rules', 'กฎ'], ['products', 'สินค้า/ต้นทุน'], ['gosell', 'แปลงออเดอร์ GoSell'], ['history', 'ประวัติ'], ['settings', 'ตั้งค่า']];
+type Tab = 'overview' | 'sales' | 'ideas' | 'competitors' | 'rules' | 'products' | 'history' | 'settings';
+const TABS: [Tab, string][] = [['overview', 'ภาพรวม'], ['sales', 'ยอดขายรายวัน'], ['ideas', 'ไอเดีย'], ['competitors', 'คู่แข่ง'], ['rules', 'กฎ'], ['products', 'สินค้า/ต้นทุน'], ['history', 'ประวัติ'], ['settings', 'ตั้งค่า']];
 
 function readWindow(): Window {
   try { return (localStorage.getItem('window') as Window) || 'last_7d'; } catch { return 'last_7d'; }
@@ -157,7 +156,7 @@ export function App() {
       <main>
         {error && <div className="error">{error} <button className="ghost small" onClick={refresh}>ลองใหม่</button></div>}
         {data?.meta_warning && <div className="banner">{data.meta_warning} · กำลังแสดงข้อมูลเมื่อ {when(data.meta_fetched_at)}</div>}
-        {!data && !error && tab !== 'history' && tab !== 'settings' && tab !== 'gosell' && <Skeleton />}
+        {!data && !error && tab !== 'history' && tab !== 'settings' && <Skeleton />}
         {tab === 'overview' && data && (
           <div className={loading ? 'loading' : ''}>
             <Overview
@@ -176,7 +175,6 @@ export function App() {
         {tab === 'competitors' && data && <CompetitorsPage data={data} />}
         {tab === 'rules' && data && <RulesPage data={data} target={rulesTarget} onTarget={(t) => { setRulesTarget(t); scrollTo({ top: 0 }); }} stageTab={currentStageTab === ALL ? NONE : currentStageTab} onStageTab={setStageTab} onReload={load} />}
         {tab === 'products' && data && <ProductsPage data={data} onEdit={setEditing} onReload={load} onOpenCampaign={setOpenId} />}
-        {tab === 'gosell' && <GoSellPage />}
         {tab === 'history' && <History stages={data?.stages ?? []} />}
         {tab === 'settings' && <SettingsPage costsLoaded={data?.costs_loaded ?? 0} campaignNames={data?.campaigns.map((c) => c.name) ?? []} onSaved={load} />}
       </main>
