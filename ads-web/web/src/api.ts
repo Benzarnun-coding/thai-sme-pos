@@ -228,6 +228,11 @@ export interface ConversionOrder {
   status: 'match' | 'mismatch' | 'no_value' | 'unsplit';
   sets: { units: number; price: number; cost: number }[]; cod: number; cost: number;
 }
+export type Role = 'owner' | 'admin' | 'costs' | 'viewer';
+export interface User { email: string; role: Role; note: string; added_by: string; added_at: string; updated_at: string }
+export interface AccessStatus { configured: boolean; policy_name: string | null; in_access: string[]; missing: string[]; extra: string[]; error: string | null }
+export interface UsersData { users: User[]; owners: string[]; legacy_cost_editors: string[]; access: AccessStatus | null; me: string }
+
 export interface WebhookStatus {
   configured: { app_secret: boolean; verify_token: boolean; app_id: boolean };
   callback_url: string;
@@ -295,6 +300,11 @@ export const api = {
   p365Orders: (date: string) => call<{ date: string; orders: P365Order[] }>('GET', `/api/p365/orders?date=${date}`),
   p365Upload: (orders: UploadedOrder[]) => call<{ dates: string[]; orders: number; errors: string[]; credits: Record<string, { customer: number; exact: number; approx: number; none: number }> }>('POST', '/api/p365/upload', { orders }),
   p365Recredit: (date: string) => call<{ date: string; credits: { customer: number; exact: number; approx: number; none: number } | null }>('POST', '/api/p365/recredit', { date }),
+  users: () => call<UsersData>('GET', '/api/users'),
+  addUser: (u: { email: string; role: Role; note: string }) => call<{ ok: true; sync: { ok: boolean; error?: string } | null }>('POST', '/api/users', u),
+  updateUser: (email: string, u: { role: Role; note?: string }) => call<{ ok: true; sync: { ok: boolean; error?: string } | null }>('PUT', `/api/users/${encodeURIComponent(email)}`, u),
+  removeUser: (email: string) => call<{ ok: true; sync: { ok: boolean; error?: string } | null }>('DELETE', `/api/users/${encodeURIComponent(email)}`),
+  syncAccess: () => call<{ emails: string[] }>('POST', '/api/users/access-sync'),
   webhook: () => call<WebhookStatus>('GET', '/api/webhook'),
   setupWebhook: () => call<{ app: unknown; page: unknown }>('POST', '/api/webhook/setup'),
   adReferrals: (q: { date?: string; window?: Window }) => call<{ dates: string[]; rows: ReferralSummary[] }>('GET', `/api/ad-referrals?${q.date ? `date=${q.date}` : `window=${q.window ?? 'last_7d'}`}`),

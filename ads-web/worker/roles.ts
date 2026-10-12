@@ -1,13 +1,23 @@
-// Who may change what. Everyone signed in through Cloudflare Access can read everything; "cost editors"
-// (emails listed in settings) may only change costs — nothing that touches Meta, rules, stages or settings.
+// Who may change what. Everyone who gets through Cloudflare Access can read everything; what they can change
+// depends on their role in the `users` table (managed on the ผู้ใช้ page by owners):
+//   owner  – everything, including users and roles (the people in OWNER_EMAILS are always owners)
+//   admin  – everything except users
+//   costs  – only costs (web costs, product lines, syncing the cost sheets, Page365 uploads)
+//   viewer – read only
 
-export type Role = 'admin' | 'costs';
+export type Role = 'owner' | 'admin' | 'costs' | 'viewer';
+export const ROLES: Role[] = ['owner', 'admin', 'costs', 'viewer'];
 
-export function roleOf(email: string, costEditors: string[]): Role {
-  return costEditors.includes(email.trim().toLowerCase()) ? 'costs' : 'admin';
+export function roleOf(email: string, owners: string[], users: Map<string, Role>, costEditors: string[] = []): Role {
+  const e = email.trim().toLowerCase();
+  if (owners.includes(e)) return 'owner';
+  const r = users.get(e);
+  if (r) return r;
+  if (costEditors.includes(e)) return 'costs';
+  return 'viewer';
 }
 
-/** Writes a cost editor may make: web costs, product lines (cost, promos), syncing costs from the sheets. */
+/** Writes a cost editor may make: web costs, product lines (cost, promos), syncing costs from the sheets, order files. */
 const COST_WRITES: [string, RegExp][] = [
   ['POST', /^\/api\/costs$/],
   ['DELETE', /^\/api\/costs$/],
@@ -22,6 +32,11 @@ const COST_WRITES: [string, RegExp][] = [
 
 export function canWrite(role: Role, method: string, path: string): boolean {
   if (method === 'GET' || method === 'HEAD') return true;
-  if (role === 'admin') return true;
-  return COST_WRITES.some(([m, re]) => m === method && re.test(path.replace(/\/$/, '')));
+  const p = path.replace(/\/$/, '');
+  if (/^\/api\/users(\/|$)/.test(p)) return role === 'owner';
+  if (role === 'owner' || role === 'admin') return true;
+  if (role === 'costs') return COST_WRITES.some(([m, re]) => m === method && re.test(p));
+  return false;
 }
+
+export const ROLE_LABEL: Record<Role, string> = { owner: 'เจ้าของ', admin: 'ผู้ดูแล', costs: 'แก้ต้นทุน', viewer: 'ดูอย่างเดียว' };

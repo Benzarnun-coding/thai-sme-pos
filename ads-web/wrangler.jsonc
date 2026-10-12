@@ -25,6 +25,11 @@
     "META_AD_ACCOUNT_ID": "act_2149666808519411",
     "META_API_VERSION": "v21.0",
     "META_APP_ID": "1410718820800711",
+    // Owners: always allowed to manage users on the ผู้ใช้ page (comma separated).
+    "OWNER_EMAILS": "arnun.tre@benzarnun.com,ps.maxpollawat@gmail.com",
+    // Cloudflare Access sync: account + the reusable policy "PkJeans team" (token is the secret CF_API_TOKEN).
+    "CF_ACCOUNT_ID": "bbad0b69f4554a5d9e58085286f3eb9b",
+    "CF_ACCESS_POLICY_ID": "c21b794b-dd95-4d8f-86df-ad7347a24fe5",
     // Cloudflare Access (Worker → Access tab → Application values). Empty = every /api call is refused.
     "ACCESS_TEAM_DOMAIN": "https://broad-cell-d05a.cloudflareaccess.com",
     "ACCESS_AUD": "468421c1e47c4a4bde081a9e8b6dfe02f22dfa4305edd0faf64a16f08cc48a0a"

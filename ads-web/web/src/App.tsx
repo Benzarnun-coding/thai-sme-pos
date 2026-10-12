@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, sectionName, type Idea, type Overview as OverviewData, type Preview, type RunReport, type Window } from './api.ts';
+import { api, sectionName, type Idea, type Overview as OverviewData, type Preview, type Role, type RunReport, type Window } from './api.ts';
 import { useCampaignActions } from './actions.tsx';
 import { CampaignDrawer } from './CampaignDrawer.tsx';
 import { CompetitorsPage } from './CompetitorsPage.tsx';
@@ -13,9 +13,10 @@ import { RulesPage, type RulesTarget } from './RulesPage.tsx';
 import { ALL, NONE, defaultStageTab, type StageTab } from './StageTabs.tsx';
 import { SectionEditor } from './SectionEditor.tsx';
 import { SettingsPage } from './SettingsPage.tsx';
+import { UsersPage } from './UsersPage.tsx';
 import { Icon, Modal, useUi } from './ui.tsx';
 
-type Tab = 'overview' | 'sales' | 'ideas' | 'competitors' | 'rules' | 'products' | 'history' | 'settings';
+type Tab = 'overview' | 'sales' | 'ideas' | 'competitors' | 'rules' | 'products' | 'history' | 'settings' | 'users';
 const TABS: [Tab, string][] = [['overview', 'ภาพรวม'], ['sales', 'ยอดขายรายวัน'], ['ideas', 'ไอเดีย'], ['competitors', 'คู่แข่ง'], ['rules', 'กฎ'], ['products', 'สินค้า/ต้นทุน'], ['history', 'ประวัติ'], ['settings', 'ตั้งค่า']];
 
 function readWindow(): Window {
@@ -27,7 +28,7 @@ export function App() {
   const [tab, setTab] = useState<Tab>('overview');
   const [window, setWindow] = useState<Window>(readWindow);
   const [data, setData] = useState<OverviewData | null>(null);
-  const [me, setMe] = useState<{ email: string; role: 'admin' | 'costs'; mock: boolean } | null>(null);
+  const [me, setMe] = useState<{ email: string; role: Role; mock: boolean } | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
@@ -140,7 +141,7 @@ export function App() {
       </header>
 
       <nav className="tabs" aria-label="เมนู">
-        {TABS.map(([id, label]) => (
+        {[...TABS, ...(me?.role === 'owner' ? [['users', 'ผู้ใช้'] as [Tab, string]] : [])].map(([id, label]) => (
           <button key={id} className={tab === id ? 'on' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => go(id)}>
             {label}
             {id === 'ideas' && ideas.list && ideas.list.length > 0 && <span className={`nav-count ${urgent ? 'hot' : ''}`}>{ideas.list.length}</span>}
@@ -151,7 +152,8 @@ export function App() {
       {data?.snapshot ? (
         <div className="banner">ข้อมูลจริง ณ {when(data.snapshot.taken_at)} (ดึงผ่าน Claude) — ดูได้อย่างเดียว · ปุ่มเปิด/หยุด/แก้งบใช้ได้เมื่อใส่ Meta token</div>
       ) : me?.mock && <div className="banner">ใช้ข้อมูลตัวอย่าง (DEV_MOCK_META) — ยังไม่ได้ต่อ Meta จริง</div>}
-      {me?.role === 'costs' && <div className="banner info">สิทธิ์ของบัญชีนี้: ดูได้ทุกหน้า แก้ได้เฉพาะต้นทุน (หน้า สินค้า/ต้นทุน และดึงต้นทุนจากชีต)</div>}
+      {me?.role === 'costs' && <div className="banner info">สิทธิ์ของบัญชีนี้: ดูได้ทุกหน้า แก้ได้เฉพาะต้นทุน (หน้า สินค้า/ต้นทุน, ดึงต้นทุนจากชีต, อัปโหลดไฟล์ Page365)</div>}
+      {me?.role === 'viewer' && <div className="banner info">สิทธิ์ของบัญชีนี้: ดูได้อย่างเดียว — ให้เจ้าของเพิ่มสิทธิ์ในหน้า ผู้ใช้</div>}
 
       <main>
         {error && <div className="error">{error} <button className="ghost small" onClick={refresh}>ลองใหม่</button></div>}
@@ -176,6 +178,7 @@ export function App() {
         {tab === 'rules' && data && <RulesPage data={data} target={rulesTarget} onTarget={(t) => { setRulesTarget(t); scrollTo({ top: 0 }); }} stageTab={currentStageTab === ALL ? NONE : currentStageTab} onStageTab={setStageTab} onReload={load} />}
         {tab === 'products' && data && <ProductsPage data={data} onEdit={setEditing} onReload={load} onOpenCampaign={setOpenId} />}
         {tab === 'history' && <History stages={data?.stages ?? []} />}
+        {tab === 'users' && <UsersPage />}
         {tab === 'settings' && <SettingsPage costsLoaded={data?.costs_loaded ?? 0} campaignNames={data?.campaigns.map((c) => c.name) ?? []} onSaved={load} />}
       </main>
 
