@@ -781,7 +781,7 @@ async function salesReport(env: Env, window: Window) {
       // Real orders from Page365 for that day, credited to this campaign.
       const a = actual.get(d.date)?.get(d.campaign_id);
       if (a) { covered.add(`${d.date}|${d.campaign_id}`); return explainActual(base, d, a); }
-      if (actual.has(d.date) && d.purchase_value > 0) {
+      if (actual.has(d.date) && (d.purchase_value > 0 || d.purchases > 0)) {
         // Uploaded day but nothing credited here: Meta's tagged sales weren't found among the real orders.
         return { ...explainDay(base, { ...d, purchases: 0, purchase_value: 0 }, { kind: 'none', reason: 'วันนี้มีไฟล์ Page365 แต่ไม่มีออเดอร์ที่จับคู่กับแคมเปญนี้ได้' }), revenue: 0, orders: 0 };
       }
