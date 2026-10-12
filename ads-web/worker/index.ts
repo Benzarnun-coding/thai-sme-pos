@@ -92,7 +92,7 @@ export default {
     }
 
     try {
-      return await route(req, env, url, user, role);
+      return await route(req, env, url, user, role, ctx);
     } catch (err: any) {
       if (err instanceof BadRequest) return json({ error: err.message }, 400);
       console.error(err);
@@ -124,7 +124,7 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-async function route(req: Request, env: Env, url: URL, user: string, role: Role): Promise<Response> {
+async function route(req: Request, env: Env, url: URL, user: string, role: Role, ctx: ExecutionContext): Promise<Response> {
   const path = url.pathname.replace(/\/$/, '');
   const method = req.method;
   const body = async () => (await req.json().catch(() => { throw new BadRequest('ข้อมูลไม่ใช่ JSON'); })) as any;
@@ -367,6 +367,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role)
         .bind(d, os.length, os.reduce((n, o) => n + o.units, 0), os.reduce((n, o) => n + o.total, 0), user, now);
     }));
     await audit(env.DB, user, 'p365.upload', dates.join(','), { orders: orders.length, errors: errors.length, skipped, credits });
+    ctx.waitUntil(Promise.all(dates.map((d) => salesDigest(env, d).catch((err) => console.error('digest', err)))));
     return json({ dates, orders: orders.length, errors, skipped, credits });
   }
   if (path === '/api/p365' && method === 'GET') {
@@ -937,26 +938,35 @@ function finite<T extends object | undefined>(m: T): T {
 
 /** 07:30 Discord note: yesterday's real numbers (Page365) when the file is in, otherwise a reminder to upload. */
 async function dailyDigest(env: Env): Promise<void> {
+  return salesDigest(env, bkkDate(1), true);
+}
+
+/** One day's real numbers (Page365) to Discord; also sent the moment a file is uploaded. */
+async function salesDigest(env: Env, date: string, remindIfMissing = false): Promise<void> {
   if (!env.DISCORD_WEBHOOK_URL) return;
-  const date = bkkDate(1);
   const thai = new Date(`${date}T00:00:00+07:00`).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' });
   const [uploads, orders, settings] = await Promise.all([loadUploads(env.DB, [date]), loadOrders(env.DB, [date]), loadSettings(env.DB)]);
   if (!uploads.has(date)) {
-    await pushDiscord(`📂 **${thai}** ยังไม่มีไฟล์ Page365 — มอส export ของเมื่อวานแล้วอัปโหลดที่หน้ายอดขายรายวันด้วยครับ`, env.DISCORD_WEBHOOK_URL);
+    if (remindIfMissing) await pushDiscord(`📂 **${thai}** ยังไม่มีไฟล์ Page365 — มอส export ของเมื่อวานแล้วอัปโหลดที่หน้ายอดขายรายวันด้วยครับ`, env.DISCORD_WEBHOOK_URL);
     return;
   }
   const n = (f: (o: typeof orders[number]) => number) => orders.reduce((t, o) => t + f(o), 0);
   const revenue = n((o) => o.total), cost = n((o) => o.cost ?? 0), fees = n((o) => orderFees(o, settings.order_fees));
   const organic = orders.filter((o) => o.match === 'none');
   let ads: number | null = null;
-  try { ads = (await metaFor(env).dailyCampaignInsights('yesterday')).filter((d) => d.date === date).reduce((t, d) => t + d.spend, 0); } catch { ads = null; }
+  try {
+    // Spend for that day: yesterday is cheap; older days come from the cached 30-day series.
+    const rows = date === bkkDate(1) ? await metaFor(env).dailyCampaignInsights('yesterday') : await (await metaData(env)).data.dailyAll('last_30d');
+    const day = rows.filter((d) => d.date === date);
+    ads = day.length ? day.reduce((t, d) => t + d.spend, 0) : null;
+  } catch { ads = null; }
   const b = (x: number) => Math.round(x).toLocaleString('th-TH');
   const gross = revenue - cost - fees;
   const lines = [
     `📊 **ของจริง ${thai}** (Page365 ${orders.length} ออเดอร์)`,
     `ยอดขาย ${b(revenue)} · ทุนสินค้า ${b(cost)} (${revenue ? Math.round((cost / revenue) * 100) : 0}%) · ค่าใช้จ่ายต่อออเดอร์ ${b(fees)}`,
     `กำไรขั้นต้น **${b(gross)}**${ads === null ? '' : ` · ค่าแอด ${b(ads)} (${revenue ? Math.round((ads / revenue) * 100) : 0}% ของยอด) · กำไรสุทธิ **${b(gross - ads)}** · MER ${ads ? (revenue / ads).toFixed(2) : '–'}`}`,
-    `ไม่ใช่แอด ${organic.length} ออเดอร์ ${b(n((o) => (o.match === 'none' ? o.total : 0)))} (${orders.length ? Math.round((organic.length / orders.length) * 100) : 0}%)`,
+    `ไม่ใช่แอด ${organic.length} ออเดอร์ ${b(n((o) => (o.match === 'none' ? o.total : 0)))} (${orders.length ? Math.round((organic.length / orders.length) * 100) : 0}%) · จับคู่แอดได้ ${orders.length - organic.length}/${orders.length}`,
   ];
   await pushDiscord(lines.join('\n'), env.DISCORD_WEBHOOK_URL);
 }
