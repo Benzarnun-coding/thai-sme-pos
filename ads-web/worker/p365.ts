@@ -9,8 +9,9 @@ import type { OrderFees } from './db.ts';
 /** What the team deducts from one order besides product cost: COD fee (COD orders only), loss, shipping, VAT, packaging. */
 export function orderFees(o: Pick<StoredOrder, 'total' | 'payment' | 'shipping'>, f: OrderFees): number {
   const cod = o.payment === 'cod' ? o.total * f.cod_pct / 100 : 0;
-  // VAT on what the customer paid, or on the goods only (what they paid minus the shipping collected for the courier)
-  const vatBase = f.vat_base === 'goods' ? Math.max(0, o.total - (o.shipping ?? 0)) : o.total;
+  // VAT on what the customer paid, on the goods only (minus the shipping collected), or on the amount after our own
+  // shipping cost (the team's rule, 12 Oct 2026: the COD +50 is income and is taxed; the 15 we pay the courier is not)
+  const vatBase = f.vat_base === 'goods' ? Math.max(0, o.total - (o.shipping ?? 0)) : f.vat_base === 'after_ship' ? Math.max(0, o.total - f.ship) : o.total;
   return cod + o.total * f.loss_pct / 100 + f.ship + vatBase * f.vat_pct / 100 + f.bag;
 }
 

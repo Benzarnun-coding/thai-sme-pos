@@ -177,7 +177,7 @@ export function validateSettings(input: any, current: Settings): Settings {
       loss_pct: num(input.order_fees.loss_pct, 'ของเสีย/สูญหาย (%)', 0, 100),
       ship: num(input.order_fees.ship, 'ค่าส่งต่อออเดอร์', 0, 1000),
       vat_pct: num(input.order_fees.vat_pct, 'VAT (%)', 0, 100),
-      vat_base: input.order_fees.vat_base === 'goods' ? 'goods' : 'total',
+      vat_base: input.order_fees.vat_base === 'goods' ? 'goods' : input.order_fees.vat_base === 'after_ship' ? 'after_ship' : 'total',
       bag: num(input.order_fees.bag, 'ค่าซองต่อออเดอร์', 0, 1000),
     },
     ads_cost_sheet_id: typeof input?.ads_cost_sheet_id === 'string' ? sheetId(input.ads_cost_sheet_id) : current.ads_cost_sheet_id,
