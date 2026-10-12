@@ -533,7 +533,7 @@ function P365UploadCard({ window, onUploaded, campaignName }: { window: Window; 
       const rows = days.flatMap((d) => d.orders.map((o) => {
         const cod = o.payment === 'cod' && f ? o.total * f.cod_pct / 100 : 0;
         const loss = f ? o.total * f.loss_pct / 100 : 0;
-        const vat = f ? o.total * f.vat_pct / 100 : 0;
+        const vat = f ? (f.vat_base === 'goods' ? Math.max(0, o.total - (o.shipping ?? 0)) : o.total) * f.vat_pct / 100 : 0;
         const net = o.cost === null ? null : o.total - o.cost - o.fees;
         return [
           new Date(o.created_at).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }), o.order_no, o.items.map((i) => `${i.name} (${i.sku}) x${i.qty}`).join(' | '), o.units, r2(o.total), o.cost === null ? '' : r2(o.cost),

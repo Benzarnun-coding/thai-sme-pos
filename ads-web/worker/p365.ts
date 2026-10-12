@@ -7,9 +7,11 @@ import { bkkDate } from './conversionStore.ts';
 import type { OrderFees } from './db.ts';
 
 /** What the team deducts from one order besides product cost: COD fee (COD orders only), loss, shipping, VAT, packaging. */
-export function orderFees(o: Pick<StoredOrder, 'total' | 'payment'>, f: OrderFees): number {
+export function orderFees(o: Pick<StoredOrder, 'total' | 'payment' | 'shipping'>, f: OrderFees): number {
   const cod = o.payment === 'cod' ? o.total * f.cod_pct / 100 : 0;
-  return cod + o.total * f.loss_pct / 100 + f.ship + o.total * f.vat_pct / 100 + f.bag;
+  // VAT on what the customer paid, or on the goods only (what they paid minus the shipping collected for the courier)
+  const vatBase = f.vat_base === 'goods' ? Math.max(0, o.total - (o.shipping ?? 0)) : o.total;
+  return cod + o.total * f.loss_pct / 100 + f.ship + vatBase * f.vat_pct / 100 + f.bag;
 }
 
 export interface UploadedOrder {

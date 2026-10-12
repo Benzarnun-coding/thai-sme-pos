@@ -22,8 +22,8 @@ export interface Settings {
   order_fees: OrderFees;
 }
 
-export interface OrderFees { cod_pct: number; loss_pct: number; ship: number; vat_pct: number; bag: number }
-export const DEFAULT_ORDER_FEES: OrderFees = { cod_pct: 1, loss_pct: 1, ship: 18, vat_pct: 5, bag: 1 };
+export interface OrderFees { cod_pct: number; loss_pct: number; ship: number; vat_pct: number; vat_base: 'total' | 'goods'; bag: number }
+export const DEFAULT_ORDER_FEES: OrderFees = { cod_pct: 1, loss_pct: 1, ship: 18, vat_pct: 5, vat_base: 'total', bag: 1 };
 
 export function codOf(s: Pick<Settings, 'cod_share_pct' | 'cod_fee'>): Cod {
   return { share: s.cod_share_pct / 100, fee: s.cod_fee };

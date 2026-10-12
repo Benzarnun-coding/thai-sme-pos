@@ -95,6 +95,12 @@ export function SettingsPage({ costsLoaded, campaignNames, onSaved }: { costsLoa
           <label>ของเสีย/สูญหาย (%)<input type="number" min={0} step={0.1} value={s.order_fees.loss_pct} onChange={(e) => setS({ ...s, order_fees: { ...s.order_fees, loss_pct: Number(e.target.value) } })} /></label>
           <label>ค่าส่งต่อออเดอร์ (฿)<input type="number" min={0} value={s.order_fees.ship} onChange={(e) => setS({ ...s, order_fees: { ...s.order_fees, ship: Number(e.target.value) } })} /></label>
           <label>VAT (%)<input type="number" min={0} step={0.1} value={s.order_fees.vat_pct} onChange={(e) => setS({ ...s, order_fees: { ...s.order_fees, vat_pct: Number(e.target.value) } })} /></label>
+          <label>VAT คิดจาก
+            <select value={s.order_fees.vat_base} onChange={(e) => setS({ ...s, order_fees: { ...s.order_fees, vat_base: e.target.value as 'total' | 'goods' } })}>
+              <option value="total">ยอดที่ลูกค้าจ่าย (รวมค่าส่ง)</option>
+              <option value="goods">ค่าสินค้า (ไม่รวมค่าส่งที่เก็บ)</option>
+            </select>
+          </label>
           <label>ค่าซองต่อออเดอร์ (฿)<input type="number" min={0} value={s.order_fees.bag} onChange={(e) => setS({ ...s, order_fees: { ...s.order_fees, bag: Number(e.target.value) } })} /></label>
         </div>
       </section>
