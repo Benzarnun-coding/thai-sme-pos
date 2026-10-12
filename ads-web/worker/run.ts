@@ -92,7 +92,7 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
     ...report.notes.map((n) => `ℹ️ ${n}`),
   ].join('\n');
   await pushLine(text, env.LINE_CHANNEL_ACCESS_TOKEN, env.LINE_TO).catch(() => false);
-  await pushDiscord(discordRunText(report, dryRun), env.DISCORD_WEBHOOK_URL).catch(() => false);
+  await pushDiscord(discordRunText(report, dryRun, opts.trigger), env.DISCORD_WEBHOOK_URL).catch(() => false);
   return report;
 }
 
@@ -129,11 +129,11 @@ export function zeroMetrics(): Metrics {
 }
 
 /** The run, in words the team reads on Discord: what each rule did (or would do, in dry-run) and why. */
-function discordRunText(report: WebRunReport, dryRun: boolean): string {
+function discordRunText(report: WebRunReport, dryRun: boolean, trigger = ''): string {
   const when = new Date(report.run_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short' });
   const acted = report.decisions.filter((d) => !d.skipped_reason);
   const moves = report.moves.filter((m) => !m.skipped_reason);
-  const lines = [`**${dryRun ? '🧪 โหมดทดลอง (ยังไม่แตะ Meta)' : '✅ ปรับจริงแล้ว'} · รันกฎ ${when}**`];
+  const lines = [`**${dryRun ? '🧪 โหมดทดลอง (ยังไม่แตะ Meta)' : '✅ ปรับจริงแล้ว'} · รันกฎ ${when}${trigger.startsWith('test:') ? ` · ${trigger.slice(5)}` : ''}**`];
   lines.push(`ประเมิน ${report.entities_evaluated} รายการ · งบรวม/วัน ${report.totals.daily_budget_before} → ${report.totals.daily_budget_after}`);
   if (!acted.length && !moves.length) lines.push('ไม่มีกฎไหนตรงเงื่อนไข — ไม่มีการปรับ');
   for (const d of acted) {
