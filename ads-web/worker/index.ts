@@ -5,6 +5,8 @@ import { applyDecisions } from '../../ads-engine/src/apply.ts';
 import type { Entity, Level, Window } from '../../ads-engine/src/types.ts';
 import { authenticate } from './auth.ts';
 import { canWrite, roleOf, type Role } from './roles.ts';
+import { deleteUser, loadUsers, normaliseEmail, ownerEmails, parseRole, roleMap, saveUser } from './users.ts';
+import { accessStatus, syncAccess } from './access.ts';
 import { syncCampaignCosts, syncCosts } from './costs.ts';
 import { CampaignCostIndex, tierEconomics, type CostTier } from './campaignCosts.ts';
 import {
@@ -40,6 +42,12 @@ export interface Env {
   META_APP_ID?: string;
   META_APP_SECRET?: string;
   META_WEBHOOK_VERIFY_TOKEN?: string;
+  /** Owners (comma separated) — always allowed to manage users */
+  OWNER_EMAILS?: string;
+  /** Cloudflare Access sync (see worker/access.ts): token is a secret, the other two are vars */
+  CF_API_TOKEN?: string;
+  CF_ACCOUNT_ID?: string;
+  CF_ACCESS_POLICY_ID?: string;
   /** Local development only (.dev.vars) */
   DEV_MOCK_META?: string;
   DEV_BYPASS_AUTH?: string;
@@ -74,9 +82,12 @@ export default {
       const origin = req.headers.get('Origin');
       if (origin && origin !== url.origin) return json({ error: 'cross-origin request refused' }, 403);
     }
-    // Cost editors can read everything but only change costs.
-    const role = roleOf(user, (await loadSettings(env.DB).catch(() => ({ cost_editors: [] as string[] }))).cost_editors);
-    if (!canWrite(role, req.method, url.pathname)) return json({ error: 'บัญชีนี้แก้ได้เฉพาะต้นทุน — ติดต่อคุณเบ้นถ้าต้องการสิทธิ์เพิ่ม' }, 403);
+    // What this person may change: owners from the var, then the users table, then the old cost-editor list.
+    const [users, settings] = await Promise.all([roleMap(env.DB).catch(() => new Map()), loadSettings(env.DB).catch(() => ({ cost_editors: [] as string[] }))]);
+    const role = roleOf(user, ownerEmails(env), users, settings.cost_editors);
+    if (!canWrite(role, req.method, url.pathname)) {
+      return json({ error: role === 'viewer' ? 'บัญชีนี้ดูได้อย่างเดียว — ให้เจ้าของเพิ่มสิทธิ์ในหน้า ผู้ใช้' : role === 'costs' ? 'บัญชีนี้แก้ได้เฉพาะต้นทุน — ให้เจ้าของเพิ่มสิทธิ์ในหน้า ผู้ใช้' : 'เฉพาะเจ้าของเท่านั้นที่จัดการผู้ใช้ได้' }, 403);
+    }
 
     try {
       return await route(req, env, url, user, role);
@@ -117,6 +128,51 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role)
   let m: RegExpMatchArray | null;
 
   if (method === 'GET' && path === '/api/me') return json({ email: user, role, mock: env.DEV_MOCK_META === 'true' });
+
+  // ---- users (owners only for writes; roles.ts enforces it) ----
+  if (path === '/api/users' && method === 'GET') {
+    const [users, settings] = await Promise.all([loadUsers(env.DB), loadSettings(env.DB)]);
+    const owners = ownerEmails(env);
+    const everyone = [...new Set([...owners, ...users.map((u) => u.email)])];
+    const access = role === 'owner' ? await accessStatus(env, everyone) : null;
+    return json({ users, owners, legacy_cost_editors: settings.cost_editors.filter((e) => !users.some((u) => u.email === e)), access, me: user });
+  }
+  if (path === '/api/users' && method === 'POST') {
+    const input = await body();
+    let email: string, r: Role;
+    try { email = normaliseEmail(input?.email); r = parseRole(input?.role); } catch (e: any) { throw new BadRequest(e.message); }
+    if (ownerEmails(env).includes(email)) throw new BadRequest('อีเมลนี้เป็นเจ้าของอยู่แล้ว (ตั้งไว้ใน OWNER_EMAILS)');
+    await saveUser(env.DB, { email, role: r, note: String(input?.note ?? '') }, user);
+    await audit(env.DB, user, 'user.save', email, { role: r });
+    const sync = await syncIfConfigured(env, user);
+    return json({ ok: true, sync });
+  }
+  if ((m = path.match(/^\/api\/users\/([^/]+)$/)) && (method === 'PUT' || method === 'DELETE')) {
+    let email: string;
+    try { email = normaliseEmail(decodeURIComponent(m[1])); } catch (e: any) { throw new BadRequest(e.message); }
+    if (ownerEmails(env).includes(email)) throw new BadRequest('เจ้าของที่ตั้งไว้ใน OWNER_EMAILS แก้จากหน้านี้ไม่ได้');
+    if (method === 'DELETE') {
+      if (email === user) throw new BadRequest('ลบบัญชีตัวเองไม่ได้');
+      if (!(await deleteUser(env.DB, email))) return json({ error: 'ไม่พบผู้ใช้' }, 404);
+      await audit(env.DB, user, 'user.delete', email, {});
+    } else {
+      const input = await body();
+      let r: Role;
+      try { r = parseRole(input?.role); } catch (e: any) { throw new BadRequest(e.message); }
+      if (email === user && r !== 'owner') throw new BadRequest('ลดสิทธิ์ตัวเองไม่ได้');
+      const existing = (await loadUsers(env.DB)).find((u) => u.email === email);
+      await saveUser(env.DB, { email, role: r, note: String(input?.note ?? existing?.note ?? '') }, user);
+      await audit(env.DB, user, 'user.save', email, { role: r });
+    }
+    const sync = await syncIfConfigured(env, user);
+    return json({ ok: true, sync });
+  }
+  if (path === '/api/users/access-sync' && method === 'POST') {
+    const users = await loadUsers(env.DB);
+    const r = await syncAccess(env, [...ownerEmails(env), ...users.map((u) => u.email)]).catch((e) => { throw new BadRequest(e.message); });
+    await audit(env.DB, user, 'users.access-sync', 'cloudflare', r);
+    return json(r);
+  }
 
   if (method === 'GET' && path === '/api/overview') {
     const w = url.searchParams.get('window') as Window;
@@ -851,6 +907,19 @@ const finiteOrNull = (v: number | null | undefined) => (v !== null && v !== unde
 function finite<T extends object | undefined>(m: T): T {
   if (!m) return m;
   return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, typeof v === 'number' && !Number.isFinite(v) ? null : v])) as T;
+}
+
+/** After a user change: push the email list to Cloudflare Access when the token is set; a failure is reported, not fatal. */
+async function syncIfConfigured(env: Env, actor: string): Promise<{ ok: boolean; error?: string } | null> {
+  if (!env.CF_API_TOKEN) return null;
+  try {
+    const users = await loadUsers(env.DB);
+    const r = await syncAccess(env, [...ownerEmails(env), ...users.map((u) => u.email)]);
+    await audit(env.DB, actor, 'users.access-sync', 'cloudflare', r);
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? String(err) };
+  }
 }
 
 function json(data: unknown, status = 200): Response {
