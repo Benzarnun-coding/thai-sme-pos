@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import templateUrl from './gosellTemplate.xlsx?url';
-import { buildWorkbook, parseExport, REQUIRED_COLUMNS, toGoSell, type GoSellOrder, type SourceRow } from './gosell.ts';
+import { buildWorkbook, missingColumns, parseExport, toGoSell, type GoSellOrder, type SourceRow } from './gosell.ts';
 import { baht, num } from './fmt.ts';
 import { Icon, useUi } from './ui.tsx';
 import { readFirstSheet } from './xlsx.ts';
@@ -41,8 +41,9 @@ export function GoSellPage() {
       let headers: string[], rows: SourceRow[];
       if (/\.xlsx$/i.test(file.name)) ({ headers, rows } = await readFirstSheet(file));
       else ({ headers, rows } = parseExport(new Uint8Array(await file.arrayBuffer())));
-      const missing = REQUIRED_COLUMNS.filter((h) => !headers.includes(h) && !(h === 'No.' && headers.includes('Order no.')));
-      if (missing.length) throw new Error(`ไฟล์ไม่มีคอลัมน์ ${missing.join(', ')}: ต้องเป็นไฟล์ export ออเดอร์จาก Bigseller (แถวละ 1 สินค้า)`);
+      if (headers.some((h) => h.includes('Import Orders') || h === 'ลูกค้า *')) throw new Error('ไฟล์นี้เป็นไฟล์ GoSell ที่แปลงแล้ว: ให้เลือกไฟล์ export ออเดอร์ต้นทางแทน');
+      const missing = missingColumns(headers);
+      if (missing) throw new Error(`ไฟล์ "${file.name}" ไม่มีคอลัมน์ ${missing.join(', ')} · หัวตารางที่อ่านได้: ${headers.slice(0, 6).join(', ') || '(ว่าง)'}`);
       const { orders, skipped } = toGoSell(rows);
       if (!orders.length) throw new Error('ไม่พบออเดอร์ในไฟล์');
       setData({ file: file.name, orders, skipped, items: rows.length });
@@ -78,7 +79,7 @@ export function GoSellPage() {
           <div>
             <h2>ไฟล์ออเดอร์จาก Bigseller</h2>
             <p className="muted small">
-              อัปโหลดไฟล์ export ออเดอร์จาก Bigseller (.csv หรือ .xlsx, แถวละ 1 สินค้า) → ได้ไฟล์นำเข้าคำสั่งซื้อของ GoSell
+              อัปโหลดไฟล์ export ออเดอร์ (.csv แถวละ 1 สินค้า หรือ .xlsx แถวละ 1 ออเดอร์) → ได้ไฟล์นำเข้าคำสั่งซื้อของ GoSell
               · แปลงในเบราว์เซอร์นี้เท่านั้น ไม่ส่งชื่อ เบอร์ ที่อยู่ขึ้นเซิร์ฟเวอร์
             </p>
           </div>
@@ -99,7 +100,7 @@ export function GoSellPage() {
       {data && (
         <>
           <div className="kpis">
-            <div className="kpi"><span>ออเดอร์</span><b>{num(data.orders.length)}</b><small>{num(data.items)} แถวสินค้าใน {data.file}</small></div>
+            <div className="kpi"><span>ออเดอร์</span><b>{num(data.orders.length)}</b><small>จาก {num(data.items)} แถวใน {data.file}</small></div>
             <div className="kpi"><span>พร้อมนำเข้า</span><b className="good">{num(ready.length)}</b></div>
             <div className="kpi"><span>ต้องแก้</span><b className={problems.length ? 'bad' : ''}>{num(problems.length)}</b>{data.skipped.length > 0 && <small>ข้าม {data.skipped.length} (ยกเลิก)</small>}</div>
             <div className="kpi"><span>ยอดรวม</span><b>{baht(exportList.reduce((t, o) => t + o.total, 0))}</b><small>ของออเดอร์ที่จะส่งออก</small></div>

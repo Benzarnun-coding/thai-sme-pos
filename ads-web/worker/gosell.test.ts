@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { buildWorkbook, carrierFor, parseExport, splitAddress, toGoSell } from '../web/src/gosell.ts';
+import { buildWorkbook, carrierFor, missingColumns, parseExport, parseItemDetail, splitAddress, toGoSell } from '../web/src/gosell.ts';
 import { unzip } from '../web/src/zip.ts';
 
 const HEAD = ['No.', 'Created At', 'Status', 'Profile name', 'Customer Name', 'Customer Phone', 'Customer Address', 'Payment Provider', 'Shipping Option', 'Shipping Cost', 'Subtotal', 'Discount', 'Total', 'Note', 'SKU', 'Item Qty', 'Item Price', 'Item Subtotal'];
@@ -104,4 +104,31 @@ test('fills the GoSell template from row 9 and keeps its dropdowns', async () =>
   assert.ok(sheet.includes('COD,การโอนเงิน'));
   assert.equal(Number(sst.match(/uniqueCount="(\d+)"/)?.[1]), strings.length);
   assert.ok(files.has('xl/worksheets/sheet2.xml'));
+});
+
+test('reads the one-row-per-order export (Item Detail, THB = line total)', () => {
+  assert.deepEqual(parseItemDetail('912  ยีนส์ Max (ซิป) (912-CM-NV-36) (912-CM-NV-36) x3 THB 1107.0\n980-32 Sports (98032-BB-RE-FE) (98032-BB-RE-FE) x1 THB 299.0'), [
+    { sku: '912-CM-NV-36', qty: 3, price: 369 },
+    { sku: '98032-BB-RE-FE', qty: 1, price: 299 },
+  ]);
+  assert.equal(parseItemDetail('อะไรก็ไม่รู้'), null);
+  const rows = [{ 'Order no.': '28800', 'Customer Name': 'ก', 'Customer Phone': '0812345678', 'Customer Address': '1 ต.ก อ.ข จ.เลย 42000', 'Payment Provider': 'cod', 'Shipping Option': 'Kerry Express (COD)', 'Shipping Cost': '50', Subtotal: '1406', Discount: '400', Total: '1056', 'Item Detail': '801/2 (8012-PK-NV-34) (8012-PK-NV-34) x3 THB 1107.0\nD02 (D02-PK-MD-36) (D02-PK-MD-36) x1 THB 299.0' }];
+  const [o] = toGoSell(rows).orders;
+  assert.equal(o.orderNo, '28800');
+  assert.equal(o.skus, '8012-PK-NV-34 (3), D02-PK-MD-36 (1)');
+  assert.equal(o.prices, '369, 299');
+  assert.deepEqual(o.problems, []);
+  const [bad] = toGoSell([{ ...rows[0], 'Item Detail': 'ไม่มีรูปแบบ' }]).orders;
+  assert.ok(bad.problems.some((p) => p.startsWith('อ่านรายการสินค้าไม่ได้')));
+});
+
+test('accepts either layout, names what is missing', () => {
+  assert.equal(missingColumns(['No.', 'Customer Name', 'Customer Phone', 'Customer Address', 'SKU', 'Item Qty', 'Item Price']), null);
+  assert.equal(missingColumns(['Order no.', 'Customer Name', 'Customer Phone', 'Customer Address', 'Item Detail']), null);
+  assert.deepEqual(missingColumns(['การนำเข้าข้อมูลคำสั่งซื้อ (Import Orders)']), ['No. / Order no.', 'Customer Name', 'Customer Phone', 'Customer Address', 'SKU, Item Qty, Item Price (หรือ Item Detail)']);
+});
+
+test('UTF-16 without a BOM still decodes', () => {
+  const withBom = utf16('No.\tSKU\r\n1\tX-1\r\n');
+  assert.equal(parseExport(withBom.subarray(2)).rows[0]['SKU'], 'X-1');
 });

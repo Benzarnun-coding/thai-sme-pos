@@ -42,7 +42,9 @@ export function parseExport(bytes: Uint8Array): { headers: string[]; rows: Sourc
   let text: string;
   if (bytes[0] === 0xff && bytes[1] === 0xfe) text = new TextDecoder('utf-16le').decode(bytes.subarray(2));
   else if (bytes[0] === 0xfe && bytes[1] === 0xff) text = new TextDecoder('utf-16be').decode(bytes.subarray(2));
-  else text = new TextDecoder().decode(bytes).replace(/^﻿/, '');
+  // No BOM but every other byte zero = UTF-16 LE anyway (some re-saves drop the BOM).
+  else if (bytes.length > 3 && bytes[1] === 0 && bytes[3] === 0) text = new TextDecoder('utf-16le').decode(bytes);
+  else text = new TextDecoder().decode(bytes).replace(/^\uFEFF/, '');
   const firstLine = text.split('\n', 1)[0];
   const sep = (firstLine.match(/\t/g)?.length ?? 0) >= (firstLine.match(/,/g)?.length ?? 0) ? '\t' : ',';
   const table = splitDelimited(text, sep);
@@ -75,7 +77,42 @@ function splitDelimited(text: string, sep: string): string[][] {
   return out;
 }
 
-export const REQUIRED_COLUMNS = ['No.', 'Customer Name', 'Customer Phone', 'Customer Address', 'SKU', 'Item Qty', 'Item Price'];
+/** Columns the file must have; null = fine. Two layouts work: one row per item (No. + SKU/Item Qty/Item Price), or
+ *  one row per order (Order no. + Item Detail, as in the .xlsx export). */
+export function missingColumns(headers: string[]): string[] | null {
+  const has = (h: string) => headers.includes(h);
+  const base = ['Customer Name', 'Customer Phone', 'Customer Address'].filter((h) => !has(h));
+  if (!has('No.') && !has('Order no.')) base.unshift('No. / Order no.');
+  const items = has('SKU') && has('Item Qty') && has('Item Price') ? [] : has('Item Detail') ? [] : ['SKU, Item Qty, Item Price (หรือ Item Detail)'];
+  const out = [...base, ...items];
+  return out.length ? out : null;
+}
+
+/** "ชื่อ (SKU) (CF code) x3 THB 1107.0", one item per line; THB is the line total. */
+export function parseItemDetail(detail: string): { sku: string; qty: number; price: number }[] | null {
+  const out: { sku: string; qty: number; price: number }[] = [];
+  for (const line of detail.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
+    const m = line.match(/\(([^()]+)\)\s*(?:\(([^()]+)\)\s*)?x\s*(\d+)\s*THB\s*([\d.,]+)\s*$/i);
+    if (!m) return null;
+    // Two brackets = SKU then CF code (the same here); take the first.
+    const sku = m[1].trim();
+    const qty = Number(m[3]);
+    const lineTotal = Number(m[4].replace(/,/g, ''));
+    out.push({ sku, qty, price: qty > 0 ? Math.round((lineTotal / qty) * 100) / 100 : lineTotal });
+  }
+  return out.length ? out : null;
+}
+
+/** One-row-per-order files → one row per item, same keys as the item layout. Unreadable details keep one empty item. */
+function expandOrders(rows: SourceRow[]): SourceRow[] {
+  if (!rows.some((r) => 'Item Detail' in r) || rows.some((r) => r['SKU'])) return rows;
+  return rows.flatMap((r) => {
+    const items = parseItemDetail(r['Item Detail'] ?? '');
+    const no = r['No.'] || r['Order no.'] || '';
+    if (!items) return [{ ...r, 'No.': no, SKU: '', 'Item Qty': '0', 'Item Price': '0', _detailError: r['Item Detail'] ?? '' }];
+    return items.map((i) => ({ ...r, 'No.': no, SKU: i.sku, 'Item Qty': String(i.qty), 'Item Price': String(i.price) }));
+  });
+}
 
 /** "70/2 ม.13 ต.ทุ่งปรัง อ.สิชล จ.นครศรีธรรมราช 80120" → parts. Bangkok's แขวง/เขต too. Missing parts are ''. */
 export function splitAddress(raw: string): { address: string; subdistrict: string; district: string; province: string; zip: string } {
@@ -125,7 +162,7 @@ const money = (n: number) => String(Math.round(n * 100) / 100);
 /** Groups item rows into orders and maps them to GoSell's columns. Cancelled orders are left out. */
 export function toGoSell(rows: SourceRow[]): { orders: GoSellOrder[]; skipped: { orderNo: string; reason: string }[] } {
   const byOrder = new Map<string, SourceRow[]>();
-  for (const r of rows) {
+  for (const r of expandOrders(rows)) {
     const no = r['No.'] || r['Order no.'];
     if (!no) continue;
     byOrder.set(no, [...(byOrder.get(no) ?? []), r]);
@@ -148,7 +185,8 @@ export function toGoSell(rows: SourceRow[]): { orders: GoSellOrder[]; skipped: {
     if (!/^0\d{8,9}$/.test(phone)) problems.push(`เบอร์ "${r['Customer Phone']}" ไม่ถูกต้อง`);
     const carrier = carrierFor(r['Shipping Option'] ?? '');
     if (!carrier) problems.push(`ไม่รู้จักขนส่ง "${r['Shipping Option'] ?? ''}"`);
-    const lines = items.map((i) => ({ sku: i['SKU'] || i['CF code/Mine Code'] || '', qty: num(i['Item Qty']), price: num(i['Item Price']) }));
+    if (items.some((i) => '_detailError' in i)) problems.push(`อ่านรายการสินค้าไม่ได้: "${items.find((i) => '_detailError' in i)!._detailError.slice(0, 80)}"`);
+    const lines = items.filter((i) => !('_detailError' in i)).map((i) => ({ sku: i['SKU'] || i['CF code/Mine Code'] || '', qty: num(i['Item Qty']), price: num(i['Item Price']) }));
     if (lines.some((l) => !l.sku)) problems.push('มีสินค้าที่ไม่มี SKU');
     if (lines.some((l) => l.qty <= 0)) problems.push('มีสินค้าจำนวน 0');
     const goods = lines.reduce((t, l) => t + l.qty * l.price, 0);
