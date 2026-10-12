@@ -1,0 +1,12 @@
+{
+  "name": "ads-engine",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.6" },
+  "scripts": {
+    "run": "node --env-file=.env src/run.ts",
+    "apply": "DRY_RUN=false node --env-file=.env src/run.ts",
+    "test": "node --test src/*.test.ts",
+    "typecheck": "../node_modules/.bin/tsc --noEmit -p ."
+  }
+}

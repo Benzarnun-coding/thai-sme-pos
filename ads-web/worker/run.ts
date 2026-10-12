@@ -1,0 +1,127 @@
+// One automation run: fetch → group by stage × product → evaluate → apply with guardrails → move stages → log → LINE.
+
+import { applyDecisions, sumBudget, type Mutator } from '../../ads-engine/src/apply.ts';
+import { formatReport, pushLine } from '../../ads-engine/src/notify.ts';
+import type { CampaignDayRow, DailyRow, HourlyConversion } from '../../ads-engine/src/meta.ts';
+import type { Entity, Level, Metrics, RunReport, State, Window } from '../../ads-engine/src/types.ts';
+import { applyMoves, codOf, insertRun, loadCampaignSettings, loadCosts, loadSections, loadSettings, loadStages, loadState, saveState } from './db.ts';
+import { buildGroups, neededWindows, planDecisions, sectionMap, type MoveDecision, type Plan } from './engine.ts';
+
+/** Keeps a run well inside the Workers free plan's 50 outbound requests, and limits damage from a bad rule. */
+export const MAX_CHANGES_PER_RUN = 25;
+
+export interface MetaLike extends Mutator {
+  accountName(): Promise<string>;
+  listEntities(): Promise<Entity[]>;
+  insights(level: Level, window: Window): Promise<Map<string, Metrics>>;
+  dailyInsights(campaignId: string, window: Window): Promise<DailyRow[]>;
+  dailyCampaignInsights(window: Window): Promise<CampaignDayRow[]>;
+  hourlyConversions(date: string): Promise<HourlyConversion[]>;
+}
+
+export interface RunEnv {
+  DB: D1Database;
+  META_AD_ACCOUNT_ID: string;
+  LINE_CHANNEL_ACCESS_TOKEN?: string;
+  LINE_TO?: string;
+}
+
+export type WebRunReport = RunReport & {
+  notes: string[];
+  decisions: (RunReport['decisions'][number] & { group?: string })[];
+  /** Stage changes; applied only when not a dry run */
+  moves: (MoveDecision & { applied?: boolean })[];
+};
+
+export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger: string; dryRun?: boolean }): Promise<WebRunReport> {
+  const settings = await loadSettings(env.DB);
+  const now = new Date();
+  const dryRun = opts.dryRun ?? settings.dry_run;
+  const report: WebRunReport = {
+    run_at: now.toISOString(),
+    account_id: env.META_AD_ACCOUNT_ID,
+    dry_run: dryRun,
+    entities_evaluated: 0,
+    decisions: [],
+    totals: { daily_budget_before: 0, daily_budget_after: 0 },
+    errors: [],
+    notes: [],
+    moves: [],
+  };
+
+  if (settings.kill_switch) {
+    report.notes.push('KILL SWITCH เปิดอยู่ → ไม่ทำอะไรเลย');
+    await insertRun(env.DB, { run_at: report.run_at, trigger: opts.trigger, dry_run: dryRun, summary: 'หยุด (kill switch)', report });
+    return report;
+  }
+
+  try {
+    const [entities, state] = await Promise.all([meta.listEntities(), loadState(env.DB)]);
+    const { plan, evaluated } = await planRun(env.DB, entities, (level, window) => meta.insights(level, window), state, now);
+    report.entities_evaluated = evaluated;
+    report.totals.daily_budget_before = sumBudget(entities);
+    report.notes.push(...plan.notes);
+    report.moves = plan.moves;
+    capChanges(plan);
+    report.decisions = plan.decisions;
+
+    const applied = await applyDecisions(plan.decisions, entities, meta, settings.guardrails, state, { dryRun, now });
+    report.errors.push(...applied.errors);
+    report.totals.daily_budget_after = applied.totalAfter;
+    if (!dryRun) {
+      await saveState(env.DB, state);
+      const moving = report.moves.filter((m) => !m.skipped_reason);
+      await applyMoves(env.DB, moving.map((m) => ({ campaign_id: m.entity.id, name: m.entity.name, from: m.move_from, to: m.move_to })), report.run_at);
+      for (const m of moving) m.applied = true;
+    }
+  } catch (err: any) {
+    report.errors.push(err?.message ?? String(err));
+  }
+
+  const acted = report.decisions.filter((d) => !d.skipped_reason).length;
+  const moved = report.moves.filter((m) => !m.skipped_reason).length;
+  const summary = report.errors.length && !report.decisions.length
+    ? `ผิดพลาด: ${report.errors[0].slice(0, 120)}`
+    : `${acted} รายการ · ย้ายกลุ่ม ${moved}${dryRun ? ' (ทดลอง)' : ''} · ข้าม ${report.decisions.length - acted}`;
+  await insertRun(env.DB, { run_at: report.run_at, trigger: opts.trigger, dry_run: dryRun, summary, report });
+
+  const text = [
+    formatReport(report),
+    ...report.moves.filter((m) => !m.skipped_reason).map((m) => `↪ ${m.plan}`),
+    ...report.notes.map((n) => `ℹ️ ${n}`),
+  ].join('\n');
+  await pushLine(text, env.LINE_CHANNEL_ACCESS_TOKEN, env.LINE_TO).catch(() => false);
+  return report;
+}
+
+/**
+ * Everything a run decides, without touching Meta or saving anything. Shared by real runs and the dashboard's
+ * "next run" preview (which passes cached insights). Fills entity metrics for the windows the rules need.
+ */
+export async function planRun(
+  db: D1Database, entities: Entity[], insights: (level: Level, window: Window) => Promise<Map<string, Metrics>>, state: State, now: Date,
+): Promise<{ plan: Plan; evaluated: number }> {
+  const [sections, stages, campaignSettings, costs, settings] = await Promise.all([loadSections(db), loadStages(db), loadCampaignSettings(db), loadCosts(db), loadSettings(db)]);
+  const sectionOf = sectionMap(entities, sections, campaignSettings);
+  const groups = buildGroups(entities, sections, stages, campaignSettings, sectionOf);
+  const calls = [...neededWindows(groups)].flatMap(([level, windows]) => [...windows].map((w) => [level, w] as const));
+  const results = await Promise.all(calls.map(([level, w]) => insights(level, w)));
+  calls.forEach(([level, w], i) => {
+    for (const e of entities) if (e.level === level) e.metrics[w] = results[i].get(e.id) ?? zeroMetrics();
+  });
+  const evaluated = entities.filter((e) => groups.some((g) => g.campaignIds.has(e.campaign_id))).length;
+  return { plan: planDecisions(groups, entities, sectionOf, costs, campaignSettings, stages, state, now, codOf(settings)), evaluated };
+}
+
+/** Marks everything past MAX_CHANGES_PER_RUN as skipped. */
+export function capChanges(plan: Plan): void {
+  let actionable = 0;
+  for (const d of plan.decisions) {
+    if (d.skipped_reason || d.action.type === 'notify') continue;
+    if (++actionable > MAX_CHANGES_PER_RUN) d.skipped_reason = `เกิน ${MAX_CHANGES_PER_RUN} การเปลี่ยนต่อรอบ — รอรอบถัดไป`;
+  }
+}
+
+export function zeroMetrics(): Metrics {
+  return { spend: 0, impressions: 0, clicks: 0, ctr: 0, cpc: 0, purchases: 0, purchase_value: 0, cpa: Infinity, roas: 0, frequency: 0, messages: 0, cost_per_message: Infinity };
+}

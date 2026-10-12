@@ -1,0 +1,68 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { clampBudget, evaluate, onCooldown } from './rules.ts';
+import type { Entity, Guardrails, Rule, Scope, State } from './types.ts';
+
+const scope: Scope = { campaign_name_prefixes: [], campaign_ids: [] };
+const g: Guardrails = { max_change_pct_per_run: 20, min_daily_budget: 100, max_daily_budget: 3000, max_total_daily_budget: 10000 };
+
+function adset(over: Partial<Entity> & { cpa?: number; roas?: number; spend?: number }): Entity {
+  const { cpa = 100, roas = 2, spend = 2000, ...rest } = over;
+  return {
+    level: 'adset', id: 'a1', name: 'AS1', campaign_id: 'c1', campaign_name: 'PK Jeans', status: 'ACTIVE', daily_budget: 500,
+    metrics: { last_3d: { spend, impressions: 1000, clicks: 50, ctr: 5, cpc: 4, purchases: 10, purchase_value: 4000, cpa, roas, frequency: 1.5, messages: 40, cost_per_message: spend / 40 } },
+    ...rest,
+  };
+}
+
+const pauseRule: Rule = { id: 'r1', level: 'adset', window: 'last_3d', metric: 'cpa', op: '>', value: 300, min_spend: 600, action: { type: 'pause' } };
+const scaleRule: Rule = { id: 'r2', level: 'adset', window: 'last_3d', metric: 'roas', op: '>', value: 3, action: { type: 'budget_pct', pct: 20 } };
+
+test('rule fires when metric crosses threshold', () => {
+  const d = evaluate([adset({ cpa: 350 })], [pauseRule], scope, { last_action: {} });
+  assert.equal(d.length, 1);
+  assert.equal(d[0].skipped_reason, undefined);
+  assert.match(d[0].plan, /^PAUSE/);
+});
+
+test('rule does not fire below min_spend', () => {
+  const d = evaluate([adset({ cpa: 350, spend: 200 })], [pauseRule], scope, { last_action: {} });
+  assert.equal(d.length, 0);
+});
+
+test('rule does not fire below min_purchases', () => {
+  const rule = { ...scaleRule, min_purchases: 11 };
+  assert.equal(evaluate([adset({ roas: 5 })], [rule], scope, { last_action: {} }).length, 0); // fixture has 10 purchases
+  assert.equal(evaluate([adset({ roas: 5 })], [{ ...rule, min_purchases: 10 }], scope, { last_action: {} }).length, 1);
+});
+
+test('cooldown blocks a repeat action', () => {
+  const state: State = { last_action: { 'r1:a1': new Date(Date.now() - 3600_000).toISOString() } };
+  assert.equal(onCooldown(pauseRule, 'a1', state, new Date()), true);
+  const d = evaluate([adset({ cpa: 350 })], [pauseRule], scope, state);
+  assert.equal(d[0].skipped_reason, 'cooldown');
+});
+
+test('scope by campaign name prefix', () => {
+  const d = evaluate([adset({ cpa: 350 })], [pauseRule], { campaign_name_prefixes: ['CM '], campaign_ids: [] }, { last_action: {} });
+  assert.equal(d.length, 0);
+});
+
+test('only first matching rule acts on an entity', () => {
+  const d = evaluate([adset({ cpa: 350, roas: 5 })], [pauseRule, scaleRule], scope, { last_action: {} });
+  assert.equal(d.filter((x) => !x.skipped_reason).length, 1);
+  assert.equal(d[0].rule_id, 'r1');
+});
+
+test('budget_pct skipped when entity has no daily budget (CBO)', () => {
+  const d = evaluate([adset({ roas: 5, daily_budget: null })], [scaleRule], scope, { last_action: {} });
+  assert.match(d[0].skipped_reason!, /no daily budget/);
+});
+
+test('clampBudget caps percent and respects min/max', () => {
+  assert.deepEqual(clampBudget(500, 50, g), { next: 600, note: 'pct capped 50→20' });
+  assert.deepEqual(clampBudget(500, -20, g), { next: 400, note: undefined });
+  assert.equal(clampBudget(110, -20, g)?.next, 100);
+  assert.equal(clampBudget(2900, 20, g)?.next, 3000);
+  assert.equal(clampBudget(3000, 20, g), null);
+});

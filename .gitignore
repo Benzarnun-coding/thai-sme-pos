@@ -22,3 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# ads-engine secrets & runtime files
+ads-engine/.env
+ads-engine/state.json
+ads-engine/reports/
+
+# Order exports with customer names/phones/addresses — never commit (public repo)
+Gosell/

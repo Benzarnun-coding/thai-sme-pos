@@ -1,0 +1,58 @@
+# Manual runs of ads-engine (rules.json). The daily schedule now lives in ads-web (Cloudflare cron);
+# don't re-enable `schedule:` here while ads-web is live, or two engines will act on the same campaigns.
+# Secrets to add in GitHub → Settings → Secrets and variables → Actions:
+#   META_ACCESS_TOKEN, META_AD_ACCOUNT_ID, (optional) LINE_CHANNEL_ACCESS_TOKEN, LINE_TO
+# Variables (same page, "Variables" tab):
+#   DRY_RUN = true|false   (default true)   KILL_SWITCH = true|false
+name: ads-engine
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'true = report only, false = apply'
+        default: 'true'
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ads-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Restore state.json (cooldowns)
+        uses: actions/cache/restore@v4
+        with:
+          path: ads-engine/state.json
+          key: ads-engine-state-${{ github.run_id }}
+          restore-keys: ads-engine-state-
+
+      - name: Run
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          META_AD_ACCOUNT_ID: ${{ secrets.META_AD_ACCOUNT_ID }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_TO: ${{ secrets.LINE_TO }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || vars.DRY_RUN || 'true' }}
+          KILL_SWITCH: ${{ vars.KILL_SWITCH || 'false' }}
+        run: node src/run.ts
+
+      - name: Save state.json
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ads-engine/state.json
+          key: ads-engine-state-${{ github.run_id }}
+
+      - name: Upload run log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ads-engine-log-${{ github.run_id }}
+          path: ads-engine/logs/*.json
+          retention-days: 30

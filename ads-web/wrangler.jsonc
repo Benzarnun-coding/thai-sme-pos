@@ -1,0 +1,33 @@
+// Cloudflare Worker: API + scheduled rule runs + the React dashboard (static assets).
+// Secrets (set with `npx wrangler secret put NAME`, never in this file):
+//   META_ACCESS_TOKEN, META_APP_SECRET + META_WEBHOOK_VERIFY_TOKEN (Messenger webhook), LINE_CHANNEL_ACCESS_TOKEN (optional), LINE_TO (optional)
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pkjeans-ads",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/webhook/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pkjeans-ads",
+      "database_id": "a1064631-6b86-4df4-b121-afcf994be552",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // Rules at 08:00 and 20:00 Bangkok (UTC+7); costs re-sync from the Google Sheet at 07:30. Keep in sync with worker/index.ts.
+  "triggers": { "crons": ["0 1,13 * * *", "30 0 * * *"] },
+  "vars": {
+    "META_AD_ACCOUNT_ID": "act_2149666808519411",
+    "META_API_VERSION": "v21.0",
+    "META_APP_ID": "1410718820800711",
+    // Cloudflare Access (Worker → Access tab → Application values). Empty = every /api call is refused.
+    "ACCESS_TEAM_DOMAIN": "https://broad-cell-d05a.cloudflareaccess.com",
+    "ACCESS_AUD": "468421c1e47c4a4bde081a9e8b6dfe02f22dfa4305edd0faf64a16f08cc48a0a"
+  },
+  "observability": { "enabled": true }
+}
