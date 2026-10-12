@@ -18,7 +18,12 @@ export interface Settings {
   ads_cost_tab: string;
   /** Signed-in emails that may only change costs (see roles.ts) */
   cost_editors: string[];
+  /** Per-order costs the team deducts from each real order (Page365): COD fee % (COD orders only), loss %, shipping, VAT %, packaging */
+  order_fees: OrderFees;
 }
+
+export interface OrderFees { cod_pct: number; loss_pct: number; ship: number; vat_pct: number; bag: number }
+export const DEFAULT_ORDER_FEES: OrderFees = { cod_pct: 1, loss_pct: 1, ship: 18, vat_pct: 5, bag: 1 };
 
 export function codOf(s: Pick<Settings, 'cod_share_pct' | 'cod_fee'>): Cod {
   return { share: s.cod_share_pct / 100, fee: s.cod_fee };
@@ -59,6 +64,7 @@ export async function loadSettings(db: D1Database): Promise<Settings> {
     ads_cost_sheet_id: kv.get('ads_cost_sheet_id') ?? '',
     ads_cost_tab: kv.get('ads_cost_tab') ?? 'รวมต้นทุน ที่เปิด ADS ',
     cost_editors: JSON.parse(kv.get('cost_editors') ?? '[]'),
+    order_fees: { ...DEFAULT_ORDER_FEES, ...JSON.parse(kv.get('order_fees') ?? '{}') },
   };
 }
 
@@ -75,6 +81,7 @@ export async function saveSettings(db: D1Database, s: Settings): Promise<void> {
     put.bind('ads_cost_sheet_id', s.ads_cost_sheet_id),
     put.bind('ads_cost_tab', s.ads_cost_tab),
     put.bind('cost_editors', JSON.stringify(s.cost_editors)),
+    put.bind('order_fees', JSON.stringify(s.order_fees)),
   ]);
 }
 

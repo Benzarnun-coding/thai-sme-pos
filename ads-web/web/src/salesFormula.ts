@@ -17,7 +17,7 @@ export function formulaLines(r: SalesRow): string[] {
     const how = [c.customer ? `${num(c.customer)} จากลูกค้าที่ทักจากแอดนี้` : '', c.exact ? `${num(c.exact)} จากเวลา+ยอดที่แอดมินติ๊กเข้า Meta` : '', c.approx ? `${num(c.approx)} จับคู่โดยประมาณ` : ''].filter(Boolean).join(' · ');
     const lines = [`ออเดอร์จริงจากไฟล์ Page365 ${num(c.orders)} ออเดอร์${how ? ` (${how})` : ''} · ยอดที่ลูกค้าจ่าย ${b2(R)} = ค่าสินค้า ${b2(c.goods)} + ค่าส่งที่เก็บ ${b2(c.shipping)}`];
     if (c.cost_known < c.orders) lines.push(`มีทุนใน Page365 แค่ ${num(c.cost_known)} จาก ${num(c.orders)} ออเดอร์${c.cost_known === 0 ? ' → คิดกำไรไม่ได้' : ''}`);
-    if (r.cost_high !== null) lines.push(`ทุน = ทุนสินค้าตาม Page365 ${b2(c.product_cost)} + ค่าส่ง ${b2(c.shipping)} = ${b2(r.cost_high)}`, profitLine(r.cost_high, r.profit_low ?? 0));
+    if (r.cost_high !== null) lines.push(`ทุน = ทุนสินค้าตาม Page365 ${b2(c.product_cost)} + ค่าใช้จ่ายต่อออเดอร์ (ค่าธรรมเนียม COD, ของเสีย, ค่าส่ง, VAT, ซอง ตามที่ตั้งค่า) ${b2(c.fees)} = ${b2(r.cost_high)}`, profitLine(r.cost_high, r.profit_low ?? 0));
     return lines;
   }
   if (c.method === 'orders') {

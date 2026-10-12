@@ -4,6 +4,13 @@
 // purchases per campaign per hour must add up to the orders created in that hour).
 
 import { bkkDate } from './conversionStore.ts';
+import type { OrderFees } from './db.ts';
+
+/** What the team deducts from one order besides product cost: COD fee (COD orders only), loss, shipping, VAT, packaging. */
+export function orderFees(o: Pick<StoredOrder, 'total' | 'payment'>, f: OrderFees): number {
+  const cod = o.payment === 'cod' ? o.total * f.cod_pct / 100 : 0;
+  return cod + o.total * f.loss_pct / 100 + f.ship + o.total * f.vat_pct / 100 + f.bag;
+}
 
 export interface UploadedOrder {
   order_no: string;
@@ -262,15 +269,15 @@ export async function recreditDates(db: D1Database, dates: string[]): Promise<Re
   return out;
 }
 
-export interface CampaignActual { campaign_id: string | null; orders: number; revenue: number; goods: number; shipping: number; cost: number; units: number; customer: number; exact: number; approx: number; cost_known: number }
+export interface CampaignActual { campaign_id: string | null; orders: number; revenue: number; goods: number; shipping: number; cost: number; fees: number; units: number; customer: number; exact: number; approx: number; cost_known: number }
 
-/** Per campaign for one day: real revenue, cost and pieces from the orders credited to it. */
-export function actualByCampaign(orders: StoredOrder[]): Map<string | null, CampaignActual> {
+/** Per campaign for one day: real revenue, cost, fees and pieces from the orders credited to it. */
+export function actualByCampaign(orders: StoredOrder[], fees: OrderFees): Map<string | null, CampaignActual> {
   const m = new Map<string | null, CampaignActual>();
   for (const o of orders) {
     const k = o.match === 'none' ? null : o.campaign_id;
-    const a = m.get(k) ?? { campaign_id: k, orders: 0, revenue: 0, goods: 0, shipping: 0, cost: 0, units: 0, customer: 0, exact: 0, approx: 0, cost_known: 0 };
-    a.orders++; a.revenue += o.total; a.shipping += o.shipping ?? 0; a.goods += o.total - (o.shipping ?? 0); a.units += o.units;
+    const a = m.get(k) ?? { campaign_id: k, orders: 0, revenue: 0, goods: 0, shipping: 0, cost: 0, fees: 0, units: 0, customer: 0, exact: 0, approx: 0, cost_known: 0 };
+    a.orders++; a.revenue += o.total; a.shipping += o.shipping ?? 0; a.goods += o.total - (o.shipping ?? 0); a.units += o.units; a.fees += orderFees(o, fees);
     if (o.cost !== null) { a.cost += o.cost; a.cost_known++; }
     if (o.match === 'customer') a.customer++; else if (o.match === 'exact') a.exact++; else if (o.match === 'approx') a.approx++;
     m.set(k, a);

@@ -95,7 +95,7 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
           <button className="ghost small" disabled={!report} onClick={exportCsv}><Icon name="down" size={14} /> CSV (Excel)</button>
         </div>
       </div>
-      <P365UploadCard window={window} onUploaded={() => setReloadKey((k) => k + 1)} />
+      <P365UploadCard window={window} onUploaded={() => setReloadKey((k) => k + 1)} campaignName={(id) => data.campaigns.find((c) => c.id === id)?.name ?? `แคมเปญ ${id}`} />
       {report?.warning && <div className="banner">{report.warning}</div>}
       {error && <div className="error">{error}</div>}
       {!report && !error && <div className="skeleton" style={{ height: 320 }} />}
@@ -471,7 +471,7 @@ function ReferralList({ date, data, onOpenCampaign }: { date: string; data: Over
 const numOrNull = (v: string | undefined) => (v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
 
 /** Page365's daily export, read in the browser (only the columns the numbers need are sent; names are hashed server-side, never stored). */
-function P365UploadCard({ window, onUploaded }: { window: Window; onUploaded: () => void }) {
+function P365UploadCard({ window, onUploaded, campaignName }: { window: Window; onUploaded: () => void; campaignName: (id: string) => string }) {
   const { toast } = useUi();
   const [uploads, setUploads] = useState<P365Upload[] | null>(null);
   const [busy, setBusy] = useState('');
@@ -517,6 +517,37 @@ function P365UploadCard({ window, onUploaded }: { window: Window; onUploaded: ()
       setPending(null);
       await load();
       onUploaded();
+    } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(''); }
+  }
+
+  // The team's "รวม" sheet, generated: one row per real order with the per-order fees and the campaign it was credited to.
+  async function exportOrders(dates: string[]) {
+    if (!dates.length) return;
+    setBusy('กำลังเตรียมไฟล์…');
+    try {
+      const days = await Promise.all(dates.map((d) => api.p365Orders(d)));
+      const f = days[0]?.fees;
+      const esc = (v: string | number | null | undefined) => { const t = v === null || v === undefined ? '' : String(v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+      const head = ['วันที่', 'เลขออเดอร์', 'สินค้า', 'จำนวนตัว', 'ราคาขาย', 'ต้นทุน', 'ขนส่ง', `COD ${f?.cod_pct ?? ''}%`, `LOSS ${f?.loss_pct ?? ''}%`, `ค่าส่ง ${f?.ship ?? ''}`, `VAT ${f?.vat_pct ?? ''}%`, `ค่าซอง ${f?.bag ?? ''}`, 'กำไรก่อนค่าแอด', 'แคมเปญ', 'วิธีจับคู่'];
+      const rows = days.flatMap((d) => d.orders.map((o) => {
+        const cod = o.payment === 'cod' && f ? o.total * f.cod_pct / 100 : 0;
+        const loss = f ? o.total * f.loss_pct / 100 : 0;
+        const vat = f ? o.total * f.vat_pct / 100 : 0;
+        const net = o.cost === null ? null : o.total - o.cost - o.fees;
+        return [
+          new Date(o.created_at).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }), o.order_no, o.items.map((i) => `${i.name} (${i.sku}) x${i.qty}`).join(' | '), o.units, r2(o.total), o.cost === null ? '' : r2(o.cost),
+          o.payment === 'cod' ? 'COD' : 'โอน', r2(cod), r2(loss), f?.ship ?? '', r2(vat), f?.bag ?? '', net === null ? '' : r2(net),
+          o.campaign_id ? campaignName(o.campaign_id) : 'ไม่ทราบแอด', { customer: 'ลูกค้าทักจากแอด', exact: 'เวลา+ยอด', approx: 'ประมาณ', none: '' }[o.match],
+        ].map(esc).join(',');
+      }));
+      const blob = new Blob(['\ufeff' + [head.join(','), ...rows].join('\n')], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `pkjeans-orders-${dates[dates.length - 1]}_${dates[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast(`ดาวน์โหลด ${rows.length} ออเดอร์แล้ว`, 'ok');
     } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(''); }
   }
 
@@ -568,7 +599,10 @@ function P365UploadCard({ window, onUploaded }: { window: Window; onUploaded: ()
               ))}
             </tbody>
           </table>
-          {list.length > 3 && <button className="ghost small" onClick={() => setShowAll(!showAll)}>{showAll ? 'ย่อ' : `ดูทั้งหมด ${list.length} วัน`}</button>}
+          <div className="row gap wrap" style={{ marginTop: 8 }}>
+            {list.length > 3 && <button className="ghost small" onClick={() => setShowAll(!showAll)}>{showAll ? 'ย่อ' : `ดูทั้งหมด ${list.length} วัน`}</button>}
+            <button className="ghost small" disabled={!!busy} onClick={() => exportOrders(list.map((u) => u.date))}><Icon name="down" size={14} /> รายออเดอร์พร้อมหักค่าใช้จ่าย (CSV เหมือนชีต "รวม")</button>
+          </div>
         </div>
       )}
     </section>

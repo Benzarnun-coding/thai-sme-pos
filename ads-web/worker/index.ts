@@ -25,7 +25,7 @@ import { bkkDate, loadConversionHours, saveConversionDay, syncConversionHours, t
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
-import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
+import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
@@ -380,8 +380,8 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role)
   if (path === '/api/p365/orders' && method === 'GET') {
     const date = url.searchParams.get('date') ?? '';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
-    const orders = await loadOrders(env.DB, [date]);
-    return json({ date, orders: orders.map(({ name_hash: _h, ...o }) => o) });
+    const [orders, settings] = await Promise.all([loadOrders(env.DB, [date]), loadSettings(env.DB)]);
+    return json({ date, fees: settings.order_fees, orders: orders.map(({ name_hash: _h, ...o }) => ({ ...o, fees: orderFees(o, settings.order_fees) })) });
   }
   if (path === '/api/p365/recredit' && method === 'POST') {
     const input = await body();
@@ -769,7 +769,7 @@ async function salesReport(env: Env, window: Window) {
   const actual = new Map<string, ReturnType<typeof actualByCampaign>>();
   if (uploadedDates.length) {
     const all = await loadOrders(env.DB, uploadedDates);
-    for (const d of uploadedDates) actual.set(d, actualByCampaign(all.filter((o) => o.date === d)));
+    for (const d of uploadedDates) actual.set(d, actualByCampaign(all.filter((o) => o.date === d), settings.order_fees));
   }
   const covered = new Set<string>();
   const rows = days

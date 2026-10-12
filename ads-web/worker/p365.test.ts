@@ -47,8 +47,10 @@ test('orders are credited by customer first, then by hour and value', () => {
     ['1', 'B', 'customer'], ['2', 'A', 'exact'], ['3', 'A', 'exact'], ['4', 'B', 'exact'], ['5', null, 'none'],
   ]);
   assert.deepEqual(counts, { customer: 1, exact: 3, approx: 0, none: 1 });
-  const by = actualByCampaign(orders);
+  const by = actualByCampaign(orders, { cod_pct: 1, loss_pct: 1, ship: 18, vat_pct: 5, bag: 1 });
   assert.equal(by.get('A')!.revenue, 798);
+  // 7% of 798 + 2 × (18 + 1) — the team's per-order deductions
+  assert.equal(Math.round(by.get('A')!.fees * 100) / 100, Math.round((798 * 0.07 + 38) * 100) / 100);
   assert.equal(by.get('B')!.orders, 2);
   assert.equal(by.get(null)!.revenue, 1000);
 });

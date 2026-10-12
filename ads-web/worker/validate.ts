@@ -172,6 +172,13 @@ export function validateSettings(input: any, current: Settings): Settings {
     sheet_tabs: tabs,
     cod_share_pct: input?.cod_share_pct === undefined ? current.cod_share_pct : num(input.cod_share_pct, 'สัดส่วนเก็บปลายทาง (%)', 0, 100),
     cod_fee: input?.cod_fee === undefined ? current.cod_fee : num(input.cod_fee, 'ค่าเก็บปลายทางที่บวกเพิ่ม', 0, 1000),
+    order_fees: input?.order_fees === undefined ? current.order_fees : {
+      cod_pct: num(input.order_fees.cod_pct, 'ค่าธรรมเนียม COD (%)', 0, 100),
+      loss_pct: num(input.order_fees.loss_pct, 'ของเสีย/สูญหาย (%)', 0, 100),
+      ship: num(input.order_fees.ship, 'ค่าส่งต่อออเดอร์', 0, 1000),
+      vat_pct: num(input.order_fees.vat_pct, 'VAT (%)', 0, 100),
+      bag: num(input.order_fees.bag, 'ค่าซองต่อออเดอร์', 0, 1000),
+    },
     ads_cost_sheet_id: typeof input?.ads_cost_sheet_id === 'string' ? sheetId(input.ads_cost_sheet_id) : current.ads_cost_sheet_id,
     // Tab names may end with a space (this one does), so it is kept as typed.
     ads_cost_tab: typeof input?.ads_cost_tab === 'string' && input.ads_cost_tab.trim() ? input.ads_cost_tab.slice(0, 100) : current.ads_cost_tab,
