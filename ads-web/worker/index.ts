@@ -350,7 +350,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role)
     const list: UploadedOrder[] = Array.isArray(input?.orders) ? input.orders : [];
     if (!list.length) throw new BadRequest('ไม่พบออเดอร์ในไฟล์');
     if (list.length > 5000) throw new BadRequest('ไฟล์ใหญ่เกินไป (เกิน 5,000 ออเดอร์)');
-    const { orders, errors } = await normaliseOrders(list, env.META_WEBHOOK_VERIFY_TOKEN ?? '');
+    const { orders, errors, skipped } = await normaliseOrders(list, env.META_WEBHOOK_VERIFY_TOKEN ?? '');
     if (!orders.length) throw new BadRequest(errors[0] ?? 'อ่านออเดอร์ไม่ได้');
     await saveOrders(env.DB, orders, user);
     const dates = [...new Set(orders.map((o) => o.date))].sort();
@@ -363,8 +363,8 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role)
         ON CONFLICT(date) DO UPDATE SET orders = excluded.orders, pieces = excluded.pieces, revenue = excluded.revenue, note = excluded.note, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
         .bind(d, os.length, os.reduce((n, o) => n + o.units, 0), os.reduce((n, o) => n + o.total, 0), user, now);
     }));
-    await audit(env.DB, user, 'p365.upload', dates.join(','), { orders: orders.length, errors: errors.length, credits });
-    return json({ dates, orders: orders.length, errors, credits });
+    await audit(env.DB, user, 'p365.upload', dates.join(','), { orders: orders.length, errors: errors.length, skipped, credits });
+    return json({ dates, orders: orders.length, errors, skipped, credits });
   }
   if (path === '/api/p365' && method === 'GET') {
     const w = url.searchParams.get('window') as Window;

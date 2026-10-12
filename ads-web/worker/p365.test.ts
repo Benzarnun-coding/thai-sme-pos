@@ -11,12 +11,14 @@ test('items are read from Page365 item detail', () => {
 
 test('export times carry their offset; the Bangkok day follows', async () => {
   assert.equal(parseExportTime('2026-10-08 23:30:00 +0700')!.toISOString(), '2026-10-08T16:30:00.000Z');
-  const { orders, errors } = await normaliseOrders([
+  const { orders, errors, skipped } = await normaliseOrders([
     { order_no: '28750.0', created_at: '2026-10-08 08:36:56 +0700', total: 877, shipping: 50, cost: 600, payment: 'cod', item_detail: '(NI91-PK-BL-28) x1 THB 319.', profile_name: ' Somchai  Jaidee ' },
     { order_no: '', created_at: '2026-10-08 08:36:56 +0700', total: 1 },
     { order_no: '28751', created_at: 'garbage', total: 1 },
+    { order_no: '28752', created_at: '2026-10-08 09:28:43 +0700', total: 0, item_detail: 'เปลี่ยนของ (RETURN) (RE) x1 THB 0.0' },
   ], 'salt');
   assert.equal(errors.length, 2);
+  assert.equal(skipped, 1, 'exchange slips are not orders');
   assert.equal(orders.length, 1);
   assert.equal(orders[0].order_no, '28750');
   assert.equal(orders[0].date, '2026-10-08');

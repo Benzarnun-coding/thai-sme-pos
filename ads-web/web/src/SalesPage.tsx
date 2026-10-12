@@ -513,7 +513,7 @@ function P365UploadCard({ window, onUploaded, campaignName }: { window: Window; 
     try {
       const res = await api.p365Upload(pending.orders);
       const c = Object.values(res.credits).reduce((t, x) => ({ customer: t.customer + x.customer, exact: t.exact + x.exact, approx: t.approx + x.approx, none: t.none + x.none }), { customer: 0, exact: 0, approx: 0, none: 0 });
-      toast(`บันทึก ${res.orders} ออเดอร์ (${res.dates.join(', ')}) · จับคู่แอดได้ ${c.customer + c.exact + c.approx} · ไม่ทราบแอด ${c.none}${res.errors.length ? ` · ข้าม ${res.errors.length} แถว` : ''}`, 'ok');
+      toast(`บันทึก ${res.orders} ออเดอร์ (${res.dates.join(', ')}) · จับคู่แอดได้ ${c.customer + c.exact + c.approx} · ไม่ทราบแอด ${c.none}${res.skipped ? ` · ไม่นับใบเปลี่ยนของ ${res.skipped}` : ''}${res.errors.length ? ` · ข้าม ${res.errors.length} แถว` : ''}`, 'ok');
       setPending(null);
       await load();
       onUploaded();
@@ -559,8 +559,8 @@ function P365UploadCard({ window, onUploaded, campaignName }: { window: Window; 
         <div>
           <h2>ไฟล์ออเดอร์จาก Page365</h2>
           <p className="muted small">
-            อัปโหลดไฟล์ export ออเดอร์ (.xlsx) วันละครั้ง → วันนั้นใช้ยอด ทุน และจำนวนตัวจริงแทนการประมาณ และจับคู่แต่ละออเดอร์กับแอด (จากลูกค้าที่ทักจากแอด หรือจากเวลา+ยอดที่แอดมินติ๊ก)
-            · เก็บเฉพาะตัวเลขและรหัสสินค้า ไม่เก็บชื่อ เบอร์ ที่อยู่
+            ทุกเช้า export ออเดอร์ของเมื่อวานจาก Page365 <b>ด้วยตัวกรองเดียวกับที่ใช้ทำชีต "รวม"</b> แล้วอัปโหลดที่นี่ (.xlsx) → วันนั้นใช้ยอด ทุน และจำนวนตัวจริงแทนการประมาณ และจับคู่แต่ละออเดอร์กับแอด
+            · ใบ "เปลี่ยนของ" ราคา 0 ไม่นับเป็นออเดอร์ · อัปโหลดซ้ำวันเดิมได้ (แทนที่ของเดิม) · เก็บเฉพาะตัวเลขและรหัสสินค้า ไม่เก็บชื่อ เบอร์ ที่อยู่
           </p>
         </div>
         <label className={`button ${busy ? 'disabled' : ''}`} style={{ cursor: busy ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>

@@ -82,14 +82,21 @@ export async function hashName(name: string | null | undefined, salt: string): P
   return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export async function normaliseOrders(input: UploadedOrder[], salt: string): Promise<{ orders: StoredOrder[]; errors: string[] }> {
+/** Exchange / return slips Page365 sometimes exports as 0-baht orders: not sales (decided with the team 12 Oct 2026). */
+export function isExchangeSlip(o: Pick<UploadedOrder, 'total' | 'item_detail'>): boolean {
+  return Number(o.total) === 0 && /RETURN|\(RE\)|เปลี่ยนของ|คืนของ/i.test(String(o.item_detail ?? ''));
+}
+
+export async function normaliseOrders(input: UploadedOrder[], salt: string): Promise<{ orders: StoredOrder[]; errors: string[]; skipped: number }> {
   const orders: StoredOrder[] = [];
   const errors: string[] = [];
   const seen = new Set<string>();
+  let skipped = 0;
   for (const [i, o] of input.entries()) {
     const no = String(o.order_no ?? '').replace(/\.0+$/, '').trim();
     if (!no) { errors.push(`แถว ${i + 1}: ไม่มีเลขออเดอร์`); continue; }
     if (seen.has(no)) continue;
+    if (isExchangeSlip(o)) { skipped++; continue; }
     const at = parseExportTime(String(o.created_at ?? ''));
     if (!at) { errors.push(`ออเดอร์ ${no}: เวลาไม่ถูกต้อง`); continue; }
     const total = Number(o.total);
@@ -112,7 +119,7 @@ export async function normaliseOrders(input: UploadedOrder[], salt: string): Pro
       match: 'none',
     });
   }
-  return { orders, errors };
+  return { orders, errors, skipped };
 }
 
 // ---- crediting orders to campaigns ----
