@@ -632,9 +632,32 @@ async function overview(env: Env, window: Window, fresh: boolean) {
     };
   });
 
+  // Real orders (Page365 uploads) for the days in this window: the KPI card prefers these over the Meta estimate.
+  const actualDates = window === 'today' ? [] : windowDates(window);
+  let actual: null | { dates: number; covered: number; revenue: number; orders: number; units: number; cost: number; fees: number; gross: number; ads: number; net: number; organic_revenue: number; organic_orders: number } = null;
+  if (actualDates.length) {
+    const [uploads, orders] = await Promise.all([loadUploads(env.DB, actualDates), loadOrders(env.DB, actualDates)]);
+    const covered = actualDates.filter((d) => uploads.has(d));
+    if (covered.length) {
+      const os = orders.filter((o) => covered.includes(o.date));
+      const sum = (f: (o: typeof os[number]) => number) => os.reduce((n, o) => n + f(o), 0);
+      const revenue = sum((o) => o.total), cost = sum((o) => o.cost ?? 0), fees = sum((o) => orderFees(o, settings.order_fees));
+      const daily = await data.dailyAll(window).catch(() => [] as Awaited<ReturnType<typeof data.dailyAll>>);
+      const ads = daily.length ? daily.filter((d) => covered.includes(d.date)).reduce((n, d) => n + d.spend, 0) : null;
+      const gross = revenue - cost - fees;
+      actual = {
+        dates: actualDates.length, covered: covered.length, revenue, orders: os.length, units: sum((o) => o.units), cost, fees, gross,
+        ads: ads ?? 0, net: gross - (ads ?? 0),
+        organic_revenue: sum((o) => (o.match === 'none' ? o.total : 0)), organic_orders: os.filter((o) => o.match === 'none').length,
+      };
+      if (ads === null) actual = null; // no daily spend to set against: keep the estimate rather than a half number
+    }
+  }
+
   return {
     account: data.account,
     window,
+    actual,
     /** Set when showing a Claude-pulled snapshot: read-only, limited windows. */
     snapshot,
     meta_fetched_at: data.fetchedAt(),

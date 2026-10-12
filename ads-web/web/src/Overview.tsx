@@ -63,14 +63,23 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
         <Kpi label="ใช้จ่าย" value={baht(all.spend)} sub={`${spending} แคมเปญที่ใช้เงิน`} />
         <Kpi label="ออเดอร์" value={num(all.purchases)} sub={all.purchases ? `ค่าแอด ${baht(all.spend / all.purchases)}/ออเดอร์${all.clicks ? ` · CVR ${num((all.purchases / all.clicks) * 100, 2)}%` : ''}` : undefined} />
         <Kpi label="ROAS" value={all.spend ? num(all.value / all.spend, 2) : '–'} sub="ยอดขาย ÷ ค่าแอด" />
-        <Kpi
-          label="กำไรหลังหักทุน+แอด"
-          value={withProfit.length ? baht(profit) : '–'}
-          tone={withProfit.length ? (profit < 0 ? 'bad' : 'good') : undefined}
-          sub={withProfit.length
-            ? `${profitHigh - profit >= 50 ? `ถึง ${baht(profitHigh)} ถ้าขายราคาเต็ม · ` : ''}นับ ${withProfit.length}/${spending} แคมเปญที่ผูกต้นทุน`
-            : 'ผูกต้นทุนในแท็บสินค้าก่อน'}
-        />
+        {data.actual ? (
+          <Kpi
+            label={data.actual.covered === data.actual.dates ? 'กำไรสุทธิ · ของจริง Page365' : `กำไรสุทธิ · ของจริง ${data.actual.covered}/${data.actual.dates} วัน`}
+            value={baht(data.actual.net)}
+            tone={data.actual.net < 0 ? 'bad' : 'good'}
+            sub={`ยอดจริง ${baht(data.actual.revenue)} (${num(data.actual.orders)} ออเดอร์) − ทุน+ค่าใช้จ่าย ${baht(data.actual.cost + data.actual.fees)} − แอด ${baht(data.actual.ads)} · ไม่ใช่แอด ${baht(data.actual.organic_revenue)}${data.actual.covered < data.actual.dates ? ` · อัปโหลดไฟล์ให้ครบทุกวันเพื่อดูทั้งช่วง` : ''}`}
+          />
+        ) : (
+          <Kpi
+            label="กำไรหลังหักทุน+แอด (ประมาณ)"
+            value={withProfit.length ? baht(profit) : '–'}
+            tone={withProfit.length ? (profit < 0 ? 'bad' : 'good') : undefined}
+            sub={withProfit.length
+              ? `${profitHigh - profit >= 50 ? `ถึง ${baht(profitHigh)} ถ้าขายราคาเต็ม · ` : ''}นับ ${withProfit.length}/${spending} แคมเปญที่ผูกต้นทุน · อัปโหลดไฟล์ Page365 เพื่อใช้ของจริง`
+              : 'ผูกต้นทุนในแท็บสินค้าก่อน'}
+          />
+        )}
       </div>
       <p className="muted small meta-line">
         เปิดอยู่ {running} แคมเปญ · งบรวม {baht(budget)}/วัน

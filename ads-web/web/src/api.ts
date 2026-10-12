@@ -109,9 +109,13 @@ export interface CampaignView extends EntityView {
 
 export interface Guardrails { max_change_pct_per_run: number; min_daily_budget: number; max_daily_budget: number; max_total_daily_budget: number }
 
+export interface OverviewActual { dates: number; covered: number; revenue: number; orders: number; units: number; cost: number; fees: number; gross: number; ads: number; net: number; organic_revenue: number; organic_orders: number }
+
 export interface Overview {
   account: string;
   window: Window;
+  /** Real orders (Page365) for the window's days that have an upload; null when none */
+  actual: OverviewActual | null;
   /** Claude-pulled snapshot: read-only, only these windows have data */
   snapshot: { taken_at: string; windows: Window[] } | null;
   /** When this Meta data was fetched (the server reuses it for a few minutes) */
