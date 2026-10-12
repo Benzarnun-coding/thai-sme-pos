@@ -479,6 +479,9 @@ function P365UploadCard({ window, onUploaded }: { window: Window; onUploaded: ()
   const load = () => api.p365Uploads(window).then((r) => setUploads(r.uploads)).catch(() => setUploads([]));
   useEffect(() => { load(); }, [window]);
 
+  const [pending, setPending] = useState<{ name: string; orders: UploadedOrder[]; days: { date: string; n: number; total: number }[] } | null>(null);
+
+  // Step 1: read the file in the browser and show what is in it. Nothing is sent yet.
   async function onFile(file: File) {
     setBusy('กำลังอ่านไฟล์…');
     try {
@@ -492,10 +495,26 @@ function P365UploadCard({ window, onUploaded }: { window: Window; onUploaded: ()
         payment: r['Payment Provider'] ?? null, paid_at: r['Paid At'] ?? null, item_detail: r['Item Detail'] ?? null, profile_name: r['Profile name'] ?? r['Customer Name'] ?? null,
       }));
       if (!orders.length) throw new Error('ไม่พบออเดอร์ในไฟล์');
-      setBusy(`กำลังส่ง ${orders.length} ออเดอร์…`);
-      const res = await api.p365Upload(orders);
+      const byDay = new Map<string, { n: number; total: number }>();
+      for (const o of orders) {
+        const d = (o.created_at ?? '').slice(0, 10);
+        const x = byDay.get(d) ?? { n: 0, total: 0 };
+        x.n++; x.total += Number.isFinite(o.total) ? o.total : 0;
+        byDay.set(d, x);
+      }
+      setPending({ name: file.name, orders, days: [...byDay].map(([date, x]) => ({ date, ...x })).sort((a, b) => a.date.localeCompare(b.date)) });
+    } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(''); }
+  }
+
+  // Step 2: the person has checked the summary and confirms.
+  async function submit() {
+    if (!pending) return;
+    setBusy(`กำลังส่ง ${pending.orders.length} ออเดอร์…`);
+    try {
+      const res = await api.p365Upload(pending.orders);
       const c = Object.values(res.credits).reduce((t, x) => ({ customer: t.customer + x.customer, exact: t.exact + x.exact, approx: t.approx + x.approx, none: t.none + x.none }), { customer: 0, exact: 0, approx: 0, none: 0 });
       toast(`บันทึก ${res.orders} ออเดอร์ (${res.dates.join(', ')}) · จับคู่แอดได้ ${c.customer + c.exact + c.approx} · ไม่ทราบแอด ${c.none}${res.errors.length ? ` · ข้าม ${res.errors.length} แถว` : ''}`, 'ok');
+      setPending(null);
       await load();
       onUploaded();
     } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(''); }
@@ -514,10 +533,23 @@ function P365UploadCard({ window, onUploaded }: { window: Window; onUploaded: ()
           </p>
         </div>
         <label className={`button ${busy ? 'disabled' : ''}`} style={{ cursor: busy ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>
-          <Icon name="up" size={14} /> {busy || 'อัปโหลดไฟล์ .xlsx'}
+          <Icon name="up" size={14} /> {busy || 'เลือกไฟล์ .xlsx'}
           <input type="file" accept=".xlsx" style={{ display: 'none' }} disabled={!!busy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onFile(f); }} />
         </label>
       </div>
+      {pending && (
+        <div className="banner" style={{ marginBottom: 12 }}>
+          <div><b>{pending.name}</b> — {num(pending.orders.length)} ออเดอร์ · {pending.days.map((d) => `${thaiDay(d.date)} ${num(d.n)} ออเดอร์ ${baht(d.total)}`).join(' · ')}</div>
+          <div className="muted small" style={{ margin: '4px 0 8px' }}>
+            {pending.days.some((d) => list.some((u) => u.date === d.date)) ? 'วันนี้เคยอัปโหลดแล้ว — ยืนยันแล้วจะแทนที่ข้อมูลเดิมของวันนั้น · ' : ''}
+            ยังไม่ได้ส่งอะไร กดยืนยันเพื่อบันทึก
+          </div>
+          <div className="row gap">
+            <button className="primary" disabled={!!busy} onClick={submit}>{busy || `ยืนยันอัปโหลด ${num(pending.orders.length)} ออเดอร์`}</button>
+            <button className="ghost" disabled={!!busy} onClick={() => setPending(null)}>ยกเลิก</button>
+          </div>
+        </div>
+      )}
       {uploads === null ? null : list.length === 0 ? <p className="muted small">ยังไม่มีไฟล์ในช่วงนี้</p> : (
         <div className="table-wrap">
           <table className="data-table">
