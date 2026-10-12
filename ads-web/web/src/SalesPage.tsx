@@ -11,7 +11,7 @@ import { Icon, useUi } from './ui.tsx';
 
 const WINDOWS: Window[] = ['last_7d', 'last_14d', 'last_30d'];
 
-interface DayTotal { date: string; revenue: number; orders: number; units: number; cost: number; spend: number; profit: number; campaigns: number; uncosted: number; costedRevenue: number }
+interface DayTotal { date: string; revenue: number; orders: number; units: number; cost: number; spend: number; profit: number; campaigns: number; uncosted: number; costedRevenue: number; organicRevenue: number; organicOrders: number; actual: boolean }
 
 /** Conservative figures (higher cost, lower profit) throughout, matching the rest of the dashboard. */
 function totalOf(rows: SalesRow[], date = ''): DayTotal {
@@ -23,10 +23,14 @@ function totalOf(rows: SalesRow[], date = ''): DayTotal {
     cost: t.cost + (r.cost_high ?? 0),
     spend: t.spend + r.spend,
     profit: t.profit + (r.profit_low ?? 0),
-    campaigns: t.campaigns + 1,
+    campaigns: t.campaigns + (r.campaign_id === 'none' ? 0 : 1),
     uncosted: t.uncosted + (r.calc.method === 'none' ? 1 : 0),
     costedRevenue: t.costedRevenue + (r.calc.method === 'none' ? 0 : r.revenue),
-  }), { date, revenue: 0, orders: 0, units: 0, cost: 0, spend: 0, profit: 0, campaigns: 0, uncosted: 0, costedRevenue: 0 });
+    // Real orders no ad could be credited for (Page365 days only): organic, came back later, untagged.
+    organicRevenue: t.organicRevenue + (r.campaign_id === 'none' ? r.revenue : 0),
+    organicOrders: t.organicOrders + (r.campaign_id === 'none' ? r.orders : 0),
+    actual: t.actual || r.calc.method === 'actual',
+  }), { date, revenue: 0, orders: 0, units: 0, cost: 0, spend: 0, profit: 0, campaigns: 0, uncosted: 0, costedRevenue: 0, organicRevenue: 0, organicOrders: 0, actual: false });
 }
 
 const thaiDay = (iso: string) => new Date(`${iso}T00:00:00+07:00`).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' });
@@ -104,19 +108,21 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
         <>
           <section className="card table-card">
             <div className="table-card-head">
-              <h2>สรุปรายวัน <span className="muted small">กดวันเพื่อดูแยกตามแอด</span></h2>
+              <h2>สรุปรายวัน <span className="muted small">กดวันเพื่อดูแยกตามแอด · "จากแอด / ไม่ใช่แอด" มีเฉพาะวันที่อัปโหลดไฟล์ Page365</span></h2>
               {all.uncosted > 0 && <p className="small warn">กำไรนับเฉพาะแอดที่มีทุน — แอดที่ไม่มีทุนนับยอดขายและค่าแอด แต่ไม่นับทุนและกำไร (เพิ่มในชีตต้นทุนเพื่อให้ครบ)</p>}
             </div>
             <div className="table-wrap">
               <table className="data-table">
                 <thead>
-                  <tr><th>วันที่</th><th className="num">ยอดขาย</th><th className="num">ออเดอร์</th><th className="num">ตัว</th><th className="num">ทุนสินค้า</th><th className="num">ค่าแอด</th><th className="num">กำไร</th><th className="num">ROAS</th><th className="num">แอดที่มียอด</th></tr>
+                  <tr><th>วันที่</th><th className="num">ยอดขาย</th><th className="num">จากแอด</th><th className="num">ไม่ใช่แอด</th><th className="num">ออเดอร์</th><th className="num">ตัว</th><th className="num">ทุนสินค้า</th><th className="num">ค่าแอด</th><th className="num">กำไร</th><th className="num">ROAS</th><th className="num">แอดที่มียอด</th></tr>
                 </thead>
                 <tbody>
                   {days.map((d) => (
                     <tr key={d.date} className={`clickable ${d.date === selected ? 'selected' : ''}`} onClick={() => setDate(d.date)}>
                       <td><b>{thaiDay(d.date)}</b>{d.date === todayBkk() && <span className="muted small"> (วันนี้ ยังไม่ครบ)</span>}{report?.uploaded.includes(d.date) && <span className="badge ok-badge" style={{ marginLeft: 6 }}>ของจริง</span>}</td>
                       <td className="num strong">{baht(d.revenue)}</td>
+                      <td className="num">{d.actual ? baht(d.revenue - d.organicRevenue) : <span className="muted">–</span>}</td>
+                      <td className="num" title="ออเดอร์จริงที่จับคู่กับแอดไม่ได้: organic, เห็นแอดแล้วทักทีหลัง, ไม่ได้ติ๊กเข้า Meta">{d.actual ? <>{baht(d.organicRevenue)}<span className="muted small"> ({num(d.organicOrders)} ออเดอร์ · {d.revenue ? num((d.organicRevenue / d.revenue) * 100) : 0}%)</span></> : <span className="muted">–</span>}</td>
                       <td className="num">{num(d.orders)}</td>
                       <td className="num">{num(d.units)}</td>
                       <td className="num">{baht(d.cost)}</td>
@@ -130,7 +136,10 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
                 <tfoot>
                   <tr className="total-row">
                     <td>รวม {WINDOW_LABEL[window]}</td>
-                    <td className="num">{baht(all.revenue)}</td><td className="num">{num(all.orders)}</td><td className="num">{num(all.units)}</td>
+                    <td className="num">{baht(all.revenue)}</td>
+                    <td className="num">{all.actual ? baht(days.filter((d) => d.actual).reduce((t, d) => t + d.revenue - d.organicRevenue, 0)) : '–'}</td>
+                    <td className="num">{all.actual ? baht(all.organicRevenue) : '–'}</td>
+                    <td className="num">{num(all.orders)}</td><td className="num">{num(all.units)}</td>
                     <td className="num">{baht(all.cost)}</td><td className="num">{baht(all.spend)}</td>
                     <td className={`num ${all.profit < 0 ? 'bad' : 'good'}`}>{baht(all.profit)}</td>
                     <td className="num">{all.spend ? num(all.revenue / all.spend, 2) : '–'}</td><td />
