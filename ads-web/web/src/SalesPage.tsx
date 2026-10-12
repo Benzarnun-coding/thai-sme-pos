@@ -15,7 +15,7 @@ interface DayTotal { date: string; revenue: number; orders: number; units: numbe
 
 /** Conservative figures (higher cost, lower profit) throughout, matching the rest of the dashboard. */
 function totalOf(rows: SalesRow[], date = ''): DayTotal {
-  return rows.reduce((t, r) => ({
+  return rows.reduce<DayTotal>((t, r) => ({
     ...t,
     revenue: t.revenue + r.revenue,
     orders: t.orders + r.orders,
