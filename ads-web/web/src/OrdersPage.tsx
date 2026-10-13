@@ -330,7 +330,7 @@ function GroupCard({ group: g, open, onToggle, editable, supplierNames, onSuppli
         </button>
         {g.kind !== 'review' && (
           <div className="row-actions">
-            <button className={`small ${wantsPictures(g) ? 'primary' : ''}`} onClick={onPictures} disabled={busy} title="รูปสินค้า + SKU + ไซส์ ไม่มีภาษาไทย สำหรับส่งร้านจีน">รูปภาพ</button>
+            <button className={`small ${wantsPictures(g) ? 'primary' : ''}`} onClick={onPictures} disabled={busy} title="ใบสั่งเป็นรูป: รูปสินค้า + SKU + จำนวน (แยกตามออเดอร์ได้ สำหรับโกดังจีน)">รูปภาพ</button>
             <button className="small" onClick={onPrint} disabled={busy}>พิมพ์</button>
             <button className="small" onClick={onExcel} disabled={busy}>Excel</button>
           </div>
@@ -452,8 +452,8 @@ function PictureModal({ group, date, round, info, orders, onClose }: {
         </div>
       )}
       <p className="muted small">
-        {mode === 'orders' && orders ? 'ออเดอร์ละบล็อก: เลขออเดอร์ · ขนส่ง + เลขพัสดุ · รูป · SKU · ไซส์ × จำนวน · ร้าน · รวม · เส้นตัด (เลขออเดอร์/พัสดุใช้ในรูปนี้เท่านั้น ไม่บันทึก)'
-          : 'รุ่นละบล็อก: รูป · รหัส · SKU · สี (อังกฤษ/จีน) · ไซส์ × จำนวน · รูปละไม่เกิน 7 รุ่น'}
+        {mode === 'orders' && orders ? 'ออเดอร์ละบล็อกแบบใบหยิบของ Bigseller: เลขออเดอร์ · ขนส่ง + เลขพัสดุ · รูป · ชื่อสินค้า · SKU · ตัวเลือก · จำนวน · ร้าน · ทั้งหมด · เส้นตัด (เลขออเดอร์/พัสดุใช้ในรูปนี้เท่านั้น ไม่บันทึก)'
+          : 'รุ่นละบล็อก: รูป · รหัส · SKU · สี · ไซส์ × จำนวน'}
         {!orders && ' · ใบย้อนหลังไม่มีเลขออเดอร์ จึงทำได้แบบรวมตามสินค้าเท่านั้น'}
       </p>
       {error && <p className="bad">{error}</p>}

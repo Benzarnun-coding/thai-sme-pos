@@ -144,7 +144,7 @@ test('the same file as CSV: UTF-8 commas, Bigseller UTF-16 tabs, Thai Excel (Win
 });
 
 test('picture blocks: one per product, sizes in order, quantities added up', async () => {
-  const { pictureBlocks, sizeForeign, wantsPictures } = await import('../web/src/purchase.ts');
+  const { pictureBlocks, wantsPictures } = await import('../web/src/purchase.ts');
   const cn: CatalogRow[] = [
     row({ tab: 'CN', sku: 'PK004-CN-BL-L', code: 'PK-004', color: 'BL', size: 'L', image: 'https://cf.shopee.co.th/file/a' }),
     row({ tab: 'CN', sku: 'PK004-CN-BL-2XL', code: 'PK-004', color: 'BL', size: '2XL' }),
@@ -161,9 +161,6 @@ test('picture blocks: one per product, sizes in order, quantities added up', asy
   const blocks = pictureBlocks(g, info);
   assert.deepEqual(blocks.map((b) => [b.code, b.color, b.qty, b.sizes.map((s) => `${s.size}×${s.qty}`).join(' ')]), [['C01', 'GN', 1, 'M×1'], ['PK-004', 'BL', 4, 'L×3 2XL×1']]);
   assert.equal(blocks[1].image, 'https://cf.shopee.co.th/file/a', 'photo from the first size listed (L), which has one');
-  assert.equal(sizeForeign('FE'), 'Free');
-  assert.equal(sizeForeign('Freesize'), 'Free');
-  assert.equal(sizeForeign('32'), '32');
   assert.ok(!wantsPictures(groupLines(buildLines(readOrderItems(RAW), makeLookup(CATALOG, new Map())))[0]));
 });
 

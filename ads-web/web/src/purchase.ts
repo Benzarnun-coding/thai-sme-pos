@@ -237,7 +237,7 @@ export async function orderWorkbook(groups: PurchaseGroup[], date: string, round
   return buildXlsx(groups.length > 1 ? [summary, ...groups.map((g) => groupSheet(g, date, round))] : groups.map((g) => groupSheet(g, date, round)));
 }
 
-// ---- picture sheets (suppliers who do not read Thai, e.g. the China warehouse CN) ----
+// ---- picture sheets (the China warehouse CN: pictures are easier to pick from than a list) ----
 
 export interface PictureBlock { key: string; code: string; spu: string; color: string; image: string; sizes: { size: string; qty: number }[]; qty: number }
 export interface ProductInfo { key: string; code: string; color: string; image: string }
@@ -258,18 +258,13 @@ export function pictureBlocks(g: PurchaseGroup, info: (sku: string) => ProductIn
   return [...blocks.values()];
 }
 
-/** "FE" / "Freesize" → "Free"; sizes otherwise as they are. */
-export function sizeForeign(size: string): string {
-  return /^(fe|free ?size|freesize|f)$/i.test(size.trim()) ? 'Free' : size;
-}
-
 /** Groups that get a picture sheet by default: the China warehouse. */
 export function wantsPictures(g: PurchaseGroup): boolean {
   return g.name === 'CN' || g.lines.every((l) => l.tab === 'CN');
 }
 
 /** One parcel for a warehouse that packs orders itself (CN): the items of that order in this group, with tracking. */
-export interface OrderBlock { order: string; tracking: string; carrier: string; store: string; items: { sku: string; code: string; color: string; size: string; option: string; image: string; qty: number }[]; qty: number }
+export interface OrderBlock { order: string; tracking: string; carrier: string; store: string; items: { sku: string; code: string; color: string; size: string; name: string; option: string; image: string; qty: number }[]; qty: number }
 
 /** Orders (in file order) that have items in `group`; only those items. Same SKU twice in an order is added up. */
 export function orderBlocks(items: OrderItem[], lookup: Lookup, group: string, info: (sku: string) => ProductInfo | undefined): OrderBlock[] {
@@ -283,7 +278,7 @@ export function orderBlocks(items: OrderItem[], lookup: Lookup, group: string, i
     if (same) same.qty += it.qty;
     else {
       const i = info(r.sku);
-      b.items.push({ sku: r.sku, code: i?.code || r.code || spuOf(r.sku), color: r.color, size: r.size, option: it.option, image: i?.image ?? '', qty: it.qty });
+      b.items.push({ sku: r.sku, code: i?.code || r.code || spuOf(r.sku), color: r.color, size: r.size, name: it.name || r.name, option: it.option, image: i?.image ?? '', qty: it.qty });
     }
     b.qty += it.qty;
     blocks.set(key, b);
