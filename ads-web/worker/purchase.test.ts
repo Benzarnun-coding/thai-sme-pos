@@ -179,3 +179,22 @@ test('only BB needs a supplier; BBW without one goes to the BBW sheet, with one 
     ['BBW', 'warehouse', 'LCP-BBW-OL-2XL,X-BBW-BL-M'],
   ]);
 });
+
+test('ตรวจสอบ rows can be moved to any supplier or warehouse, typed or picked', async () => {
+  const { applyMoves } = await import('../web/src/purchase.ts');
+  const lines = buildLines(readOrderItems(RAW), makeLookup(CATALOG, new Map()));
+  const review = lines.filter((l) => l.kind === 'review');
+  const noSku = review.find((l) => l.sku.startsWith('?') && l.note.includes('L712'))!;
+  const moves = new Map([['2004-BB-BI-38', 'J.BIG'], [noSku.sku, ' ร้านใหม่ '], ['5011-PK-MD-30', 'X']]);
+  const groups = groupLines(applyMoves(lines, moves, new Set(['PK', 'CN'])));
+  const jbig = groups.find((g) => g.name === 'J.BIG')!;
+  const moved = jbig.lines.find((l) => l.moved)!;
+  assert.deepEqual([moved.label, moved.size, moved.qty, moved.kind], ['2004-BB-BI', '38', 2, 'supplier']);
+  const typed = groups.find((g) => g.name === 'ร้านใหม่')!;
+  assert.deepEqual([typed.kind, typed.lines[0].label, typed.lines[0].size], ['supplier', 'L712/2 (มิดไนท์), 30 (ซิป)', '']);
+  assert.equal(groups.find((g) => g.name === 'ตรวจสอบ')!.pieces, 1, 'one row left');
+  assert.equal(groups.find((g) => g.name === 'PK')!.pieces, 7, 'matched rows are not moved by this');
+  assert.equal(groupLines(applyMoves(lines, new Map([['2004-BB-BI-38', 'CN']]), new Set(['CN']))).find((g) => g.name === 'CN')!.kind, 'warehouse');
+  // moved lines still pass history validation
+  assert.ok(validatePurchase({ date: '2026-10-13', round: 1, lines: applyMoves(lines, moves, new Set()) }));
+});

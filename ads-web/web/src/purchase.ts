@@ -28,6 +28,8 @@ export interface PurchaseLine {
   size: string;
   qty: number;
   note: string;
+  /** a ตรวจสอบ row moved to a supplier/warehouse by hand for this round */
+  moved?: boolean;
 }
 
 export interface PurchaseGroup { name: string; kind: GroupKind; lines: PurchaseLine[]; pieces: number }
@@ -284,4 +286,25 @@ export function orderBlocks(items: OrderItem[], lookup: Lookup, group: string, i
     blocks.set(key, b);
   }
   return [...blocks.values()];
+}
+
+/**
+ * ตรวจสอบ rows moved by hand to a supplier or warehouse (picked or typed), for this round only — their SKU is not in
+ * the catalog, so there is no product to remember it for (adding the SKU to the catalog does that).
+ * The sheet shows the SKU without its size part, and the size; rows without a SKU show Bigseller's option text.
+ */
+export function applyMoves(lines: PurchaseLine[], moves: Map<string, string>, warehouses: Set<string>): PurchaseLine[] {
+  return lines.map((l) => {
+    const to = l.kind === 'review' ? moves.get(l.sku)?.trim() : undefined;
+    if (!to) return l;
+    const raw = l.sku.startsWith('?') ? '' : l.sku;
+    const parts = raw.split('-');
+    const sized = parts.length >= 3;
+    const what = l.note.split(' · ').slice(1).join(' · ');
+    return {
+      ...l, group: to, kind: warehouses.has(to) ? 'warehouse' : 'supplier',
+      label: raw ? (sized ? parts.slice(0, -1).join('-') : raw) : what || l.label,
+      size: sized ? parts[parts.length - 1] : '', note: '', moved: true,
+    };
+  });
 }

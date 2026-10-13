@@ -826,3 +826,6 @@ label.button.primary { background: var(--accent); color: var(--accent-text); bor
 .po-hint { padding: 0 18px 8px; margin: 0; }
 a.button.go { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 600; }
 a.button.go:hover { background: color-mix(in srgb, var(--accent-soft) 70%, var(--accent) 12%); }
+.po-shop { display: inline-flex; gap: 4px; align-items: center; }
+.po-shop input { width: 150px; font-size: 13px; padding: 4px 8px; min-height: 32px; }
+.po-move { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }

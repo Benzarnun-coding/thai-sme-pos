@@ -8,7 +8,7 @@ import { api, type PurchaseUpload, type SavedPurchaseLine } from './api.ts';
 import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from './catalog.ts';
 import { num } from './fmt.ts';
 import {
-  buildLines, dateFromFileName, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
+  applyMoves, buildLines, dateFromFileName, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
   orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
 } from './purchase.ts';
 import { orderPictureSheets, pictureSheets } from './pictureSheet.ts';
@@ -52,6 +52,9 @@ export function OrdersApp() {
   const [printing, setPrinting] = useState<PurchaseGroup[] | null>(null);
   const [savedSig, setSavedSig] = useState('');
   const [pictures, setPictures] = useState<PurchaseGroup | null>(null);
+  // ตรวจสอบ rows moved by hand this round: Bigseller SKU (or "?name · option") → supplier/warehouse
+  const [moves, setMoves] = useState<Map<string, string>>(new Map());
+  const moveLine = (sku: string, to: string) => setMoves((m) => { const n = new Map(m); if (to.trim()) n.set(sku, to.trim()); else n.delete(sku); return n; });
 
   useEffect(() => { api.purchases().then((r) => setHistory(r.uploads)).catch(() => {}); }, []);
 
@@ -69,7 +72,8 @@ export function OrdersApp() {
       return { key, code: r.code || spuOf(r.sku), color: r.color, image: imageMap.get(key)?.thumb || thumb(firstImage.get(key) ?? '') };
     };
   }, [allRows, lookup, imageMap]);
-  const lines = useMemo(() => (viewing ? viewing.lines : data ? buildLines(data.items, lookup) : []), [viewing, data, lookup]);
+  const warehouses = useMemo(() => new Set((meta?.tabs ?? []).map((t) => t.tab)), [meta?.tabs]);
+  const lines = useMemo(() => (viewing ? viewing.lines : data ? applyMoves(buildLines(data.items, lookup), moves, warehouses) : []), [viewing, data, lookup, moves, warehouses]);
   const groups = useMemo(() => groupLines(lines), [lines]);
   const pieces = groups.reduce((n, g) => n + g.pieces, 0);
   const review = groups.find((g) => g.kind === 'review');
@@ -80,6 +84,8 @@ export function OrdersApp() {
     for (const v of supplierMap.values()) names.add(v);
     return [...names].sort((a, b) => a.localeCompare(b, 'th'));
   }, [rows, supplierMap]);
+  /** What a row can be moved to: every supplier, then the warehouses. Anything else can be typed. */
+  const targets = useMemo(() => [...supplierNames, ...[...warehouses].filter((w) => !supplierNames.includes(w))], [supplierNames, warehouses]);
 
   // Unassigned products and ตรวจสอบ need a look; the rest stay folded.
   useEffect(() => { setOpen(new Set(groups.filter((g) => g.kind === 'unassigned' || g.kind === 'review').map((g) => g.name))); }, [data, viewing]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -101,6 +107,7 @@ export function OrdersApp() {
       if (!items.length) throw new Error('ไม่พบรายการสินค้าในไฟล์');
       const d = dateFromFileName(file.name) ?? todayBkk();
       setViewing(null);
+      setMoves(new Map());
       setData({ file: file.name, items });
       setDate(d);
       setRound(nextRound(d));
@@ -160,6 +167,7 @@ export function OrdersApp() {
     try {
       const { lines: saved } = await api.purchaseLines(u.id);
       setViewing({ upload: u, lines: saved.map(fromSaved) });
+      setMoves(new Map());
       setData(null);
       setDate(u.date);
       setRound(u.round);
@@ -260,7 +268,7 @@ export function OrdersApp() {
           {groups.map((g) => (
             <GroupCard
               key={g.name} group={g} open={open.has(g.name)} onToggle={() => toggle(g.name)}
-              editable={canEdit && !viewing} supplierNames={supplierNames}
+              editable={canEdit && !viewing} movable={!viewing} targets={targets} onMove={moveLine}
               onSupplier={setSupplier} onExcel={() => exportExcel(g)} onPrint={() => print(g)} busy={!!busy}
               onPictures={() => { save(); setPictures(g); }}
             />
@@ -308,8 +316,8 @@ export function OrdersApp() {
 
 // ---- one supplier / warehouse ----
 
-function GroupCard({ group: g, open, onToggle, editable, supplierNames, onSupplier, onExcel, onPrint, onPictures, busy }: {
-  group: PurchaseGroup; open: boolean; onToggle: () => void; editable: boolean; supplierNames: string[];
+function GroupCard({ group: g, open, onToggle, editable, movable, targets, onMove, onSupplier, onExcel, onPrint, onPictures, busy }: {
+  group: PurchaseGroup; open: boolean; onToggle: () => void; editable: boolean; movable: boolean; targets: string[]; onMove: (sku: string, to: string) => void;
   onSupplier: (items: { tab: string; spu: string }[], shop: string) => Promise<void>; onExcel: () => void; onPrint: () => void; onPictures: () => void; busy: boolean;
 }) {
   const rowsOnSheet = sheetRows(g).length;
@@ -344,8 +352,18 @@ function GroupCard({ group: g, open, onToggle, editable, supplierNames, onSuppli
           {editable && g.kind === 'unassigned' && products.length > 0 && (
             <div className="po-bulk">
               <span className="small">ตั้งร้านให้ทั้ง {num(products.length)} รุ่นในกลุ่มนี้</span>
-              <input value={bulk} onChange={(e) => setBulk(e.target.value)} list="po-supplier-names" placeholder="ชื่อร้าน" aria-label="ร้านสำหรับทั้งกลุ่ม" />
+              <input value={bulk} onChange={(e) => setBulk(e.target.value)} list="po-targets" placeholder="เลือกหรือพิมพ์ชื่อร้าน" aria-label="ร้านสำหรับทั้งกลุ่ม" />
               <button className="small primary" disabled={!bulk.trim()} onClick={() => onSupplier(products, bulk.trim()).then(() => setBulk(''))}>ตั้งร้าน</button>
+            </div>
+          )}
+          {g.kind === 'review' && (
+            <p className="small muted po-hint">SKU ไม่มีในแคตตาล็อก หรือ Bigseller ไม่ได้ใส่ SKU · ย้ายไปร้าน/โกดังได้ในช่อง "ย้ายไป" (เลือกจากรายการหรือพิมพ์ชื่อเอง) ใช้กับรอบนี้ · ถ้าอยากให้จำไว้ทุกวัน กด "+ เพิ่มในแคตตาล็อก"</p>
+          )}
+          {movable && g.kind === 'review' && g.lines.length > 1 && (
+            <div className="po-bulk">
+              <span className="small">ย้ายทั้ง {num(g.lines.length)} รายการไป</span>
+              <input value={bulk} onChange={(e) => setBulk(e.target.value)} list="po-targets" placeholder="เลือกหรือพิมพ์ร้าน/โกดัง" aria-label="ย้ายทั้งกลุ่มไป" />
+              <button className="small primary" disabled={!bulk.trim()} onClick={() => { g.lines.forEach((l) => onMove(l.sku, bulk)); setBulk(''); }}>ย้าย</button>
             </div>
           )}
           <div className="table-wrap">
@@ -353,7 +371,7 @@ function GroupCard({ group: g, open, onToggle, editable, supplierNames, onSuppli
               <thead>
                 <tr>
                   <th>{g.kind === 'review' ? 'SKU ใน Bigseller' : 'รหัสสินค้า'}</th><th>ไซส์</th><th className="num">จำนวน</th>
-                  <th>{g.kind === 'review' ? 'ปัญหา / ตัวเลือกสินค้า' : 'SKU'}</th>{editable && g.kind !== 'review' && <th>สั่งจาก</th>}{g.kind === 'review' && <th />}
+                  <th>{g.kind === 'review' ? 'ปัญหา / ตัวเลือกสินค้า' : 'SKU'}</th>{(editable || movable) && <th>{g.kind === 'review' ? 'ย้ายไป' : 'สั่งจาก'}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -364,12 +382,25 @@ function GroupCard({ group: g, open, onToggle, editable, supplierNames, onSuppli
                       <td>{firstOfProduct || g.kind === 'review' ? <b>{l.label}</b> : <span className="muted">{l.label}</span>}</td>
                       <td>{l.size || '—'}</td>
                       <td className="num"><b>{num(l.qty)}</b></td>
-                      <td className="small">{g.kind === 'review' ? l.note : <><code>{l.sku}</code>{l.note && <span className="muted"> · {l.note}</span>}</>}</td>
-                      {editable && g.kind !== 'review' && (
-                        <td>{firstOfProduct && <SupplierSelect current={g.kind === 'supplier' ? g.name : ''} names={supplierNames} onPick={(shop) => onSupplier([{ tab: l.tab, spu: l.product.split('|')[1] }], shop)} />}</td>
-                      )}
-                      {g.kind === 'review' && (
-                        <td>{!l.sku.startsWith('?') && <a className="small" href={`/catalog?q=${encodeURIComponent(l.sku)}&add=1`} target="_blank" rel="noreferrer">+ เพิ่มในแคตตาล็อก</a>}</td>
+                      <td className="small">
+                        {g.kind === 'review' ? l.note : l.moved ? <><code>{l.sku.startsWith('?') ? '(ไม่มี SKU)' : l.sku}</code> <span className="pill warn">ย้ายมาจากตรวจสอบ</span></> : <><code>{l.sku}</code>{l.note && <span className="muted"> · {l.note}</span>}</>}
+                      </td>
+                      {(editable || movable) && (
+                        <td>
+                          {g.kind === 'review' && movable && (
+                            <div className="po-move">
+                              <ShopInput placeholder="เลือกหรือพิมพ์" action="ย้าย" onSubmit={async (to) => onMove(l.sku, to)} />
+                              {!l.sku.startsWith('?') && <a className="small" href={`/catalog?q=${encodeURIComponent(l.sku)}&add=1`} target="_blank" rel="noreferrer">+ เพิ่มในแคตตาล็อก</a>}
+                            </div>
+                          )}
+                          {l.moved && movable && <button className="link small" onClick={() => onMove(l.sku, '')}>ย้อนกลับไปตรวจสอบ</button>}
+                          {!l.moved && g.kind !== 'review' && editable && firstOfProduct && (
+                            <ShopInput
+                              initial={g.kind === 'supplier' ? g.name : ''} placeholder="ตามชีต / โกดัง" action="บันทึก"
+                              onSubmit={(shop) => onSupplier([{ tab: l.tab, spu: l.product.split('|')[1] }], shop)}
+                            />
+                          )}
+                        </td>
                       )}
                     </tr>
                   );
@@ -377,24 +408,33 @@ function GroupCard({ group: g, open, onToggle, editable, supplierNames, onSuppli
               </tbody>
             </table>
           </div>
-          <datalist id="po-supplier-names">{supplierNames.map((n) => <option key={n} value={n} />)}</datalist>
+          <datalist id="po-targets">{targets.map((n) => <option key={n} value={n} />)}</datalist>
         </>
       )}
     </section>
   );
 }
 
-/** Moves the whole product (every size) to another supplier, for today and the days after. */
-function SupplierSelect({ current, names, onPick }: { current: string; names: string[]; onPick: (shop: string) => Promise<void> }) {
+/**
+ * A supplier/warehouse box: pick from the list or type any name, then the button (or Enter).
+ * On a matched row it sets the supplier for the whole product (every size, remembered); empty = back to the sheet.
+ * On a ตรวจสอบ row it moves that row for this round.
+ */
+function ShopInput({ initial = '', placeholder, action, onSubmit }: { initial?: string; placeholder: string; action: string; onSubmit: (value: string) => Promise<void> }) {
+  const [value, setValue] = useState(initial);
   const [busy, setBusy] = useState(false);
+  useEffect(() => setValue(initial), [initial]);
+  const changed = value.trim() !== initial.trim();
+  const submit = async () => {
+    if (!changed || busy) return;
+    setBusy(true);
+    try { await onSubmit(value.trim()); } finally { setBusy(false); }
+  };
   return (
-    <select
-      className="po-supplier" value={current} disabled={busy} aria-label="สั่งจากร้าน"
-      onChange={async (e) => { setBusy(true); try { await onPick(e.target.value); } finally { setBusy(false); } }}
-    >
-      <option value="">{current ? 'ตามชีต / โกดัง' : '— ตามชีต / โกดัง —'}</option>
-      {names.map((n) => <option key={n} value={n}>{n}</option>)}
-    </select>
+    <span className="po-shop">
+      <input value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submit(); }} list="po-targets" placeholder={placeholder} aria-label={placeholder} />
+      <button className="small" disabled={!changed || busy} onClick={submit}>{action}</button>
+    </span>
   );
 }
 
