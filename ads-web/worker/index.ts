@@ -419,6 +419,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     if (url.searchParams.get('kind') === 'upload') {
       // The 10:00 reminder, sent now for yesterday whether or not the file is in (pressing "uploaded" still checks).
       if (!(await postUploadReminder(env, bkkDate(1), thaiDay(bkkDate(1))))) throw new BadRequest('ส่งเข้า Discord ไม่สำเร็จ');
+      await audit(env.DB, user, 'p365.reminder_test', bkkDate(1), {});
       return json({ ok: true });
     }
     const p = { id: crypto.randomUUID(), created_at: new Date().toISOString(), kind: 'test', entity_id: 'test', entity_name: 'ข้อความทดสอบ (ไม่แตะแอดจริง)', rule_id: 'test',
@@ -1143,11 +1144,12 @@ function parseView(w: string | null): Window {
 async function uploadButton(env: Env, verb: string, date: string, who: string): Promise<Response> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ type: 4, data: { content: 'ไม่รู้จักวันที่นี้ค่ะ', flags: 64 } });
   const thai = thaiDay(date);
+  const up = await loadUploads(env.DB, [date]);
+  await audit(env.DB, `discord:${who}`, `p365.${verb === 'p365later' ? 'later' : 'done'}`, date, { uploaded: up.has(date) }).catch(() => null);
   if (verb === 'p365later') {
     const ids = idList(env.DISCORD_UPLOADER_IDS);
     return json({ type: 7, data: uploadReminderMessage(date, thai, ids.map((id) => `<@${id}>`).join(' '), `⏳ ${who} รับทราบแล้ว จะอัปโหลดให้เร็วที่สุดค่ะ (${new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })})`) });
   }
-  const up = await loadUploads(env.DB, [date]);
   if (!up.has(date)) return json({ type: 4, data: { content: `น้องยังไม่เจอไฟล์ของ **${thai}** ในระบบเลยค่ะ 🙏 อัปโหลดที่หน้ายอดขายรายวัน (กดยืนยันให้เสร็จ) แล้วค่อยกดใหม่นะคะ`, flags: 64 } });
   const n = (await loadOrders(env.DB, [date])).length;
   return json({ type: 7, data: { content: `✅ **ไฟล์ Page365 ของ ${thai} เข้าระบบแล้วค่ะ** (${n} ออเดอร์) — ${who} ยืนยัน ขอบคุณมากค่ะ 🙏 สรุปยอดของจริงอยู่ในข้อความถัดไปนะคะ`, components: [] } });
