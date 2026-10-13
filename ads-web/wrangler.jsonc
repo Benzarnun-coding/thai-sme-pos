@@ -30,7 +30,7 @@
     "DISCORD_APP_ID": "1559484006742102026",
     "DISCORD_CHANNEL_ID": "1179322183663759390",
     // Discord user IDs pinged on every question (Max). Right-click the person → Copy User ID.
-    "DISCORD_DECIDER_IDS": "",
+    "DISCORD_DECIDER_IDS": "698435075422945301",
     // Owners: always allowed to manage users on the ผู้ใช้ page (comma separated).
     "OWNER_EMAILS": "arnun.tre@benzarnun.com,ps.maxpollawat@gmail.com",
     // Cloudflare Access sync: account + the reusable policy "PkJeans team" (token is the secret CF_API_TOKEN).
