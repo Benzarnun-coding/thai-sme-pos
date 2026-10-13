@@ -4,7 +4,8 @@
 // changed rows. SKUs can also be added here (kept apart from the sheet copy until someone pastes them into the sheet).
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { api, type CatalogImage, type CatalogMeta, type Role, type WebSkuInput } from './api.ts';
+import { api, type CatalogImage, type WebSkuInput } from './api.ts';
+import { useCatalog } from './useCatalog.ts';
 import { productPictures } from './imageResize.ts';
 import {
   buildSku, codeToPrefix, colorLabel, COLOR_NAMES, diffTab, groupProducts, locationOf, parseSheetTab, parseSizes, rowFromArray, rowToArray,
@@ -47,64 +48,23 @@ function dateTime(iso: string | undefined): string {
 export function CatalogApp() {
   useEffect(() => { document.title = 'แคตตาล็อกสินค้า'; }, []);
   const { toast, confirm } = useUi();
-  const [meta, setMeta] = useState<CatalogMeta | null>(null);
-  const [rows, setRows] = useState<CatalogRow[]>([]);
-  const [loading, setLoading] = useState<{ done: number; of: number } | null>({ done: 0, of: 0 });
-  const [error, setError] = useState('');
-  const [role, setRole] = useState<Role>('viewer');
+  const { meta, setMeta, rows, setRows, loading, error, load, role, canEdit, imageMap, supplierMap } = useCatalog();
   const [tab, setTabState] = useState(readTab);
   // Supplier filter inside a warehouse ('' = every supplier); cleared when the warehouse changes.
   const [shop, setShop] = useState(readShop);
   const setTab = (t: string) => { setTabState(t); setShop(''); };
-  const [query, setQuery] = useState('');
+  // ?q=SKU (from the order page's ตรวจสอบ list); ?add=1 also opens the add form for it once the catalog is loaded.
+  const [query, setQuery] = useState(() => new URLSearchParams(location.search).get('q') ?? '');
   const deferred = useDeferredValue(query);
   const [limit, setLimit] = useState(PAGE);
   const [open, setOpen] = useState<Product | null>(null);
   const [adding, setAdding] = useState<Partial<WebSkuInput> | null>(null);
   const [editing, setEditing] = useState<WebSku | null>(null);
   const [sync, setSync] = useState<SyncState | null>(null);
-  const canEdit = role === 'owner' || role === 'admin' || role === 'costs';
-
   useEffect(() => { try { localStorage.setItem(TAB_KEY, tab); localStorage.setItem(SHOP_KEY, shop); } catch { /* private mode */ } }, [tab, shop]);
-  useEffect(() => { api.me().then((m) => setRole(m.role)).catch(() => {}); }, []);
-
-  const load = useCallback(async () => {
-    setError('');
-    setLoading({ done: 0, of: 0 });
-    try {
-      const m = await api.catalog();
-      setMeta(m);
-      const of = m.tabs.reduce((t, x) => t + x.skus, 0);
-      setLoading({ done: 0, of });
-      let done = 0;
-      const parts = await Promise.all(m.tabs.map(async (t) => {
-        const out: CatalogRow[] = [];
-        for (let after = ''; ;) {
-          const page = await api.catalogRows(t.tab, after, m.version);
-          for (const a of page.rows) out.push(rowFromArray(a));
-          done += page.rows.length;
-          setLoading({ done, of });
-          if (!page.next) break;
-          after = page.next;
-        }
-        return out;
-      }));
-      setRows(parts.flat());
-      setLoading(null);
-    } catch (e: any) {
-      setError(e.message);
-      setLoading(null);
-    }
-  }, []);
-  useEffect(() => { load(); }, [load]);
 
   const web = meta?.web ?? [];
-  const images = meta?.images;
-  const imageMap = useMemo(() => new Map<string, ImageOverride>((images ?? []).map((i) => {
-    const src = (size: string) => `/api/catalog/image?key=${encodeURIComponent(i.key)}&size=${size}&v=${encodeURIComponent(i.updated_at)}`;
-    return [i.key, i.uploaded ? { full: src('full'), thumb: src('thumb') } : { full: i.url ?? '', thumb: thumb(i.url ?? '') }];
-  })), [images]);
-  const products = useMemo(() => groupProducts(rows, web, imageMap), [rows, web, imageMap]);
+  const products = useMemo(() => groupProducts(rows, web, imageMap, supplierMap), [rows, web, imageMap, supplierMap]);
   const [noImage, setNoImage] = useState(false);
   const hits = useMemo(() => search(products, deferred), [products, deferred]);
   const byTab = useMemo(() => {
@@ -142,6 +102,12 @@ export function CatalogApp() {
 
   const skuCount = rows.length;
   const lastSync = tabs.reduce((t, x) => (x.synced_at > t ? x.synced_at : t), '');
+  const supplierNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const r of rows) if (r.shop && !SHOP_STATUSES.has(r.shop)) names.add(r.shop);
+    for (const v of supplierMap.values()) names.add(v);
+    return [...names].sort((a, b) => a.localeCompare(b, 'th'));
+  }, [rows, supplierMap]);
   const looksLikeSku = /^[A-Za-z0-9]+(-[A-Za-z0-9./]+){3}$/.test(query.trim());
   // A full SKU that is not in the catalog: similar SKUs may still match ("2004-BB-BI-38" ⊂ "E2004-BB-BI-38"), so say so.
   const missingSku = useMemo(() => {
@@ -205,6 +171,13 @@ export function CatalogApp() {
     }
   }
 
+  const addRequested = useRef(new URLSearchParams(location.search).get('add') === '1');
+  useEffect(() => {
+    if (!addRequested.current || loading || !tabs.length || !canEdit) return;
+    addRequested.current = false;
+    if (missingSku) addFromQuery();
+  });
+
   function addFromQuery() {
     const [prefix, loc, color, size] = query.trim().toUpperCase().split('-');
     const tabOf = tabs.find((t) => locationOf(rows, t.tab) === loc)?.tab ?? '';
@@ -234,12 +207,13 @@ export function CatalogApp() {
             </p>
           </div>
         </div>
-        {canEdit && (
-          <div className="row-actions">
+        <div className="row-actions">
+          <a className="button" href="/catalog/orders">ใบสั่งสินค้า <Icon name="chevron" size={14} /></a>
+          {canEdit && <>
             <button onClick={startSync} disabled={!!loading || !!sync?.running}><Icon name="refresh" size={14} /> {sync?.running ? 'กำลังดึง…' : 'ดึงจากชีต'}</button>
             <button className="primary" onClick={() => setAdding({})} disabled={!tabs.length}>+ เพิ่ม SKU</button>
-          </div>
-        )}
+          </>}
+        </div>
       </header>
 
       <div className="cat-search">
@@ -341,6 +315,14 @@ export function CatalogApp() {
           onAdd={(p) => { setOpen(null); setAdding({ tab: p.tab, code: p.code, color: p.color, name: p.name, cost: p.cost?.[1] ?? null, price: p.price?.[1] ?? null, image: p.image, shop: p.shops[0] ?? '', alias: p.aliases[0] ?? '' }); }}
           onEdit={(w) => { setOpen(null); setEditing(w); }}
           onRemove={removeWeb}
+          supplierNames={supplierNames}
+          onSupplier={async (p, shop) => {
+            try {
+              await api.setSuppliers([{ tab: p.tab, spu: p.spu, shop }]);
+              setMeta((m) => (m ? { ...m, suppliers: [...m.suppliers.filter((x) => x.key !== p.key), ...(shop ? [{ key: p.key, tab: p.tab, spu: p.spu, shop, updated_by: '', updated_at: new Date().toISOString() }] : [])] } : m));
+              toast(shop ? `${p.code || p.spu} สั่งจาก ${shop}` : `${p.code || p.spu} กลับไปใช้ร้านตามชีต`, 'ok');
+            } catch (e: any) { toast(e.message, 'bad'); }
+          }}
           onImage={(image, removedKey) => setMeta((m) => (m ? { ...m, images: [...m.images.filter((i) => i.key !== (image?.key ?? removedKey)), ...(image ? [image] : [])] } : m))}
         />
       )}
@@ -434,9 +416,10 @@ function copy(text: string, toast: (t: string, tone?: 'ok' | 'bad' | 'info') => 
   navigator.clipboard.writeText(text).then(() => toast(`คัดลอก ${text.length > 40 ? 'แล้ว' : text}`, 'ok'), () => toast('คัดลอกไม่ได้', 'bad'));
 }
 
-function ProductModal({ product: p, canEdit, onClose, onAdd, onEdit, onRemove, onImage }: {
+function ProductModal({ product: p, canEdit, onClose, onAdd, onEdit, onRemove, onImage, supplierNames, onSupplier }: {
   product: Product; canEdit: boolean; onClose: () => void; onAdd: (p: Product) => void; onEdit: (w: WebSku) => void; onRemove: (w: WebSku) => void;
   onImage: (image: CatalogImage | null, removedKey?: string) => void;
+  supplierNames: string[]; onSupplier: (p: Product, shop: string) => Promise<void>;
 }) {
   const { toast } = useUi();
   const hasSupplier = p.skus.some((r) => r.shop || r.alias || r.shop_price !== null);
@@ -456,7 +439,11 @@ function ProductModal({ product: p, canEdit, onClose, onAdd, onEdit, onRemove, o
             <dt>SPU</dt><dd><code>{p.spu}</code> <button className="link small" onClick={() => copy(p.spu, toast)}>คัดลอก</button></dd>
             <dt>ทุน</dt><dd>{moneyRange(p.cost)}</dd>
             <dt>ราคาขาย</dt><dd>{moneyRange(p.price)}</dd>
-            {p.shops.length > 0 && <><dt>ร้านค้า</dt><dd>{p.shops.join(', ')}</dd></>}
+            <dt>สั่งจาก</dt>
+            <dd>
+              {canEdit ? <SupplierPicker product={p} names={supplierNames} onSave={(shop) => onSupplier(p, shop)} />
+                : p.shops.length ? p.shops.join(', ') : <span className="muted">ตามโกดัง {p.tab}</span>}
+            </dd>
             {p.aliases.length > 0 && <><dt>รหัสแทน</dt><dd>{p.aliases.join(', ')}</dd></>}
           </dl>
           {canEdit && <button className="small" onClick={() => onAdd(p)}>+ เพิ่มไซส์/สีจากรุ่นนี้</button>}
@@ -493,6 +480,31 @@ function ProductModal({ product: p, canEdit, onClose, onAdd, onEdit, onRemove, o
         </table>
       </div>
     </Modal>
+  );
+}
+
+// ---- supplier ----
+
+/** Who this product is ordered from on the order sheets. Set here wins over the sheet's ร้านค้า column. */
+function SupplierPicker({ product: p, names, onSave }: { product: Product; names: string[]; onSave: (shop: string) => Promise<void> }) {
+  const [value, setValue] = useState(p.supplier);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setValue(p.supplier), [p.supplier]);
+  const sheet = p.skus.map((r) => r.shop).filter(Boolean);
+  const sheetText = sheet.length ? [...new Set(sheet)].join(', ') : '';
+  const save = async (shop: string) => { setBusy(true); try { await onSave(shop.trim()); } finally { setBusy(false); } };
+  return (
+    <div className="cat-supplier">
+      <div className="cat-img-link">
+        <input value={value} onChange={(e) => setValue(e.target.value)} list="cat-supplier-names" placeholder={sheetText || `ตามโกดัง ${p.tab}`} aria-label="สั่งจากร้าน" />
+        <datalist id="cat-supplier-names">{names.map((n) => <option key={n} value={n} />)}</datalist>
+        <button className="small primary" disabled={busy || value.trim() === p.supplier} onClick={() => save(value)}>บันทึก</button>
+      </div>
+      <small className="muted">
+        {p.supplier ? <>ตั้งในเว็บ{sheetText && sheetText !== p.supplier ? ` (ชีต: ${sheetText})` : ''} · <button className="link small" disabled={busy} onClick={() => save('')}>ใช้ตามชีต</button></>
+          : sheetText ? 'ตามชีต (คอลัมน์ ร้านค้า)' : `ไม่มีร้านในชีต · ใบสั่งจะอยู่ในโกดัง ${p.tab}`}
+      </small>
+    </div>
   );
 }
 

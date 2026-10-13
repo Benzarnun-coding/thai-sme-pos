@@ -25,7 +25,8 @@ import { bkkDate, loadConversionHours, saveConversionDay, syncConversionHours, t
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
-import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, saveCatalogSheetId, saveImageLink, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
+import { deletePurchase, listPurchases, purchaseLines, savePurchase, validatePurchase } from './purchase.ts';
+import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, saveCatalogSheetId, saveImageLink, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { approvalsEnabled, postProposal, saveProposals, verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
@@ -546,6 +547,26 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const { key } = imageKey(url.searchParams.get('tab'), url.searchParams.get('spu'));
     if (!(await deleteImage(env.DB, key))) return json({ error: 'ไม่พบรูปที่เพิ่มไว้' }, 404);
     await audit(env.DB, user, 'catalog.image.delete', key, {});
+    return json({ ok: true });
+  }
+  if (method === 'PUT' && path === '/api/catalog/supplier') {
+    const saved = await saveSuppliers(env.DB, await body(), user);
+    await audit(env.DB, user, 'catalog.supplier', saved.map((s) => s.key).join(',') || 'clear', { shops: [...new Set(saved.map((s) => s.shop))] });
+    return json({ suppliers: saved });
+  }
+
+  // ---- order sheets (/catalog/orders) ----
+  if (method === 'GET' && path === '/api/purchase') return json({ uploads: await listPurchases(env.DB) });
+  if (method === 'GET' && path === '/api/purchase/lines') return json({ lines: await purchaseLines(env.DB, url.searchParams.get('id') ?? '') });
+  if (method === 'PUT' && path === '/api/purchase') {
+    const upload = await savePurchase(env.DB, validatePurchase(await body()), user);
+    await audit(env.DB, user, 'purchase.save', upload.id, { pieces: upload.pieces, review: upload.review, file: upload.file });
+    return json({ upload });
+  }
+  if (method === 'DELETE' && path === '/api/purchase') {
+    const id = url.searchParams.get('id') ?? '';
+    if (!(await deletePurchase(env.DB, id))) return json({ error: 'ไม่พบใบสั่งนี้' }, 404);
+    await audit(env.DB, user, 'purchase.delete', id, {});
     return json({ ok: true });
   }
   if (method === 'POST' && path === '/api/catalog/web') {

@@ -74,15 +74,16 @@ export async function catalogVersion(db: D1Database): Promise<string> {
   return (await db.prepare("SELECT value FROM settings WHERE key = 'catalog_version'").first<string>('value')) ?? '';
 }
 
-export async function catalogMeta(db: D1Database, fallbackSheet = ''): Promise<{ version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; sheet_configured: boolean }> {
-  const [version, tabs, web, sheet, images] = await Promise.all([
+export async function catalogMeta(db: D1Database, fallbackSheet = ''): Promise<{ version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; sheet_configured: boolean }> {
+  const [version, tabs, web, sheet, images, suppliers] = await Promise.all([
     catalogVersion(db),
     db.prepare('SELECT tab, gid, sort, skus, synced_at, synced_by FROM catalog_tabs ORDER BY sort, tab').all<CatalogTab>(),
     db.prepare('SELECT * FROM catalog_web ORDER BY created_at DESC').all<WebSku>(),
     catalogSheetId(db, fallbackSheet),
     listImages(db),
+    listSuppliers(db),
   ]);
-  return { version, tabs: tabs.results, web: web.results, images, sheet_configured: !!sheet };
+  return { version, tabs: tabs.results, web: web.results, images, suppliers, sheet_configured: !!sheet };
 }
 
 /** A page of one tab's rows as arrays in ROW_FIELDS order; `next` is the SKU to continue after. */
@@ -287,4 +288,33 @@ export async function imageResponse(db: D1Database, key: string, size: 'thumb' |
   // D1 hands BLOBs back as an ArrayBuffer or, on some runtimes, an array of numbers.
   const bytes = row.data instanceof ArrayBuffer ? new Uint8Array(row.data) : Uint8Array.from(row.data);
   return new Response(bytes, { headers: { 'Content-Type': row.mime, 'Cache-Control': 'private, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' } });
+}
+
+// ---- supplier set on the page (wins over the sheet's ร้านค้า; e.g. PK 501/1 → J.BIG) ----
+
+export interface CatalogSupplier { key: string; tab: string; spu: string; shop: string; updated_by: string; updated_at: string }
+
+export async function listSuppliers(db: D1Database): Promise<CatalogSupplier[]> {
+  return (await db.prepare('SELECT key, tab, spu, shop, updated_by, updated_at FROM catalog_suppliers').all<CatalogSupplier>()).results;
+}
+
+/** Several products at once (a supplier picked for a whole group on the order page). Empty shop = back to the sheet. */
+export async function saveSuppliers(db: D1Database, input: any, user: string): Promise<CatalogSupplier[]> {
+  const list: unknown[] = Array.isArray(input?.items) ? input.items : [input];
+  if (!list.length || list.length > 200) throw new BadRequest('ส่งได้ครั้งละ 1–200 สินค้า');
+  const now = new Date().toISOString();
+  const items = list.map((x: any) => ({ ...imageKey(x?.tab, x?.spu), shop: cleanText(x?.shop, 80) }));
+  const set = items.filter((i) => i.shop).map((i) => ({ ...i, updated_by: user, updated_at: now }));
+  const clear = items.filter((i) => !i.shop).map((i) => i.key);
+  const statements: D1PreparedStatement[] = [];
+  if (set.length) {
+    statements.push(db.prepare(
+      `INSERT INTO catalog_suppliers (key, tab, spu, shop, updated_by, updated_at)
+       SELECT value ->> '$.key', value ->> '$.tab', value ->> '$.spu', value ->> '$.shop', value ->> '$.updated_by', value ->> '$.updated_at' FROM json_each(?1) WHERE true
+       ON CONFLICT (key) DO UPDATE SET shop = excluded.shop, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+    ).bind(JSON.stringify(set)));
+  }
+  if (clear.length) statements.push(db.prepare('DELETE FROM catalog_suppliers WHERE key IN (SELECT value FROM json_each(?1))').bind(JSON.stringify(clear)));
+  await db.batch(statements);
+  return set;
 }

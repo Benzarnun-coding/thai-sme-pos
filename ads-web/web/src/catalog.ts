@@ -251,7 +251,10 @@ export interface Product {
   thumb: string;
   /** Where the picture comes from: added on the page, the sheet's column J, or none */
   imageSource: 'page' | 'sheet' | '';
+  /** Suppliers to order from: the one set on the page, else the sheet's ร้านค้า values */
   shops: string[];
+  /** Supplier set on the page ('' = none, the sheet decides) */
+  supplier: string;
   aliases: string[];
   skus: (CatalogRow & { web?: WebSku })[];
   pos: number;
@@ -274,14 +277,14 @@ export function webToRow(w: WebSku, pos: number): CatalogRow & { web: WebSku } {
   };
 }
 
-/** A picture added on the page for one product (key = `${tab}|${spu}`). */
+/** A picture added on the page for one product (key = `${tab}|${spu}`); suppliers set on the page use the same key. */
 export interface ImageOverride { full: string; thumb: string }
 
 /**
  * Rows → products (one card per SKU-minus-size), in sheet order. Web SKUs already in the sheet are left out.
  * A picture added on the page wins over column J.
  */
-export function groupProducts(rows: CatalogRow[], web: WebSku[] = [], images: Map<string, ImageOverride> = new Map()): Product[] {
+export function groupProducts(rows: CatalogRow[], web: WebSku[] = [], images: Map<string, ImageOverride> = new Map(), suppliers: Map<string, string> = new Map()): Product[] {
   const inSheet = new Set(rows.map((r) => skuKey(r.sku)));
   const all: (CatalogRow & { web?: WebSku })[] = [...rows, ...web.filter((w) => !inSheet.has(skuKey(w.sku))).map((w) => webToRow(w, 1e9))];
   const groups = new Map<string, (CatalogRow & { web?: WebSku })[]>();
@@ -307,7 +310,8 @@ export function groupProducts(rows: CatalogRow[], web: WebSku[] = [], images: Ma
       image: added?.full ?? sheetImage,
       thumb: added?.thumb ?? thumb(sheetImage),
       imageSource: added ? 'page' : sheetImage ? 'sheet' : '',
-      shops: uniq('shop'),
+      shops: suppliers.get(key) ? [suppliers.get(key)!] : uniq('shop'),
+      supplier: suppliers.get(key) ?? '',
       aliases: uniq('alias'),
       skus: list,
       pos: Math.min(...list.map((r) => r.pos)),

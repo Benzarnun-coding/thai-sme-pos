@@ -34,6 +34,9 @@ const COST_WRITES: [string, RegExp][] = [
   ['DELETE', /^\/api\/catalog\/web$/],
   ['POST', /^\/api\/catalog\/image$/],
   ['DELETE', /^\/api\/catalog\/image$/],
+  ['PUT', /^\/api\/catalog\/supplier$/],
+  ['PUT', /^\/api\/purchase$/],
+  ['DELETE', /^\/api\/purchase$/],
 ];
 
 export function canWrite(role: Role, method: string, path: string): boolean {
