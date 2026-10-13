@@ -1,7 +1,7 @@
 // One automation run: fetch → group by stage × product → evaluate → apply with guardrails → move stages → log → LINE.
 
 import { applyDecisions, sumBudget, type Mutator } from '../../ads-engine/src/apply.ts';
-import { formatReport, pushLine } from '../../ads-engine/src/notify.ts';
+import { formatReport, pushDiscord, pushLine } from '../../ads-engine/src/notify.ts';
 import type { CampaignDayRow, DailyRow, HourlyConversion } from '../../ads-engine/src/meta.ts';
 import type { Entity, Level, Metrics, RunReport, State, Window } from '../../ads-engine/src/types.ts';
 import { applyMoves, codOf, insertRun, loadCampaignSettings, loadCosts, loadSections, loadSettings, loadStages, loadState, saveState } from './db.ts';
@@ -24,6 +24,7 @@ export interface RunEnv {
   META_AD_ACCOUNT_ID: string;
   LINE_CHANNEL_ACCESS_TOKEN?: string;
   LINE_TO?: string;
+  DISCORD_WEBHOOK_URL?: string;
 }
 
 export type WebRunReport = RunReport & {
@@ -91,6 +92,7 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
     ...report.notes.map((n) => `ℹ️ ${n}`),
   ].join('\n');
   await pushLine(text, env.LINE_CHANNEL_ACCESS_TOKEN, env.LINE_TO).catch(() => false);
+  await pushDiscord(discordRunText(report, dryRun, opts.trigger), env.DISCORD_WEBHOOK_URL).catch(() => false);
   return report;
 }
 
@@ -124,4 +126,24 @@ export function capChanges(plan: Plan): void {
 
 export function zeroMetrics(): Metrics {
   return { spend: 0, impressions: 0, clicks: 0, ctr: 0, cpc: 0, purchases: 0, purchase_value: 0, cpa: Infinity, roas: 0, frequency: 0, messages: 0, cost_per_message: Infinity };
+}
+
+/** The run, in words the team reads on Discord: what each rule did (or would do, in dry-run) and why. */
+function discordRunText(report: WebRunReport, dryRun: boolean, trigger = ''): string {
+  const when = new Date(report.run_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short' });
+  const acted = report.decisions.filter((d) => !d.skipped_reason);
+  const moves = report.moves.filter((m) => !m.skipped_reason);
+  const lines = [`**${dryRun ? '🧪 โหมดทดลอง (ยังไม่แตะ Meta)' : '✅ ปรับจริงแล้ว'} · รันกฎ ${when}${trigger.startsWith('test:') ? ` · ${trigger.slice(5)}` : ''}**`];
+  lines.push(`ประเมิน ${report.entities_evaluated} รายการ · งบรวม/วัน ${report.totals.daily_budget_before} → ${report.totals.daily_budget_after}`);
+  if (!acted.length && !moves.length) lines.push('ไม่มีกฎไหนตรงเงื่อนไข — ไม่มีการปรับ');
+  for (const d of acted) {
+    const tail = d.error ? ` ❌ ${d.error}` : d.after?.daily_budget !== undefined && d.after.daily_budget !== d.before?.daily_budget ? ` → ${d.after.daily_budget}/วัน` : '';
+    lines.push(`• \`${d.rule_id}\` ${d.plan}${tail}`);
+  }
+  for (const m of moves) lines.push(`↪ ${m.plan}`);
+  const skipped = report.decisions.filter((d) => d.skipped_reason);
+  if (skipped.length) lines.push(`ข้าม ${skipped.length} รายการ (${[...new Set(skipped.map((d) => d.skipped_reason))].join(', ')})`);
+  for (const n of report.notes) lines.push(`ℹ️ ${n}`);
+  if (report.errors.length) lines.push(`⚠️ ${report.errors.slice(0, 3).join(' | ')}`);
+  return lines.join('\n');
 }

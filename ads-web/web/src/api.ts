@@ -109,9 +109,13 @@ export interface CampaignView extends EntityView {
 
 export interface Guardrails { max_change_pct_per_run: number; min_daily_budget: number; max_daily_budget: number; max_total_daily_budget: number }
 
+export interface OverviewActual { dates: number; covered: number; revenue: number; orders: number; units: number; cost: number; fees: number; gross: number; ads: number; net: number; organic_revenue: number; organic_orders: number }
+
 export interface Overview {
   account: string;
   window: Window;
+  /** Real orders (Page365) for the window's days that have an upload; null when none */
+  actual: OverviewActual | null;
   /** Claude-pulled snapshot: read-only, only these windows have data */
   snapshot: { taken_at: string; windows: Window[] } | null;
   /** When this Meta data was fetched (the server reuses it for a few minutes) */
@@ -126,7 +130,8 @@ export interface Overview {
   campaigns: CampaignView[];
 }
 
-export interface Settings { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails; sheet_id: string; sheet_tabs: string[]; cod_share_pct: number; cod_fee: number; ads_cost_sheet_id: string; ads_cost_tab: string; cost_editors: string[] }
+export interface OrderFees { cod_pct: number; loss_pct: number; ship: number; vat_pct: number; vat_base: 'total' | 'goods' | 'after_ship'; bag: number }
+export interface Settings { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails; sheet_id: string; sheet_tabs: string[]; cod_share_pct: number; cod_fee: number; ads_cost_sheet_id: string; ads_cost_tab: string; cost_editors: string[]; order_fees: OrderFees }
 
 export interface CostRow { tab: string; code: string; name: string; sku_count: number; avg_cost: number; min_cost: number; max_cost: number; avg_price: number }
 
@@ -205,11 +210,11 @@ export type SalesCalc =
   | { method: 'sheet_exact'; sheet_name: string; tiers: CostTier[]; mix: number[] }
   | { method: 'sheet_ratio'; sheet_name: string; tiers: CostTier[]; ratio_min: number; ratio_max: number }
   | { method: 'product'; product: string; cost_per_unit: number; price_min: number; price_max: number; cod_deducted: number; extra_per_order: number }
-  | { method: 'actual'; orders: number; customer: number; exact: number; approx: number; cost_known: number; shipping: number; goods: number; product_cost: number }
+  | { method: 'actual'; orders: number; customer: number; exact: number; approx: number; cost_known: number; shipping: number; goods: number; product_cost: number; fees: number }
   | { method: 'none'; reason: string };
 
 export interface P365Upload { date: string; orders: number; uploaded_at: string; uploaded_by: string; credits: { customer: number; exact: number; approx: number; none: number }; revenue: number; units: number }
-export interface P365Order { order_no: string; date: string; created_at: string; total: number; subtotal: number | null; discount: number | null; shipping: number | null; cost: number | null; payment: string | null; paid_at: string | null; units: number; items: { code: string; sku: string; name: string; qty: number; price: number }[]; campaign_id: string | null; match: 'customer' | 'exact' | 'approx' | 'none' }
+export interface P365Order { fees: number; order_no: string; date: string; created_at: string; total: number; subtotal: number | null; discount: number | null; shipping: number | null; cost: number | null; payment: string | null; paid_at: string | null; units: number; items: { code: string; sku: string; name: string; qty: number; price: number }[]; campaign_id: string | null; match: 'customer' | 'exact' | 'approx' | 'none' }
 export interface UploadedOrder { order_no: string; created_at: string; total: number; subtotal?: number | null; discount?: number | null; shipping?: number | null; cost?: number | null; payment?: string | null; paid_at?: string | null; item_detail?: string | null; profile_name?: string | null }
 
 export interface SalesRow {
@@ -297,8 +302,8 @@ export const api = {
   conversions: (date: string, window: Window) => call<{ date: string; cod_fee: number; campaigns: ConversionCampaign[]; fetched_at: string }>('GET', `/api/conversions?date=${date}&window=${window}`),
   salesReport: (window: Window) => call<{ window: Window; rows: SalesRow[]; uploaded: string[]; fetched_at: string; warning: string | null }>('GET', `/api/sales-report?window=${window}`),
   p365Uploads: (window: Window) => call<{ uploads: P365Upload[] }>('GET', `/api/p365?window=${window}`),
-  p365Orders: (date: string) => call<{ date: string; orders: P365Order[] }>('GET', `/api/p365/orders?date=${date}`),
-  p365Upload: (orders: UploadedOrder[]) => call<{ dates: string[]; orders: number; errors: string[]; credits: Record<string, { customer: number; exact: number; approx: number; none: number }> }>('POST', '/api/p365/upload', { orders }),
+  p365Orders: (date: string) => call<{ date: string; fees: OrderFees; orders: P365Order[] }>('GET', `/api/p365/orders?date=${date}`),
+  p365Upload: (orders: UploadedOrder[]) => call<{ dates: string[]; orders: number; errors: string[]; skipped: number; credits: Record<string, { customer: number; exact: number; approx: number; none: number }> }>('POST', '/api/p365/upload', { orders }),
   p365Recredit: (date: string) => call<{ date: string; credits: { customer: number; exact: number; approx: number; none: number } | null }>('POST', '/api/p365/recredit', { date }),
   users: () => call<UsersData>('GET', '/api/users'),
   addUser: (u: { email: string; role: Role; note: string }) => call<{ ok: true; sync: { ok: boolean; error?: string } | null }>('POST', '/api/users', u),

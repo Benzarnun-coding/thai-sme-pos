@@ -25,7 +25,8 @@ import { bkkDate, loadConversionHours, saveConversionDay, syncConversionHours, t
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
-import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
+import { pushDiscord } from '../../ads-engine/src/notify.ts';
+import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
@@ -38,6 +39,7 @@ export interface Env {
   ACCESS_AUD?: string;
   LINE_CHANNEL_ACCESS_TOKEN?: string;
   LINE_TO?: string;
+  DISCORD_WEBHOOK_URL?: string;
   /** Messenger webhook (see worker/webhook.ts): app id is a var, the other two are secrets */
   META_APP_ID?: string;
   META_APP_SECRET?: string;
@@ -90,7 +92,7 @@ export default {
     }
 
     try {
-      return await route(req, env, url, user, role);
+      return await route(req, env, url, user, role, ctx);
     } catch (err: any) {
       if (err instanceof BadRequest) return json({ error: err.message }, 400);
       console.error(err);
@@ -105,7 +107,8 @@ export default {
         s.ads_cost_sheet_id ? syncCampaignCosts(env.DB, s) : null,
         // Hourly purchases: refresh the last 3 days (late tags) and fill a few missing older days.
         Promise.resolve().then(() => syncConversionHours(env.DB, metaFor(env))).catch(() => null),
-      ]).then(() => recreditDates(env.DB, [bkkDate(1), bkkDate(2), bkkDate(3)]).catch(() => null))));
+      ]).then(() => recreditDates(env.DB, [bkkDate(1), bkkDate(2), bkkDate(3)]).catch(() => null))
+        .then(() => dailyDigest(env).catch((err) => console.error('digest', err)))));
     } else if (event.cron === RULES_CRON) {
       let meta: MetaLike;
       try {
@@ -121,7 +124,7 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-async function route(req: Request, env: Env, url: URL, user: string, role: Role): Promise<Response> {
+async function route(req: Request, env: Env, url: URL, user: string, role: Role, ctx: ExecutionContext): Promise<Response> {
   const path = url.pathname.replace(/\/$/, '');
   const method = req.method;
   const body = async () => (await req.json().catch(() => { throw new BadRequest('ข้อมูลไม่ใช่ JSON'); })) as any;
@@ -350,7 +353,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role)
     const list: UploadedOrder[] = Array.isArray(input?.orders) ? input.orders : [];
     if (!list.length) throw new BadRequest('ไม่พบออเดอร์ในไฟล์');
     if (list.length > 5000) throw new BadRequest('ไฟล์ใหญ่เกินไป (เกิน 5,000 ออเดอร์)');
-    const { orders, errors } = await normaliseOrders(list, env.META_WEBHOOK_VERIFY_TOKEN ?? '');
+    const { orders, errors, skipped } = await normaliseOrders(list, env.META_WEBHOOK_VERIFY_TOKEN ?? '');
     if (!orders.length) throw new BadRequest(errors[0] ?? 'อ่านออเดอร์ไม่ได้');
     await saveOrders(env.DB, orders, user);
     const dates = [...new Set(orders.map((o) => o.date))].sort();
@@ -363,8 +366,9 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role)
         ON CONFLICT(date) DO UPDATE SET orders = excluded.orders, pieces = excluded.pieces, revenue = excluded.revenue, note = excluded.note, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
         .bind(d, os.length, os.reduce((n, o) => n + o.units, 0), os.reduce((n, o) => n + o.total, 0), user, now);
     }));
-    await audit(env.DB, user, 'p365.upload', dates.join(','), { orders: orders.length, errors: errors.length, credits });
-    return json({ dates, orders: orders.length, errors, credits });
+    await audit(env.DB, user, 'p365.upload', dates.join(','), { orders: orders.length, errors: errors.length, skipped, credits });
+    ctx.waitUntil(Promise.all(dates.map((d) => salesDigest(env, d).catch((err) => console.error('digest', err)))));
+    return json({ dates, orders: orders.length, errors, skipped, credits });
   }
   if (path === '/api/p365' && method === 'GET') {
     const w = url.searchParams.get('window') as Window;
@@ -380,8 +384,8 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role)
   if (path === '/api/p365/orders' && method === 'GET') {
     const date = url.searchParams.get('date') ?? '';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
-    const orders = await loadOrders(env.DB, [date]);
-    return json({ date, orders: orders.map(({ name_hash: _h, ...o }) => o) });
+    const [orders, settings] = await Promise.all([loadOrders(env.DB, [date]), loadSettings(env.DB)]);
+    return json({ date, fees: settings.order_fees, orders: orders.map(({ name_hash: _h, ...o }) => ({ ...o, fees: orderFees(o, settings.order_fees) })) });
   }
   if (path === '/api/p365/recredit' && method === 'POST') {
     const input = await body();
@@ -632,9 +636,32 @@ async function overview(env: Env, window: Window, fresh: boolean) {
     };
   });
 
+  // Real orders (Page365 uploads) for the days in this window: the KPI card prefers these over the Meta estimate.
+  const actualDates = window === 'today' ? [] : windowDates(window);
+  let actual: null | { dates: number; covered: number; revenue: number; orders: number; units: number; cost: number; fees: number; gross: number; ads: number; net: number; organic_revenue: number; organic_orders: number } = null;
+  if (actualDates.length) {
+    const [uploads, orders] = await Promise.all([loadUploads(env.DB, actualDates), loadOrders(env.DB, actualDates)]);
+    const covered = actualDates.filter((d) => uploads.has(d));
+    if (covered.length) {
+      const os = orders.filter((o) => covered.includes(o.date));
+      const sum = (f: (o: typeof os[number]) => number) => os.reduce((n, o) => n + f(o), 0);
+      const revenue = sum((o) => o.total), cost = sum((o) => o.cost ?? 0), fees = sum((o) => orderFees(o, settings.order_fees));
+      const daily = await data.dailyAll(window).catch(() => [] as Awaited<ReturnType<typeof data.dailyAll>>);
+      const ads = daily.length ? daily.filter((d) => covered.includes(d.date)).reduce((n, d) => n + d.spend, 0) : null;
+      const gross = revenue - cost - fees;
+      actual = {
+        dates: actualDates.length, covered: covered.length, revenue, orders: os.length, units: sum((o) => o.units), cost, fees, gross,
+        ads: ads ?? 0, net: gross - (ads ?? 0),
+        organic_revenue: sum((o) => (o.match === 'none' ? o.total : 0)), organic_orders: os.filter((o) => o.match === 'none').length,
+      };
+      if (ads === null) actual = null; // no daily spend to set against: keep the estimate rather than a half number
+    }
+  }
+
   return {
     account: data.account,
     window,
+    actual,
     /** Set when showing a Claude-pulled snapshot: read-only, limited windows. */
     snapshot,
     meta_fetched_at: data.fetchedAt(),
@@ -769,7 +796,7 @@ async function salesReport(env: Env, window: Window) {
   const actual = new Map<string, ReturnType<typeof actualByCampaign>>();
   if (uploadedDates.length) {
     const all = await loadOrders(env.DB, uploadedDates);
-    for (const d of uploadedDates) actual.set(d, actualByCampaign(all.filter((o) => o.date === d)));
+    for (const d of uploadedDates) actual.set(d, actualByCampaign(all.filter((o) => o.date === d), settings.order_fees));
   }
   const covered = new Set<string>();
   const rows = days
@@ -781,9 +808,9 @@ async function salesReport(env: Env, window: Window) {
       // Real orders from Page365 for that day, credited to this campaign.
       const a = actual.get(d.date)?.get(d.campaign_id);
       if (a) { covered.add(`${d.date}|${d.campaign_id}`); return explainActual(base, d, a); }
-      if (actual.has(d.date) && d.purchase_value > 0) {
-        // Uploaded day but nothing credited here: Meta's tagged sales weren't found among the real orders.
-        return { ...explainDay(base, { ...d, purchases: 0, purchase_value: 0 }, { kind: 'none', reason: 'วันนี้มีไฟล์ Page365 แต่ไม่มีออเดอร์ที่จับคู่กับแคมเปญนี้ได้' }), revenue: 0, orders: 0 };
+      if (actual.has(d.date)) {
+        // Uploaded day but nothing credited here: no real order for this campaign, so its ad spend is a plain loss.
+        return explainActual(base, d, { orders: 0, revenue: 0, goods: 0, shipping: 0, cost: 0, fees: 0, units: 0, customer: 0, exact: 0, approx: 0, cost_known: 1 });
       }
       // That day's tagged purchases, order by order, when they are stored.
       if (stored.has(d.date) && d.purchase_value > 0) {
@@ -907,6 +934,41 @@ const finiteOrNull = (v: number | null | undefined) => (v !== null && v !== unde
 function finite<T extends object | undefined>(m: T): T {
   if (!m) return m;
   return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, typeof v === 'number' && !Number.isFinite(v) ? null : v])) as T;
+}
+
+/** 07:30 Discord note: yesterday's real numbers (Page365) when the file is in, otherwise a reminder to upload. */
+async function dailyDigest(env: Env): Promise<void> {
+  return salesDigest(env, bkkDate(1), true);
+}
+
+/** One day's real numbers (Page365) to Discord; also sent the moment a file is uploaded. */
+async function salesDigest(env: Env, date: string, remindIfMissing = false): Promise<void> {
+  if (!env.DISCORD_WEBHOOK_URL) return;
+  const thai = new Date(`${date}T00:00:00+07:00`).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' });
+  const [uploads, orders, settings] = await Promise.all([loadUploads(env.DB, [date]), loadOrders(env.DB, [date]), loadSettings(env.DB)]);
+  if (!uploads.has(date)) {
+    if (remindIfMissing) await pushDiscord(`📂 **${thai}** ยังไม่มีไฟล์ Page365 — มอส export ของเมื่อวานแล้วอัปโหลดที่หน้ายอดขายรายวันด้วยครับ`, env.DISCORD_WEBHOOK_URL);
+    return;
+  }
+  const n = (f: (o: typeof orders[number]) => number) => orders.reduce((t, o) => t + f(o), 0);
+  const revenue = n((o) => o.total), cost = n((o) => o.cost ?? 0), fees = n((o) => orderFees(o, settings.order_fees));
+  const organic = orders.filter((o) => o.match === 'none');
+  let ads: number | null = null;
+  try {
+    // Spend for that day: yesterday is cheap; older days come from the cached 30-day series.
+    const rows = date === bkkDate(1) ? await metaFor(env).dailyCampaignInsights('yesterday') : await (await metaData(env)).data.dailyAll('last_30d');
+    const day = rows.filter((d) => d.date === date);
+    ads = day.length ? day.reduce((t, d) => t + d.spend, 0) : null;
+  } catch { ads = null; }
+  const b = (x: number) => Math.round(x).toLocaleString('th-TH');
+  const gross = revenue - cost - fees;
+  const lines = [
+    `📊 **ของจริง ${thai}** (Page365 ${orders.length} ออเดอร์)`,
+    `ยอดขาย ${b(revenue)} · ทุนสินค้า ${b(cost)} (${revenue ? Math.round((cost / revenue) * 100) : 0}%) · ค่าใช้จ่ายต่อออเดอร์ ${b(fees)}`,
+    `กำไรขั้นต้น **${b(gross)}**${ads === null ? '' : ` · ค่าแอด ${b(ads)} (${revenue ? Math.round((ads / revenue) * 100) : 0}% ของยอด) · กำไรสุทธิ **${b(gross - ads)}** · MER ${ads ? (revenue / ads).toFixed(2) : '–'}`}`,
+    `ไม่ใช่แอด ${organic.length} ออเดอร์ ${b(n((o) => (o.match === 'none' ? o.total : 0)))} (${orders.length ? Math.round((organic.length / orders.length) * 100) : 0}%) · จับคู่แอดได้ ${orders.length - organic.length}/${orders.length}`,
+  ];
+  await pushDiscord(lines.join('\n'), env.DISCORD_WEBHOOK_URL);
 }
 
 /** After a user change: push the email list to Cloudflare Access when the token is set; a failure is reported, not fatal. */

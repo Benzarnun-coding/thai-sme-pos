@@ -88,6 +88,25 @@ export function SettingsPage({ costsLoaded, campaignNames, onSaved }: { costsLoa
       <CampaignCostSheet s={s} setS={setS} busy={busy} onSave={() => save(s)} campaignNames={campaignNames} onSynced={onSaved} />
 
       <section className="card">
+        <h2>ค่าใช้จ่ายต่อออเดอร์ (ไฟล์ Page365)</h2>
+        <p className="muted small">หักจากทุกออเดอร์จริงตามสูตรของทีม (เหมือนชีต "รวม"): ค่าธรรมเนียม COD คิดเฉพาะออเดอร์เก็บปลายทาง · เปอร์เซ็นต์คิดจากยอดที่ลูกค้าจ่าย · ค่าส่งและค่าซองคิดต่อออเดอร์</p>
+        <div className="grid2">
+          <label>ค่าธรรมเนียม COD (%)<input type="number" min={0} step={0.1} value={s.order_fees.cod_pct} onChange={(e) => setS({ ...s, order_fees: { ...s.order_fees, cod_pct: Number(e.target.value) } })} /></label>
+          <label>ของเสีย/สูญหาย (%)<input type="number" min={0} step={0.1} value={s.order_fees.loss_pct} onChange={(e) => setS({ ...s, order_fees: { ...s.order_fees, loss_pct: Number(e.target.value) } })} /></label>
+          <label>ค่าส่งต่อออเดอร์ (฿)<input type="number" min={0} value={s.order_fees.ship} onChange={(e) => setS({ ...s, order_fees: { ...s.order_fees, ship: Number(e.target.value) } })} /></label>
+          <label>VAT (%)<input type="number" min={0} step={0.1} value={s.order_fees.vat_pct} onChange={(e) => setS({ ...s, order_fees: { ...s.order_fees, vat_pct: Number(e.target.value) } })} /></label>
+          <label>VAT คิดจาก
+            <select value={s.order_fees.vat_base} onChange={(e) => setS({ ...s, order_fees: { ...s.order_fees, vat_base: e.target.value as 'total' | 'goods' | 'after_ship' } })}>
+              <option value="after_ship">ยอดที่ลูกค้าจ่าย − ค่าส่งที่เราจ่าย (ตามที่ตกลง)</option>
+              <option value="total">ยอดที่ลูกค้าจ่าย (รวมค่าส่ง)</option>
+              <option value="goods">ค่าสินค้า (ไม่รวมค่าส่ง 50 ที่เก็บจาก COD)</option>
+            </select>
+          </label>
+          <label>ค่าซองต่อออเดอร์ (฿)<input type="number" min={0} value={s.order_fees.bag} onChange={(e) => setS({ ...s, order_fees: { ...s.order_fees, bag: Number(e.target.value) } })} /></label>
+        </div>
+      </section>
+
+      <section className="card">
         <h2>เก็บเงินปลายทาง</h2>
         <p className="muted small">แอดมินติ๊กยอดใน Meta รวมค่าเก็บปลายทางไว้แล้ว ระบบนับส่วนนี้เป็นรายได้ แต่หักออกก่อนคำนวณจำนวนตัว จะได้ไม่นับเป็นกางเกงเพิ่ม</p>
         <div className="grid2">

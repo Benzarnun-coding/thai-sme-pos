@@ -29,3 +29,20 @@ export async function pushLine(text: string, token?: string, to?: string): Promi
   if (!res.ok) console.error('LINE push failed:', res.status, await res.text());
   return res.ok;
 }
+
+/** Discord incoming webhook. Messages over 2,000 characters are split. Silent no-op when the URL is missing. */
+export async function pushDiscord(text: string, url?: string): Promise<boolean> {
+  if (!url) return false;
+  const chunks: string[] = [];
+  for (const line of text.split('\n')) {
+    const last = chunks[chunks.length - 1];
+    if (last !== undefined && last.length + line.length + 1 <= 1900) chunks[chunks.length - 1] = `${last}\n${line}`;
+    else chunks.push(line.slice(0, 1900));
+  }
+  let ok = true;
+  for (const content of chunks) {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
+    if (!res.ok) { console.error('Discord push failed:', res.status, await res.text()); ok = false; }
+  }
+  return ok;
+}

@@ -186,7 +186,8 @@ label.check input { flex: none; margin-top: 3px; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .fresh { color: var(--muted); font-weight: 400; }
 
-.kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin: 14px 0 6px; }
+.kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin: 14px 0 6px; }
+@media (max-width: 1400px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
 .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; box-shadow: var(--shadow-sm); min-width: 0; }
 .kpi span { font-size: 13px; color: var(--muted); font-weight: 500; }
 .kpi b { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.25; }

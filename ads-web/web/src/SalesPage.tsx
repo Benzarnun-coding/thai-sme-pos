@@ -11,11 +11,11 @@ import { Icon, useUi } from './ui.tsx';
 
 const WINDOWS: Window[] = ['last_7d', 'last_14d', 'last_30d'];
 
-interface DayTotal { date: string; revenue: number; orders: number; units: number; cost: number; spend: number; profit: number; campaigns: number; uncosted: number; costedRevenue: number }
+interface DayTotal { date: string; revenue: number; orders: number; units: number; cost: number; spend: number; profit: number; campaigns: number; uncosted: number; costedRevenue: number; organicRevenue: number; organicOrders: number; actual: boolean }
 
 /** Conservative figures (higher cost, lower profit) throughout, matching the rest of the dashboard. */
 function totalOf(rows: SalesRow[], date = ''): DayTotal {
-  return rows.reduce((t, r) => ({
+  return rows.reduce<DayTotal>((t, r) => ({
     ...t,
     revenue: t.revenue + r.revenue,
     orders: t.orders + r.orders,
@@ -23,10 +23,14 @@ function totalOf(rows: SalesRow[], date = ''): DayTotal {
     cost: t.cost + (r.cost_high ?? 0),
     spend: t.spend + r.spend,
     profit: t.profit + (r.profit_low ?? 0),
-    campaigns: t.campaigns + 1,
+    campaigns: t.campaigns + (r.campaign_id === 'none' ? 0 : 1),
     uncosted: t.uncosted + (r.calc.method === 'none' ? 1 : 0),
     costedRevenue: t.costedRevenue + (r.calc.method === 'none' ? 0 : r.revenue),
-  }), { date, revenue: 0, orders: 0, units: 0, cost: 0, spend: 0, profit: 0, campaigns: 0, uncosted: 0, costedRevenue: 0 });
+    // Real orders no ad could be credited for (Page365 days only): organic, came back later, untagged.
+    organicRevenue: t.organicRevenue + (r.campaign_id === 'none' ? r.revenue : 0),
+    organicOrders: t.organicOrders + (r.campaign_id === 'none' ? r.orders : 0),
+    actual: t.actual || r.calc.method === 'actual',
+  }), { date, revenue: 0, orders: 0, units: 0, cost: 0, spend: 0, profit: 0, campaigns: 0, uncosted: 0, costedRevenue: 0, organicRevenue: 0, organicOrders: 0, actual: false });
 }
 
 const thaiDay = (iso: string) => new Date(`${iso}T00:00:00+07:00`).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' });
@@ -95,7 +99,7 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
           <button className="ghost small" disabled={!report} onClick={exportCsv}><Icon name="down" size={14} /> CSV (Excel)</button>
         </div>
       </div>
-      <P365UploadCard window={window} onUploaded={() => setReloadKey((k) => k + 1)} />
+      <P365UploadCard window={window} onUploaded={() => setReloadKey((k) => k + 1)} campaignName={(id) => data.campaigns.find((c) => c.id === id)?.name ?? `แคมเปญ ${id}`} />
       {report?.warning && <div className="banner">{report.warning}</div>}
       {error && <div className="error">{error}</div>}
       {!report && !error && <div className="skeleton" style={{ height: 320 }} />}
@@ -104,19 +108,21 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
         <>
           <section className="card table-card">
             <div className="table-card-head">
-              <h2>สรุปรายวัน <span className="muted small">กดวันเพื่อดูแยกตามแอด</span></h2>
+              <h2>สรุปรายวัน <span className="muted small">กดวันเพื่อดูแยกตามแอด · "จากแอด / ไม่ใช่แอด" มีเฉพาะวันที่อัปโหลดไฟล์ Page365</span></h2>
               {all.uncosted > 0 && <p className="small warn">กำไรนับเฉพาะแอดที่มีทุน — แอดที่ไม่มีทุนนับยอดขายและค่าแอด แต่ไม่นับทุนและกำไร (เพิ่มในชีตต้นทุนเพื่อให้ครบ)</p>}
             </div>
             <div className="table-wrap">
               <table className="data-table">
                 <thead>
-                  <tr><th>วันที่</th><th className="num">ยอดขาย</th><th className="num">ออเดอร์</th><th className="num">ตัว</th><th className="num">ทุนสินค้า</th><th className="num">ค่าแอด</th><th className="num">กำไร</th><th className="num">ROAS</th><th className="num">แอดที่มียอด</th></tr>
+                  <tr><th>วันที่</th><th className="num">ยอดขาย</th><th className="num">จากแอด</th><th className="num">ไม่ใช่แอด</th><th className="num">ออเดอร์</th><th className="num">ตัว</th><th className="num">ทุนสินค้า</th><th className="num">ค่าแอด</th><th className="num">กำไร</th><th className="num">ROAS</th><th className="num">แอดที่มียอด</th></tr>
                 </thead>
                 <tbody>
                   {days.map((d) => (
                     <tr key={d.date} className={`clickable ${d.date === selected ? 'selected' : ''}`} onClick={() => setDate(d.date)}>
                       <td><b>{thaiDay(d.date)}</b>{d.date === todayBkk() && <span className="muted small"> (วันนี้ ยังไม่ครบ)</span>}{report?.uploaded.includes(d.date) && <span className="badge ok-badge" style={{ marginLeft: 6 }}>ของจริง</span>}</td>
                       <td className="num strong">{baht(d.revenue)}</td>
+                      <td className="num">{d.actual ? baht(d.revenue - d.organicRevenue) : <span className="muted">–</span>}</td>
+                      <td className="num" title="ออเดอร์จริงที่จับคู่กับแอดไม่ได้: organic, เห็นแอดแล้วทักทีหลัง, ไม่ได้ติ๊กเข้า Meta">{d.actual ? <>{baht(d.organicRevenue)}<span className="muted small"> ({num(d.organicOrders)} ออเดอร์ · {d.revenue ? num((d.organicRevenue / d.revenue) * 100) : 0}%)</span></> : <span className="muted">–</span>}</td>
                       <td className="num">{num(d.orders)}</td>
                       <td className="num">{num(d.units)}</td>
                       <td className="num">{baht(d.cost)}</td>
@@ -130,7 +136,10 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
                 <tfoot>
                   <tr className="total-row">
                     <td>รวม {WINDOW_LABEL[window]}</td>
-                    <td className="num">{baht(all.revenue)}</td><td className="num">{num(all.orders)}</td><td className="num">{num(all.units)}</td>
+                    <td className="num">{baht(all.revenue)}</td>
+                    <td className="num">{all.actual ? baht(days.filter((d) => d.actual).reduce((t, d) => t + d.revenue - d.organicRevenue, 0)) : '–'}</td>
+                    <td className="num">{all.actual ? baht(all.organicRevenue) : '–'}</td>
+                    <td className="num">{num(all.orders)}</td><td className="num">{num(all.units)}</td>
                     <td className="num">{baht(all.cost)}</td><td className="num">{baht(all.spend)}</td>
                     <td className={`num ${all.profit < 0 ? 'bad' : 'good'}`}>{baht(all.profit)}</td>
                     <td className="num">{all.spend ? num(all.revenue / all.spend, 2) : '–'}</td><td />
@@ -471,7 +480,7 @@ function ReferralList({ date, data, onOpenCampaign }: { date: string; data: Over
 const numOrNull = (v: string | undefined) => (v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
 
 /** Page365's daily export, read in the browser (only the columns the numbers need are sent; names are hashed server-side, never stored). */
-function P365UploadCard({ window, onUploaded }: { window: Window; onUploaded: () => void }) {
+function P365UploadCard({ window, onUploaded, campaignName }: { window: Window; onUploaded: () => void; campaignName: (id: string) => string }) {
   const { toast } = useUi();
   const [uploads, setUploads] = useState<P365Upload[] | null>(null);
   const [busy, setBusy] = useState('');
@@ -513,10 +522,41 @@ function P365UploadCard({ window, onUploaded }: { window: Window; onUploaded: ()
     try {
       const res = await api.p365Upload(pending.orders);
       const c = Object.values(res.credits).reduce((t, x) => ({ customer: t.customer + x.customer, exact: t.exact + x.exact, approx: t.approx + x.approx, none: t.none + x.none }), { customer: 0, exact: 0, approx: 0, none: 0 });
-      toast(`บันทึก ${res.orders} ออเดอร์ (${res.dates.join(', ')}) · จับคู่แอดได้ ${c.customer + c.exact + c.approx} · ไม่ทราบแอด ${c.none}${res.errors.length ? ` · ข้าม ${res.errors.length} แถว` : ''}`, 'ok');
+      toast(`บันทึก ${res.orders} ออเดอร์ (${res.dates.join(', ')}) · จับคู่แอดได้ ${c.customer + c.exact + c.approx} · ไม่ทราบแอด ${c.none}${res.skipped ? ` · ไม่นับใบเปลี่ยนของ ${res.skipped}` : ''}${res.errors.length ? ` · ข้าม ${res.errors.length} แถว` : ''}`, 'ok');
       setPending(null);
       await load();
       onUploaded();
+    } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(''); }
+  }
+
+  // The team's "รวม" sheet, generated: one row per real order with the per-order fees and the campaign it was credited to.
+  async function exportOrders(dates: string[]) {
+    if (!dates.length) return;
+    setBusy('กำลังเตรียมไฟล์…');
+    try {
+      const days = await Promise.all(dates.map((d) => api.p365Orders(d)));
+      const f = days[0]?.fees;
+      const esc = (v: string | number | null | undefined) => { const t = v === null || v === undefined ? '' : String(v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+      const head = ['วันที่', 'เลขออเดอร์', 'สินค้า', 'จำนวนตัว', 'ราคาขาย', 'ต้นทุน', 'ขนส่ง', `COD ${f?.cod_pct ?? ''}%`, `LOSS ${f?.loss_pct ?? ''}%`, `ค่าส่ง ${f?.ship ?? ''}`, `VAT ${f?.vat_pct ?? ''}%`, `ค่าซอง ${f?.bag ?? ''}`, 'กำไรก่อนค่าแอด', 'แคมเปญ', 'วิธีจับคู่'];
+      const rows = days.flatMap((d) => d.orders.map((o) => {
+        const cod = o.payment === 'cod' && f ? o.total * f.cod_pct / 100 : 0;
+        const loss = f ? o.total * f.loss_pct / 100 : 0;
+        const vat = f ? (f.vat_base === 'goods' ? Math.max(0, o.total - (o.shipping ?? 0)) : f.vat_base === 'after_ship' ? Math.max(0, o.total - f.ship) : o.total) * f.vat_pct / 100 : 0;
+        const net = o.cost === null ? null : o.total - o.cost - o.fees;
+        return [
+          new Date(o.created_at).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }), o.order_no, o.items.map((i) => `${i.name} (${i.sku}) x${i.qty}`).join(' | '), o.units, r2(o.total), o.cost === null ? '' : r2(o.cost),
+          o.payment === 'cod' ? 'COD' : 'โอน', r2(cod), r2(loss), f?.ship ?? '', r2(vat), f?.bag ?? '', net === null ? '' : r2(net),
+          o.campaign_id ? campaignName(o.campaign_id) : 'ไม่ทราบแอด', { customer: 'ลูกค้าทักจากแอด', exact: 'เวลา+ยอด', approx: 'ประมาณ', none: '' }[o.match],
+        ].map(esc).join(',');
+      }));
+      const blob = new Blob(['\ufeff' + [head.join(','), ...rows].join('\n')], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `pkjeans-orders-${dates[dates.length - 1]}_${dates[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast(`ดาวน์โหลด ${rows.length} ออเดอร์แล้ว`, 'ok');
     } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(''); }
   }
 
@@ -528,8 +568,8 @@ function P365UploadCard({ window, onUploaded }: { window: Window; onUploaded: ()
         <div>
           <h2>ไฟล์ออเดอร์จาก Page365</h2>
           <p className="muted small">
-            อัปโหลดไฟล์ export ออเดอร์ (.xlsx) วันละครั้ง → วันนั้นใช้ยอด ทุน และจำนวนตัวจริงแทนการประมาณ และจับคู่แต่ละออเดอร์กับแอด (จากลูกค้าที่ทักจากแอด หรือจากเวลา+ยอดที่แอดมินติ๊ก)
-            · เก็บเฉพาะตัวเลขและรหัสสินค้า ไม่เก็บชื่อ เบอร์ ที่อยู่
+            ทุกเช้า export ออเดอร์ของเมื่อวานจาก Page365 <b>ด้วยตัวกรองเดียวกับที่ใช้ทำชีต "รวม"</b> แล้วอัปโหลดที่นี่ (.xlsx) → วันนั้นใช้ยอด ทุน และจำนวนตัวจริงแทนการประมาณ และจับคู่แต่ละออเดอร์กับแอด
+            · ผู้รับผิดชอบ: <b>มอส</b> (ทุกเช้า) · ใบ "เปลี่ยนของ" ราคา 0 ไม่นับเป็นออเดอร์ · อัปโหลดซ้ำวันเดิมได้ (แทนที่ของเดิม) · เก็บเฉพาะตัวเลขและรหัสสินค้า ไม่เก็บชื่อ เบอร์ ที่อยู่
           </p>
         </div>
         <label className={`button ${busy ? 'disabled' : ''}`} style={{ cursor: busy ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>
@@ -568,7 +608,10 @@ function P365UploadCard({ window, onUploaded }: { window: Window; onUploaded: ()
               ))}
             </tbody>
           </table>
-          {list.length > 3 && <button className="ghost small" onClick={() => setShowAll(!showAll)}>{showAll ? 'ย่อ' : `ดูทั้งหมด ${list.length} วัน`}</button>}
+          <div className="row gap wrap" style={{ marginTop: 8 }}>
+            {list.length > 3 && <button className="ghost small" onClick={() => setShowAll(!showAll)}>{showAll ? 'ย่อ' : `ดูทั้งหมด ${list.length} วัน`}</button>}
+            <button className="ghost small" disabled={!!busy} onClick={() => exportOrders(list.map((u) => u.date))}><Icon name="down" size={14} /> รายออเดอร์พร้อมหักค่าใช้จ่าย (CSV เหมือนชีต "รวม")</button>
+          </div>
         </div>
       )}
     </section>
