@@ -159,8 +159,12 @@ const num = (v: string | undefined) => {
 };
 const money = (n: number) => String(Math.round(n * 100) / 100);
 
-/** Groups item rows into orders and maps them to GoSell's columns. Cancelled orders are left out. */
-export function toGoSell(rows: SourceRow[]): { orders: GoSellOrder[]; skipped: { orderNo: string; reason: string }[] } {
+/** Carrier used when none is picked on the page: the shop's J&T special rate (2026-10). */
+export const DEFAULT_CARRIER = 'J&T Express (SP)';
+
+/** Groups item rows into orders and maps them to GoSell's columns. Cancelled orders are left out.
+ *  `carrier` sets every order's carrier; '' = map each order's Shipping Option (carrierFor). */
+export function toGoSell(rows: SourceRow[], carrier = DEFAULT_CARRIER): { orders: GoSellOrder[]; skipped: { orderNo: string; reason: string }[] } {
   const byOrder = new Map<string, SourceRow[]>();
   for (const r of expandOrders(rows)) {
     const no = r['No.'] || r['Order no.'];
@@ -183,8 +187,8 @@ export function toGoSell(rows: SourceRow[]): { orders: GoSellOrder[]; skipped: {
     if (!addr.zip) problems.push('ไม่มีรหัสไปรษณีย์');
     const phone = (r['Customer Phone'] ?? '').replace(/\D/g, '');
     if (!/^0\d{8,9}$/.test(phone)) problems.push(`เบอร์ "${r['Customer Phone']}" ไม่ถูกต้อง`);
-    const carrier = carrierFor(r['Shipping Option'] ?? '');
-    if (!carrier) problems.push(`ไม่รู้จักขนส่ง "${r['Shipping Option'] ?? ''}"`);
+    const orderCarrier = carrier || carrierFor(r['Shipping Option'] ?? '');
+    if (!orderCarrier) problems.push(`ไม่รู้จักขนส่ง "${r['Shipping Option'] ?? ''}"`);
     if (items.some((i) => '_detailError' in i)) problems.push(`อ่านรายการสินค้าไม่ได้: "${items.find((i) => '_detailError' in i)!._detailError.slice(0, 80)}"`);
     const lines = items.filter((i) => !('_detailError' in i)).map((i) => ({ sku: i['SKU'] || i['CF code/Mine Code'] || '', qty: num(i['Item Qty']), price: num(i['Item Price']) }));
     if (lines.some((l) => !l.sku)) problems.push('มีสินค้าที่ไม่มี SKU');
@@ -202,7 +206,7 @@ export function toGoSell(rows: SourceRow[]): { orders: GoSellOrder[]; skipped: {
       social: r['Profile name'] || r['Customer Name'] || '',
       payment: (r['Payment Provider'] ?? '').toLowerCase() === 'cod' ? 'COD' : 'การโอนเงิน',
       ...addr,
-      carrier,
+      carrier: orderCarrier,
       skus: lines.map((l) => `${l.sku} (${l.qty})`).join(', '),
       prices: lines.map((l) => money(l.price)).join(', '),
       orderDiscount: discount,

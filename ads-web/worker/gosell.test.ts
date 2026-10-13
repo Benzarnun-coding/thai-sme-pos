@@ -33,7 +33,9 @@ test('reads the UTF-16 tab export and groups items into orders', () => {
   assert.equal(a.social, 'Somchai FB');
   assert.equal(a.phone, '0812345678');
   assert.equal(a.payment, 'COD');
-  assert.equal(a.carrier, 'KEX');
+  assert.equal(a.carrier, 'J&T Express (SP)'); // default: every order on the J&T special rate
+  assert.equal(toGoSell(rows, '').orders[0].carrier, 'KEX'); // '' = from the file's Shipping Option
+  assert.equal(toGoSell(rows, 'Flash Express').orders[1].carrier, 'Flash Express');
   assert.equal(a.skus, '8011-PK-MD-34 (2), 8013-PK-BL-34 (1)');
   assert.equal(a.prices, '369, 369');
   assert.equal(a.orderDiscount, 308);
@@ -63,7 +65,8 @@ test('splits Thai addresses', () => {
 
 test('flags what GoSell would refuse', () => {
   const { rows } = parseExport(new TextEncoder().encode([HEAD.join('\t'), row({ 'No.': '1', 'Customer Phone': '12', 'Customer Address': 'บ้านไม่มีตำบล', 'Shipping Option': 'ส่งเอง', Subtotal: '100', Total: '90', SKU: '', 'Item Qty': '1', 'Item Price': '100' })].join('\n')));
-  const p = toGoSell(rows).orders[0].problems.join(' | ');
+  assert.ok(!toGoSell(rows).orders[0].problems.some((x) => x.includes('ขนส่ง')), 'a picked carrier ignores the file');
+  const p = toGoSell(rows, '').orders[0].problems.join(' | ');
   for (const s of ['หาตำบล', 'หาจังหวัด', 'รหัสไปรษณีย์', 'เบอร์', 'ไม่รู้จักขนส่ง', 'ไม่มี SKU', 'ยอดไม่ตรง']) assert.ok(p.includes(s), `${s} in ${p}`);
 });
 
@@ -91,7 +94,7 @@ test('fills the GoSell template from row 9 and keeps its dropdowns', async () =>
   assert.equal(cell('A9'), 'PK-0100 สมชาย ใจดี');
   assert.equal(cell('B9'), '0812345678');
   assert.equal(cell('G9'), 'ทุ่งปรัง');
-  assert.equal(cell('L9'), 'KEX');
+  assert.equal(cell('L9'), 'J&amp;T Express (SP)'); // raw XML: & must be escaped
   assert.equal(cell('M9'), '8011-PK-MD-34 (2), 8013-PK-BL-34 (1)');
   assert.equal(cell('N9'), '369, 369');
   assert.equal(cell('P9'), '308');
