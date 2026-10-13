@@ -37,14 +37,14 @@ export const CARRIERS = ['KEX', 'Flash Express', 'J&T Express', 'Best Express', 
 const PROVINCES = ['กรุงเทพมหานคร', 'กระบี่', 'กาญจนบุรี', 'กาฬสินธุ์', 'กำแพงเพชร', 'ขอนแก่น', 'จันทบุรี', 'ฉะเชิงเทรา', 'ชลบุรี', 'ชัยนาท', 'ชัยภูมิ', 'ชุมพร', 'เชียงราย', 'เชียงใหม่', 'ตรัง', 'ตราด', 'ตาก', 'นครนายก', 'นครปฐม', 'นครพนม', 'นครราชสีมา', 'นครศรีธรรมราช', 'นครสวรรค์', 'นนทบุรี', 'นราธิวาส', 'น่าน', 'บึงกาฬ', 'บุรีรัมย์', 'ปทุมธานี', 'ประจวบคีรีขันธ์', 'ปราจีนบุรี', 'ปัตตานี', 'พระนครศรีอยุธยา', 'พะเยา', 'พังงา', 'พัทลุง', 'พิจิตร', 'พิษณุโลก', 'เพชรบุรี', 'เพชรบูรณ์', 'แพร่', 'ภูเก็ต', 'มหาสารคาม', 'มุกดาหาร', 'แม่ฮ่องสอน', 'ยโสธร', 'ยะลา', 'ร้อยเอ็ด', 'ระนอง', 'ระยอง', 'ราชบุรี', 'ลพบุรี', 'ลำปาง', 'ลำพูน', 'เลย', 'ศรีสะเกษ', 'สกลนคร', 'สงขลา', 'สตูล', 'สมุทรปราการ', 'สมุทรสงคราม', 'สมุทรสาคร', 'สระแก้ว', 'สระบุรี', 'สิงห์บุรี', 'สุโขทัย', 'สุพรรณบุรี', 'สุราษฎร์ธานี', 'สุรินทร์', 'หนองคาย', 'หนองบัวลำภู', 'อ่างทอง', 'อำนาจเจริญ', 'อุดรธานี', 'อุตรดิตถ์', 'อุทัยธานี', 'อุบลราชธานี'];
 const PROVINCE_ALIASES: Record<string, string> = { 'กทม': 'กรุงเทพมหานคร', 'กทม.': 'กรุงเทพมหานคร', 'กรุงเทพ': 'กรุงเทพมหานคร', 'กรุงเทพฯ': 'กรุงเทพมหานคร', 'โคราช': 'นครราชสีมา', 'อยุธยา': 'พระนครศรีอยุธยา' };
 
-/** CSV/TSV bytes → rows keyed by header. Bigseller exports UTF-16 with tabs; UTF-8 and commas also work. */
+/** CSV/TSV bytes → rows keyed by header. Bigseller exports UTF-16 with tabs; UTF-8 (or Thai Windows-874) and commas also work. */
 export function parseExport(bytes: Uint8Array): { headers: string[]; rows: SourceRow[] } {
   let text: string;
   if (bytes[0] === 0xff && bytes[1] === 0xfe) text = new TextDecoder('utf-16le').decode(bytes.subarray(2));
   else if (bytes[0] === 0xfe && bytes[1] === 0xff) text = new TextDecoder('utf-16be').decode(bytes.subarray(2));
   // No BOM but every other byte zero = UTF-16 LE anyway (some re-saves drop the BOM).
   else if (bytes.length > 3 && bytes[1] === 0 && bytes[3] === 0) text = new TextDecoder('utf-16le').decode(bytes);
-  else text = new TextDecoder().decode(bytes).replace(/^\uFEFF/, '');
+  else text = decodeUtf8OrThai(bytes).replace(/^\uFEFF/, '');
   const firstLine = text.split('\n', 1)[0];
   const sep = (firstLine.match(/\t/g)?.length ?? 0) >= (firstLine.match(/,/g)?.length ?? 0) ? '\t' : ',';
   const table = splitDelimited(text, sep);
@@ -55,6 +55,11 @@ export function parseExport(bytes: Uint8Array): { headers: string[]; rows: Sourc
     return o;
   });
   return { headers, rows };
+}
+
+/** UTF-8, or Windows-874 (TIS-620) when it is not valid UTF-8 — what Thai Excel writes when a CSV is re-saved. */
+function decodeUtf8OrThai(bytes: Uint8Array): string {
+  try { return new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes); } catch { return new TextDecoder('windows-874').decode(bytes); }
 }
 
 function splitDelimited(text: string, sep: string): string[][] {

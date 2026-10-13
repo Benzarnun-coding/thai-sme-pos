@@ -1,4 +1,4 @@
-// Phase 2: Bigseller's daily "Order-SKU-inprocess…xlsx" (one row per item: shop, SKU, name, option, qty, order no …)
+// Phase 2: Bigseller's daily "Order-SKU-inprocess" export, .xlsx or .csv (one row per item: shop, SKU, name, option, qty, order no …)
 // → order sheets ("ใบสั่งสินค้า") per supplier or warehouse, like the ones the team printed by hand.
 // Who a product is ordered from, in this order:
 //   1. a supplier set on the page for that product (catalog_suppliers) — e.g. PK 501/1 → J.BIG
@@ -32,21 +32,45 @@ export interface PurchaseLine {
 
 export interface PurchaseGroup { name: string; kind: GroupKind; lines: PurchaseLine[]; pieces: number }
 
-const REQUIRED = ['SKU', 'จำนวน'];
+/** Header names per field: Bigseller in Thai (the file Benz uses), Bigseller in English, and close variants. */
+const COLUMNS = {
+  store: ['ร้านค้า BigSeller', 'ร้านค้า', 'BigSeller Store', 'Store', 'Shop', 'Store Name'],
+  sku: ['SKU', 'Seller SKU', 'SKU ผู้ขาย', 'Merchant SKU'],
+  name: ['ชื่อสินค้า', 'Product Name', 'Item Name', 'Product'],
+  option: ['ชื่อตัวเลือก', 'Variation', 'Variation Name', 'Variant Name', 'Option'],
+  qty: ['จำนวน', 'Quantity', 'Qty', 'Item Qty'],
+  order: ['หมายเลขคำสั่งซื้อ', 'Order No.', 'Order Number', 'Order ID', 'Order No'],
+} as const;
+type Field = keyof typeof COLUMNS;
+
+const norm = (h: string) => h.replace(/^\uFEFF/, '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+/** Which header holds each field (exact name first, case and spacing ignored). */
+export function orderColumns(headers: string[]): Partial<Record<Field, string>> {
+  const out: Partial<Record<Field, string>> = {};
+  for (const field of Object.keys(COLUMNS) as Field[]) {
+    const found = COLUMNS[field].map(norm).map((want) => headers.find((h) => norm(h) === want)).find(Boolean);
+    if (found) out[field] = found;
+  }
+  return out;
+}
 
 export function missingOrderColumns(headers: string[]): string[] | null {
-  const miss = REQUIRED.filter((h) => !headers.includes(h));
+  const cols = orderColumns(headers);
+  const miss = [cols.sku ? '' : 'SKU', cols.qty ? '' : 'จำนวน'].filter(Boolean);
   return miss.length ? miss : null;
 }
 
-export function readOrderItems(rows: Record<string, string>[]): OrderItem[] {
+export function readOrderItems(rows: Record<string, string>[], headers: string[] = Object.keys(rows[0] ?? {})): OrderItem[] {
+  const cols = orderColumns(headers);
+  const get = (r: Record<string, string>, f: Field) => (cols[f] ? String(r[cols[f]!] ?? '').trim() : '');
   return rows.map((r) => ({
-    store: (r['ร้านค้า BigSeller'] ?? '').trim(),
-    sku: (r['SKU'] ?? '').trim(),
-    name: (r['ชื่อสินค้า'] ?? '').trim(),
-    option: (r['ชื่อตัวเลือก'] ?? '').trim(),
-    qty: Math.max(0, Math.round(Number(String(r['จำนวน'] ?? '').replace(/,/g, '')) || 0)),
-    order: (r['หมายเลขคำสั่งซื้อ'] ?? '').trim(),
+    store: get(r, 'store'),
+    sku: get(r, 'sku'),
+    name: get(r, 'name'),
+    option: get(r, 'option'),
+    qty: Math.max(0, Math.round(Number(get(r, 'qty').replace(/,/g, '')) || 0)),
+    order: get(r, 'order'),
   })).filter((i) => i.qty > 0 && (i.sku || i.name));
 }
 

@@ -99,3 +99,46 @@ test('history validation', () => {
   assert.throws(() => validatePurchase({ date: '2026-10-13', round: 1, lines: [...lines, lines[0]] }), /ซ้ำ/);
   assert.throws(() => validatePurchase({ date: '2026-10-13', round: 1, lines: [{ ...lines[0], kind: 'x' }] }), /ไม่ครบ/);
 });
+
+test('the same file as CSV: UTF-8 commas, Bigseller UTF-16 tabs, Thai Excel (Windows-874), English headers', async () => {
+  const { parseExport } = await import('../web/src/gosell.ts');
+  const header = ['ร้านค้า BigSeller', 'SKU', 'ชื่อสินค้า', 'ชื่อตัวเลือก', 'จำนวน', 'หมายเลขคำสั่งซื้อ'];
+  const lines = [
+    ['STM-SHOP', '5011-PK-MD-30', 'กางเกงยีนส์, ทรงกระบอก', '501 (มิดไนท์), 30', '2', '586549686037481268'],
+    ['Shopee PK-JEANS', 'J41-BB-BL-34', 'ขาสั้น', 'J41-2, 34', '1', '261012E7C5RBY5'],
+  ];
+  const quote = (c: string) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c);
+  const groupsOf = (headers: string[], rows: Record<string, string>[]) => {
+    assert.equal(missingOrderColumns(headers), null);
+    return groupLines(buildLines(readOrderItems(rows, headers), makeLookup(CATALOG, new Map()))).map((g) => [g.name, g.pieces]);
+  };
+  const expected = [['แพลนเนท', 1], ['PK', 2]];
+
+  // UTF-8 with BOM, commas, quoted cells containing commas
+  const utf8 = new TextEncoder().encode('﻿' + [header, ...lines].map((r) => r.map(quote).join(',')).join('\r\n'));
+  const a = parseExport(utf8);
+  assert.deepEqual(groupsOf(a.headers, a.rows), expected);
+
+  // Bigseller's own CSV: UTF-16 LE with BOM, tabs
+  const tsv = [header, ...lines].map((r) => r.join('\t')).join('\r\n');
+  const u16 = new Uint8Array(2 + tsv.length * 2);
+  u16[0] = 0xff; u16[1] = 0xfe;
+  for (let i = 0; i < tsv.length; i++) { u16[2 + i * 2] = tsv.charCodeAt(i) & 0xff; u16[3 + i * 2] = tsv.charCodeAt(i) >> 8; }
+  const b = parseExport(u16);
+  assert.deepEqual(groupsOf(b.headers, b.rows), expected);
+
+  // Re-saved by Thai Excel: Windows-874 (Thai U+0E01–U+0E5B → 0xA1–0xFB)
+  const csv = [header, ...lines].map((r) => r.map(quote).join(',')).join('\r\n');
+  const tis = Uint8Array.from([...csv].map((ch) => { const c = ch.charCodeAt(0); return c >= 0x0e01 && c <= 0x0e5b ? c - 0x0e01 + 0xa1 : c; }));
+  const c = parseExport(tis);
+  assert.ok(c.headers.includes('ร้านค้า BigSeller'), 'Thai headers decoded');
+  assert.deepEqual(groupsOf(c.headers, c.rows), expected);
+
+  // English Bigseller headers
+  const en = ['Store', 'SKU', 'Product Name', 'Variation', 'Quantity', 'Order No.'];
+  const d = parseExport(new TextEncoder().encode([en, ...lines].map((r) => r.map(quote).join(',')).join('\n')));
+  assert.deepEqual(groupsOf(d.headers, d.rows), expected);
+  assert.equal(readOrderItems(d.rows, d.headers)[0].option, '501 (มิดไนท์), 30');
+
+  assert.deepEqual(missingOrderColumns(['Store', 'Product Name']), ['SKU', 'จำนวน']);
+});

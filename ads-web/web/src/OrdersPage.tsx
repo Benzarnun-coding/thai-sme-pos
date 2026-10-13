@@ -1,4 +1,4 @@
-// /catalog/orders — Bigseller's daily "Order-SKU-inprocess…xlsx" → order sheets per supplier (BB …) or warehouse
+// /catalog/orders — Bigseller's daily "Order-SKU-inprocess" export (.xlsx or .csv) → order sheets per supplier (BB …) or warehouse
 // (PK, CM …), checked on screen, downloaded as Excel or printed like the team's hand-made sheets. The file is read
 // in the browser; only the resulting lines (SKU, quantity, supplier) are saved as history, no order numbers.
 // Who supplies a product can be changed right here; it is saved for that product and used every day after.
@@ -14,6 +14,7 @@ import {
 import { Icon, useUi } from './ui.tsx';
 import { useCatalog } from './useCatalog.ts';
 import { readFirstSheet } from './xlsx.ts';
+import { parseExport } from './gosell.ts';
 
 const ROWS_PER_COLUMN = 32;
 
@@ -77,11 +78,13 @@ export function OrdersApp() {
   async function onFile(file: File) {
     setBusy('กำลังอ่านไฟล์…');
     try {
-      if (!/\.xlsx$/i.test(file.name)) throw new Error('เลือกไฟล์ .xlsx ที่ export จาก Bigseller (Order-SKU-inprocess…)');
-      const { headers, rows: raw } = await readFirstSheet(file);
+      let headers: string[], raw: Record<string, string>[];
+      if (/\.xlsx$/i.test(file.name)) ({ headers, rows: raw } = await readFirstSheet(file));
+      else if (/\.(csv|tsv|txt)$/i.test(file.name)) ({ headers, rows: raw } = parseExport(new Uint8Array(await file.arrayBuffer())));
+      else throw new Error('เลือกไฟล์ .xlsx หรือ .csv ที่ export จาก Bigseller (Order-SKU-inprocess…)');
       const missing = missingOrderColumns(headers);
       if (missing) throw new Error(`ไฟล์ "${file.name}" ไม่มีคอลัมน์ ${missing.join(', ')} · หัวตารางที่อ่านได้: ${headers.slice(0, 6).join(', ') || '(ว่าง)'}`);
-      const items = readOrderItems(raw);
+      const items = readOrderItems(raw, headers);
       if (!items.length) throw new Error('ไม่พบรายการสินค้าในไฟล์');
       const d = dateFromFileName(file.name) ?? todayBkk();
       setViewing(null);
@@ -189,12 +192,12 @@ export function OrdersApp() {
             <h2>{viewing ? `ใบสั่งย้อนหลัง ${thaiShortDate(viewing.upload.date)} รอบ ${viewing.upload.round}` : 'ไฟล์จาก Bigseller'}</h2>
             <p className="muted small">
               {viewing ? `บันทึกโดย ${viewing.upload.saved_by.split('@')[0]} · ไฟล์ ${viewing.upload.file || '—'}`
-                : data ? `${data.file} · อ่านในเบราว์เซอร์นี้ เก็บเฉพาะ SKU กับจำนวน` : 'Export "Order-SKU-inprocess" (.xlsx) จาก Bigseller แล้วอัปโหลดที่นี่ วันละรอบหรือหลายรอบ'}
+                : data ? `${data.file} · อ่านในเบราว์เซอร์นี้ เก็บเฉพาะ SKU กับจำนวน` : 'Export "Order-SKU-inprocess" (.xlsx หรือ .csv) จาก Bigseller แล้วอัปโหลดที่นี่ วันละรอบหรือหลายรอบ'}
             </p>
           </div>
           <label className={`button ${busy || !ready ? 'disabled' : 'primary'}`}>
             <Icon name="up" size={14} /> {busy || (shown ? 'เลือกไฟล์ใหม่' : 'เลือกไฟล์ Bigseller')}
-            <input type="file" accept=".xlsx" hidden disabled={!!busy || !ready} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onFile(f); }} />
+            <input type="file" accept=".xlsx,.csv,.tsv,.txt" hidden disabled={!!busy || !ready} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onFile(f); }} />
           </label>
         </div>
         {!shown && (
