@@ -95,6 +95,8 @@ export interface Plan {
 export function planDecisions(
   groups: Group[], entities: Entity[], sectionOf: Map<string, string>, costs: CostRow[],
   settings: Map<string, CampaignSetting>, stages: Stage[], state: State, now: Date, cod: Cod = NO_COD,
+  /** Shop-wide break-even from real Page365 orders: used for product lines whose own can't be computed */
+  fallbackBreakeven: number | null = null,
 ): Plan {
   const decisions: Plan['decisions'] = [];
   const moves: MoveDecision[] = [];
@@ -106,7 +108,9 @@ export function planDecisions(
   for (const g of groups) {
     // Break-even comes from the product line's 7-day numbers across all its campaigns, whatever their stage.
     const econ = economics(g.section, costs, totals.get(g.section.id) ?? zero, cod);
-    const { actions, moves: moveRules, notes: ruleNotes } = materializeRules(g.stored, econ.breakeven_roas);
+    const be = econ.breakeven_roas ?? fallbackBreakeven;
+    if (econ.breakeven_roas === null && be !== null) notes.push(`[${g.label}] ใช้ ROAS คุ้มทุนรวมร้าน ${be.toFixed(2)} (จากออเดอร์จริง Page365) เพราะสินค้านี้ยังคิดคุ้มทุนเองไม่ได้`);
+    const { actions, moves: moveRules, notes: ruleNotes } = materializeRules(g.stored, be);
     notes.push(...ruleNotes.map((n) => `[${g.label}] ${n}`));
     const members = entities.filter((e) => g.campaignIds.has(e.campaign_id));
     for (const d of evaluate(members, actions, NO_SCOPE, state, now)) decisions.push({ ...d, group: g.label });

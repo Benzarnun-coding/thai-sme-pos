@@ -6,6 +6,7 @@ import type { CampaignDayRow, DailyRow, HourlyConversion } from '../../ads-engin
 import type { Entity, Level, Metrics, RunReport, State, Window } from '../../ads-engine/src/types.ts';
 import { applyMoves, codOf, insertRun, loadCampaignSettings, loadCosts, loadSections, loadSettings, loadStages, loadState, saveState } from './db.ts';
 import { buildGroups, neededWindows, planDecisions, sectionMap, type MoveDecision, type Plan } from './engine.ts';
+import { loadOrders, orderFees } from './p365.ts';
 
 /** Keeps a run well inside the Workers free plan's 50 outbound requests, and limits damage from a bad rule. */
 export const MAX_CHANGES_PER_RUN = 25;
@@ -112,7 +113,20 @@ export async function planRun(
     for (const e of entities) if (e.level === level) e.metrics[w] = results[i].get(e.id) ?? zeroMetrics();
   });
   const evaluated = entities.filter((e) => groups.some((g) => g.campaignIds.has(e.campaign_id))).length;
-  return { plan: planDecisions(groups, entities, sectionOf, costs, campaignSettings, stages, state, now, codOf(settings)), evaluated };
+  return { plan: planDecisions(groups, entities, sectionOf, costs, campaignSettings, stages, state, now, codOf(settings), await shopBreakeven(db, settings, now)), evaluated };
+}
+
+/**
+ * Break-even ROAS of the whole shop from the last 14 days of real orders: revenue ÷ (revenue − product cost −
+ * per-order fees), i.e. 1 ÷ gross margin. Null when fewer than 7 days are uploaded or the margin isn't positive.
+ */
+async function shopBreakeven(db: D1Database, settings: Awaited<ReturnType<typeof loadSettings>>, now: Date): Promise<number | null> {
+  const dates = Array.from({ length: 14 }, (_, i) => new Date(now.getTime() + 7 * 3_600_000 - (i + 1) * 86_400_000).toISOString().slice(0, 10));
+  const orders = await loadOrders(db, dates).catch(() => []);
+  if (new Set(orders.map((o) => o.date)).size < 7) return null;
+  const revenue = orders.reduce((t, o) => t + o.total, 0);
+  const gross = orders.reduce((t, o) => t + o.total - (o.cost ?? 0) - orderFees(o, settings.order_fees), 0);
+  return revenue > 0 && gross > 0 ? revenue / gross : null;
 }
 
 /** Marks everything past MAX_CHANGES_PER_RUN as skipped. */
