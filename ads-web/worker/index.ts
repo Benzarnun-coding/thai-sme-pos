@@ -25,6 +25,7 @@ import { bkkDate, loadConversionHours, saveConversionDay, syncConversionHours, t
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
+import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteWebSku, discoverTabs, parseSheetId, saveCatalogSheetId, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
@@ -480,6 +481,58 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (method === 'GET' && (m = path.match(/^\/api\/campaigns\/(\d+)\/history$/))) {
     const adsets = await metaData(env).then(({ data }) => data.entities.filter((e) => e.level === 'adset' && e.campaign_id === m![1]).map((e) => e.id)).catch(() => []);
     return json(await campaignHistory(env.DB, m[1], adsets));
+  }
+
+  // ---- product catalog (/catalog) ----
+  // The page syncs tab by tab: list tabs → fetch each CSV through here → send back only the changed rows.
+  if (method === 'GET' && path === '/api/catalog') return json(await catalogMeta(env.DB, (await loadSettings(env.DB)).sheet_id));
+  if (method === 'PUT' && path === '/api/catalog/sheet') {
+    const id = parseSheetId((await body())?.sheet);
+    await saveCatalogSheetId(env.DB, id);
+    await audit(env.DB, user, 'catalog.sheet', id.slice(0, 6) + '…', {});
+    return json({ ok: true });
+  }
+  if (method === 'GET' && path === '/api/catalog/rows') {
+    const tab = url.searchParams.get('tab') ?? '';
+    if (!tab) throw new BadRequest('ไม่มีชื่อแท็บ');
+    const page = await catalogRows(env.DB, tab, url.searchParams.get('after') ?? '', Number(url.searchParams.get('limit') ?? 0) || undefined);
+    // `v` = catalog_version: the browser keeps the page until the next sync changes the version.
+    const cache = url.searchParams.get('v') ? 'private, max-age=604800, immutable' : 'no-store';
+    return new Response(JSON.stringify(page), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': cache } });
+  }
+  if (method === 'GET' && path === '/api/catalog/sheet') {
+    const settings = await loadSettings(env.DB);
+    const sheet = await catalogSheetId(env.DB, settings.sheet_id);
+    if (!sheet) throw new BadRequest('ยังไม่ได้ใส่ลิงก์ Google Sheet SKU+Price ของแคตตาล็อก');
+    return json({ tabs: await discoverTabs(sheet, settings.sheet_tabs) });
+  }
+  if (method === 'GET' && path === '/api/catalog/sheet/csv') {
+    const sheet = await catalogSheetId(env.DB, (await loadSettings(env.DB)).sheet_id);
+    if (!sheet) throw new BadRequest('ยังไม่ได้ใส่ลิงก์ Google Sheet SKU+Price ของแคตตาล็อก');
+    return sheetCsv(sheet, url.searchParams.get('gid') ?? '');
+  }
+  if (method === 'POST' && path === '/api/catalog/sync') {
+    const s = validateSync(await body());
+    const result = await applySync(env.DB, s, user);
+    if (s.done) await audit(env.DB, user, 'catalog.sync', s.tab, { skus: s.done.skus });
+    return json(result);
+  }
+  if (method === 'POST' && path === '/api/catalog/web') {
+    const rows = await createWebSkus(env.DB, await body(), user);
+    await audit(env.DB, user, 'catalog.web.create', rows.map((r) => r.sku).join(','), { tab: rows[0]?.tab, count: rows.length });
+    return json({ rows });
+  }
+  if ((method === 'PUT' || method === 'DELETE') && path === '/api/catalog/web') {
+    // SKU in the query: they may contain "/".
+    const sku = url.searchParams.get('sku') ?? '';
+    if (method === 'DELETE') {
+      if (!(await deleteWebSku(env.DB, sku))) return json({ error: 'ไม่พบ SKU นี้' }, 404);
+      await audit(env.DB, user, 'catalog.web.delete', sku, {});
+      return json({ ok: true });
+    }
+    const row = await updateWebSku(env.DB, sku, await body());
+    await audit(env.DB, user, 'catalog.web.update', sku, row);
+    return json({ row });
   }
 
   // ---- costs ----
@@ -1014,6 +1067,8 @@ async function discordInteraction(req: Request, env: Env): Promise<Response> {
   const i = JSON.parse(body);
   if (i.type === 1) return json({ type: 1 });
   if (i.type !== 3) return json({ type: 4, data: { content: 'ยังไม่รองรับคำสั่งนี้', flags: 64 } });
+  // The bot works in one channel only: a press from anywhere else is refused (only the presser sees the reply).
+  if (env.DISCORD_CHANNEL_ID && i.channel_id !== env.DISCORD_CHANNEL_ID) return json({ type: 4, data: { content: 'บอทนี้ใช้ได้เฉพาะห้องรายงานแอด', flags: 64 } });
   const who = i.member?.user?.global_name || i.member?.user?.username || i.user?.username || 'ไม่ทราบชื่อ';
   const [verb, id] = String(i.data?.custom_id ?? '').split(':');
   const p = await env.DB.prepare('SELECT * FROM proposals WHERE id = ?').bind(id ?? '').first<Proposal>();
