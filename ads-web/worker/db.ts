@@ -226,6 +226,12 @@ export async function insertRun(db: D1Database, run: { run_at: string; trigger: 
     .bind(run.run_at, run.trigger, run.dry_run ? 1 : 0, run.summary, JSON.stringify(run.report)).run();
 }
 
+/** The latest run without its (large) report: the overview only shows when and what. */
+export async function lastRun(db: D1Database) {
+  const r = await db.prepare('SELECT run_at, summary, dry_run FROM runs ORDER BY id DESC LIMIT 1').first<{ run_at: string; summary: string; dry_run: number }>();
+  return r ? [{ run_at: r.run_at, summary: r.summary, dry_run: r.dry_run === 1 }] : [];
+}
+
 export async function listRuns(db: D1Database, limit = 30) {
   const { results } = await db.prepare('SELECT * FROM runs ORDER BY id DESC LIMIT ?').bind(limit)
     .all<{ id: number; run_at: string; trigger: string; dry_run: number; summary: string; report: string }>();

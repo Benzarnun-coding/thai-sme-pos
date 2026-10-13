@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, sectionName, type Idea, type Overview as OverviewData, type Preview, type Role, type RunReport, type Window } from './api.ts';
 import { useCampaignActions } from './actions.tsx';
 import { CampaignDrawer } from './CampaignDrawer.tsx';
@@ -49,12 +49,14 @@ export function App() {
     api.preview().then(setPreview).catch(() => setPreview(null));
   }, []);
 
-  const load = useCallback(async (fresh = false) => {
+  // Ideas and the preview don't depend on the date window: load them once, and again only on refresh/reload.
+  const extrasLoaded = useRef(false);
+  const load = useCallback(async (fresh = false, withExtras = false) => {
     setLoading(true);
     try {
       setData(await api.overview(window, fresh));
       setError('');
-      loadExtras();
+      if (withExtras || !extrasLoaded.current) { extrasLoaded.current = true; loadExtras(); }
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -63,8 +65,8 @@ export function App() {
   }, [window, loadExtras]);
 
   useEffect(() => { load(); }, [load]);
-  const refresh = () => load(true);
-  const reload = useCallback(() => { load(); }, [load]);
+  const refresh = () => load(true, true);
+  const reload = useCallback(() => { load(false, true); }, [load]);
   // A snapshot only has some windows; don't sit on one it can't show.
   useEffect(() => {
     if (data?.snapshot && !data.snapshot.windows.includes(window)) setWindow(data.snapshot.windows[0]);

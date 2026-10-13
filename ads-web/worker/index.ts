@@ -10,7 +10,7 @@ import { accessStatus, syncAccess } from './access.ts';
 import { syncCampaignCosts, syncCosts } from './costs.ts';
 import { CampaignCostIndex, tierEconomics, type CostTier } from './campaignCosts.ts';
 import {
-  audit, codOf, deleteSection, loadCampaignCosts, deleteWebCost, saveWebCost, insertRun, listAudit, listRuns, loadCampaignSettings, loadCosts, loadSections, loadSettings,
+  audit, codOf, deleteSection, loadCampaignCosts, deleteWebCost, saveWebCost, insertRun, lastRun, listAudit, listRuns, loadCampaignSettings, loadCosts, loadSections, loadSettings,
   loadStages, loadState, saveCampaignSetting, saveCampaignSettings, auditMany, campaignHistory, saveSection, saveSettings, saveStage,
 } from './db.ts';
 import { ECONOMICS_WINDOW, sectionMap, sectionTotals } from './engine.ts';
@@ -562,14 +562,20 @@ async function withMetrics(data: MetaData, calls: (readonly [Level, Window])[]):
 
 async function overview(env: Env, window: Window, fresh: boolean) {
   const [{ meta, data }, sections, stages, campaignSettings, costs, settings, runs] = await Promise.all([
-    metaData(env, fresh), loadSections(env.DB), loadStages(env.DB), loadCampaignSettings(env.DB), loadCosts(env.DB), loadSettings(env.DB), listRuns(env.DB, 1),
+    metaData(env, fresh), loadSections(env.DB), loadStages(env.DB), loadCampaignSettings(env.DB), loadCosts(env.DB), loadSettings(env.DB), lastRun(env.DB),
   ]);
-  const ccRaw = (await loadCampaignCosts(env.DB)).costs;
-  const campaignCosts = new CampaignCostIndex(ccRaw);
   const windows = [...new Set<Window>([window, ECONOMICS_WINDOW])];
-  const entities = await withMetrics(data, [...windows.map((w) => ['campaign', w] as const), ['adset', window] as const]);
-  // Order-by-order costing from stored hourly purchases (today's come live).
-  const tx = await txContext(env, data, window);
+  // Meta insights, stored hourly purchases and the real Page365 orders don't depend on each other: fetch together.
+  const actualDates = window === 'today' ? [] : windowDates(window);
+  const [ccRaw, entities, tx, uploads, actualOrders] = await Promise.all([
+    loadCampaignCosts(env.DB).then((r) => r.costs),
+    withMetrics(data, [...windows.map((w) => ['campaign', w] as const), ['adset', window] as const]),
+    // Order-by-order costing from stored hourly purchases (today's come live).
+    txContext(env, data, window),
+    loadUploads(env.DB, actualDates),
+    loadOrders(env.DB, actualDates),
+  ]);
+  const campaignCosts = new CampaignCostIndex(ccRaw);
   const tiersOf = makeTierResolver({ entities, sections, campaignSettings, costs, cod: codOf(settings), campaignCosts: ccRaw });
   const snapshot = meta instanceof MockMeta ? await meta.snapshotInfo() : null;
   const sectionOf = sectionMap(entities, sections, campaignSettings);
@@ -637,17 +643,21 @@ async function overview(env: Env, window: Window, fresh: boolean) {
   });
 
   // Real orders (Page365 uploads) for the days in this window: the KPI card prefers these over the Meta estimate.
-  const actualDates = window === 'today' ? [] : windowDates(window);
   let actual: null | { dates: number; covered: number; revenue: number; orders: number; units: number; cost: number; fees: number; gross: number; ads: number; net: number; organic_revenue: number; organic_orders: number } = null;
   if (actualDates.length) {
-    const [uploads, orders] = await Promise.all([loadUploads(env.DB, actualDates), loadOrders(env.DB, actualDates)]);
     const covered = actualDates.filter((d) => uploads.has(d));
     if (covered.length) {
-      const os = orders.filter((o) => covered.includes(o.date));
+      const os = actualOrders.filter((o) => covered.includes(o.date));
       const sum = (f: (o: typeof os[number]) => number) => os.reduce((n, o) => n + f(o), 0);
       const revenue = sum((o) => o.total), cost = sum((o) => o.cost ?? 0), fees = sum((o) => orderFees(o, settings.order_fees));
-      const daily = await data.dailyAll(window).catch(() => [] as Awaited<ReturnType<typeof data.dailyAll>>);
-      const ads = daily.length ? daily.filter((d) => covered.includes(d.date)).reduce((n, d) => n + d.spend, 0) : null;
+      // Every day uploaded: the window's campaign spend is the ad cost (no extra Meta call). Otherwise only the uploaded days' spend.
+      let ads: number | null;
+      if (covered.length === actualDates.length) {
+        ads = entities.filter((e) => e.level === 'campaign').reduce((n, e) => n + (e.metrics[window]?.spend ?? 0), 0);
+      } else {
+        const daily = await data.dailyAll(window).catch(() => [] as Awaited<ReturnType<typeof data.dailyAll>>);
+        ads = daily.length ? daily.filter((d) => covered.includes(d.date)).reduce((n, d) => n + d.spend, 0) : null;
+      }
       const gross = revenue - cost - fees;
       actual = {
         dates: actualDates.length, covered: covered.length, revenue, orders: os.length, units: sum((o) => o.units), cost, fees, gross,
