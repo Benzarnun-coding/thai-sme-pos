@@ -28,7 +28,7 @@ import { PRIVACY_HTML } from './privacy.ts';
 import { deletePurchase, listPurchases, purchaseLines, savePurchase, setMissing, validateMissing, validatePurchase } from './purchase.ts';
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveImageLink, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
-import { approvalsEnabled, postProposal, saveProposals, verifyDiscord, type Proposal } from './discord.ts';
+import { approvalsEnabled, idList, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
@@ -50,6 +50,8 @@ export interface Env {
   DISCORD_DECIDER_IDS?: string;
   /** Discord user IDs allowed to press the buttons (comma separated); empty = anyone in the channel */
   DISCORD_APPROVER_IDS?: string;
+  /** Discord user IDs who upload Page365 (มอส); tagged at 10:00 if the file is missing, may press the upload buttons */
+  DISCORD_UPLOADER_IDS?: string;
   /** Messenger webhook (see worker/webhook.ts): app id is a var, the other two are secrets */
   META_APP_ID?: string;
   META_APP_SECRET?: string;
@@ -67,6 +69,8 @@ export interface Env {
 
 const RULES_CRON = '0 1,13 * * *';
 const COSTS_CRON = '30 0 * * *';
+/** 10:00 Bangkok: remind the uploaders if yesterday's Page365 file is still missing. */
+const REMIND_CRON = '0 3 * * *';
 const DASHBOARD_WINDOWS: Window[] = ['today', 'yesterday', 'last_3d', 'last_7d', 'last_14d', 'last_30d'];
 
 function metaFor(env: Env): MetaLike {
@@ -120,6 +124,8 @@ export default {
         Promise.resolve().then(() => syncConversionHours(env.DB, metaFor(env))).catch(() => null),
       ]).then(() => recreditDates(env.DB, [bkkDate(1), bkkDate(2), bkkDate(3)]).catch(() => null))
         .then(() => dailyDigest(env).catch((err) => console.error('digest', err)))));
+    } else if (event.cron === REMIND_CRON) {
+      ctx.waitUntil(uploadReminder(env).catch((err) => console.error('reminder', err)));
     } else if (event.cron === RULES_CRON) {
       let meta: MetaLike;
       try {
@@ -410,6 +416,11 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   // ---- Discord bot: a test question with buttons ----
   if (path === '/api/discord/test' && method === 'POST') {
     if (!approvalsEnabled(env)) throw new BadRequest('ยังตั้งค่าบอท Discord ไม่ครบ (DISCORD_BOT_TOKEN / DISCORD_APP_PUBLIC_KEY / DISCORD_CHANNEL_ID)');
+    if (url.searchParams.get('kind') === 'upload') {
+      // The 10:00 reminder, sent now for yesterday whether or not the file is in (pressing "uploaded" still checks).
+      if (!(await postUploadReminder(env, bkkDate(1), thaiDay(bkkDate(1))))) throw new BadRequest('ส่งเข้า Discord ไม่สำเร็จ');
+      return json({ ok: true });
+    }
     const p = { id: crypto.randomUUID(), created_at: new Date().toISOString(), kind: 'test', entity_id: 'test', entity_name: 'ข้อความทดสอบ (ไม่แตะแอดจริง)', rule_id: 'test',
       plan: `ทดสอบปุ่มโดย ${user}`, detail: '{}', status: 'pending', decided_by: null, decided_at: null, message_id: null } as unknown as Proposal;
     await saveProposals(env.DB, [p]);
@@ -1068,9 +1079,19 @@ function finite<T extends object | undefined>(m: T): T {
   return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, typeof v === 'number' && !Number.isFinite(v) ? null : v])) as T;
 }
 
-/** 07:30 Discord note: yesterday's real numbers (Page365) when the file is in, otherwise a reminder to upload. */
+/** 07:30 Discord note: yesterday's real numbers (Page365) when the file is in; the reminder waits until 10:00. */
 async function dailyDigest(env: Env): Promise<void> {
-  return salesDigest(env, bkkDate(1), true);
+  return salesDigest(env, bkkDate(1));
+}
+
+const thaiDay = (date: string) => new Date(`${date}T00:00:00+07:00`).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' });
+
+/** 10:00: yesterday's file still missing → tag the uploaders with buttons (bot), else a plain webhook note. */
+async function uploadReminder(env: Env): Promise<void> {
+  const date = bkkDate(1);
+  if ((await loadUploads(env.DB, [date])).has(date)) return;
+  if (approvalsEnabled(env) && await postUploadReminder(env, date, thaiDay(date))) return;
+  if (env.DISCORD_WEBHOOK_URL) await pushDiscord(`📂 **${thaiDay(date)}** ยังไม่มีไฟล์ Page365 — รบกวน export ของเมื่อวานแล้วอัปโหลดที่หน้ายอดขายรายวันด้วยค่ะ`, env.DISCORD_WEBHOOK_URL);
 }
 
 /** One day's real numbers (Page365) to Discord; also sent the moment a file is uploaded. */
@@ -1118,6 +1139,20 @@ function parseView(w: string | null): Window {
   return 'last_7d';
 }
 
+/** The reminder's buttons: "uploaded" is checked against the uploads table; "not yet" keeps the buttons. */
+async function uploadButton(env: Env, verb: string, date: string, who: string): Promise<Response> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ type: 4, data: { content: 'ไม่รู้จักวันที่นี้ค่ะ', flags: 64 } });
+  const thai = thaiDay(date);
+  if (verb === 'p365later') {
+    const ids = idList(env.DISCORD_UPLOADER_IDS);
+    return json({ type: 7, data: uploadReminderMessage(date, thai, ids.map((id) => `<@${id}>`).join(' '), `⏳ ${who} รับทราบแล้ว จะอัปโหลดให้เร็วที่สุดค่ะ (${new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })})`) });
+  }
+  const up = await loadUploads(env.DB, [date]);
+  if (!up.has(date)) return json({ type: 4, data: { content: `น้องยังไม่เจอไฟล์ของ **${thai}** ในระบบเลยค่ะ 🙏 อัปโหลดที่หน้ายอดขายรายวัน (กดยืนยันให้เสร็จ) แล้วค่อยกดใหม่นะคะ`, flags: 64 } });
+  const n = (await loadOrders(env.DB, [date])).length;
+  return json({ type: 7, data: { content: `✅ **ไฟล์ Page365 ของ ${thai} เข้าระบบแล้วค่ะ** (${n} ออเดอร์) — ${who} ยืนยัน ขอบคุณมากค่ะ 🙏 สรุปยอดของจริงอยู่ในข้อความถัดไปนะคะ`, components: [] } });
+}
+
 /**
  * A button pressed in Discord. Ping → pong (Discord checks the URL with it); a button → do what it says, reply
  * by editing the question so everyone sees who decided what. Signed with the app's Ed25519 key.
@@ -1133,7 +1168,13 @@ async function discordInteraction(req: Request, env: Env): Promise<Response> {
   const who = i.member?.user?.global_name || i.member?.user?.username || i.user?.username || 'ไม่ทราบชื่อ';
   // Only the listed people may decide (empty list = anyone in the channel); the refusal shows the presser their ID.
   const userId = String(i.member?.user?.id ?? i.user?.id ?? '');
-  const approvers = (env.DISCORD_APPROVER_IDS ?? '').split(/[\s,]+/).filter(Boolean);
+  const approvers = idList(env.DISCORD_APPROVER_IDS);
+  const [verb0, arg0] = String(i.data?.custom_id ?? '').split(':');
+  if (verb0 === 'p365done' || verb0 === 'p365later') {
+    const allowed = [...approvers, ...idList(env.DISCORD_UPLOADER_IDS)];
+    if (allowed.length && !allowed.includes(userId)) return json({ type: 4, data: { content: `ปุ่มนี้สำหรับคนอัปโหลดไฟล์ Page365 ค่ะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
+    return uploadButton(env, verb0, arg0 ?? '', who);
+  }
   if (approvers.length && !approvers.includes(userId)) return json({ type: 4, data: { content: `ขอโทษค่ะ ปุ่มนี้ให้กดได้เฉพาะคุณเบ้นกับคุณแม็กซ์นะคะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
   const [verb, id] = String(i.data?.custom_id ?? '').split(':');
   const p = await env.DB.prepare('SELECT * FROM proposals WHERE id = ?').bind(id ?? '').first<Proposal>();

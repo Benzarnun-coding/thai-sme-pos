@@ -355,7 +355,7 @@ export const api = {
   removeUser: (email: string) => call<{ ok: true; sync: { ok: boolean; error?: string } | null }>('DELETE', `/api/users/${encodeURIComponent(email)}`),
   syncAccess: () => call<{ emails: string[] }>('POST', '/api/users/access-sync'),
   webhook: () => call<WebhookStatus>('GET', '/api/webhook'),
-  discordTest: () => call<{ ok: true }>('POST', '/api/discord/test'),
+  discordTest: (kind?: 'upload') => call<{ ok: true }>('POST', `/api/discord/test${kind ? `?kind=${kind}` : ''}`),
   setupWebhook: () => call<{ app: unknown; page: unknown }>('POST', '/api/webhook/setup'),
   adReferrals: (q: { date?: string; window?: Window }) => call<{ dates: string[]; rows: ReferralSummary[] }>('GET', `/api/ad-referrals?${q.date ? `date=${q.date}` : `window=${q.window ?? 'last_7d'}`}`),
   conversionHours: () => call<{ stored: number; of: number; dates: string[] }>('GET', '/api/conversion-hours'),

@@ -9,9 +9,12 @@ export interface DiscordEnv {
   DISCORD_CHANNEL_ID?: string;
   /** Discord user IDs (comma separated) who decide; mentioned in every question */
   DISCORD_DECIDER_IDS?: string;
+  /** Discord user IDs (comma separated) who upload the Page365 file; tagged by the 10:00 reminder */
+  DISCORD_UPLOADER_IDS?: string;
 }
 
-const deciders = (env: DiscordEnv) => (env.DISCORD_DECIDER_IDS ?? '').split(/[\s,]+/).filter((x) => /^\d{5,25}$/.test(x));
+export const idList = (v: string | undefined) => (v ?? '').split(/[\s,]+/).filter((x) => /^\d{5,25}$/.test(x));
+const deciders = (env: DiscordEnv) => idList(env.DISCORD_DECIDER_IDS);
 
 export const approvalsEnabled = (env: DiscordEnv) => !!(env.DISCORD_BOT_TOKEN && env.DISCORD_CHANNEL_ID && env.DISCORD_APP_PUBLIC_KEY);
 
@@ -97,6 +100,33 @@ export async function postProposal(env: DiscordEnv, p: Proposal): Promise<string
   });
   if (!res.ok) { console.error('discord post', res.status, await res.text()); return null; }
   return ((await res.json()) as { id: string }).id;
+}
+
+/** The 10:00 reminder when yesterday's Page365 file is missing: tags the uploaders, who answer with a button. */
+export function uploadReminderMessage(date: string, thai: string, mention: string, note = ''): { content: string; components: unknown[] } {
+  return {
+    content: [
+      `📂 น้องจิบิเตือนค่ะ ${mention ? `คุณ ${mention}` : 'ทีม'} 🙏 ยังไม่มีไฟล์ Page365 ของ **${thai}** เลยค่ะ`,
+      'รบกวน export ออเดอร์ของเมื่อวาน (ตัวกรองเดียวกับชีต "รวม") แล้วอัปโหลดที่หน้า **ยอดขายรายวัน** นะคะ',
+      'อัปโหลดเสร็จแล้วกด **"อัปโหลดแล้ว"** ได้เลยค่ะ น้องจะเช็กให้',
+      ...(note ? ['', note] : []),
+    ].join('\n'),
+    components: [{ type: 1, components: [
+      { type: 2, style: 3, label: '✅ อัปโหลดแล้ว', custom_id: `p365done:${date}` },
+      { type: 2, style: 2, label: '⏳ ยังไม่ได้ เดี๋ยวทำ', custom_id: `p365later:${date}` },
+    ] }],
+  };
+}
+
+export async function postUploadReminder(env: DiscordEnv, date: string, thai: string): Promise<boolean> {
+  const ids = idList(env.DISCORD_UPLOADER_IDS);
+  const res = await fetch(`https://discord.com/api/v10/channels/${env.DISCORD_CHANNEL_ID}/messages`, {
+    method: 'POST',
+    headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...uploadReminderMessage(date, thai, ids.map((id) => `<@${id}>`).join(' ')), allowed_mentions: { users: ids } }),
+  });
+  if (!res.ok) console.error('discord reminder', res.status, await res.text());
+  return res.ok;
 }
 
 /** Edit an earlier question (e.g. mark it expired) so its buttons go away. */

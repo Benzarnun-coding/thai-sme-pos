@@ -20,7 +20,7 @@
     }
   ],
   // Rules at 08:00 and 20:00 Bangkok (UTC+7); costs re-sync from the Google Sheet at 07:30. Keep in sync with worker/index.ts.
-  "triggers": { "crons": ["0 1,13 * * *", "30 0 * * *"] },
+  "triggers": { "crons": ["0 1,13 * * *", "30 0 * * *", "0 3 * * *"] },
   "vars": {
     "META_AD_ACCOUNT_ID": "act_2149666808519411",
     "META_API_VERSION": "v21.0",
@@ -33,6 +33,8 @@
     "DISCORD_DECIDER_IDS": "698435075422945301",
     // Discord user IDs allowed to press the buttons (Benz, Max). Empty = anyone in the channel.
     "DISCORD_APPROVER_IDS": "869116667945439323,698435075422945301",
+    // Discord user IDs who upload Page365 (มอส): tagged at 10:00 when yesterday's file is missing.
+    "DISCORD_UPLOADER_IDS": "1182968969976610828",
     // Owners: always allowed to manage users on the ผู้ใช้ page (comma separated).
     "OWNER_EMAILS": "arnun.tre@benzarnun.com,ps.maxpollawat@gmail.com",
     // Cloudflare Access sync: account + the reusable policy "PkJeans team" (token is the secret CF_API_TOKEN).

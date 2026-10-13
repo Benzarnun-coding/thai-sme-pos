@@ -280,10 +280,15 @@ function DiscordCard() {
     <section className="card">
       <h2>บอท Discord (ปุ่มอนุมัติ)</h2>
       <p className="muted small">การหยุดแคมเปญและการย้ายลงกลุ่มดับ จะส่งเป็นคำถามพร้อมปุ่มในห้องรายงานแอด ให้คนกดอนุมัติก่อน · ปรับงบ ±20% ยังทำเองอัตโนมัติ</p>
-      <button className="ghost" disabled={busy} onClick={async () => {
-        setBusy(true);
-        try { await api.discordTest(); toast('ส่งข้อความทดสอบแล้ว — ไปกดปุ่มในห้อง Discord ได้เลย', 'ok'); } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
-      }}>{busy ? 'กำลังส่ง…' : 'ส่งข้อความทดสอบเข้า Discord'}</button>
+      <p className="muted small">10:00 ถ้ายังไม่มีไฟล์ Page365 ของเมื่อวาน น้องจิบิจะแท็กคนอัปโหลด (มอส) ให้กด "อัปโหลดแล้ว"</p>
+      <div className="row">
+        {([[undefined, 'ส่งข้อความทดสอบเข้า Discord'], ['upload', 'ทดสอบเตือนอัปโหลด Page365']] as const).map(([kind, label]) => (
+          <button key={label} className="ghost" disabled={busy} onClick={async () => {
+            setBusy(true);
+            try { await api.discordTest(kind); toast('ส่งแล้ว — ไปกดปุ่มในห้อง Discord ได้เลย', 'ok'); } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
+          }}>{busy ? 'กำลังส่ง…' : label}</button>
+        ))}
+      </div>
     </section>
   );
 }
