@@ -9,9 +9,9 @@ import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from '
 import { num } from './fmt.ts';
 import {
   buildLines, dateFromFileName, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
-  pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
+  orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
 } from './purchase.ts';
-import { pictureSheets } from './pictureSheet.ts';
+import { orderPictureSheets, pictureSheets } from './pictureSheet.ts';
 import { Icon, Modal, useUi } from './ui.tsx';
 import { useCatalog } from './useCatalog.ts';
 import { readFirstSheet } from './xlsx.ts';
@@ -296,7 +296,12 @@ export function OrdersApp() {
       )}
 
       {printing && <PrintSheets groups={printing} date={date} round={round} />}
-      {pictures && <PictureModal group={pictures} date={date} round={round} info={productInfo} onClose={() => setPictures(null)} />}
+      {pictures && (
+        <PictureModal
+          group={pictures} date={date} round={round} info={productInfo} onClose={() => setPictures(null)}
+          orders={data && !viewing ? orderBlocks(data.items, lookup, pictures.name, productInfo) : null}
+        />
+      )}
     </div>
   );
 }
@@ -333,6 +338,9 @@ function GroupCard({ group: g, open, onToggle, editable, supplierNames, onSuppli
       </div>
       {open && (
         <>
+          {g.kind === 'unassigned' && (
+            <p className="small muted po-hint">SKU เหล่านี้มีในแคตตาล็อกแล้ว แต่คอลัมน์ ร้านค้า (L) ในชีตยังว่าง จึงยังไม่รู้ว่าจะสั่งร้านไหน · เลือกร้านในช่อง "สั่งจาก" (จำไว้ใช้วันต่อไป) หรือกรอกในชีตแล้วดึงใหม่</p>
+          )}
           {editable && g.kind === 'unassigned' && products.length > 0 && (
             <div className="po-bulk">
               <span className="small">ตั้งร้านให้ทั้ง {num(products.length)} รุ่นในกลุ่มนี้</span>
@@ -392,14 +400,24 @@ function SupplierSelect({ current, names, onPick }: { current: string; names: st
 
 // ---- picture sheets (no Thai) ----
 
-function PictureModal({ group, date, round, info, onClose }: { group: PurchaseGroup; date: string; round: number; info: (sku: string) => ProductInfo | undefined; onClose: () => void }) {
+/**
+ * Per order (Bigseller picking-list layout, cut into slips, one per parcel) when the uploaded file is at hand — the
+ * default for CN, which packs and ships orders itself; or per product (sizes × qty), the only choice for a round
+ * reopened from history since order and tracking numbers are never saved.
+ */
+function PictureModal({ group, date, round, info, orders, onClose }: {
+  group: PurchaseGroup; date: string; round: number; info: (sku: string) => ProductInfo | undefined; orders: OrderBlock[] | null; onClose: () => void;
+}) {
   const { toast } = useUi();
+  const [mode, setMode] = useState<'orders' | 'products'>(orders?.length && wantsPictures(group) ? 'orders' : 'products');
   const [images, setImages] = useState<{ blob: Blob; url: string; name: string }[] | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {
     let cancelled = false;
     const made: string[] = [];
-    pictureSheets(group.name, date, round, pictureBlocks(group, info)).then((blobs) => {
+    setImages(null);
+    const make = mode === 'orders' && orders ? orderPictureSheets(group.name, date, round, orders) : pictureSheets(group.name, date, round, pictureBlocks(group, info));
+    make.then((blobs) => {
       if (cancelled) return;
       setImages(blobs.map((blob, i) => {
         const url = URL.createObjectURL(blob);
@@ -408,7 +426,7 @@ function PictureModal({ group, date, round, info, onClose }: { group: PurchaseGr
       }));
     }).catch((e) => setError(e.message));
     return () => { cancelled = true; made.forEach((u) => URL.revokeObjectURL(u)); };
-  }, [group, date, round, info]);
+  }, [group, date, round, info, orders, mode]);
 
   const files = images?.map((im) => new File([im.blob], im.name, { type: 'image/png' })) ?? [];
   const canShare = files.length > 0 && typeof navigator.canShare === 'function' && navigator.canShare({ files });
@@ -427,7 +445,17 @@ function PictureModal({ group, date, round, info, onClose }: { group: PurchaseGr
 
   return (
     <Modal title={`รูปใบสั่ง ${group.name} · ${group.pieces} ชิ้น`} onClose={onClose} wide>
-      <p className="muted small">รูปสินค้า + SKU + ไซส์ × จำนวน · หัวข้อเป็นอังกฤษ/จีน ไม่มีภาษาไทย · รูปละไม่เกิน 7 รุ่น</p>
+      {orders && orders.length > 0 && (
+        <div className="segmented" role="tablist" aria-label="รูปแบบรูป" style={{ marginBottom: 8 }}>
+          <button className={mode === 'orders' ? 'on' : ''} onClick={() => setMode('orders')}>แยกตามออเดอร์ ({orders.length}) · มีเลขพัสดุ ตัดแปะกล่อง</button>
+          <button className={mode === 'products' ? 'on' : ''} onClick={() => setMode('products')}>รวมตามสินค้า</button>
+        </div>
+      )}
+      <p className="muted small">
+        {mode === 'orders' && orders ? 'ออเดอร์ละบล็อก: เลขออเดอร์ · ขนส่ง + เลขพัสดุ · รูป · SKU · ไซส์ × จำนวน · ร้าน · รวม · เส้นตัด (เลขออเดอร์/พัสดุใช้ในรูปนี้เท่านั้น ไม่บันทึก)'
+          : 'รุ่นละบล็อก: รูป · รหัส · SKU · สี (อังกฤษ/จีน) · ไซส์ × จำนวน · รูปละไม่เกิน 7 รุ่น'}
+        {!orders && ' · ใบย้อนหลังไม่มีเลขออเดอร์ จึงทำได้แบบรวมตามสินค้าเท่านั้น'}
+      </p>
       {error && <p className="bad">{error}</p>}
       {!images && !error && <p className="muted">กำลังสร้างรูป…</p>}
       {images && (

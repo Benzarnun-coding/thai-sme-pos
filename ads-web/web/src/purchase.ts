@@ -3,7 +3,7 @@
 // Who a product is ordered from, in this order:
 //   1. a supplier set on the page for that product (catalog_suppliers) — e.g. PK 501/1 → J.BIG
 //   2. the sheet's ร้านค้า column (BB-style tabs), unless it is a status such as "เลิกผลิต"
-//   3. tabs that list suppliers but not for this product → "<tab> · ยังไม่ระบุร้าน" (pick one on the page)
+//   3. BB (โบ๊เบ๊, many suppliers; every product must be ordered from one) without a supplier → "BB · ยังไม่ระบุร้าน"
 //   4. other tabs → the warehouse itself (PK, CM, CN …)
 // Rows whose SKU is missing or not in the catalog go to "ตรวจสอบ". Shared by the page and the tests.
 
@@ -13,8 +13,8 @@ import { buildXlsx, S, type Cell, type Sheet } from './xlsxWrite.ts';
 export type GroupKind = 'supplier' | 'warehouse' | 'unassigned' | 'review';
 export const REVIEW = 'ตรวจสอบ';
 
-/** One row of the Bigseller file (only what the sheets need; order numbers are used for counting, never stored). */
-export interface OrderItem { store: string; sku: string; name: string; option: string; qty: number; order: string }
+/** One row of the Bigseller file. Order and tracking numbers stay in the browser (counting, per-order picture sheets); never stored. */
+export interface OrderItem { store: string; sku: string; name: string; option: string; qty: number; order: string; tracking: string; carrier: string }
 
 export interface PurchaseLine {
   group: string;
@@ -40,6 +40,8 @@ const COLUMNS = {
   option: ['ชื่อตัวเลือก', 'Variation', 'Variation Name', 'Variant Name', 'Option'],
   qty: ['จำนวน', 'Quantity', 'Qty', 'Item Qty'],
   order: ['หมายเลขคำสั่งซื้อ', 'Order No.', 'Order Number', 'Order ID', 'Order No'],
+  tracking: ['หมายเลขแทรคกิ้ง', 'หมายเลขติดตามพัสดุ', 'Tracking No.', 'Tracking Number', 'Tracking No'],
+  carrier: ['ชื่อโลจิสติกส์', 'ขนส่ง', 'Logistics', 'Shipping Provider', 'Logistics Name', 'Shipping Carrier'],
 } as const;
 type Field = keyof typeof COLUMNS;
 
@@ -71,6 +73,8 @@ export function readOrderItems(rows: Record<string, string>[], headers: string[]
     option: get(r, 'option'),
     qty: Math.max(0, Math.round(Number(get(r, 'qty').replace(/,/g, '')) || 0)),
     order: get(r, 'order'),
+    tracking: get(r, 'tracking'),
+    carrier: get(r, 'carrier'),
   })).filter((i) => i.qty > 0 && (i.sku || i.name));
 }
 
@@ -94,22 +98,28 @@ export function dayMonth(iso: string): string {
   return `${d}-${m}`;
 }
 
+/**
+ * Tabs whose products are each bought from one of many suppliers, so a product without one needs a decision.
+ * Other tabs may name a supplier for a few products (BBW: นอร์ท) — those get the supplier's sheet, the rest the tab's.
+ */
+export const SUPPLIER_TABS = ['BB'];
+
 export interface Lookup {
   /** skuKey → catalog row (sheet rows and SKUs added on the page) */
   rows: Map<string, CatalogRow>;
   /** product key → supplier set on the page */
   suppliers: Map<string, string>;
   /** tabs whose sheet has a ร้านค้า column in use */
+  /** tabs where every product must have a supplier (only BB, agreed 2026-10-13) */
   supplierTabs: Set<string>;
 }
 
 export function makeLookup(rows: CatalogRow[], suppliers: Map<string, string>): Lookup {
   const map = new Map<string, CatalogRow>();
-  const supplierTabs = new Set<string>();
+  const supplierTabs = new Set(SUPPLIER_TABS);
   for (const r of rows) {
     const k = skuKey(r.sku);
     if (!map.has(k)) map.set(k, r);
-    if (r.shop && !SHOP_STATUSES.has(r.shop)) supplierTabs.add(r.tab);
   }
   return { rows: map, suppliers, supplierTabs };
 }
@@ -192,7 +202,7 @@ export function sheetRows(g: PurchaseGroup): SheetRow[] {
   return out;
 }
 
-export const KIND_LABEL: Record<GroupKind, string> = { supplier: 'ร้านค้า', warehouse: 'โกดัง', unassigned: 'ยังไม่ระบุร้าน', review: 'ต้องตรวจสอบ' };
+export const KIND_LABEL: Record<GroupKind, string> = { supplier: 'ร้านค้า', warehouse: 'โกดัง', unassigned: 'พบ SKU · ยังไม่มีร้าน', review: 'ต้องตรวจสอบ' };
 
 // ---- Excel ----
 
@@ -256,4 +266,27 @@ export function sizeForeign(size: string): string {
 /** Groups that get a picture sheet by default: the China warehouse. */
 export function wantsPictures(g: PurchaseGroup): boolean {
   return g.name === 'CN' || g.lines.every((l) => l.tab === 'CN');
+}
+
+/** One parcel for a warehouse that packs orders itself (CN): the items of that order in this group, with tracking. */
+export interface OrderBlock { order: string; tracking: string; carrier: string; store: string; items: { sku: string; code: string; color: string; size: string; option: string; image: string; qty: number }[]; qty: number }
+
+/** Orders (in file order) that have items in `group`; only those items. Same SKU twice in an order is added up. */
+export function orderBlocks(items: OrderItem[], lookup: Lookup, group: string, info: (sku: string) => ProductInfo | undefined): OrderBlock[] {
+  const blocks = new Map<string, OrderBlock>();
+  for (const it of items) {
+    const r = it.sku ? lookup.rows.get(skuKey(it.sku)) : undefined;
+    if (!r || groupOf(r, lookup).group !== group) continue;
+    const key = it.order || `${it.tracking}|${it.store}`;
+    const b = blocks.get(key) ?? { order: it.order, tracking: it.tracking, carrier: it.carrier, store: it.store, items: [], qty: 0 };
+    const same = b.items.find((x) => x.sku === r.sku);
+    if (same) same.qty += it.qty;
+    else {
+      const i = info(r.sku);
+      b.items.push({ sku: r.sku, code: i?.code || r.code || spuOf(r.sku), color: r.color, size: r.size, option: it.option, image: i?.image ?? '', qty: it.qty });
+    }
+    b.qty += it.qty;
+    blocks.set(key, b);
+  }
+  return [...blocks.values()];
 }

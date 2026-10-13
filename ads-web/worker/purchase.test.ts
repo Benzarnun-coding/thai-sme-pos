@@ -166,3 +166,19 @@ test('picture blocks: one per product, sizes in order, quantities added up', asy
   assert.equal(sizeForeign('32'), '32');
   assert.ok(!wantsPictures(groupLines(buildLines(readOrderItems(RAW), makeLookup(CATALOG, new Map())))[0]));
 });
+
+test('only BB needs a supplier; BBW without one goes to the BBW sheet, with one to that supplier', () => {
+  const rows = [
+    row({ tab: 'BBW', sku: 'LCP-BBW-OL-2XL', code: 'LCP', color: 'OL', size: '2XL' }),
+    row({ tab: 'BBW', sku: '411-BBW-SB-M', code: '411', color: 'SB', size: 'M', shop: 'นอร์ท' }),
+    row({ tab: 'BBW', sku: 'X-BBW-BL-M', code: 'X', color: 'BL', size: 'M', shop: 'หมด' }),
+    row({ tab: 'BB', sku: '8000-BB-LB-30', code: '8000/11', color: 'LB', size: '30' }),
+  ];
+  const items = readOrderItems([{ SKU: 'LCP-BBW-OL-2XL', 'จำนวน': '1' }, { SKU: '411-BBW-SB-M', 'จำนวน': '1' }, { SKU: 'X-BBW-BL-M', 'จำนวน': '1' }, { SKU: '8000-BB-LB-30', 'จำนวน': '1' }]);
+  const groups = groupLines(buildLines(items, makeLookup(rows, new Map())));
+  assert.deepEqual(groups.map((g) => [g.name, g.kind, g.lines.map((l) => l.sku).join(',')]), [
+    ['นอร์ท', 'supplier', '411-BBW-SB-M'],
+    ['BB · ยังไม่ระบุร้าน', 'unassigned', '8000-BB-LB-30'],
+    ['BBW', 'warehouse', 'LCP-BBW-OL-2XL,X-BBW-BL-M'],
+  ]);
+});
