@@ -26,7 +26,8 @@
     "META_API_VERSION": "v21.0",
     "META_APP_ID": "1410718820800711",
     // Discord bot (buttons for approvals): fill both after creating the app; DISCORD_BOT_TOKEN is a secret.
-    "DISCORD_APP_PUBLIC_KEY": "",
+    "DISCORD_APP_PUBLIC_KEY": "f71bc17992190e854afb9b526de0bd66b2b7137fb5bb6259593896417d5bcb28",
+    "DISCORD_APP_ID": "1559484006742102026",
     "DISCORD_CHANNEL_ID": "",
     // Owners: always allowed to manage users on the ผู้ใช้ page (comma separated).
     "OWNER_EMAILS": "arnun.tre@benzarnun.com,ps.maxpollawat@gmail.com",
