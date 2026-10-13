@@ -2,7 +2,7 @@
 // depends on their role in the `users` table (managed on the ผู้ใช้ page by owners):
 //   owner  – everything, including users and roles (the people in OWNER_EMAILS are always owners)
 //   admin  – everything except users
-//   costs  – only costs (web costs, product lines, syncing the cost sheets, Page365 uploads)
+//   costs  – only costs (web costs, product lines, syncing the cost sheets, Page365 uploads, the product catalog)
 //   viewer – read only
 
 export type Role = 'owner' | 'admin' | 'costs' | 'viewer';
@@ -28,6 +28,12 @@ const COST_WRITES: [string, RegExp][] = [
   ['PUT', /^\/api\/actual-sales\/\d{4}-\d{2}-\d{2}$/],
   ['POST', /^\/api\/p365\/upload$/],
   ['POST', /^\/api\/p365\/recredit$/],
+  ['POST', /^\/api\/catalog\/sync$/],
+  ['POST', /^\/api\/catalog\/web$/],
+  ['PUT', /^\/api\/catalog\/web$/],
+  ['DELETE', /^\/api\/catalog\/web$/],
+  ['POST', /^\/api\/catalog\/image$/],
+  ['DELETE', /^\/api\/catalog\/image$/],
 ];
 
 export function canWrite(role: Role, method: string, path: string): boolean {

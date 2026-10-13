@@ -274,7 +274,8 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 }
 
 export interface CatalogTab { tab: string; gid: string; sort: number; skus: number; synced_at: string; synced_by: string }
-export interface CatalogMeta { version: string; tabs: CatalogTab[]; web: WebSku[]; sheet_configured: boolean }
+export interface CatalogImage { key: string; tab: string; spu: string; url: string | null; uploaded: boolean; bytes: number; updated_by: string; updated_at: string }
+export interface CatalogMeta { version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; sheet_configured: boolean }
 export type WebSkuInput = Omit<WebSku, 'created_by' | 'created_at' | 'updated_at'>;
 
 export const api = {
@@ -282,6 +283,19 @@ export const api = {
   catalog: () => call<CatalogMeta>('GET', '/api/catalog'),
   catalogRows: (tab: string, after: string, version: string) =>
     call<{ rows: unknown[][]; next: string | null }>('GET', `/api/catalog/rows?tab=${encodeURIComponent(tab)}&after=${encodeURIComponent(after)}&v=${encodeURIComponent(version || 'none')}`),
+  uploadCatalogImage: async (tab: string, spu: string, pics: { thumb: Blob; full: Blob }) => {
+    const form = new FormData();
+    form.set('tab', tab);
+    form.set('spu', spu);
+    form.set('thumb', pics.thumb, 'thumb.jpg');
+    form.set('full', pics.full, 'full.jpg');
+    const res = await fetch('/api/catalog/image', { method: 'POST', body: form });
+    const data: any = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+    return data as { image: CatalogImage };
+  },
+  linkCatalogImage: (tab: string, spu: string, url: string) => call<{ image: CatalogImage }>('POST', '/api/catalog/image', { tab, spu, url }),
+  deleteCatalogImage: (tab: string, spu: string) => call<{ ok: true }>('DELETE', `/api/catalog/image?tab=${encodeURIComponent(tab)}&spu=${encodeURIComponent(spu)}`),
   setCatalogSheet: (sheet: string) => call<{ ok: true }>('PUT', '/api/catalog/sheet', { sheet }),
   catalogSheetTabs: () => call<{ tabs: { tab: string; gid: string }[] }>('GET', '/api/catalog/sheet'),
   catalogCsv: async (gid: string) => {

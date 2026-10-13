@@ -25,7 +25,7 @@ import { bkkDate, loadConversionHours, saveConversionDay, syncConversionHours, t
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
-import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteWebSku, discoverTabs, parseSheetId, saveCatalogSheetId, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
+import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, saveCatalogSheetId, saveImageLink, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { approvalsEnabled, postProposal, saveProposals, verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
@@ -529,6 +529,24 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const result = await applySync(env.DB, s, user);
     if (s.done) await audit(env.DB, user, 'catalog.sync', s.tab, { skus: s.done.skus });
     return json(result);
+  }
+  // Product pictures: multipart upload (thumb + full, resized in the browser) or a link; key = tab|spu.
+  if (method === 'GET' && path === '/api/catalog/image') {
+    return imageResponse(env.DB, url.searchParams.get('key') ?? '', url.searchParams.get('size') === 'full' ? 'full' : 'thumb');
+  }
+  if (method === 'POST' && path === '/api/catalog/image') {
+    const isForm = (req.headers.get('Content-Type') ?? '').includes('multipart/form-data');
+    const image = isForm
+      ? await saveUploadedImage(env.DB, await req.formData().catch(() => { throw new BadRequest('อ่านไฟล์ไม่ได้'); }), user)
+      : await saveImageLink(env.DB, await body(), user);
+    await audit(env.DB, user, 'catalog.image', image.key, { uploaded: image.uploaded, bytes: image.bytes, url: image.url });
+    return json({ image });
+  }
+  if (method === 'DELETE' && path === '/api/catalog/image') {
+    const { key } = imageKey(url.searchParams.get('tab'), url.searchParams.get('spu'));
+    if (!(await deleteImage(env.DB, key))) return json({ error: 'ไม่พบรูปที่เพิ่มไว้' }, 404);
+    await audit(env.DB, user, 'catalog.image.delete', key, {});
+    return json({ ok: true });
   }
   if (method === 'POST' && path === '/api/catalog/web') {
     const rows = await createWebSkus(env.DB, await body(), user);
