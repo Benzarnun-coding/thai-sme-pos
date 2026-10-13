@@ -655,7 +655,9 @@ async function overview(env: Env, window: Window, fresh: boolean) {
       if (covered.length === actualDates.length) {
         ads = entities.filter((e) => e.level === 'campaign').reduce((n, e) => n + (e.metrics[window]?.spend ?? 0), 0);
       } else {
-        const daily = await data.dailyAll(window).catch(() => [] as Awaited<ReturnType<typeof data.dailyAll>>);
+        // Daily spend only for the span of uploaded days, not the whole window (a long window is many Meta pages).
+        const span = `range:${covered[0]}:${covered[covered.length - 1]}` as Window;
+        const daily = await data.dailyAll(span).catch(() => [] as Awaited<ReturnType<typeof data.dailyAll>>);
         ads = daily.length ? daily.filter((d) => covered.includes(d.date)).reduce((n, d) => n + d.spend, 0) : null;
       }
       const gross = revenue - cost - fees;
@@ -983,7 +985,7 @@ async function salesDigest(env: Env, date: string, remindIfMissing = false): Pro
 
 /**
  * A preset window, or a custom range "range:YYYY-MM-DD:YYYY-MM-DD" (Bangkok dates, like Ads Manager's picker):
- * at most 90 days, not in the future. Anything else falls back to 7 days.
+ * at most 31 days (longer ones made the free-plan Worker time out), not in the future. Anything else falls back to 7 days.
  */
 function parseView(w: string | null): Window {
   if (w && DASHBOARD_WINDOWS.includes(w as Window)) return w as Window;
@@ -991,7 +993,7 @@ function parseView(w: string | null): Window {
   if (m) {
     const [since, until] = m[1] <= m[2] ? [m[1], m[2]] : [m[2], m[1]];
     const days = (Date.parse(until) - Date.parse(since)) / 86_400_000;
-    if (Number.isFinite(days) && days <= 90 && until <= bkkDate(0)) return `range:${since}:${until}` as Window;
+    if (Number.isFinite(days) && days <= 30 && until <= bkkDate(0)) return `range:${since}:${until}` as Window;
   }
   return 'last_7d';
 }

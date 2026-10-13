@@ -376,7 +376,7 @@ function RangePicker({ window, onWindow }: { window: Window; onWindow: (w: Windo
   const [since, setSince] = useState(current?.since ?? yesterday);
   const [until, setUntil] = useState(current?.until ?? yesterday);
   const days = Math.round((Date.parse(until) - Date.parse(since)) / 86_400_000) + 1;
-  const valid = since && until && since <= until && until <= today && days <= 90;
+  const valid = since && until && since <= until && until <= today && days <= 31;
   const apply = (s: string, u: string) => { onWindow(rangeWindow(s, u)); setOpen(false); };
   return (
     <span className="range-picker">
@@ -399,7 +399,7 @@ function RangePicker({ window, onWindow }: { window: Window; onWindow: (w: Windo
             <button className="primary" disabled={!valid} onClick={() => apply(since, until)}>ดู {valid ? (days === 1 ? '1 วัน' : `${days} วัน`) : ''}</button>
             <button className="ghost" onClick={() => setOpen(false)}>ปิด</button>
           </div>
-          {!valid && days > 90 && <p className="small warn">เลือกได้ไม่เกิน 90 วัน</p>}
+          {!valid && days > 31 && <p className="small warn">เลือกได้ไม่เกิน 31 วัน (ช่วงยาวกว่านี้ดูที่ 30 วัน)</p>}
         </div>
       )}
     </span>

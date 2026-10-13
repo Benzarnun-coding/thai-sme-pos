@@ -20,7 +20,8 @@ type Tab = 'overview' | 'sales' | 'ideas' | 'competitors' | 'rules' | 'products'
 const TABS: [Tab, string][] = [['overview', 'ภาพรวม'], ['sales', 'ยอดขายรายวัน'], ['ideas', 'ไอเดีย'], ['competitors', 'คู่แข่ง'], ['rules', 'กฎ'], ['products', 'สินค้า/ต้นทุน'], ['history', 'ประวัติ'], ['settings', 'ตั้งค่า']];
 
 function readWindow(): Window {
-  try { return (localStorage.getItem('window') as Window) || 'last_7d'; } catch { return 'last_7d'; }
+  // A custom range is for this visit only: reopening the site starts from 7 days, so a heavy range can't get stuck.
+  try { const w = localStorage.getItem('window') as Window | null; return w && !w.startsWith('range:') ? w : 'last_7d'; } catch { return 'last_7d'; }
 }
 
 export function App() {
