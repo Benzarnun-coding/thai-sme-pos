@@ -8,7 +8,7 @@ import { api, type PurchaseUpload, type SavedPurchaseLine } from './api.ts';
 import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from './catalog.ts';
 import { num } from './fmt.ts';
 import {
-  applyMoves, buildLines, dateFromFileName, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
+  applyMoves, buildLines, dateFromFileName, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
   orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
 } from './purchase.ts';
 import { orderPictureSheets, pictureSheets } from './pictureSheet.ts';
@@ -35,7 +35,7 @@ function download(bytes: Uint8Array, name: string) {
 }
 
 function fromSaved(l: SavedPurchaseLine): PurchaseLine {
-  return { group: l.grp, kind: l.kind, sku: l.sku, tab: l.tab, product: '', label: l.label, size: l.size, qty: l.qty, note: l.note };
+  return { group: l.grp, kind: l.kind, sku: l.sku, tab: l.tab, product: '', label: l.label, size: l.size, qty: l.qty, note: l.note, orders: l.orders ?? [], missing: l.missing };
 }
 
 export function OrdersApp() {
@@ -54,6 +54,8 @@ export function OrdersApp() {
   const [pictures, setPictures] = useState<PurchaseGroup | null>(null);
   // ตรวจสอบ rows moved by hand this round: Bigseller SKU (or "?name · option") → supplier/warehouse
   const [moves, setMoves] = useState<Map<string, string>>(new Map());
+  // Out of stock, as ticked on the page after the supplier answered: lineKey → pieces. Saved to D1 on every tick.
+  const [missing, setMissingMap] = useState<Map<string, number>>(new Map());
   const moveLine = (sku: string, to: string) => setMoves((m) => { const n = new Map(m); if (to.trim()) n.set(sku, to.trim()); else n.delete(sku); return n; });
 
   useEffect(() => { api.purchases().then((r) => setHistory(r.uploads)).catch(() => {}); }, []);
@@ -73,9 +75,12 @@ export function OrdersApp() {
     };
   }, [allRows, lookup, imageMap]);
   const warehouses = useMemo(() => new Set((meta?.tabs ?? []).map((t) => t.tab)), [meta?.tabs]);
-  const lines = useMemo(() => (viewing ? viewing.lines : data ? applyMoves(buildLines(data.items, lookup), moves, warehouses) : []), [viewing, data, lookup, moves, warehouses]);
+  // Moves (out of stock → another supplier, ตรวจสอบ rows …) apply to a new upload and to a round reopened from history.
+  const baseLines = useMemo(() => (viewing ? viewing.lines : data ? buildLines(data.items, lookup) : []), [viewing, data, lookup]);
+  const lines = useMemo(() => applyMoves(baseLines, moves, warehouses, lookup), [baseLines, moves, warehouses, lookup]);
   const groups = useMemo(() => groupLines(lines), [lines]);
   const pieces = groups.reduce((n, g) => n + g.pieces, 0);
+  const pia = useMemo(() => missingGroup(lines, missing, lookup), [lines, missing, lookup]);
   const review = groups.find((g) => g.kind === 'review');
   const sig = JSON.stringify([date, round, lines.map((l) => [l.group, l.sku, l.qty])]);
   const supplierNames = useMemo(() => {
@@ -108,6 +113,7 @@ export function OrdersApp() {
       const d = dateFromFileName(file.name) ?? todayBkk();
       setViewing(null);
       setMoves(new Map());
+      setMissingMap(new Map());
       setData({ file: file.name, items });
       setDate(d);
       setRound(nextRound(d));
@@ -117,13 +123,32 @@ export function OrdersApp() {
 
   /** History is what was downloaded or printed; saving the same day + round again replaces it. */
   async function save(): Promise<boolean> {
-    if (viewing || !data || sig === savedSig || !canEdit) return true;
+    if ((!viewing && !data) || sig === savedSig || !canEdit) return true;
     try {
-      const { upload } = await api.savePurchase({ date, round, file: data.file, lines: lines.map((l) => ({ ...l })) });
+      const file = viewing ? viewing.upload.file : data!.file;
+      const { upload } = await api.savePurchase({ date, round, file, lines: lines.map((l) => ({ ...l })) });
       setHistory((h) => [upload, ...h.filter((x) => x.id !== upload.id)].sort((a, b) => b.date.localeCompare(a.date) || b.round - a.round));
       setSavedSig(sig);
+      // Saving over a round that already had out-of-stock ticks keeps them; show them here too.
+      if (upload.missing > 0) {
+        const { lines: saved } = await api.purchaseLines(upload.id);
+        setMissingMap(new Map(saved.filter((l) => l.missing > 0).map((l) => [lineKey({ sku: l.sku }), l.missing])));
+      }
       return true;
     } catch (e: any) { toast(`บันทึกประวัติไม่ได้: ${e.message}`, 'bad'); return false; }
+  }
+
+  /** Tick (or untick) a line as out of stock. The round is saved first if it has not been yet. */
+  async function setLineMissing(l: PurchaseLine, n: number) {
+    if (!canEdit) { toast('บัญชีนี้ติ๊กของไม่มีไม่ได้', 'bad'); return; }
+    const id = viewing ? viewing.upload.id : `${date}#${round}`;
+    if (!viewing && !(await save())) return;
+    const before = missing;
+    setMissingMap((m) => { const x = new Map(m); if (n > 0) x.set(lineKey(l), n); else x.delete(lineKey(l)); return x; });
+    try {
+      const { missing: total } = await api.setMissing(id, [{ grp: l.group, sku: l.sku, missing: n }]);
+      setHistory((h) => h.map((u) => (u.id === id ? { ...u, missing: total } : u)));
+    } catch (e: any) { setMissingMap(before); toast(e.message, 'bad'); }
   }
 
   async function exportExcel(only?: PurchaseGroup) {
@@ -162,12 +187,21 @@ export function OrdersApp() {
     } catch (e: any) { toast(e.message, 'bad'); }
   }
 
+  // A round reopened from history saves itself after every change (moves); the first run only records the baseline.
+  useEffect(() => {
+    if (!viewing || !canEdit) return;
+    if (!savedSig) { setSavedSig(sig); return; }
+    if (sig !== savedSig) save();
+  }, [viewing, sig]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function openHistory(u: PurchaseUpload) {
     setBusy('กำลังเปิด…');
     try {
       const { lines: saved } = await api.purchaseLines(u.id);
+      setSavedSig('');
       setViewing({ upload: u, lines: saved.map(fromSaved) });
       setMoves(new Map());
+      setMissingMap(new Map(saved.filter((l) => l.missing > 0).map((l) => [lineKey({ sku: l.sku }), l.missing])));
       setData(null);
       setDate(u.date);
       setRound(u.round);
@@ -213,7 +247,7 @@ export function OrdersApp() {
             <h2>{viewing ? `ใบสั่งย้อนหลัง ${thaiShortDate(viewing.upload.date)} รอบ ${viewing.upload.round}` : 'ไฟล์จาก Bigseller'}</h2>
             <p className="muted small">
               {viewing ? `บันทึกโดย ${viewing.upload.saved_by.split('@')[0]} · ไฟล์ ${viewing.upload.file || '—'}`
-                : data ? `${data.file} · อ่านในเบราว์เซอร์นี้ เก็บเฉพาะ SKU กับจำนวน` : 'Export "Order-SKU-inprocess" (.xlsx หรือ .csv) จาก Bigseller แล้วอัปโหลดที่นี่ วันละรอบหรือหลายรอบ'}
+                : data ? `${data.file} · อ่านในเบราว์เซอร์นี้ เก็บ SKU จำนวน และเลขคำสั่งซื้อ (ไม่เก็บเลขพัสดุ)` : 'Export "Order-SKU-inprocess" (.xlsx หรือ .csv) จาก Bigseller แล้วอัปโหลดที่นี่ วันละรอบหรือหลายรอบ'}
             </p>
           </div>
           <label className={`button ${busy || !ready ? 'disabled' : 'primary'}`}>
@@ -265,10 +299,44 @@ export function OrdersApp() {
             </div>
           </section>
 
+          {pia ? (
+            <section className="card table-card po-group pia">
+              <div className="table-card-head">
+                <div>
+                  <h2>ของไม่มี → ไฟล์{MISSING_GROUP} <span className="muted small">{num(pia.pieces)} ชิ้น · {num(pia.lines.length)} รายการ</span></h2>
+                  <p className="muted small">รวมทุกรายการที่ติ๊ก "ของไม่มี" ในรอบนี้ ไปสั่งข้างนอก · ชื่อสินค้าใช้รหัส + สีของเราเอง (ไม่ใช่รหัสร้านเดิม)</p>
+                </div>
+                <div className="row-actions">
+                  <button className="small" onClick={() => setPictures(pia)} disabled={!!busy}>รูปภาพ</button>
+                  <button className="small" onClick={() => print(pia)} disabled={!!busy}>พิมพ์</button>
+                  <button className="small primary" onClick={() => exportExcel(pia)} disabled={!!busy}><Icon name="down" size={14} /> Excel {MISSING_GROUP}</button>
+                </div>
+              </div>
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead><tr><th>รหัสสินค้า</th><th>ไซส์</th><th className="num">ไม่มี</th><th>ร้านเดิม</th><th>SKU</th><th>เลขคำสั่งซื้อ</th>{canEdit && <th />}</tr></thead>
+                  <tbody>
+                    {pia.lines.map((l) => (
+                      <tr key={`${l.note}|${l.sku}`}>
+                        <td><b>{l.label}</b></td><td>{l.size || '—'}</td><td className="num"><b>{num(l.qty)}</b></td>
+                        <td className="small">{l.note.replace(/^ไม่มีที่ /, '')}</td><td className="small"><code>{l.sku}</code></td>
+                        <td className="small"><OrderNumbers orders={l.orders} /></td>
+                        {canEdit && <td><button className="link small" onClick={() => { const orig = lines.find((x) => x.sku === l.sku && `ไม่มีที่ ${x.group}` === l.note); if (orig) setLineMissing(orig, 0); }}>เอาออก</button></td>}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : (
+            <p className="muted small po-hint" style={{ padding: 0 }}>ร้านแจ้งว่าของไม่มี? เปิดรอบนั้น (ตารางใบสั่งย้อนหลังด้านล่าง) แล้วติ๊กช่อง "ของไม่มี" ท้ายรายการ · รายการที่ติ๊กจะรวมเป็นไฟล์{MISSING_GROUP}ให้ดาวน์โหลด</p>
+          )}
+
           {groups.map((g) => (
             <GroupCard
               key={g.name} group={g} open={open.has(g.name)} onToggle={() => toggle(g.name)}
-              editable={canEdit && !viewing} movable={!viewing} targets={targets} onMove={moveLine}
+              missing={missing} onMissing={canEdit ? setLineMissing : null}
+              canRemember={canEdit} movable={!viewing || canEdit} targets={targets} onMove={moveLine}
               onSupplier={setSupplier} onExcel={() => exportExcel(g)} onPrint={() => print(g)} busy={!!busy}
               onPictures={() => { save(); setPictures(g); }}
             />
@@ -281,7 +349,7 @@ export function OrdersApp() {
           <div className="table-card-head"><h2>ใบสั่งย้อนหลัง</h2></div>
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>วันที่</th><th>รอบ</th><th className="num">ชิ้น</th><th>ร้าน / โกดัง</th><th className="num">ตรวจสอบ</th><th>บันทึกโดย</th><th /></tr></thead>
+              <thead><tr><th>วันที่</th><th>รอบ</th><th className="num">ชิ้น</th><th>ร้าน / โกดัง</th><th className="num">ตรวจสอบ</th><th className="num">ของไม่มี</th><th>บันทึกโดย</th><th /></tr></thead>
               <tbody>
                 {history.map((u) => (
                   <tr key={u.id} className={viewing?.upload.id === u.id ? 'selected' : ''}>
@@ -290,6 +358,7 @@ export function OrdersApp() {
                     <td className="num">{num(u.pieces)}</td>
                     <td className="small">{u.groups.filter((g) => g.kind !== 'review').sort((a, b) => b.pieces - a.pieces).map((g) => `${g.name} ${g.pieces}`).join(' · ')}</td>
                     <td className={`num ${u.review ? 'bad' : ''}`}>{num(u.review)}</td>
+                    <td className={`num ${u.missing ? 'warn' : ''}`}>{num(u.missing ?? 0)}</td>
                     <td className="small muted">{u.saved_by.split('@')[0]}</td>
                     <td className="small">
                       <button className="link small" onClick={() => openHistory(u)}>เปิด</button>
@@ -316,17 +385,25 @@ export function OrdersApp() {
 
 // ---- one supplier / warehouse ----
 
-function GroupCard({ group: g, open, onToggle, editable, movable, targets, onMove, onSupplier, onExcel, onPrint, onPictures, busy }: {
-  group: PurchaseGroup; open: boolean; onToggle: () => void; editable: boolean; movable: boolean; targets: string[]; onMove: (sku: string, to: string) => void;
+function GroupCard({ group: g, open, onToggle, missing, onMissing, canRemember, movable, targets, onMove, onSupplier, onExcel, onPrint, onPictures, busy }: {
+  group: PurchaseGroup; open: boolean; onToggle: () => void; missing: Map<string, number>; onMissing: ((l: PurchaseLine, n: number) => Promise<void>) | null;
+  canRemember: boolean; movable: boolean; targets: string[]; onMove: (sku: string, to: string) => void;
   onSupplier: (items: { tab: string; spu: string }[], shop: string) => Promise<void>; onExcel: () => void; onPrint: () => void; onPictures: () => void; busy: boolean;
 }) {
   const rowsOnSheet = sheetRows(g).length;
   const products = useMemo(() => {
     const seen = new Map<string, { tab: string; spu: string }>();
-    for (const l of g.lines) if (l.product && !seen.has(l.product)) seen.set(l.product, { tab: l.tab, spu: l.product.split('|')[1] });
+    for (const l of g.lines) if (l.kind !== 'review' && l.tab && !seen.has(`${l.tab}|${spuOf(l.sku)}`)) seen.set(`${l.tab}|${spuOf(l.sku)}`, { tab: l.tab, spu: spuOf(l.sku) });
     return [...seen.values()];
   }, [g.lines]);
   const [bulk, setBulk] = useState('');
+  const [setAll, setSetAll] = useState('');
+  const missingHere = g.lines.reduce((n, l) => n + (missing.get(lineKey(l)) ?? 0), 0);
+  /** Move a row this round; with "จำไว้ทุกวัน" also make it the product's supplier from now on. */
+  const move = async (l: PurchaseLine, to: string, remember: boolean) => {
+    onMove(l.sku, to);
+    if (remember && to && l.kind !== 'review' && l.tab) await onSupplier([{ tab: l.tab, spu: spuOf(l.sku) }], to);
+  };
   return (
     <section className={`card table-card po-group ${g.kind}`}>
       <div className="table-card-head">
@@ -335,6 +412,7 @@ function GroupCard({ group: g, open, onToggle, editable, movable, targets, onMov
           <b>{g.name}</b>
           <span className={`pill ${g.kind === 'review' || g.kind === 'unassigned' ? 'bad' : g.kind === 'supplier' ? 'on' : ''}`}>{KIND_LABEL[g.kind]}</span>
           <span className="muted small">{num(g.pieces)} ชิ้น · {num(rowsOnSheet)} รายการ</span>
+          {missingHere > 0 && <span className="pill warn">ของไม่มี {num(missingHere)}</span>}
         </button>
         {g.kind !== 'review' && (
           <div className="row-actions">
@@ -347,23 +425,23 @@ function GroupCard({ group: g, open, onToggle, editable, movable, targets, onMov
       {open && (
         <>
           {g.kind === 'unassigned' && (
-            <p className="small muted po-hint">SKU เหล่านี้มีในแคตตาล็อกแล้ว แต่คอลัมน์ ร้านค้า (L) ในชีตยังว่าง จึงยังไม่รู้ว่าจะสั่งร้านไหน · เลือกร้านในช่อง "สั่งจาก" (จำไว้ใช้วันต่อไป) หรือกรอกในชีตแล้วดึงใหม่</p>
-          )}
-          {editable && g.kind === 'unassigned' && products.length > 0 && (
-            <div className="po-bulk">
-              <span className="small">ตั้งร้านให้ทั้ง {num(products.length)} รุ่นในกลุ่มนี้</span>
-              <input value={bulk} onChange={(e) => setBulk(e.target.value)} list="po-targets" placeholder="เลือกหรือพิมพ์ชื่อร้าน" aria-label="ร้านสำหรับทั้งกลุ่ม" />
-              <button className="small primary" disabled={!bulk.trim()} onClick={() => onSupplier(products, bulk.trim()).then(() => setBulk(''))}>ตั้งร้าน</button>
-            </div>
+            <p className="small muted po-hint">SKU เหล่านี้มีในแคตตาล็อกแล้ว แต่คอลัมน์ ร้านค้า (L) ในชีตยังว่าง · ตั้งร้านประจำให้ทั้งกลุ่มด้านล่าง หรือย้ายทีละรายการแล้วติ๊ก "จำไว้ทุกวัน" · หรือกรอกในชีตแล้วดึงใหม่</p>
           )}
           {g.kind === 'review' && (
             <p className="small muted po-hint">SKU ไม่มีในแคตตาล็อก หรือ Bigseller ไม่ได้ใส่ SKU · ย้ายไปร้าน/โกดังได้ในช่อง "ย้ายไป" (เลือกจากรายการหรือพิมพ์ชื่อเอง) ใช้กับรอบนี้ · ถ้าอยากให้จำไว้ทุกวัน กด "+ เพิ่มในแคตตาล็อก"</p>
           )}
-          {movable && g.kind === 'review' && g.lines.length > 1 && (
+          {canRemember && g.kind === 'unassigned' && products.length > 0 && (
             <div className="po-bulk">
-              <span className="small">ย้ายทั้ง {num(g.lines.length)} รายการไป</span>
+              <span className="small">ตั้งร้านประจำให้ทั้ง {num(products.length)} รุ่น (จำไว้ทุกวัน)</span>
+              <input value={setAll} onChange={(e) => setSetAll(e.target.value)} list="po-targets" placeholder="เลือกหรือพิมพ์ชื่อร้าน" aria-label="ร้านประจำสำหรับทั้งกลุ่ม" />
+              <button className="small primary" disabled={!setAll.trim()} onClick={() => onSupplier(products, setAll.trim()).then(() => setSetAll(''))}>ตั้งร้าน</button>
+            </div>
+          )}
+          {movable && g.lines.length > 1 && (
+            <div className="po-bulk">
+              <span className="small">ย้ายทั้ง {num(g.lines.length)} รายการไป (รอบนี้)</span>
               <input value={bulk} onChange={(e) => setBulk(e.target.value)} list="po-targets" placeholder="เลือกหรือพิมพ์ร้าน/โกดัง" aria-label="ย้ายทั้งกลุ่มไป" />
-              <button className="small primary" disabled={!bulk.trim()} onClick={() => { g.lines.forEach((l) => onMove(l.sku, bulk)); setBulk(''); }}>ย้าย</button>
+              <button className="small primary" disabled={!bulk.trim()} onClick={() => { g.lines.forEach((l) => onMove(l.sku, bulk.trim())); setBulk(''); }}>ย้าย</button>
             </div>
           )}
           <div className="table-wrap">
@@ -371,35 +449,36 @@ function GroupCard({ group: g, open, onToggle, editable, movable, targets, onMov
               <thead>
                 <tr>
                   <th>{g.kind === 'review' ? 'SKU ใน Bigseller' : 'รหัสสินค้า'}</th><th>ไซส์</th><th className="num">จำนวน</th>
-                  <th>{g.kind === 'review' ? 'ปัญหา / ตัวเลือกสินค้า' : 'SKU'}</th>{(editable || movable) && <th>{g.kind === 'review' ? 'ย้ายไป' : 'สั่งจาก'}</th>}
+                  <th>{g.kind === 'review' ? 'ปัญหา / ตัวเลือกสินค้า' : 'SKU'}</th><th>เลขคำสั่งซื้อ</th>
+                  {g.kind !== 'review' && <th className="center">ของไม่มี</th>}
+                  {movable && <th>ย้ายไป (รอบนี้)</th>}
                 </tr>
               </thead>
               <tbody>
                 {g.lines.map((l, i) => {
-                  const firstOfProduct = l.product && g.lines.findIndex((x) => x.product === l.product) === i;
+                  const product = `${l.tab}|${spuOf(l.sku)}`;
+                  const firstOfProduct = g.lines.findIndex((x) => `${x.tab}|${spuOf(x.sku)}` === product) === i;
                   return (
-                    <tr key={l.sku} className={firstOfProduct && i > 0 ? 'group-start' : ''}>
+                    <tr key={l.sku} className={`${firstOfProduct && i > 0 ? 'group-start' : ''} ${missing.get(lineKey(l)) ? 'po-missing' : ''}`}>
                       <td>{firstOfProduct || g.kind === 'review' ? <b>{l.label}</b> : <span className="muted">{l.label}</span>}</td>
                       <td>{l.size || '—'}</td>
                       <td className="num"><b>{num(l.qty)}</b></td>
                       <td className="small">
-                        {g.kind === 'review' ? l.note : l.moved ? <><code>{l.sku.startsWith('?') ? '(ไม่มี SKU)' : l.sku}</code> <span className="pill warn">ย้ายมาจากตรวจสอบ</span></> : <><code>{l.sku}</code>{l.note && <span className="muted"> · {l.note}</span>}</>}
+                        {g.kind === 'review' ? l.note : <>
+                          <code>{l.sku.startsWith('?') ? '(ไม่มี SKU)' : l.sku}</code>
+                          {l.moved && <> <span className="pill warn">ย้ายมาจาก {l.from}</span></>}
+                          {!l.moved && l.note && <span className="muted"> · {l.note}</span>}
+                        </>}
                       </td>
-                      {(editable || movable) && (
+                      <td className="small"><OrderNumbers orders={l.orders} /></td>
+                      {g.kind !== 'review' && <td className="center"><MissingCell qty={l.qty} value={missing.get(lineKey(l)) ?? 0} onChange={onMissing ? (n) => onMissing(l, n) : null} /></td>}
+                      {movable && (
                         <td>
-                          {g.kind === 'review' && movable && (
-                            <div className="po-move">
-                              <ShopInput placeholder="เลือกหรือพิมพ์" action="ย้าย" onSubmit={async (to) => onMove(l.sku, to)} />
-                              {!l.sku.startsWith('?') && <a className="small" href={`/catalog?q=${encodeURIComponent(l.sku)}&add=1`} target="_blank" rel="noreferrer">+ เพิ่มในแคตตาล็อก</a>}
-                            </div>
-                          )}
-                          {l.moved && movable && <button className="link small" onClick={() => onMove(l.sku, '')}>ย้อนกลับไปตรวจสอบ</button>}
-                          {!l.moved && g.kind !== 'review' && editable && firstOfProduct && (
-                            <ShopInput
-                              initial={g.kind === 'supplier' ? g.name : ''} placeholder="ตามชีต / โกดัง" action="บันทึก"
-                              onSubmit={(shop) => onSupplier([{ tab: l.tab, spu: l.product.split('|')[1] }], shop)}
-                            />
-                          )}
+                          <div className="po-move">
+                            <ShopInput placeholder="เลือกหรือพิมพ์" action="ย้าย" remember={canRemember && g.kind !== 'review'} onSubmit={(to, remember) => move(l, to, remember)} />
+                            {l.moved && <button className="link small" onClick={() => onMove(l.sku, '')}>ย้อนกลับไป {l.from}</button>}
+                            {g.kind === 'review' && !l.sku.startsWith('?') && <a className="small" href={`/catalog?q=${encodeURIComponent(l.sku)}&add=1`} target="_blank" rel="noreferrer">+ เพิ่มในแคตตาล็อก</a>}
+                          </div>
                         </td>
                       )}
                     </tr>
@@ -415,25 +494,53 @@ function GroupCard({ group: g, open, onToggle, editable, movable, targets, onMov
   );
 }
 
-/**
- * A supplier/warehouse box: pick from the list or type any name, then the button (or Enter).
- * On a matched row it sets the supplier for the whole product (every size, remembered); empty = back to the sheet.
- * On a ตรวจสอบ row it moves that row for this round.
- */
-function ShopInput({ initial = '', placeholder, action, onSubmit }: { initial?: string; placeholder: string; action: string; onSubmit: (value: string) => Promise<void> }) {
-  const [value, setValue] = useState(initial);
+/** Order numbers of a line: the first two, the rest behind "+N". */
+function OrderNumbers({ orders }: { orders: string[] }) {
+  const [all, setAll] = useState(false);
+  if (!orders?.length) return <span className="muted">—</span>;
+  const shown = all ? orders : orders.slice(0, 2);
+  return (
+    <span className="po-orders">
+      {shown.map((o) => <code key={o}>{o}</code>)}
+      {orders.length > 2 && <button className="link small" onClick={() => setAll(!all)}>{all ? 'ย่อ' : `+${orders.length - 2}`}</button>}
+    </span>
+  );
+}
+
+/** Out of stock: a tick for the whole line; with more than one piece, how many the supplier did not have. */
+function MissingCell({ qty, value, onChange }: { qty: number; value: number; onChange: ((n: number) => Promise<void>) | null }) {
   const [busy, setBusy] = useState(false);
-  useEffect(() => setValue(initial), [initial]);
-  const changed = value.trim() !== initial.trim();
+  const set = async (n: number) => { if (!onChange) return; setBusy(true); try { await onChange(Math.max(0, Math.min(qty, n))); } finally { setBusy(false); } };
+  return (
+    <span className="po-missing-cell">
+      <input type="checkbox" checked={value > 0} disabled={!onChange || busy} onChange={(e) => set(e.target.checked ? qty : 0)} aria-label="ของไม่มี" />
+      {value > 0 && qty > 1 && (
+        <select value={value} disabled={!onChange || busy} onChange={(e) => set(Number(e.target.value))} aria-label="ไม่มีกี่ชิ้น">
+          {Array.from({ length: qty }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}/{qty}</option>)}
+        </select>
+      )}
+    </span>
+  );
+}
+
+/**
+ * A supplier/warehouse box: pick from the list or type any name, then the button (or Enter). With `remember`, a
+ * "จำไว้ทุกวัน" tick also makes it the product's supplier from now on.
+ */
+function ShopInput({ placeholder, action, remember = false, onSubmit }: { placeholder: string; action: string; remember?: boolean; onSubmit: (value: string, remember: boolean) => Promise<void> }) {
+  const [value, setValue] = useState('');
+  const [keep, setKeep] = useState(false);
+  const [busy, setBusy] = useState(false);
   const submit = async () => {
-    if (!changed || busy) return;
+    if (!value.trim() || busy) return;
     setBusy(true);
-    try { await onSubmit(value.trim()); } finally { setBusy(false); }
+    try { await onSubmit(value.trim(), remember && keep); setValue(''); setKeep(false); } finally { setBusy(false); }
   };
   return (
     <span className="po-shop">
       <input value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submit(); }} list="po-targets" placeholder={placeholder} aria-label={placeholder} />
-      <button className="small" disabled={!changed || busy} onClick={submit}>{action}</button>
+      <button className="small" disabled={!value.trim() || busy} onClick={submit}>{action}</button>
+      {remember && <label className="po-keep" title="ตั้งเป็นร้านประจำของสินค้านี้ ใช้ทุกวันต่อจากนี้"><input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} /> จำไว้ทุกวัน</label>}
     </span>
   );
 }
@@ -492,9 +599,9 @@ function PictureModal({ group, date, round, info, orders, onClose }: {
         </div>
       )}
       <p className="muted small">
-        {mode === 'orders' && orders ? 'ออเดอร์ละบล็อกแบบใบหยิบของ Bigseller: เลขออเดอร์ · ขนส่ง + เลขพัสดุ · รูป · ชื่อสินค้า · SKU · ตัวเลือก · จำนวน · ร้าน · ทั้งหมด · เส้นตัด (เลขออเดอร์/พัสดุใช้ในรูปนี้เท่านั้น ไม่บันทึก)'
+        {mode === 'orders' && orders ? 'ออเดอร์ละบล็อกแบบใบหยิบของ Bigseller: เลขออเดอร์ · ขนส่ง + เลขพัสดุ · รูป · ชื่อสินค้า · SKU · ตัวเลือก · จำนวน · ร้าน · ทั้งหมด · เส้นตัด (เลขพัสดุใช้ในรูปนี้เท่านั้น ไม่บันทึก)'
           : 'รุ่นละบล็อก: รูป · รหัส · SKU · สี · ไซส์ × จำนวน'}
-        {!orders && ' · ใบย้อนหลังไม่มีเลขออเดอร์ จึงทำได้แบบรวมตามสินค้าเท่านั้น'}
+        {!orders && ' · ใบย้อนหลังไม่ได้เก็บเลขพัสดุ จึงทำได้แบบรวมตามสินค้าเท่านั้น'}
       </p>
       {error && <p className="bad">{error}</p>}
       {!images && !error && <p className="muted">กำลังสร้างรูป…</p>}
@@ -548,7 +655,7 @@ function PrintSheets({ groups, date, round }: { groups: PurchaseGroup[]; date: s
                 <thead><tr><th>รหัสสินค้า</th><th>ไซส์</th><th>จำนวน</th><th>หมายเหตุ</th></tr></thead>
                 <tbody>
                   {col.map((r, ri) => (
-                    <tr key={ri} className={r.band % 2 === 0 ? 'shade' : ''}><td>{r.label}</td><td>{r.size}</td><td>{r.qty}</td><td>{p.g.kind === 'unassigned' ? r.note : ''}</td></tr>
+                    <tr key={ri} className={r.band % 2 === 0 ? 'shade' : ''}><td>{r.label}</td><td>{r.size}</td><td>{r.qty}</td><td>{p.g.kind === 'unassigned' || p.g.name === MISSING_GROUP ? r.note : ''}</td></tr>
                   ))}
                   {p.last && ci === (p.cols[1].length ? 1 : 0) && <tr className="total"><td>รวม</td><td /><td>{p.g.pieces}</td><td /></tr>}
                 </tbody>

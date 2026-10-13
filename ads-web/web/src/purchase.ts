@@ -28,8 +28,14 @@ export interface PurchaseLine {
   size: string;
   qty: number;
   note: string;
-  /** a ตรวจสอบ row moved to a supplier/warehouse by hand for this round */
+  /** marketplace order numbers this line came from (shown on the sheets) */
+  orders: string[];
+  /** pieces the supplier reported out of stock (ticked on the page; goes to the พี่เปีย file) */
+  missing?: number;
+  /** moved by hand to another supplier/warehouse for this round (out of stock, a substitute, a ตรวจสอบ row …) */
   moved?: boolean;
+  /** the group it was in before the move */
+  from?: string;
 }
 
 export interface PurchaseGroup { name: string; kind: GroupKind; lines: PurchaseLine[]; pieces: number }
@@ -153,15 +159,17 @@ export function buildLines(items: OrderItem[], lookup: Lookup): PurchaseLine[] {
       const what = it.option || it.name.slice(0, 60);
       line = {
         group: REVIEW, kind: 'review', sku: it.sku || `?${it.name.slice(0, 60)} · ${it.option}`, tab: '', product: '',
-        label: it.sku || '(ไม่มี SKU)', size: '', qty: 0, note: `${it.sku ? 'SKU ไม่มีในแคตตาล็อก' : 'ไม่มี SKU ใน Bigseller'} · ${what}`,
+        label: it.sku || '(ไม่มี SKU)', size: '', qty: 0, note: `${it.sku ? 'SKU ไม่มีในแคตตาล็อก' : 'ไม่มี SKU ใน Bigseller'} · ${what}`, orders: [],
       };
     } else {
       const g = groupOf(r, lookup);
-      line = { group: g.group, kind: g.kind, sku: r.sku, tab: r.tab, product: `${r.tab}|${spuOf(r.sku)}`, label: labelOf(r, g.kind), size: r.size, qty: 0, note: g.note };
+      line = { group: g.group, kind: g.kind, sku: r.sku, tab: r.tab, product: `${r.tab}|${spuOf(r.sku)}`, label: labelOf(r, g.kind), size: r.size, qty: 0, note: g.note, orders: [] };
     }
     const key = `${line.group}\u0000${line.sku}`;
-    const prev = lines.get(key);
-    if (prev) prev.qty += it.qty; else lines.set(key, { ...line, qty: it.qty });
+    const target = lines.get(key) ?? { ...line, orders: [] };
+    target.qty += it.qty;
+    if (it.order && !target.orders.includes(it.order)) target.orders.push(it.order);
+    lines.set(key, target);
   }
   return [...lines.values()];
 }
@@ -190,16 +198,20 @@ export function groupLines(lines: PurchaseLine[]): PurchaseGroup[] {
 }
 
 /** Rows of a printed sheet: same label + size merged (different SKUs can share a supplier code). */
-export interface SheetRow { label: string; size: string; qty: number; band: number; note: string }
+export interface SheetRow { label: string; size: string; qty: number; band: number; note: string; orders: string[] }
 
 export function sheetRows(g: PurchaseGroup): SheetRow[] {
   const out: SheetRow[] = [];
   let band = -1, last = '';
   for (const l of g.lines) {
     const prev = out[out.length - 1];
-    if (g.kind !== 'review' && prev && prev.label === l.label && prev.size === l.size) { prev.qty += l.qty; continue; }
+    if (g.kind !== 'review' && prev && prev.label === l.label && prev.size === l.size) {
+      prev.qty += l.qty;
+      for (const o of l.orders ?? []) if (!prev.orders.includes(o)) prev.orders.push(o);
+      continue;
+    }
     if (l.label !== last) { band++; last = l.label; }
-    out.push({ label: l.label, size: l.size, qty: l.qty, band, note: l.note });
+    out.push({ label: l.label, size: l.size, qty: l.qty, band, note: l.note, orders: [...(l.orders ?? [])] });
   }
   return out;
 }
@@ -212,14 +224,17 @@ function groupSheet(g: PurchaseGroup, date: string, round: number): Sheet {
   const rows: (Cell | string | number | null)[][] = [
     [{ v: thaiShortDate(date), s: S.title }, null, { v: g.name, s: S.title }, null, { v: `รอบ ${round}`, s: S.title }],
     [],
-    ['รหัสสินค้า', 'ไซส์', 'จำนวน', 'หมายเหตุ'].map((v) => ({ v, s: S.head })),
+    ['รหัสสินค้า', 'ไซส์', 'จำนวน', 'หมายเหตุ', 'เลขคำสั่งซื้อ'].map((v) => ({ v, s: S.head })),
   ];
   for (const r of sheetRows(g)) {
     const shade = r.band % 2 === 0;
-    rows.push([{ v: r.label, s: shade ? S.bandLeft : S.boxLeft }, { v: /^\d+$/.test(r.size) ? Number(r.size) : r.size, s: shade ? S.band : S.box }, { v: r.qty, s: shade ? S.band : S.box }, { v: r.note, s: S.boxLeft }]);
+    rows.push([
+      { v: r.label, s: shade ? S.bandLeft : S.boxLeft }, { v: /^\d+$/.test(r.size) ? Number(r.size) : r.size, s: shade ? S.band : S.box },
+      { v: r.qty, s: shade ? S.band : S.box }, { v: r.note, s: S.boxLeft }, { v: r.orders.join(', '), s: S.boxLeft },
+    ]);
   }
-  rows.push([{ v: 'รวม', s: S.boxBold }, { v: '', s: S.box }, { v: g.pieces, s: S.boxBold }, { v: '', s: S.box }]);
-  return { name: g.name, rows, cols: [34, 9, 9, 30, 12], merges: ['A1:B1', 'C1:D1'] };
+  rows.push([{ v: 'รวม', s: S.boxBold }, { v: '', s: S.box }, { v: g.pieces, s: S.boxBold }, { v: '', s: S.box }, { v: '', s: S.box }]);
+  return { name: g.name, rows, cols: [34, 9, 9, 24, 44], merges: ['A1:B1', 'C1:D1'] };
 }
 
 /** One workbook: a summary sheet, then one sheet per group (ตรวจสอบ included when present). */
@@ -289,22 +304,51 @@ export function orderBlocks(items: OrderItem[], lookup: Lookup, group: string, i
 }
 
 /**
- * ตรวจสอบ rows moved by hand to a supplier or warehouse (picked or typed), for this round only — their SKU is not in
- * the catalog, so there is no product to remember it for (adding the SKU to the catalog does that).
- * The sheet shows the SKU without its size part, and the size; rows without a SKU show Bigseller's option text.
+ * Rows moved by hand to another supplier or warehouse (picked or typed), for this round only: a supplier is out of
+ * stock and another one has it, or a ตรวจสอบ row whose SKU is not in the catalog. Keyed by SKU (one line per SKU per
+ * round). A moved catalog product is labelled with our own code + colour, since the old supplier's code means nothing
+ * to the new one; a ตรวจสอบ row shows its SKU without the size part (or Bigseller's option text when it has no SKU).
  */
-export function applyMoves(lines: PurchaseLine[], moves: Map<string, string>, warehouses: Set<string>): PurchaseLine[] {
+export function applyMoves(lines: PurchaseLine[], moves: Map<string, string>, warehouses: Set<string>, lookup: Lookup | null = null): PurchaseLine[] {
   return lines.map((l) => {
-    const to = l.kind === 'review' ? moves.get(l.sku)?.trim() : undefined;
-    if (!to) return l;
-    const raw = l.sku.startsWith('?') ? '' : l.sku;
-    const parts = raw.split('-');
-    const sized = parts.length >= 3;
-    const what = l.note.split(' · ').slice(1).join(' · ');
-    return {
-      ...l, group: to, kind: warehouses.has(to) ? 'warehouse' : 'supplier',
-      label: raw ? (sized ? parts.slice(0, -1).join('-') : raw) : what || l.label,
-      size: sized ? parts[parts.length - 1] : '', note: '', moved: true,
-    };
+    const to = moves.get(l.sku)?.trim();
+    if (!to || to === l.group) return l;
+    const kind: GroupKind = warehouses.has(to) ? 'warehouse' : 'supplier';
+    if (l.kind === 'review') {
+      const raw = l.sku.startsWith('?') ? '' : l.sku;
+      const parts = raw.split('-');
+      const sized = parts.length >= 3;
+      const what = l.note.split(' · ').slice(1).join(' · ');
+      return {
+        ...l, group: to, kind, label: raw ? (sized ? parts.slice(0, -1).join('-') : raw) : what || l.label,
+        size: sized ? parts[parts.length - 1] : '', note: '', moved: true, from: l.group,
+      };
+    }
+    const r = lookup?.rows.get(skuKey(l.sku));
+    return { ...l, group: to, kind, label: r ? labelOf(r, 'warehouse') : l.label, note: '', moved: true, from: l.group };
   });
+}
+
+// ---- out of stock → the พี่เปีย file ----
+
+/** Name of the sheet of everything suppliers did not have, bought elsewhere by พี่เปีย. */
+export const MISSING_GROUP = 'พี่เปีย';
+
+/** How moves and out-of-stock ticks are keyed on the page: the SKU (a SKU is on one line per round). */
+export const lineKey = (l: Pick<PurchaseLine, 'sku'>) => l.sku;
+
+/**
+ * Every ticked line of the round, with the ticked quantity, as one group named พี่เปีย. Labels are the product's own
+ * code + colour (not the old supplier's code, which means nothing elsewhere); the note says which supplier lacked it.
+ */
+export function missingGroup(lines: PurchaseLine[], missing: Map<string, number>, lookup: Lookup | null): PurchaseGroup | null {
+  const out: PurchaseLine[] = [];
+  for (const l of lines) {
+    const n = Math.min(l.qty, missing.get(lineKey(l)) ?? 0);
+    if (n <= 0) continue;
+    const r = lookup?.rows.get(skuKey(l.sku));
+    out.push({ ...l, group: MISSING_GROUP, kind: 'supplier', label: r ? labelOf(r, 'warehouse') : l.label, qty: n, note: `ไม่มีที่ ${l.group}`, missing: n });
+  }
+  if (!out.length) return null;
+  return groupLines(out)[0];
 }

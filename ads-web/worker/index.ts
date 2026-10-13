@@ -25,7 +25,7 @@ import { bkkDate, loadConversionHours, saveConversionDay, syncConversionHours, t
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
-import { deletePurchase, listPurchases, purchaseLines, savePurchase, validatePurchase } from './purchase.ts';
+import { deletePurchase, listPurchases, purchaseLines, savePurchase, setMissing, validateMissing, validatePurchase } from './purchase.ts';
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveImageLink, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { approvalsEnabled, postProposal, saveProposals, verifyDiscord, type Proposal } from './discord.ts';
@@ -565,6 +565,12 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const upload = await savePurchase(env.DB, validatePurchase(await body()), user);
     await audit(env.DB, user, 'purchase.save', upload.id, { pieces: upload.pieces, review: upload.review, file: upload.file });
     return json({ upload });
+  }
+  if (method === 'PUT' && path === '/api/purchase/missing') {
+    const m = validateMissing(await body());
+    const result = await setMissing(env.DB, m);
+    await audit(env.DB, user, 'purchase.missing', m.id, { items: m.items.slice(0, 50), total: result.missing });
+    return json(result);
   }
   if (method === 'DELETE' && path === '/api/purchase') {
     const id = url.searchParams.get('id') ?? '';

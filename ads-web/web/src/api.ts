@@ -278,8 +278,8 @@ export interface CatalogImage { key: string; tab: string; spu: string; url: stri
 export interface CatalogSupplier { key: string; tab: string; spu: string; shop: string; updated_by: string; updated_at: string }
 export interface CatalogMeta { version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; sheet_configured: boolean }
 export type PurchaseKind = 'supplier' | 'warehouse' | 'unassigned' | 'review';
-export interface PurchaseUpload { id: string; date: string; round: number; file: string; pieces: number; review: number; groups: { name: string; kind: PurchaseKind; pieces: number }[]; saved_by: string; saved_at: string }
-export interface SavedPurchaseLine { grp: string; kind: PurchaseKind; sku: string; tab: string; label: string; size: string; qty: number; note: string }
+export interface PurchaseUpload { id: string; date: string; round: number; file: string; pieces: number; review: number; missing: number; groups: { name: string; kind: PurchaseKind; pieces: number }[]; saved_by: string; saved_at: string }
+export interface SavedPurchaseLine { grp: string; kind: PurchaseKind; sku: string; tab: string; label: string; size: string; qty: number; note: string; orders: string[]; missing: number }
 export type WebSkuInput = Omit<WebSku, 'created_by' | 'created_at' | 'updated_at'>;
 
 export const api = {
@@ -304,6 +304,7 @@ export const api = {
   purchases: () => call<{ uploads: PurchaseUpload[] }>('GET', '/api/purchase'),
   purchaseLines: (id: string) => call<{ lines: SavedPurchaseLine[] }>('GET', `/api/purchase/lines?id=${encodeURIComponent(id)}`),
   savePurchase: (p: { date: string; round: number; file: string; lines: unknown[] }) => call<{ upload: PurchaseUpload }>('PUT', '/api/purchase', p),
+  setMissing: (id: string, items: { grp: string; sku: string; missing: number }[]) => call<{ missing: number }>('PUT', '/api/purchase/missing', { id, items }),
   deletePurchase: (id: string) => call<{ ok: true }>('DELETE', `/api/purchase?id=${encodeURIComponent(id)}`),
   setCatalogSheet: (sheet: string) => call<{ ok: true }>('PUT', '/api/catalog/sheet', { sheet }),
   catalogSheetTabs: () => call<{ tabs: { tab: string; gid: string }[] }>('GET', '/api/catalog/sheet'),

@@ -180,21 +180,63 @@ test('only BB needs a supplier; BBW without one goes to the BBW sheet, with one 
   ]);
 });
 
-test('ตรวจสอบ rows can be moved to any supplier or warehouse, typed or picked', async () => {
+test('any row can be moved to any supplier or warehouse for the round, typed or picked', async () => {
   const { applyMoves } = await import('../web/src/purchase.ts');
   const lines = buildLines(readOrderItems(RAW), makeLookup(CATALOG, new Map()));
   const review = lines.filter((l) => l.kind === 'review');
   const noSku = review.find((l) => l.sku.startsWith('?') && l.note.includes('L712'))!;
   const moves = new Map([['2004-BB-BI-38', 'J.BIG'], [noSku.sku, ' ร้านใหม่ '], ['5011-PK-MD-30', 'X']]);
-  const groups = groupLines(applyMoves(lines, moves, new Set(['PK', 'CN'])));
+  const groups = groupLines(applyMoves(lines, moves, new Set(['PK', 'CN']), makeLookup(CATALOG, new Map())));
   const jbig = groups.find((g) => g.name === 'J.BIG')!;
   const moved = jbig.lines.find((l) => l.moved)!;
   assert.deepEqual([moved.label, moved.size, moved.qty, moved.kind], ['2004-BB-BI', '38', 2, 'supplier']);
   const typed = groups.find((g) => g.name === 'ร้านใหม่')!;
   assert.deepEqual([typed.kind, typed.lines[0].label, typed.lines[0].size], ['supplier', 'L712/2 (มิดไนท์), 30 (ซิป)', '']);
   assert.equal(groups.find((g) => g.name === 'ตรวจสอบ')!.pieces, 1, 'one row left');
-  assert.equal(groups.find((g) => g.name === 'PK')!.pieces, 7, 'matched rows are not moved by this');
+  assert.equal(groups.find((g) => g.name === 'PK')!.pieces, 4, 'a matched row moves too (out of stock → another supplier)');
+  const x = groups.find((g) => g.name === 'X')!;
+  assert.deepEqual([x.lines[0].label, x.lines[0].from, x.lines[0].orders], ['501/1 มิดไนท์', 'PK', ['A1', 'A2']]);
   assert.equal(groupLines(applyMoves(lines, new Map([['2004-BB-BI-38', 'CN']]), new Set(['CN']))).find((g) => g.name === 'CN')!.kind, 'warehouse');
   // moved lines still pass history validation
   assert.ok(validatePurchase({ date: '2026-10-13', round: 1, lines: applyMoves(lines, moves, new Set()) }));
+});
+
+test('order numbers follow each line to the sheet and the Excel file', async () => {
+  const lines = buildLines(readOrderItems(RAW), makeLookup(CATALOG, new Map()));
+  const pk = lines.filter((l) => l.group === 'PK');
+  assert.deepEqual(pk.find((l) => l.sku === '5011-PK-MD-30')!.orders, ['A1', 'A2'], 'two orders, case/zero-width variants of one SKU');
+  assert.deepEqual(pk.find((l) => l.sku === '2003-PK-MR-32')!.orders, ['A3']);
+  const groups = groupLines(lines);
+  const files = await unzip(await orderWorkbook([groups.find((g) => g.name === 'PK')!], '2026-10-13', 1));
+  const sheet = new TextDecoder().decode(files.get('xl/worksheets/sheet1.xml'));
+  assert.ok(sheet.includes('เลขคำสั่งซื้อ') && sheet.includes('A1, A2'));
+  const saved = validatePurchase({ date: '2026-10-13', round: 1, lines });
+  assert.deepEqual(saved.lines.find((l) => l.sku === '5011-PK-MD-30')!.orders, ['A1', 'A2']);
+});
+
+test('ticked out-of-stock lines become the พี่เปีย sheet', async () => {
+  const { missingGroup, lineKey, MISSING_GROUP } = await import('../web/src/purchase.ts');
+  const lookup = makeLookup(CATALOG, new Map());
+  const lines = buildLines(readOrderItems(RAW), lookup);
+  const jbig = lines.find((l) => l.group === 'J.BIG')!;
+  const pk = lines.find((l) => l.sku === '5011-PK-MD-30')!;
+  // a supplier moved to another one keeps its tick (keyed by SKU)
+  assert.equal(lineKey(jbig), jbig.sku);
+  assert.equal(missingGroup(lines, new Map(), lookup), null);
+  const g = missingGroup(lines, new Map([[lineKey(jbig), 1], [lineKey(pk), 5]]), lookup)!;
+  assert.equal(g.name, MISSING_GROUP);
+  assert.equal(g.pieces, 4, 'ticked quantity, capped at the line quantity (3)');
+  assert.deepEqual(g.lines.map((l) => [l.label, l.size, l.qty, l.note]), [
+    ['1306-4 โอวัลติน', '30', 1, 'ไม่มีที่ J.BIG'],
+    ['501/1 มิดไนท์', '30', 3, 'ไม่มีที่ PK'],
+  ], "our own code + colour, not the supplier's code");
+  assert.deepEqual(g.lines[1].orders, ['A1', 'A2']);
+});
+
+test('out-of-stock ticks are validated', async () => {
+  const { validateMissing } = await import('./purchase.ts');
+  const ok = validateMissing({ id: '2026-10-13#2', items: [{ grp: 'J.BIG', sku: '13064-BB-OV-30', missing: '2' }, { grp: 'PK', sku: 'x', missing: -3 }] });
+  assert.deepEqual(ok.items.map((i) => i.missing), [2, 0]);
+  assert.throws(() => validateMissing({ id: '2026-10-13', items: [{ grp: 'a', sku: 'b', missing: 1 }] }), /รอบไหน/);
+  assert.throws(() => validateMissing({ id: '2026-10-13#1', items: [] }), /ไม่มีรายการ/);
 });

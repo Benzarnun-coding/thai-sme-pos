@@ -36,6 +36,7 @@ const COST_WRITES: [string, RegExp][] = [
   ['DELETE', /^\/api\/catalog\/image$/],
   ['PUT', /^\/api\/catalog\/supplier$/],
   ['PUT', /^\/api\/purchase$/],
+  ['PUT', /^\/api\/purchase\/missing$/],
   ['DELETE', /^\/api\/purchase$/],
 ];
 
