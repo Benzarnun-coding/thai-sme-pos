@@ -48,6 +48,8 @@ export interface Env {
   DISCORD_APP_PUBLIC_KEY?: string;
   DISCORD_CHANNEL_ID?: string;
   DISCORD_DECIDER_IDS?: string;
+  /** Discord user IDs allowed to press the buttons (comma separated); empty = anyone in the channel */
+  DISCORD_APPROVER_IDS?: string;
   /** Messenger webhook (see worker/webhook.ts): app id is a var, the other two are secrets */
   META_APP_ID?: string;
   META_APP_SECRET?: string;
@@ -1123,6 +1125,10 @@ async function discordInteraction(req: Request, env: Env): Promise<Response> {
   // The bot works in one channel only: a press from anywhere else is refused (only the presser sees the reply).
   if (env.DISCORD_CHANNEL_ID && i.channel_id !== env.DISCORD_CHANNEL_ID) return json({ type: 4, data: { content: 'บอทนี้ใช้ได้เฉพาะห้องรายงานแอด', flags: 64 } });
   const who = i.member?.user?.global_name || i.member?.user?.username || i.user?.username || 'ไม่ทราบชื่อ';
+  // Only the listed people may decide (empty list = anyone in the channel); the refusal shows the presser their ID.
+  const userId = String(i.member?.user?.id ?? i.user?.id ?? '');
+  const approvers = (env.DISCORD_APPROVER_IDS ?? '').split(/[\s,]+/).filter(Boolean);
+  if (approvers.length && !approvers.includes(userId)) return json({ type: 4, data: { content: `ขอโทษค่ะ ปุ่มนี้ให้กดได้เฉพาะคุณเบ้นกับคุณแม็กซ์นะคะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
   const [verb, id] = String(i.data?.custom_id ?? '').split(':');
   const p = await env.DB.prepare('SELECT * FROM proposals WHERE id = ?').bind(id ?? '').first<Proposal>();
   const reply = (content: string) => json({ type: 7, data: { content, components: [] } });
