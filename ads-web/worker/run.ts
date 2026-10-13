@@ -7,6 +7,7 @@ import type { Entity, Level, Metrics, RunReport, State, Window } from '../../ads
 import { applyMoves, codOf, insertRun, loadCampaignSettings, loadCosts, loadSections, loadSettings, loadStages, loadState, saveState } from './db.ts';
 import { buildGroups, neededWindows, planDecisions, sectionMap, type MoveDecision, type Plan } from './engine.ts';
 import { loadOrders, orderFees } from './p365.ts';
+import { approvalsEnabled, expireOld, postProposal, recentlyAsked, saveProposals, type Proposal } from './discord.ts';
 
 /** Keeps a run well inside the Workers free plan's 50 outbound requests, and limits damage from a bad rule. */
 export const MAX_CHANGES_PER_RUN = 25;
@@ -22,6 +23,9 @@ export interface MetaLike extends Mutator {
 
 export interface RunEnv {
   DB: D1Database;
+  DISCORD_BOT_TOKEN?: string;
+  DISCORD_APP_PUBLIC_KEY?: string;
+  DISCORD_CHANNEL_ID?: string;
   META_AD_ACCOUNT_ID: string;
   LINE_CHANNEL_ACCESS_TOKEN?: string;
   LINE_TO?: string;
@@ -67,6 +71,29 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
     capChanges(plan);
     report.decisions = plan.decisions;
 
+    // With the Discord bot set up, pausing a campaign or moving it down to retest waits for a button press.
+    const proposals: Proposal[] = [];
+    if (!dryRun && approvalsEnabled(env)) {
+      await expireOld(env, report.run_at).catch(() => null);
+      const asked = await recentlyAsked(env.DB, new Date(now.getTime() - 3 * 86_400_000).toISOString()).catch(() => new Set<string>());
+      const hold = (kind: Proposal['kind'], id: string, name: string, rule: string, planText: string, detail: object) => {
+        const key = `${rule}:${id}`;
+        if (asked.has(key)) return 'ถามใน Discord แล้ว รอคำตอบ / ตอบไม่ไว้ภายใน 3 วัน';
+        asked.add(key);
+        proposals.push({ id: crypto.randomUUID(), created_at: report.run_at, kind, entity_id: id, entity_name: name, rule_id: rule, plan: planText, detail: JSON.stringify(detail), status: 'pending', decided_by: null, decided_at: null, message_id: null });
+        return 'รออนุมัติใน Discord';
+      };
+      for (const d of plan.decisions) {
+        if (d.skipped_reason || d.action.type !== 'pause') continue;
+        d.skipped_reason = hold('pause', d.entity.id, d.entity.name, d.rule_id, d.plan, { level: d.entity.level });
+      }
+      for (const m of report.moves) {
+        if (m.skipped_reason || m.move_to !== 'retest') continue;
+        m.skipped_reason = hold('move', m.entity.id, m.entity.name, m.rule_id, m.plan, { level: 'campaign', move_from: m.move_from, move_to: m.move_to });
+      }
+      await saveProposals(env.DB, proposals);
+    }
+
     const applied = await applyDecisions(plan.decisions, entities, meta, settings.guardrails, state, { dryRun, now });
     report.errors.push(...applied.errors);
     report.totals.daily_budget_after = applied.totalAfter;
@@ -94,6 +121,14 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
   ].join('\n');
   await pushLine(text, env.LINE_CHANNEL_ACCESS_TOKEN, env.LINE_TO).catch(() => false);
   await pushDiscord(discordRunText(report, dryRun, opts.trigger), env.DISCORD_WEBHOOK_URL).catch(() => false);
+  // Questions go out after the summary, each with its own buttons.
+  if (!dryRun && approvalsEnabled(env)) {
+    const { results } = await env.DB.prepare(`SELECT * FROM proposals WHERE status = 'pending' AND created_at = ? AND message_id IS NULL`).bind(report.run_at).all<Proposal>().catch(() => ({ results: [] as Proposal[] }));
+    for (const p of results) {
+      const id = await postProposal(env, p).catch(() => null);
+      if (id) await env.DB.prepare('UPDATE proposals SET message_id = ? WHERE id = ?').bind(id, p.id).run();
+    }
+  }
   return report;
 }
 
@@ -152,8 +187,10 @@ function discordRunText(report: WebRunReport, dryRun: boolean, trigger = ''): st
   if (!acted.length && !moves.length) lines.push('ไม่มีกฎไหนตรงเงื่อนไข — ไม่มีการปรับ');
   for (const d of acted) {
     const tail = d.error ? ` ❌ ${d.error}` : d.after?.daily_budget !== undefined && d.after.daily_budget !== d.before?.daily_budget ? ` → ${d.after.daily_budget}/วัน` : '';
-    lines.push(`• \`${d.rule_id}\` ${d.plan}${tail}`);
+    lines.push(`${d.action.type === 'pause' ? '⏸ **หยุดแล้ว**' : '•'} \`${d.rule_id}\` ${d.plan}${tail}`);
   }
+  const waiting = report.decisions.filter((d) => d.skipped_reason === 'รออนุมัติใน Discord').length + report.moves.filter((m) => m.skipped_reason === 'รออนุมัติใน Discord').length;
+  if (waiting) lines.push(`❓ รออนุมัติ ${waiting} รายการ — ดูข้อความถัดไปแล้วกดปุ่ม`);
   for (const m of moves) lines.push(`↪ ${m.plan}`);
   const skipped = report.decisions.filter((d) => d.skipped_reason);
   if (skipped.length) lines.push(`ข้าม ${skipped.length} รายการ (${[...new Set(skipped.map((d) => d.skipped_reason))].join(', ')})`);

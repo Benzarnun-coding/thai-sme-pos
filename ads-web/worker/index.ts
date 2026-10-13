@@ -10,7 +10,7 @@ import { accessStatus, syncAccess } from './access.ts';
 import { syncCampaignCosts, syncCosts } from './costs.ts';
 import { CampaignCostIndex, tierEconomics, type CostTier } from './campaignCosts.ts';
 import {
-  audit, codOf, deleteSection, loadCampaignCosts, deleteWebCost, saveWebCost, insertRun, lastRun, listAudit, listRuns, loadCampaignSettings, loadCosts, loadSections, loadSettings,
+  applyMoves, audit, codOf, deleteSection, loadCampaignCosts, deleteWebCost, saveWebCost, insertRun, lastRun, listAudit, listRuns, loadCampaignSettings, loadCosts, loadSections, loadSettings,
   loadStages, loadState, saveCampaignSetting, saveCampaignSettings, auditMany, campaignHistory, saveSection, saveSettings, saveStage,
 } from './db.ts';
 import { ECONOMICS_WINDOW, sectionMap, sectionTotals } from './engine.ts';
@@ -26,6 +26,7 @@ import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetito
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
+import { verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
@@ -40,6 +41,10 @@ export interface Env {
   LINE_CHANNEL_ACCESS_TOKEN?: string;
   LINE_TO?: string;
   DISCORD_WEBHOOK_URL?: string;
+  /** Discord bot (buttons): token is a secret, the other two are vars */
+  DISCORD_BOT_TOKEN?: string;
+  DISCORD_APP_PUBLIC_KEY?: string;
+  DISCORD_CHANNEL_ID?: string;
   /** Messenger webhook (see worker/webhook.ts): app id is a var, the other two are secrets */
   META_APP_ID?: string;
   META_APP_SECRET?: string;
@@ -70,6 +75,7 @@ export default {
     const url = new URL(req.url);
     // Meta's webhook comes from outside Cloudflare Access (bypassed for /webhook/* there); it is signed instead.
     if (url.pathname === '/webhook/privacy') return new Response(PRIVACY_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    if (url.pathname === '/webhook/discord' && req.method === 'POST') return discordInteraction(req, env);
     if (url.pathname === '/webhook/meta') {
       if (req.method === 'GET') return verifyChallenge(url, env);
       if (req.method === 'POST') return receiveWebhook(req, env, ctx);
@@ -996,6 +1002,56 @@ function parseView(w: string | null): Window {
     if (Number.isFinite(days) && days <= 30 && until <= bkkDate(0)) return `range:${since}:${until}` as Window;
   }
   return 'last_7d';
+}
+
+/**
+ * A button pressed in Discord. Ping → pong (Discord checks the URL with it); a button → do what it says, reply
+ * by editing the question so everyone sees who decided what. Signed with the app's Ed25519 key.
+ */
+async function discordInteraction(req: Request, env: Env): Promise<Response> {
+  const body = await req.text();
+  if (!env.DISCORD_APP_PUBLIC_KEY || !(await verifyDiscord(req, body, env.DISCORD_APP_PUBLIC_KEY))) return new Response('bad signature', { status: 401 });
+  const i = JSON.parse(body);
+  if (i.type === 1) return json({ type: 1 });
+  if (i.type !== 3) return json({ type: 4, data: { content: 'ยังไม่รองรับคำสั่งนี้', flags: 64 } });
+  const who = i.member?.user?.global_name || i.member?.user?.username || i.user?.username || 'ไม่ทราบชื่อ';
+  const [verb, id] = String(i.data?.custom_id ?? '').split(':');
+  const p = await env.DB.prepare('SELECT * FROM proposals WHERE id = ?').bind(id ?? '').first<Proposal>();
+  const reply = (content: string) => json({ type: 7, data: { content, components: [] } });
+  if (!p) return reply('ไม่พบคำถามนี้แล้ว');
+  if (p.status !== 'pending') return reply(`ตัดสินไปแล้ว (${p.status}) โดย ${p.decided_by ?? '-'}`);
+  const at = new Date().toISOString();
+  const d = JSON.parse(p.detail || '{}');
+  const mark = (status: string) => env.DB.prepare('UPDATE proposals SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = \'pending\'').bind(status, who, at, p.id).run();
+  try {
+    if (verb === 'approve' && p.kind === 'pause') {
+      await metaFor(env).setStatus(p.entity_id, 'PAUSED');
+      await patchCachedEntity(env.DB, p.entity_id, { status: 'PAUSED' }).catch(() => null);
+      await mark('approved');
+      await audit(env.DB, `discord:${who}`, 'entity.status', p.entity_id, { status: 'PAUSED', rule: p.rule_id, name: p.entity_name });
+      return reply(`⏸ **หยุดแล้ว** "${p.entity_name}" — อนุมัติโดย ${who}\nเหตุผล: \`${p.rule_id}\` ${p.plan}`);
+    }
+    if (verb === 'approve' && p.kind === 'move') {
+      await applyMoves(env.DB, [{ campaign_id: p.entity_id, name: p.entity_name, from: d.move_from ?? null, to: d.move_to }], at);
+      await mark('approved');
+      return reply(`↘ **ย้ายแล้ว** "${p.entity_name}" → ${d.move_to} — อนุมัติโดย ${who}`);
+    }
+    if (verb === 'totesting') {
+      await applyMoves(env.DB, [{ campaign_id: p.entity_id, name: p.entity_name, from: d.move_from ?? null, to: 'testing' }], at);
+      await mark('rejected');
+      await audit(env.DB, `discord:${who}`, 'proposal.totesting', p.entity_id, { rule: p.rule_id });
+      return reply(`🔵 **ไม่หยุด — ย้ายไปกลุ่มทดสอบ** "${p.entity_name}" — ตัดสินโดย ${who}`);
+    }
+    if (verb === 'reject') {
+      await mark('rejected');
+      await audit(env.DB, `discord:${who}`, 'proposal.reject', p.entity_id, { rule: p.rule_id, kind: p.kind });
+      return reply(`✋ **ไม่${p.kind === 'pause' ? 'หยุด' : 'ย้าย'}** "${p.entity_name}" — ตัดสินโดย ${who} · กฎนี้จะไม่ถามซ้ำกับแคมเปญนี้ 3 วัน`);
+    }
+  } catch (err: any) {
+    await mark('failed');
+    return reply(`❌ ทำไม่สำเร็จ: ${err?.message ?? err} — ลองทำเองใน Ads Manager`);
+  }
+  return reply('ไม่รู้จักปุ่มนี้');
 }
 
 /** After a user change: push the email list to Cloudflare Access when the token is set; a failure is reported, not fatal. */
