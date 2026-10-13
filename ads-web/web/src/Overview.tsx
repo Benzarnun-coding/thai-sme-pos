@@ -60,9 +60,22 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
       </div>
 
       <div className="kpis">
-        <Kpi label="ยอดขาย" value={baht(all.value)} sub={all.purchases ? `เฉลี่ย ${baht(all.value / all.purchases)}/ออเดอร์` : undefined} />
-        <Kpi label="ใช้จ่าย" value={baht(all.spend)} sub={`${spending} แคมเปญที่ใช้เงิน`} />
-        <Kpi label="ออเดอร์" value={num(all.purchases)} sub={all.purchases ? `ค่าแอด ${baht(all.spend / all.purchases)}/ออเดอร์${all.clicks ? ` · CVR ${num((all.purchases / all.clicks) * 100, 2)}%` : ''}` : undefined} />
+        {(() => {
+          // Real Page365 numbers when uploaded; Meta's tagged figures alongside so the two can be compared.
+          const a = data.actual;
+          const tag = a ? (a.covered === a.dates ? ' · ของจริง' : ` · ของจริง ${a.covered}/${a.dates} วัน`) : '';
+          return (
+            <>
+              <Kpi label={`ยอดขาย${tag}`} value={baht(a ? a.revenue : all.value)}
+                sub={a ? `เฉลี่ย ${baht(a.orders ? a.revenue / a.orders : 0)}/ออเดอร์ · Meta นับ ${baht(all.value)}` : all.purchases ? `เฉลี่ย ${baht(all.value / all.purchases)}/ออเดอร์ · ตามที่ติ๊กใน Meta` : undefined} />
+              <Kpi label="ใช้จ่าย" value={baht(all.spend)} sub={`${spending} แคมเปญที่ใช้เงิน`} />
+              <Kpi label={`ออเดอร์${tag}`} value={num(a ? a.orders : all.purchases)}
+                sub={a
+                  ? `Meta นับ ${num(all.purchases)} · ไม่ใช่แอด ${num(a.organic_orders)} · ค่าแอด ${baht(a.orders ? a.ads / a.orders : 0)}/ออเดอร์จริง${a.covered < a.dates ? ' · ยังขาดไฟล์บางวัน' : ''}`
+                  : all.purchases ? `ค่าแอด ${baht(all.spend / all.purchases)}/ออเดอร์${all.clicks ? ` · CVR ${num((all.purchases / all.clicks) * 100, 2)}%` : ''} · ตามที่ติ๊กใน Meta` : undefined} />
+            </>
+          );
+        })()}
         <Kpi
           label={data.actual ? 'ทุนสินค้า · ของจริง' : 'ทุนสินค้า'}
           value={data.actual ? baht(data.actual.cost) : '–'}
