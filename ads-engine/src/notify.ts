@@ -41,7 +41,7 @@ export async function pushDiscord(text: string, url?: string): Promise<boolean> 
   }
   let ok = true;
   for (const content of chunks) {
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content, username: 'น้องจิบิ' }) });
     if (!res.ok) { console.error('Discord push failed:', res.status, await res.text()); ok = false; }
   }
   return ok;

@@ -17,5 +17,6 @@ test('a pause question carries approve / not now / move-to-testing buttons', () 
   const m = proposalMessage({ id: 'p1', created_at: '', kind: 'pause', entity_id: '1', entity_name: 'REV 801', rule_id: 're-stop', plan: 'PAUSE campaign "REV 801" [last_7d roas=2.54 vs 2.78]', detail: '{}', status: 'pending', decided_by: null, decided_at: null, message_id: null });
   const ids = (m.components[0] as any).components.map((c: any) => c.custom_id);
   assert.deepEqual(ids, ['approve:p1', 'reject:p1', 'totesting:p1']);
+  assert.match(m.content, /น้องจิบิ/);
   assert.match(m.content, /หยุดแคมเปญ/);
 });

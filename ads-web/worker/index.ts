@@ -46,6 +46,7 @@ export interface Env {
   DISCORD_BOT_TOKEN?: string;
   DISCORD_APP_PUBLIC_KEY?: string;
   DISCORD_CHANNEL_ID?: string;
+  DISCORD_DECIDER_IDS?: string;
   /** Messenger webhook (see worker/webhook.ts): app id is a var, the other two are secrets */
   META_APP_ID?: string;
   META_APP_SECRET?: string;
@@ -1093,30 +1094,30 @@ async function discordInteraction(req: Request, env: Env): Promise<Response> {
   try {
     if ((p.kind as string) === 'test') {
       await mark(verb === 'approve' ? 'approved' : 'rejected');
-      return reply(`✅ **ทดสอบปุ่มสำเร็จ** — ${who} กด "${verb === 'approve' ? 'อนุมัติ' : verb === 'reject' ? 'ไม่' : 'ย้ายไปทดสอบ'}" · บอทพร้อมใช้งาน (ข้อความนี้เป็นการทดสอบ ไม่ได้แตะแอดจริง)`);
+      return reply(`✅ **น้องจิบิได้รับแล้วค่ะ** — ${who} กด "${verb === 'approve' ? 'อนุมัติ' : verb === 'reject' ? 'ไม่' : 'ย้ายไปทดสอบ'}" · บอทพร้อมใช้งาน (ข้อความนี้เป็นการทดสอบ ไม่ได้แตะแอดจริง)`);
     }
     if (verb === 'approve' && p.kind === 'pause') {
       await metaFor(env).setStatus(p.entity_id, 'PAUSED');
       await patchCachedEntity(env.DB, p.entity_id, { status: 'PAUSED' }).catch(() => null);
       await mark('approved');
       await audit(env.DB, `discord:${who}`, 'entity.status', p.entity_id, { status: 'PAUSED', rule: p.rule_id, name: p.entity_name });
-      return reply(`⏸ **หยุดแล้ว** "${p.entity_name}" — อนุมัติโดย ${who}\nเหตุผล: \`${p.rule_id}\` ${p.plan}`);
+      return reply(`⏸ **หยุดแล้วค่ะ** "${p.entity_name}" — ${who} อนุมัติ ขอบคุณค่ะ 🙏\nเหตุผล: \`${p.rule_id}\` ${p.plan}`);
     }
     if (verb === 'approve' && p.kind === 'move') {
       await applyMoves(env.DB, [{ campaign_id: p.entity_id, name: p.entity_name, from: d.move_from ?? null, to: d.move_to }], at);
       await mark('approved');
-      return reply(`↘ **ย้ายแล้ว** "${p.entity_name}" → ${d.move_to} — อนุมัติโดย ${who}`);
+      return reply(`↘ **ย้ายแล้วค่ะ** "${p.entity_name}" → ${d.move_to} — ${who} อนุมัติ ขอบคุณค่ะ 🙏`);
     }
     if (verb === 'totesting') {
       await applyMoves(env.DB, [{ campaign_id: p.entity_id, name: p.entity_name, from: d.move_from ?? null, to: 'testing' }], at);
       await mark('rejected');
       await audit(env.DB, `discord:${who}`, 'proposal.totesting', p.entity_id, { rule: p.rule_id });
-      return reply(`🔵 **ไม่หยุด — ย้ายไปกลุ่มทดสอบ** "${p.entity_name}" — ตัดสินโดย ${who}`);
+      return reply(`🔵 **รับทราบค่ะ ไม่หยุด — ย้ายไปกลุ่มทดสอบแล้ว** "${p.entity_name}" — ${who} ตัดสิน · กฎกลุ่มทดสอบจะดูแลงบต่อนะคะ`);
     }
     if (verb === 'reject') {
       await mark('rejected');
       await audit(env.DB, `discord:${who}`, 'proposal.reject', p.entity_id, { rule: p.rule_id, kind: p.kind });
-      return reply(`✋ **ไม่${p.kind === 'pause' ? 'หยุด' : 'ย้าย'}** "${p.entity_name}" — ตัดสินโดย ${who} · กฎนี้จะไม่ถามซ้ำกับแคมเปญนี้ 3 วัน`);
+      return reply(`✋ **รับทราบค่ะ ยังไม่${p.kind === 'pause' ? 'หยุด' : 'ย้าย'}** "${p.entity_name}" — ${who} ตัดสิน · น้องจะไม่ถามเรื่องนี้ซ้ำ 3 วันนะคะ`);
     }
   } catch (err: any) {
     await mark('failed');

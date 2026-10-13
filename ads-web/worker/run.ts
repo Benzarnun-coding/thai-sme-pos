@@ -26,6 +26,7 @@ export interface RunEnv {
   DISCORD_BOT_TOKEN?: string;
   DISCORD_APP_PUBLIC_KEY?: string;
   DISCORD_CHANNEL_ID?: string;
+  DISCORD_DECIDER_IDS?: string;
   META_AD_ACCOUNT_ID: string;
   LINE_CHANNEL_ACCESS_TOKEN?: string;
   LINE_TO?: string;
@@ -85,11 +86,11 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
       };
       for (const d of plan.decisions) {
         if (d.skipped_reason || d.action.type !== 'pause') continue;
-        d.skipped_reason = hold('pause', d.entity.id, d.entity.name, d.rule_id, d.plan, { level: d.entity.level });
+        d.skipped_reason = hold('pause', d.entity.id, d.entity.name, d.rule_id, d.plan, { level: d.entity.level, window: d.window, metric: d.metric, observed: d.observed, threshold: d.threshold });
       }
       for (const m of report.moves) {
         if (m.skipped_reason || m.move_to !== 'retest') continue;
-        m.skipped_reason = hold('move', m.entity.id, m.entity.name, m.rule_id, m.plan, { level: 'campaign', move_from: m.move_from, move_to: m.move_to });
+        m.skipped_reason = hold('move', m.entity.id, m.entity.name, m.rule_id, m.plan, { level: 'campaign', move_from: m.move_from, move_to: m.move_to, window: m.window, metric: m.metric, observed: m.observed, threshold: m.threshold });
       }
       await saveProposals(env.DB, proposals);
     }

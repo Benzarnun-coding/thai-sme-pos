@@ -7,7 +7,11 @@ export interface DiscordEnv {
   DISCORD_BOT_TOKEN?: string;
   DISCORD_APP_PUBLIC_KEY?: string;
   DISCORD_CHANNEL_ID?: string;
+  /** Discord user IDs (comma separated) who decide; mentioned in every question */
+  DISCORD_DECIDER_IDS?: string;
 }
+
+const deciders = (env: DiscordEnv) => (env.DISCORD_DECIDER_IDS ?? '').split(/[\s,]+/).filter((x) => /^\d{5,25}$/.test(x));
 
 export const approvalsEnabled = (env: DiscordEnv) => !!(env.DISCORD_BOT_TOKEN && env.DISCORD_CHANNEL_ID && env.DISCORD_APP_PUBLIC_KEY);
 
@@ -32,26 +36,64 @@ export async function verifyDiscord(req: Request, body: string, publicKeyHex: st
 
 const STAGE_TH: Record<string, string> = { experiment: 'ทดลอง', testing: 'ทดสอบ', winning: 'ทำเงิน', retest: 'ดับ → ทดสอบใหม่' };
 
-/** The question as Discord shows it, with the buttons for a pending one. */
-export function proposalMessage(p: Proposal): { content: string; components: unknown[] } {
+/**
+ * The question as Discord shows it: น้องจิบิ (the bot's persona) asks the deciders, lays out what the rule saw,
+ * the choices and which one she'd pick, with a button for each choice.
+ */
+export function proposalMessage(p: Proposal, mention = ''): { content: string; components: unknown[] } {
   const d = JSON.parse(p.detail || '{}');
-  const what = p.kind === 'pause' ? `⏸ **หยุดแคมเปญ** "${p.entity_name}"` : `↘ **ย้ายกลุ่ม** "${p.entity_name}" ${STAGE_TH[d.move_from] ?? d.move_from ?? 'ไม่มีกลุ่ม'} → ${STAGE_TH[d.move_to] ?? d.move_to}`;
-  const content = `❓ **ขออนุมัติ** ${what}\nเหตุผล: \`${p.rule_id}\` ${p.plan.replace(/^(PAUSE|ย้าย) .*?\[/, '[')}\n_กดปุ่มเพื่อตัดสินใจ · ถ้าไม่มีใครกด รอบถัดไปจะถามใหม่_`;
+  const who = mention ? `คุณ ${mention}` : 'ทีม';
+  const x = typeof d.observed === 'number' && typeof d.threshold === 'number' && d.threshold > 0 ? d.observed / d.threshold : null;
+  const seen = typeof d.observed === 'number' ? `ROAS ${d.window === 'last_3d' ? '3' : '7'} วัน **${d.observed.toFixed(2)}** เทียบเกณฑ์ ${d.threshold.toFixed(2)}${x !== null ? ` (${Math.round(x * 100)}% ของเกณฑ์)` : ''}` : p.plan;
+  let body: string[];
+  if ((p.kind as string) === 'test') {
+    body = [`น้องจิบิขอทดสอบปุ่มกับ${who}ค่ะ 🙏 กดปุ่มไหนก็ได้ ข้อความนี้ไม่แตะแอดจริงนะคะ`];
+  } else if (p.kind === 'pause') {
+    const advise = x !== null && x < 0.8 ? 'ข้อ 1 หยุดเลยค่ะ เพราะต่ำกว่าเกณฑ์มาก ปล่อยไว้จะเสียเงินต่อ'
+      : 'ข้อ 3 ย้ายไปกลุ่มทดสอบค่ะ เพราะต่ำกว่าเกณฑ์ไม่มาก ยังขายได้อยู่ ให้กฎกลุ่มทดสอบค่อยๆ ลดงบแทนการหยุดทันที';
+    body = [
+      `น้องจิบิขอถาม${who}ค่ะ 🙏 แคมเปญ **"${p.entity_name}"** ควรทำยังไงดีคะ`,
+      `📊 ${seen}`,
+      `กฎ \`${p.rule_id}\` บอกให้ **หยุดแคมเปญ** ค่ะ`,
+      '',
+      'ทางเลือกที่น้องเสนอค่ะ',
+      '1️⃣ **หยุดเลย** — ประหยัดค่าแอดทันที แต่ยอดขายจากแอดตัวนี้หายไปด้วย',
+      '2️⃣ **ยังไม่หยุด รอดู 3 วัน** — น้องจะไม่ถามเรื่องนี้ซ้ำ 3 วัน',
+      '3️⃣ **ย้ายไปกลุ่มทดสอบ** — ไม่หยุด แต่กฎกลุ่มทดสอบจะลดงบ 20% ถ้ายังต่ำกว่าเกณฑ์',
+      '',
+      `💡 น้องแนะนำ${advise}`,
+    ];
+  } else {
+    body = [
+      `น้องจิบิขอถาม${who}ค่ะ 🙏 แคมเปญ **"${p.entity_name}"** ควรย้ายกลุ่มไหมคะ`,
+      `📊 ${seen}`,
+      `กฎ \`${p.rule_id}\` บอกให้ย้าย **${STAGE_TH[d.move_from] ?? d.move_from ?? 'ไม่มีกลุ่ม'} → ${STAGE_TH[d.move_to] ?? d.move_to}** ค่ะ (กลุ่มดับจะลดงบ 20% ทุก 48 ชม. และหยุดถ้า 7 วันยังไม่ฟื้น)`,
+      '',
+      '1️⃣ **ย้ายเลย**  2️⃣ **ยังไม่ย้าย รอดู 3 วัน**',
+      '',
+      '💡 น้องแนะนำข้อ 1 ค่ะ ผลต่ำกว่าคุ้มทุนมาครบ 7 วันแล้ว',
+    ];
+  }
+  body.push('', '_ถ้ายังไม่มีใครกด รอบถัดไปน้องจะถามใหม่นะคะ_');
   return {
-    content,
-    components: [{ type: 1, components: [
-      { type: 2, style: 4, label: p.kind === 'pause' ? 'อนุมัติ หยุดเลย' : 'อนุมัติ ย้ายเลย', custom_id: `approve:${p.id}` },
-      { type: 2, style: 2, label: 'ไม่ รอ 3 วัน', custom_id: `reject:${p.id}` },
-      ...(p.kind === 'pause' ? [{ type: 2, style: 1, label: 'ย้ายไปทดสอบแทน', custom_id: `totesting:${p.id}` }] : []),
-    ] }],
+    content: body.join('\n'),
+    components: [{ type: 1, components: (p.kind as string) === 'test'
+      ? [{ type: 2, style: 3, label: 'ทดสอบ: ตกลง', custom_id: `approve:${p.id}` }, { type: 2, style: 2, label: 'ทดสอบ: ไม่', custom_id: `reject:${p.id}` }]
+      : [
+        { type: 2, style: 4, label: p.kind === 'pause' ? '1️⃣ หยุดเลย' : '1️⃣ ย้ายเลย', custom_id: `approve:${p.id}` },
+        { type: 2, style: 2, label: p.kind === 'pause' ? '2️⃣ ยังไม่หยุด รอ 3 วัน' : '2️⃣ ยังไม่ย้าย รอ 3 วัน', custom_id: `reject:${p.id}` },
+        ...(p.kind === 'pause' ? [{ type: 2, style: 1, label: '3️⃣ ย้ายไปทดสอบ', custom_id: `totesting:${p.id}` }] : []),
+      ] }],
   };
 }
 
 export async function postProposal(env: DiscordEnv, p: Proposal): Promise<string | null> {
+  const ids = deciders(env);
   const res = await fetch(`https://discord.com/api/v10/channels/${env.DISCORD_CHANNEL_ID}/messages`, {
     method: 'POST',
     headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(proposalMessage(p)),
+    // Only the deciders are pinged, whatever else the text contains.
+    body: JSON.stringify({ ...proposalMessage(p, ids.map((id) => `<@${id}>`).join(' ')), allowed_mentions: { users: ids } }),
   });
   if (!res.ok) { console.error('discord post', res.status, await res.text()); return null; }
   return ((await res.json()) as { id: string }).id;
