@@ -1,4 +1,5 @@
 // Typed client for the Worker API. Types mirror worker/model.ts and ads-engine/src/types.ts (the UI never imports worker code).
+import type { WebSku } from './catalog.ts';
 
 export type Level = 'campaign' | 'adset';
 export type Window = 'today' | 'yesterday' | 'last_3d' | 'last_7d' | 'last_14d' | 'last_30d';
@@ -272,8 +273,27 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return data as T;
 }
 
+export interface CatalogTab { tab: string; gid: string; sort: number; skus: number; synced_at: string; synced_by: string }
+export interface CatalogMeta { version: string; tabs: CatalogTab[]; web: WebSku[]; sheet_configured: boolean }
+export type WebSkuInput = Omit<WebSku, 'created_by' | 'created_at' | 'updated_at'>;
+
 export const api = {
-  me: () => call<{ email: string; role: 'admin' | 'costs'; mock: boolean }>('GET', '/api/me'),
+  me: () => call<{ email: string; role: Role; mock: boolean }>('GET', '/api/me'),
+  catalog: () => call<CatalogMeta>('GET', '/api/catalog'),
+  catalogRows: (tab: string, after: string, version: string) =>
+    call<{ rows: unknown[][]; next: string | null }>('GET', `/api/catalog/rows?tab=${encodeURIComponent(tab)}&after=${encodeURIComponent(after)}&v=${encodeURIComponent(version || 'none')}`),
+  setCatalogSheet: (sheet: string) => call<{ ok: true }>('PUT', '/api/catalog/sheet', { sheet }),
+  catalogSheetTabs: () => call<{ tabs: { tab: string; gid: string }[] }>('GET', '/api/catalog/sheet'),
+  catalogCsv: async (gid: string) => {
+    const res = await fetch(`/api/catalog/sheet/csv?gid=${encodeURIComponent(gid)}`);
+    if (!res.ok) throw new Error(((await res.json().catch(() => null)) as any)?.error ?? `HTTP ${res.status}`);
+    return res.text();
+  },
+  catalogSync: (b: { tab: string; gid: string; sort: number; rows: unknown[][]; remove: string[]; done: { skus: number } | null }) =>
+    call<{ written: number; removed: number }>('POST', '/api/catalog/sync', b),
+  addWebSkus: (items: WebSkuInput[]) => call<{ rows: WebSku[] }>('POST', '/api/catalog/web', { items }),
+  updateWebSku: (sku: string, v: Partial<WebSkuInput>) => call<{ row: WebSku }>('PUT', `/api/catalog/web?sku=${encodeURIComponent(sku)}`, v),
+  deleteWebSku: (sku: string) => call<{ ok: true }>('DELETE', `/api/catalog/web?sku=${encodeURIComponent(sku)}`),
   overview: (window: Window, fresh = false) => call<Overview>('GET', `/api/overview?window=${window}${fresh ? '&fresh=1' : ''}`),
   createSection: (s: Partial<Section>) => call<Section>('POST', '/api/sections', s),
   saveSection: (s: Section) => call<Section>('PUT', `/api/sections/${s.id}`, s),
@@ -311,6 +331,7 @@ export const api = {
   removeUser: (email: string) => call<{ ok: true; sync: { ok: boolean; error?: string } | null }>('DELETE', `/api/users/${encodeURIComponent(email)}`),
   syncAccess: () => call<{ emails: string[] }>('POST', '/api/users/access-sync'),
   webhook: () => call<WebhookStatus>('GET', '/api/webhook'),
+  discordTest: () => call<{ ok: true }>('POST', '/api/discord/test'),
   setupWebhook: () => call<{ app: unknown; page: unknown }>('POST', '/api/webhook/setup'),
   adReferrals: (q: { date?: string; window?: Window }) => call<{ dates: string[]; rows: ReferralSummary[] }>('GET', `/api/ad-referrals?${q.date ? `date=${q.date}` : `window=${q.window ?? 'last_7d'}`}`),
   conversionHours: () => call<{ stored: number; of: number; dates: string[] }>('GET', '/api/conversion-hours'),

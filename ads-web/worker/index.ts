@@ -27,7 +27,7 @@ import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, p
 import { PRIVACY_HTML } from './privacy.ts';
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteWebSku, discoverTabs, parseSheetId, saveCatalogSheetId, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
-import { verifyDiscord, type Proposal } from './discord.ts';
+import { approvalsEnabled, postProposal, saveProposals, verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
@@ -401,6 +401,18 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const credits = await recreditDates(env.DB, [date]);
     await audit(env.DB, user, 'p365.recredit', date, credits);
     return json({ date, credits: credits[date] ?? null });
+  }
+
+  // ---- Discord bot: a test question with buttons ----
+  if (path === '/api/discord/test' && method === 'POST') {
+    if (!approvalsEnabled(env)) throw new BadRequest('ยังตั้งค่าบอท Discord ไม่ครบ (DISCORD_BOT_TOKEN / DISCORD_APP_PUBLIC_KEY / DISCORD_CHANNEL_ID)');
+    const p = { id: crypto.randomUUID(), created_at: new Date().toISOString(), kind: 'test', entity_id: 'test', entity_name: 'ข้อความทดสอบ (ไม่แตะแอดจริง)', rule_id: 'test',
+      plan: `ทดสอบปุ่มโดย ${user}`, detail: '{}', status: 'pending', decided_by: null, decided_at: null, message_id: null } as unknown as Proposal;
+    await saveProposals(env.DB, [p]);
+    const id = await postProposal(env, p);
+    if (!id) throw new BadRequest('ส่งเข้า Discord ไม่สำเร็จ — เช็กว่าบอทมีสิทธิ์ View Channel + Send Messages ในห้องนั้น และ token ถูกต้อง');
+    await env.DB.prepare('UPDATE proposals SET message_id = ? WHERE id = ?').bind(id, p.id).run();
+    return json({ ok: true });
   }
 
   // ---- Messenger webhook: who came from which ad ----

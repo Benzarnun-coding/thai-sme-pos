@@ -81,6 +81,8 @@ export function SettingsPage({ costsLoaded, campaignNames, onSaved }: { costsLoa
         </div>
       </section>
 
+      <DiscordCard />
+
       <ConversionHoursCard />
 
       <WebhookCard />
@@ -267,6 +269,21 @@ function WebhookCard() {
           </div>
         </>
       )}
+    </section>
+  );
+}
+
+function DiscordCard() {
+  const { toast } = useUi();
+  const [busy, setBusy] = useState(false);
+  return (
+    <section className="card">
+      <h2>บอท Discord (ปุ่มอนุมัติ)</h2>
+      <p className="muted small">การหยุดแคมเปญและการย้ายลงกลุ่มดับ จะส่งเป็นคำถามพร้อมปุ่มในห้องรายงานแอด ให้คนกดอนุมัติก่อน · ปรับงบ ±20% ยังทำเองอัตโนมัติ</p>
+      <button className="ghost" disabled={busy} onClick={async () => {
+        setBusy(true);
+        try { await api.discordTest(); toast('ส่งข้อความทดสอบแล้ว — ไปกดปุ่มในห้อง Discord ได้เลย', 'ok'); } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
+      }}>{busy ? 'กำลังส่ง…' : 'ส่งข้อความทดสอบเข้า Discord'}</button>
     </section>
   );
 }
