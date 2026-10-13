@@ -5,13 +5,14 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { api, type PurchaseUpload, type SavedPurchaseLine } from './api.ts';
-import { SHOP_STATUSES, webToRow, type CatalogRow } from './catalog.ts';
+import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from './catalog.ts';
 import { num } from './fmt.ts';
 import {
   buildLines, dateFromFileName, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
-  sheetRows, thaiShortDate, type OrderItem, type PurchaseGroup, type PurchaseLine,
+  pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
 } from './purchase.ts';
-import { Icon, useUi } from './ui.tsx';
+import { pictureSheets } from './pictureSheet.ts';
+import { Icon, Modal, useUi } from './ui.tsx';
 import { useCatalog } from './useCatalog.ts';
 import { readFirstSheet } from './xlsx.ts';
 import { parseExport } from './gosell.ts';
@@ -40,7 +41,7 @@ function fromSaved(l: SavedPurchaseLine): PurchaseLine {
 export function OrdersApp() {
   useEffect(() => { document.title = 'ใบสั่งสินค้า'; }, []);
   const { toast, confirm } = useUi();
-  const { meta, setMeta, rows, loading, error, canEdit, role, supplierMap } = useCatalog();
+  const { meta, setMeta, rows, loading, error, canEdit, role, supplierMap, imageMap } = useCatalog();
   const [data, setData] = useState<Loaded | null>(null);
   const [history, setHistory] = useState<PurchaseUpload[]>([]);
   const [viewing, setViewing] = useState<FromHistory | null>(null);
@@ -50,12 +51,24 @@ export function OrdersApp() {
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [printing, setPrinting] = useState<PurchaseGroup[] | null>(null);
   const [savedSig, setSavedSig] = useState('');
+  const [pictures, setPictures] = useState<PurchaseGroup | null>(null);
 
   useEffect(() => { api.purchases().then((r) => setHistory(r.uploads)).catch(() => {}); }, []);
 
   // Sheet rows + SKUs added on the page, so a SKU added this morning already lands on the right sheet.
   const allRows = useMemo<CatalogRow[]>(() => [...rows, ...(meta?.web ?? []).map((w) => webToRow(w, 0))], [rows, meta?.web]);
   const lookup = useMemo(() => makeLookup(allRows, supplierMap), [allRows, supplierMap]);
+  // Photo, code and colour per SKU for picture sheets: a picture added on the page, else column J of any size.
+  const productInfo = useMemo(() => {
+    const firstImage = new Map<string, string>();
+    for (const r of allRows) { const k = `${r.tab}|${spuOf(r.sku)}`; if (r.image && !firstImage.has(k)) firstImage.set(k, r.image); }
+    return (sku: string): ProductInfo | undefined => {
+      const r = lookup.rows.get(skuKey(sku));
+      if (!r) return undefined;
+      const key = `${r.tab}|${spuOf(r.sku)}`;
+      return { key, code: r.code || spuOf(r.sku), color: r.color, image: imageMap.get(key)?.thumb || thumb(firstImage.get(key) ?? '') };
+    };
+  }, [allRows, lookup, imageMap]);
   const lines = useMemo(() => (viewing ? viewing.lines : data ? buildLines(data.items, lookup) : []), [viewing, data, lookup]);
   const groups = useMemo(() => groupLines(lines), [lines]);
   const pieces = groups.reduce((n, g) => n + g.pieces, 0);
@@ -249,6 +262,7 @@ export function OrdersApp() {
               key={g.name} group={g} open={open.has(g.name)} onToggle={() => toggle(g.name)}
               editable={canEdit && !viewing} supplierNames={supplierNames}
               onSupplier={setSupplier} onExcel={() => exportExcel(g)} onPrint={() => print(g)} busy={!!busy}
+              onPictures={() => { save(); setPictures(g); }}
             />
           ))}
         </>
@@ -282,15 +296,16 @@ export function OrdersApp() {
       )}
 
       {printing && <PrintSheets groups={printing} date={date} round={round} />}
+      {pictures && <PictureModal group={pictures} date={date} round={round} info={productInfo} onClose={() => setPictures(null)} />}
     </div>
   );
 }
 
 // ---- one supplier / warehouse ----
 
-function GroupCard({ group: g, open, onToggle, editable, supplierNames, onSupplier, onExcel, onPrint, busy }: {
+function GroupCard({ group: g, open, onToggle, editable, supplierNames, onSupplier, onExcel, onPrint, onPictures, busy }: {
   group: PurchaseGroup; open: boolean; onToggle: () => void; editable: boolean; supplierNames: string[];
-  onSupplier: (items: { tab: string; spu: string }[], shop: string) => Promise<void>; onExcel: () => void; onPrint: () => void; busy: boolean;
+  onSupplier: (items: { tab: string; spu: string }[], shop: string) => Promise<void>; onExcel: () => void; onPrint: () => void; onPictures: () => void; busy: boolean;
 }) {
   const rowsOnSheet = sheetRows(g).length;
   const products = useMemo(() => {
@@ -310,6 +325,7 @@ function GroupCard({ group: g, open, onToggle, editable, supplierNames, onSuppli
         </button>
         {g.kind !== 'review' && (
           <div className="row-actions">
+            <button className={`small ${wantsPictures(g) ? 'primary' : ''}`} onClick={onPictures} disabled={busy} title="รูปสินค้า + SKU + ไซส์ ไม่มีภาษาไทย สำหรับส่งร้านจีน">รูปภาพ</button>
             <button className="small" onClick={onPrint} disabled={busy}>พิมพ์</button>
             <button className="small" onClick={onExcel} disabled={busy}>Excel</button>
           </div>
@@ -371,6 +387,69 @@ function SupplierSelect({ current, names, onPick }: { current: string; names: st
       <option value="">{current ? 'ตามชีต / โกดัง' : '— ตามชีต / โกดัง —'}</option>
       {names.map((n) => <option key={n} value={n}>{n}</option>)}
     </select>
+  );
+}
+
+// ---- picture sheets (no Thai) ----
+
+function PictureModal({ group, date, round, info, onClose }: { group: PurchaseGroup; date: string; round: number; info: (sku: string) => ProductInfo | undefined; onClose: () => void }) {
+  const { toast } = useUi();
+  const [images, setImages] = useState<{ blob: Blob; url: string; name: string }[] | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    const made: string[] = [];
+    pictureSheets(group.name, date, round, pictureBlocks(group, info)).then((blobs) => {
+      if (cancelled) return;
+      setImages(blobs.map((blob, i) => {
+        const url = URL.createObjectURL(blob);
+        made.push(url);
+        return { blob, url, name: `${group.name} ${dayMonth(date)} รอบ${round}${blobs.length > 1 ? ` (${i + 1}-${blobs.length})` : ''}.png` };
+      }));
+    }).catch((e) => setError(e.message));
+    return () => { cancelled = true; made.forEach((u) => URL.revokeObjectURL(u)); };
+  }, [group, date, round, info]);
+
+  const files = images?.map((im) => new File([im.blob], im.name, { type: 'image/png' })) ?? [];
+  const canShare = files.length > 0 && typeof navigator.canShare === 'function' && navigator.canShare({ files });
+  const saveAll = () => images?.forEach((im, i) => setTimeout(() => {
+    const a = document.createElement('a');
+    a.href = im.url;
+    a.download = im.name;
+    a.click();
+  }, i * 300));
+  async function copy(im: { blob: Blob }) {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': im.blob })]);
+      toast('คัดลอกรูปแล้ว · วางใน Line/WeChat ได้เลย', 'ok');
+    } catch { toast('คัดลอกรูปไม่ได้ในเบราว์เซอร์นี้ · ใช้ดาวน์โหลดแทน', 'bad'); }
+  }
+
+  return (
+    <Modal title={`รูปใบสั่ง ${group.name} · ${group.pieces} ชิ้น`} onClose={onClose} wide>
+      <p className="muted small">รูปสินค้า + SKU + ไซส์ × จำนวน · หัวข้อเป็นอังกฤษ/จีน ไม่มีภาษาไทย · รูปละไม่เกิน 7 รุ่น</p>
+      {error && <p className="bad">{error}</p>}
+      {!images && !error && <p className="muted">กำลังสร้างรูป…</p>}
+      {images && (
+        <>
+          <div className="row-actions" style={{ margin: '8px 0 12px' }}>
+            {canShare && <button className="primary" onClick={() => navigator.share({ files, title: `${group.name} ${dayMonth(date)}` }).catch(() => {})}>แชร์ไป Line / WeChat</button>}
+            <button className={canShare ? '' : 'primary'} onClick={saveAll}><Icon name="down" size={14} /> ดาวน์โหลด {images.length > 1 ? `ทั้ง ${images.length} รูป` : 'รูป'}</button>
+          </div>
+          <div className="po-pictures">
+            {images.map((im) => (
+              <figure key={im.url}>
+                <img src={im.url} alt={im.name} />
+                <figcaption className="small">
+                  {im.name} · <a href={im.url} download={im.name}>ดาวน์โหลด</a>
+                  {'ClipboardItem' in window && <> · <button className="link small" onClick={() => copy(im)}>คัดลอกรูป</button></>}
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </>
+      )}
+    </Modal>
   );
 }
 

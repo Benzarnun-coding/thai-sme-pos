@@ -432,6 +432,24 @@ export const COLOR_NAMES: Record<string, string> = {
   FLGO: 'ฟอกซีดด้ายทอง',
 };
 
+/** English (+ Chinese for the common ones) for order sheets sent to suppliers who do not read Thai. */
+export const COLOR_EN: Record<string, string> = {
+  BL: 'Black 黑色', BD: 'Rust Black', BW: 'Black Wash 黑洗', FL: 'Light Wash 浅洗', FD: 'Dark Wash 深洗', MD: 'Midnight 深蓝', NV: 'Navy 藏青',
+  NB: 'Navy Bio', NR: 'Navy Rust', MR: 'Midnight Rust', MB: 'Midnight Bio', BI: 'Bio Wash', SB: 'Sky Blue 天蓝', PB: 'Pale Blue 浅蓝',
+  DB: 'Dark Blue 深蓝', BN: 'Brown 棕色', BR: 'Dark Brown 深棕', LB: 'Light Brown 浅棕', OG: 'Army Green 军绿', KH: 'Khaki 卡其',
+  GY: 'Gray 灰色', LG: 'Light Gray 浅灰', GB: 'Gray Blue 灰蓝', CR: 'Cream 米白', TL: 'Teal', JN: 'Denim 牛仔蓝', WT: 'White 白色',
+  OW: 'Off-White 米白', GN: 'Green 绿色', OR: 'Orange 橙色', RE: 'Red 红色', DR: 'Dark Red 深红', MI: 'Milo', OV: 'Ovaltine',
+  PU: 'Purple 紫色', LP: 'Light Purple 浅紫', RB: 'Rainbow', PK: 'Pink 粉色', PP: 'Pastel Pink 浅粉', MAG: 'Magenta 玫红', BU: 'Blue 蓝色',
+  YL: 'Yellow 黄色', PY: 'Pastel Yellow 浅黄', CF: 'Coffee 咖啡色', PC: 'Peach', MG: 'Mint 薄荷绿', NG: 'Neon Green', BG: 'Beige 米色',
+  MS: 'Mustard 芥末黄', CC: 'Charcoal 炭灰', CA: 'Caramel 焦糖色', OL: 'Olive 橄榄绿', GD: 'Gold 金色', JD: 'Jade', CB: 'Cocoa 可可色',
+};
+
+/** "OR" → "OR · Orange 橙色"; unknown codes as they are. */
+export function colorForeign(code: string): string {
+  const name = COLOR_EN[code.toUpperCase()];
+  return name ? `${code} · ${name}` : code;
+}
+
 export function colorLabel(code: string): string {
   const name = COLOR_NAMES[code.toUpperCase()];
   return name ? `${code} ${name}` : code;

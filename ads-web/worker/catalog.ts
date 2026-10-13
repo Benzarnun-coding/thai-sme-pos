@@ -318,3 +318,28 @@ export async function saveSuppliers(db: D1Database, input: any, user: string): P
   await db.batch(statements);
   return set;
 }
+
+// ---- product pictures from other sites, for drawing picture sheets in the browser ----
+// A canvas cannot export pictures from Shopee/TikTok (no CORS), so the page fetches them through here. Only the image
+// hosts that appear in the sheet are allowed, so this cannot be used to reach anything else.
+
+const IMAGE_HOSTS = [/\.shopee\.co\.th$/, /\.susercontent\.com$/, /\.ibyteimg\.com$/, /\.tiktokcdn\.com$/, /(^|\.)page365\.net$/, /\.fbcdn\.net$/, /^drive\.google\.com$/, /\.googleusercontent\.com$/];
+const MAX_PROXY_BYTES = 6_000_000;
+
+export function allowedImageUrl(raw: string): URL | null {
+  let u: URL;
+  try { u = new URL(raw); } catch { return null; }
+  return u.protocol === 'https:' && !u.username && !u.password && !u.port && IMAGE_HOSTS.some((re) => re.test(u.hostname)) ? u : null;
+}
+
+export async function proxyImage(raw: string): Promise<Response> {
+  const u = allowedImageUrl(raw);
+  if (!u) return new Response('host not allowed', { status: 400 });
+  const res = await fetch(u.toString(), { redirect: 'follow', signal: AbortSignal.timeout(15_000) }).catch(() => null);
+  // Drive thumbnails redirect to googleusercontent; the final address must be allowed too.
+  if (!res || !res.ok || !allowedImageUrl(res.url || u.toString())) return new Response('not found', { status: 404 });
+  const type = res.headers.get('content-type') ?? '';
+  if (!/^image\/(jpeg|png|webp|gif)/.test(type)) return new Response('not an image', { status: 415 });
+  if (Number(res.headers.get('content-length') ?? 0) > MAX_PROXY_BYTES) return new Response('too large', { status: 413 });
+  return new Response(res.body, { headers: { 'Content-Type': type, 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' } });
+}

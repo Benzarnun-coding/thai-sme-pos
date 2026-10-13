@@ -142,3 +142,27 @@ test('the same file as CSV: UTF-8 commas, Bigseller UTF-16 tabs, Thai Excel (Win
 
   assert.deepEqual(missingOrderColumns(['Store', 'Product Name']), ['SKU', 'จำนวน']);
 });
+
+test('picture blocks: one per product, sizes in order, quantities added up', async () => {
+  const { pictureBlocks, sizeForeign, wantsPictures } = await import('../web/src/purchase.ts');
+  const cn: CatalogRow[] = [
+    row({ tab: 'CN', sku: 'PK004-CN-BL-L', code: 'PK-004', color: 'BL', size: 'L', image: 'https://cf.shopee.co.th/file/a' }),
+    row({ tab: 'CN', sku: 'PK004-CN-BL-2XL', code: 'PK-004', color: 'BL', size: '2XL' }),
+    row({ tab: 'CN', sku: 'C01-CN-GN-M', code: 'C01', color: 'GN', size: 'M' }),
+  ];
+  const items = readOrderItems([
+    { SKU: 'PK004-CN-BL-2XL', 'จำนวน': '1' }, { SKU: 'PK004-CN-BL-L', 'จำนวน': '2' }, { SKU: 'pk004-cn-bl-l', 'จำนวน': '1' }, { SKU: 'C01-CN-GN-M', 'จำนวน': '1' },
+  ]);
+  const lookup = makeLookup(cn, new Map());
+  const g = groupLines(buildLines(items, lookup))[0];
+  assert.equal(g.name, 'CN');
+  assert.ok(wantsPictures(g));
+  const info = (sku: string) => { const r = lookup.rows.get(sku.toUpperCase()); return r ? { key: `${r.tab}|${r.sku.split('-').slice(0, -1).join('-')}`, code: r.code, color: r.color, image: r.image } : undefined; };
+  const blocks = pictureBlocks(g, info);
+  assert.deepEqual(blocks.map((b) => [b.code, b.color, b.qty, b.sizes.map((s) => `${s.size}×${s.qty}`).join(' ')]), [['C01', 'GN', 1, 'M×1'], ['PK-004', 'BL', 4, 'L×3 2XL×1']]);
+  assert.equal(blocks[1].image, 'https://cf.shopee.co.th/file/a', 'photo from the first size listed (L), which has one');
+  assert.equal(sizeForeign('FE'), 'Free');
+  assert.equal(sizeForeign('Freesize'), 'Free');
+  assert.equal(sizeForeign('32'), '32');
+  assert.ok(!wantsPictures(groupLines(buildLines(readOrderItems(RAW), makeLookup(CATALOG, new Map())))[0]));
+});

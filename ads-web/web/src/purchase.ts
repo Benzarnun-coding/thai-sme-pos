@@ -226,3 +226,34 @@ export async function orderWorkbook(groups: PurchaseGroup[], date: string, round
   };
   return buildXlsx(groups.length > 1 ? [summary, ...groups.map((g) => groupSheet(g, date, round))] : groups.map((g) => groupSheet(g, date, round)));
 }
+
+// ---- picture sheets (suppliers who do not read Thai, e.g. the China warehouse CN) ----
+
+export interface PictureBlock { key: string; code: string; spu: string; color: string; image: string; sizes: { size: string; qty: number }[]; qty: number }
+export interface ProductInfo { key: string; code: string; color: string; image: string }
+
+/** One block per product: picture, code, colour, every size with its quantity. Same order as the sheet. */
+export function pictureBlocks(g: PurchaseGroup, info: (sku: string) => ProductInfo | undefined): PictureBlock[] {
+  const blocks = new Map<string, PictureBlock>();
+  for (const l of g.lines) {
+    const i = info(l.sku);
+    const key = i?.key || l.product || l.sku;
+    const b = blocks.get(key) ?? { key, code: i?.code || l.label, spu: spuOf(l.sku), color: i?.color ?? '', image: i?.image ?? '', sizes: [], qty: 0 };
+    const s = b.sizes.find((x) => x.size === l.size);
+    if (s) s.qty += l.qty; else b.sizes.push({ size: l.size, qty: l.qty });
+    b.qty += l.qty;
+    blocks.set(key, b);
+  }
+  for (const b of blocks.values()) b.sizes.sort((x, y) => compareSize(x.size, y.size));
+  return [...blocks.values()];
+}
+
+/** "FE" / "Freesize" → "Free"; sizes otherwise as they are. */
+export function sizeForeign(size: string): string {
+  return /^(fe|free ?size|freesize|f)$/i.test(size.trim()) ? 'Free' : size;
+}
+
+/** Groups that get a picture sheet by default: the China warehouse. */
+export function wantsPictures(g: PurchaseGroup): boolean {
+  return g.name === 'CN' || g.lines.every((l) => l.tab === 'CN');
+}

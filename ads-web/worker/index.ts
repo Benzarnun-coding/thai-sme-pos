@@ -26,7 +26,7 @@ import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetito
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
 import { deletePurchase, listPurchases, purchaseLines, savePurchase, validatePurchase } from './purchase.ts';
-import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, saveCatalogSheetId, saveImageLink, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
+import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveImageLink, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { approvalsEnabled, postProposal, saveProposals, verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
@@ -535,6 +535,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (method === 'GET' && path === '/api/catalog/image') {
     return imageResponse(env.DB, url.searchParams.get('key') ?? '', url.searchParams.get('size') === 'full' ? 'full' : 'thumb');
   }
+  if (method === 'GET' && path === '/api/catalog/image-proxy') return proxyImage(url.searchParams.get('url') ?? '');
   if (method === 'POST' && path === '/api/catalog/image') {
     const isForm = (req.headers.get('Content-Type') ?? '').includes('multipart/form-data');
     const image = isForm

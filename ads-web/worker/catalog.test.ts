@@ -4,7 +4,7 @@ import {
   buildSku, cleanSku, codeToPrefix, compareSize, diffTab, groupProducts, locationOf, normaliseRow, parseSheetTab, parseSizes,
   rowFromArray, rowToArray, search, skuKey, thumb, toSheetTsv, type WebSku,
 } from '../web/src/catalog.ts';
-import { imageKey, imageType, parseHtmlviewTabs, validateSync, validateWebSku } from './catalog.ts';
+import { allowedImageUrl, imageKey, imageType, parseHtmlviewTabs, validateSync, validateWebSku } from './catalog.ts';
 
 // Shaped like the real BB tab export: a title row, the header row, a "ต้นทุน+5" note row, then SKUs.
 const BB = [
@@ -183,4 +183,13 @@ test('uploaded pictures are checked by their bytes', () => {
   assert.equal(imageType(new TextEncoder().encode('<svg onload=alert(1)>')), null);
   assert.deepEqual(imageKey('BB', '200-BB-MD'), { key: 'BB|200-BB-MD', tab: 'BB', spu: '200-BB-MD' });
   assert.throws(() => imageKey('', 'x'), /สินค้าไหน/);
+});
+
+test('the picture relay only fetches image hosts from the sheet', () => {
+  for (const ok of ['https://cf.shopee.co.th/file/abc', 'https://down-th.img.susercontent.com/file/x_tn', 'https://p16-oec-va.ibyteimg.com/a.jpeg?x=1', 'https://assets.page365.net/photos/1.jpg', 'https://drive.google.com/thumbnail?id=1&sz=w400']) {
+    assert.ok(allowedImageUrl(ok), ok);
+  }
+  for (const bad of ['http://cf.shopee.co.th/file/abc', 'https://evil.com/cf.shopee.co.th', 'https://shopee.co.th.evil.com/x', 'https://user:pw@cf.shopee.co.th/x', 'https://cf.shopee.co.th:8443/x', 'https://169.254.169.254/latest', 'file:///etc/passwd', 'not a url']) {
+    assert.equal(allowedImageUrl(bad), null, bad);
+  }
 });
