@@ -340,6 +340,21 @@ export const tabLabel = (tab: string) => (tab === WEB_TAB ? 'กรอกใน�
 export const WINDOW_LABEL: Record<Window, string> = {
   today: 'วันนี้', yesterday: 'เมื่อวาน', last_3d: '3 วัน', last_7d: '7 วัน', last_14d: '14 วัน', last_30d: '30 วัน',
 };
+
+/** A custom date range, written into the window string as Ads Manager's picker would: "range:since:until" (Bangkok, inclusive). */
+export const rangeWindow = (since: string, until: string) => `range:${since <= until ? since : until}:${since <= until ? until : since}` as Window;
+export function parseRange(w: string): { since: string; until: string } | null {
+  const m = /^range:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/.exec(w);
+  return m ? { since: m[1], until: m[2] } : null;
+}
+/** Label for any window, presets and custom ranges alike ("11 ต.ค.", "5–11 ต.ค.") */
+export function windowLabel(w: Window): string {
+  const r = parseRange(w);
+  if (!r) return WINDOW_LABEL[w] ?? w;
+  const fmt = (d: string, month = true) => new Date(`${d}T00:00:00+07:00`).toLocaleDateString('th-TH', { day: 'numeric', ...(month ? { month: 'short' } : {}), timeZone: 'Asia/Bangkok' });
+  if (r.since === r.until) return fmt(r.since);
+  return r.since.slice(0, 7) === r.until.slice(0, 7) ? `${fmt(r.since, false)}–${fmt(r.until)}` : `${fmt(r.since)} – ${fmt(r.until)}`;
+}
 export const METRIC_LABEL: Record<Metric, string> = {
   spend: 'ใช้จ่าย', impressions: 'Impressions', clicks: 'คลิก', ctr: 'CTR %', cpc: 'CPC', frequency: 'Frequency',
   purchases: 'ยอดซื้อ', cpa: 'ต้นทุน/ออเดอร์', roas: 'ROAS', messages: 'แชท', cost_per_message: 'ต้นทุน/แชท',

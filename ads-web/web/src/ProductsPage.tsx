@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api, sectionName, tabLabel, WINDOW_LABEL, type CampaignView, type CostTier, type Overview } from './api.ts';
+import { api, sectionName, tabLabel, windowLabel, type CampaignView, type CostTier, type Overview } from './api.ts';
 import { WebCosts } from './WebCosts.tsx';
 import { baht, bahtRange, num, profitTone, roasTone, when } from './fmt.ts';
 import { Icon, useUi } from './ui.tsx';
@@ -68,7 +68,7 @@ function CampaignCostTable({ data, onReload, onOpenCampaign }: { data: Overview;
         <div>
           <h2>ต้นทุนรายแคมเปญ <span className="muted small">จากชีต "FB คำนวณค่า ADS" · {sheet.campaigns.length} แคมเปญ</span></h2>
           <p className="muted small">
-            ทุน/ออเดอร์ รวมค่าส่ง ภาษี เสียหาย COD แล้ว · ROAS และกำไรช่วง {WINDOW_LABEL[data.window]}
+            ทุน/ออเดอร์ รวมค่าส่ง ภาษี เสียหาย COD แล้ว · ROAS และกำไรช่วง {windowLabel(data.window)}
             {sheet.synced_at && <> · ดึงล่าสุด {when(sheet.synced_at)}</>} · แก้ตัวเลขในชีต
           </p>
         </div>

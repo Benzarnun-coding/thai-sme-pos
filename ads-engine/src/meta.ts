@@ -27,6 +27,15 @@ export interface DailyRow {
   purchase_value: number;
 }
 
+/**
+ * Meta's period parameter for a window: a preset (last_7d, yesterday, ...) or a custom date range written as
+ * "range:YYYY-MM-DD:YYYY-MM-DD" (Bangkok dates, inclusive), as Ads Manager's date picker does.
+ */
+export function periodParams(window: string): Record<string, string> {
+  const m = /^range:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/.exec(window);
+  return m ? { time_range: JSON.stringify({ since: m[1], until: m[2] }) } : { date_preset: WINDOW_TO_PRESET[window as Window] };
+}
+
 const WINDOW_TO_PRESET: Record<Window, string> = {
   today: 'today',
   yesterday: 'yesterday',
@@ -133,7 +142,7 @@ export class MetaClient {
   async insights(level: Level, window: Window): Promise<Map<string, Metrics>> {
     const rows = await this.getAll(`${this.accountId}/insights`, {
       level,
-      date_preset: WINDOW_TO_PRESET[window],
+      ...periodParams(window),
       fields: `${level}_id,spend,impressions,clicks,ctr,cpc,frequency,actions,action_values`,
     });
     const out = new Map<string, Metrics>();
@@ -163,7 +172,7 @@ export class MetaClient {
   /** Day-by-day numbers for one campaign (one call). */
   async dailyInsights(campaignId: string, window: Window): Promise<DailyRow[]> {
     const rows = await this.getAll(`${campaignId}/insights`, {
-      date_preset: WINDOW_TO_PRESET[window],
+      ...periodParams(window),
       time_increment: '1',
       fields: 'spend,impressions,clicks,actions,action_values',
     });
@@ -181,7 +190,7 @@ export class MetaClient {
   async dailyCampaignInsights(window: Window): Promise<CampaignDayRow[]> {
     const rows = await this.getAll(`${this.accountId}/insights`, {
       level: 'campaign',
-      date_preset: WINDOW_TO_PRESET[window],
+      ...periodParams(window),
       time_increment: '1',
       fields: 'campaign_id,spend,impressions,clicks,actions,action_values',
     });

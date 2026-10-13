@@ -179,7 +179,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
 
   if (method === 'GET' && path === '/api/overview') {
     const w = url.searchParams.get('window') as Window;
-    return json(await overview(env, DASHBOARD_WINDOWS.includes(w) ? w : 'last_7d', url.searchParams.get('fresh') === '1'));
+    return json(await overview(env, parseView(w), url.searchParams.get('fresh') === '1'));
   }
 
   // ---- sections ----
@@ -969,6 +969,21 @@ async function salesDigest(env: Env, date: string, remindIfMissing = false): Pro
     `ไม่ใช่แอด ${organic.length} ออเดอร์ ${b(n((o) => (o.match === 'none' ? o.total : 0)))} (${orders.length ? Math.round((organic.length / orders.length) * 100) : 0}%) · จับคู่แอดได้ ${orders.length - organic.length}/${orders.length}`,
   ];
   await pushDiscord(lines.join('\n'), env.DISCORD_WEBHOOK_URL);
+}
+
+/**
+ * A preset window, or a custom range "range:YYYY-MM-DD:YYYY-MM-DD" (Bangkok dates, like Ads Manager's picker):
+ * at most 90 days, not in the future. Anything else falls back to 7 days.
+ */
+function parseView(w: string | null): Window {
+  if (w && DASHBOARD_WINDOWS.includes(w as Window)) return w as Window;
+  const m = w ? /^range:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/.exec(w) : null;
+  if (m) {
+    const [since, until] = m[1] <= m[2] ? [m[1], m[2]] : [m[2], m[1]];
+    const days = (Date.parse(until) - Date.parse(since)) / 86_400_000;
+    if (Number.isFinite(days) && days <= 90 && until <= bkkDate(0)) return `range:${since}:${until}` as Window;
+  }
+  return 'last_7d';
 }
 
 /** After a user change: push the email list to Cloudflare Access when the token is set; a failure is reported, not fatal. */

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { WINDOW_LABEL, type CampaignView, type Idea, type Overview as OverviewData, type Preview, type PreviewItem, type Stage, type Window } from './api.ts';
+import { parseRange, rangeWindow, WINDOW_LABEL, windowLabel, type CampaignView, type Idea, type Overview as OverviewData, type Preview, type PreviewItem, type Stage, type Window } from './api.ts';
 import { stageLabel, useCampaignActions } from './actions.tsx';
 import { baht, bahtRange, cvr, num, profitTone, roasTone, time, when } from './fmt.ts';
 import type { RulesTarget } from './RulesPage.tsx';
@@ -51,6 +51,7 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
             <button key={w} role="tab" aria-selected={w === window} className={w === window ? 'on' : ''} onClick={() => onWindow(w)}>{WINDOW_LABEL[w]}</button>
           ))}
         </div>
+        {!data.snapshot && <RangePicker window={window} onWindow={onWindow} />}
         {!data.snapshot && (
           <button className="ghost small fresh" onClick={onRefresh} title="ดึงข้อมูลใหม่จาก Meta (ไม่เกินนาทีละครั้ง)">
             <Icon name="refresh" size={16} /> อัปเดต {time(data.meta_fetched_at)}
@@ -364,4 +365,43 @@ function readSort(): SortKey {
 }
 function saveSort(v: string) {
   try { localStorage.setItem('sort', v); } catch { /* private mode */ }
+}
+
+/** Pick one day or a date range, like Ads Manager's date picker. Up to 90 days, nothing after today. */
+function RangePicker({ window, onWindow }: { window: Window; onWindow: (w: Window) => void }) {
+  const current = parseRange(window);
+  const today = new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10);
+  const yesterday = new Date(Date.now() + 7 * 3_600_000 - 86_400_000).toISOString().slice(0, 10);
+  const [open, setOpen] = useState(false);
+  const [since, setSince] = useState(current?.since ?? yesterday);
+  const [until, setUntil] = useState(current?.until ?? yesterday);
+  const days = Math.round((Date.parse(until) - Date.parse(since)) / 86_400_000) + 1;
+  const valid = since && until && since <= until && until <= today && days <= 90;
+  const apply = (s: string, u: string) => { onWindow(rangeWindow(s, u)); setOpen(false); };
+  return (
+    <span className="range-picker">
+      <button className={`range-btn ${current ? 'on' : ''}`} onClick={() => setOpen(!open)} aria-expanded={open}>
+        <Icon name="calendar" size={14} /> {current ? windowLabel(window) : 'เลือกวัน'}
+      </button>
+      {open && (
+        <div className="range-pop" role="dialog" aria-label="เลือกช่วงวันที่">
+          <div className="range-quick">
+            {[1, 2, 3, 4, 5, 6, 7].map((back) => {
+              const d = new Date(Date.now() + 7 * 3_600_000 - back * 86_400_000).toISOString().slice(0, 10);
+              return <button key={d} className="ghost small" onClick={() => apply(d, d)}>{windowLabel(rangeWindow(d, d))}</button>;
+            })}
+          </div>
+          <div className="row gap wrap">
+            <label>ตั้งแต่<input type="date" id="range-since" value={since} max={today} onChange={(e) => { setSince(e.target.value); if (e.target.value > until) setUntil(e.target.value); }} /></label>
+            <label>ถึง<input type="date" id="range-until" value={until} max={today} min={since} onChange={(e) => setUntil(e.target.value)} /></label>
+          </div>
+          <div className="row gap">
+            <button className="primary" disabled={!valid} onClick={() => apply(since, until)}>ดู {valid ? (days === 1 ? '1 วัน' : `${days} วัน`) : ''}</button>
+            <button className="ghost" onClick={() => setOpen(false)}>ปิด</button>
+          </div>
+          {!valid && days > 90 && <p className="small warn">เลือกได้ไม่เกิน 90 วัน</p>}
+        </div>
+      )}
+    </span>
+  );
 }

@@ -119,6 +119,7 @@ const PATHS: Record<string, string> = {
   play: 'M6 4l10 6-10 6z',
   clock: 'M10 17a7 7 0 100-14 7 7 0 000 14zM10 6v4l3 2',
   up: 'M10 16V4M5 9l5-5 5 5',
+  calendar: 'M4 5h12v11H4zM4 8.5h12M7.5 3v3.5M12.5 3v3.5',
   down: 'M10 4v12M5 11l5 5 5-5',
   pause: 'M7 4v12M13 4v12',
   move: 'M4 10h11M11 6l4 4-4 4',
