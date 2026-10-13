@@ -2,7 +2,7 @@
 // is in the sheet and in Bigseller (no translation). PNG pages drawn on a canvas in the browser:
 //   orderPictureSheets  one block per order, like Bigseller's picking list (order no., carrier + tracking, photo,
 //                       product name, SKU, option, quantity, store, ทั้งหมด, cut line) — CN packs each order itself
-//   pictureSheets       one block per product: photo, code, colour, sizes × quantity
+//   pictureSheets       one block per product: photo, code, colour, sizes × quantity, order numbers per size
 // Photos from other sites come through /api/catalog/image-proxy so the canvas can still be exported.
 
 import { colorLabel } from './catalog.ts';
@@ -213,6 +213,8 @@ export async function orderPictureSheets(title: string, date: string, round: num
 
 const PHOTO = 220;
 const MIN_BLOCK = PHOTO + 40;
+const MONO = '500 21px Menlo, Consolas, "Courier New", monospace';
+const ORDER_LINE = 28;
 
 export async function pictureSheets(title: string, date: string, round: number, blocks: PictureBlock[]): Promise<Blob[]> {
   const measure = document.createElement('canvas').getContext('2d')!;
@@ -229,7 +231,22 @@ export async function pictureSheets(title: string, date: string, round: number, 
       lines[lines.length - 1].push(c);
       x += chipW(c) + 12;
     }
-    return { block, lines, height: Math.max(MIN_BLOCK, 132 + lines.length * 54) };
+    // Order numbers per size, wrapped across the full width under the chips: "30: 5865…, 5865…".
+    measure.font = MONO;
+    const fullW = W - textX - PAD;
+    const orderLines: string[] = [];
+    for (const sz of block.sizes) {
+      if (!sz.orders.length) continue;
+      let line = `${sz.size || '—'}: `;
+      sz.orders.forEach((o, i) => {
+        const piece = i ? `, ${o}` : o;
+        if (i && measure.measureText(line + piece).width > fullW) { orderLines.push(`${line},`); line = `   ${o}`; } else line += piece;
+      });
+      orderLines.push(line);
+    }
+    measure.font = `600 30px ${FONT}`;
+    const ordersH = orderLines.length ? 10 + orderLines.length * ORDER_LINE : 0;
+    return { block, lines, orderLines, height: Math.max(MIN_BLOCK, 132 + lines.length * 54 + ordersH + 12) };
   });
   const pages = paginate(laid, (l) => l.height);
   const images = await loadAll(blocks.map((b) => b.image));
@@ -242,7 +259,7 @@ export async function pictureSheets(title: string, date: string, round: number, 
     header(ctx, title, date, round, `รวม ${total} ชิ้น`, pages.length > 1 ? `หน้า ${pi + 1}/${pages.length}` : `${blocks.length} รุ่น`);
 
     let top = HEAD;
-    for (const { block: b, lines, height } of page) {
+    for (const { block: b, lines, orderLines, height } of page) {
       drawPhoto(ctx, images.get(b.image), PAD, top + 20, PHOTO);
       ctx.textBaseline = 'alphabetic';
       ctx.fillStyle = '#111827';
@@ -271,6 +288,12 @@ export async function pictureSheets(title: string, date: string, round: number, 
           cx += w + 12;
         }
         cy += 54;
+      }
+      if (orderLines.length) {
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillStyle = '#374151';
+        ctx.font = MONO;
+        orderLines.forEach((line, i) => ctx.fillText(line, textX, cy + 22 + i * ORDER_LINE));
       }
 
       ctx.textAlign = 'right';

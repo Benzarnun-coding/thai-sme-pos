@@ -47,7 +47,7 @@ const COLUMNS = {
   name: ['ชื่อสินค้า', 'Product Name', 'Item Name', 'Product'],
   option: ['ชื่อตัวเลือก', 'Variation', 'Variation Name', 'Variant Name', 'Option'],
   qty: ['จำนวน', 'Quantity', 'Qty', 'Item Qty'],
-  order: ['หมายเลขคำสั่งซื้อ', 'Order No.', 'Order Number', 'Order ID', 'Order No'],
+  order: ['หมายเลขคำสั่งซื้อ', 'เลขที่คำสั่งซื้อ', 'เลขคำสั่งซื้อ', 'หมายเลขออเดอร์', 'เลขออเดอร์', 'Order No.', 'Order Number', 'Order ID', 'Order No', 'Order SN', 'Platform Order No.'],
   tracking: ['หมายเลขแทรคกิ้ง', 'หมายเลขติดตามพัสดุ', 'Tracking No.', 'Tracking Number', 'Tracking No'],
   carrier: ['ชื่อโลจิสติกส์', 'ขนส่ง', 'Logistics', 'Shipping Provider', 'Logistics Name', 'Shipping Carrier'],
 } as const;
@@ -256,7 +256,7 @@ export async function orderWorkbook(groups: PurchaseGroup[], date: string, round
 
 // ---- picture sheets (the China warehouse CN: pictures are easier to pick from than a list) ----
 
-export interface PictureBlock { key: string; code: string; spu: string; color: string; image: string; sizes: { size: string; qty: number }[]; qty: number }
+export interface PictureBlock { key: string; code: string; spu: string; color: string; image: string; sizes: { size: string; qty: number; orders: string[] }[]; qty: number }
 export interface ProductInfo { key: string; code: string; color: string; image: string }
 
 /** One block per product: picture, code, colour, every size with its quantity. Same order as the sheet. */
@@ -267,7 +267,10 @@ export function pictureBlocks(g: PurchaseGroup, info: (sku: string) => ProductIn
     const key = i?.key || l.product || l.sku;
     const b = blocks.get(key) ?? { key, code: i?.code || l.label, spu: spuOf(l.sku), color: i?.color ?? '', image: i?.image ?? '', sizes: [], qty: 0 };
     const s = b.sizes.find((x) => x.size === l.size);
-    if (s) s.qty += l.qty; else b.sizes.push({ size: l.size, qty: l.qty });
+    if (s) {
+      s.qty += l.qty;
+      for (const o of l.orders ?? []) if (!s.orders.includes(o)) s.orders.push(o);
+    } else b.sizes.push({ size: l.size, qty: l.qty, orders: [...(l.orders ?? [])] });
     b.qty += l.qty;
     blocks.set(key, b);
   }

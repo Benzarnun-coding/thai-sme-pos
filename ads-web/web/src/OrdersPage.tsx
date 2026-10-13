@@ -8,7 +8,7 @@ import { api, type PurchaseUpload, type SavedPurchaseLine } from './api.ts';
 import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from './catalog.ts';
 import { num } from './fmt.ts';
 import {
-  applyMoves, buildLines, dateFromFileName, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
+  applyMoves, buildLines, dateFromFileName, orderColumns, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
   orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
 } from './purchase.ts';
 import { orderPictureSheets, pictureSheets } from './pictureSheet.ts';
@@ -109,14 +109,26 @@ export function OrdersApp() {
       if (missing) throw new Error(`ไฟล์ "${file.name}" ไม่มีคอลัมน์ ${missing.join(', ')} · หัวตารางที่อ่านได้: ${headers.slice(0, 6).join(', ') || '(ว่าง)'}`);
       const items = readOrderItems(raw, headers);
       if (!items.length) throw new Error('ไม่พบรายการสินค้าในไฟล์');
-      const d = dateFromFileName(file.name) ?? todayBkk();
+      if (!orderColumns(headers).order) toast('ไฟล์นี้ไม่มีคอลัมน์ "หมายเลขคำสั่งซื้อ" · ใบสั่งจะไม่มีเลขคำสั่งซื้อ', 'bad');
+      // The same file again (e.g. a round saved before order numbers were kept): pick that round, so saving updates
+      // it — order numbers filled in, out-of-stock ticks kept — instead of starting a new round.
+      const same = history.find((h) => h.file === file.name);
+      const d = same?.date ?? dateFromFileName(file.name) ?? todayBkk();
       setViewing(null);
       setMoves(new Map());
       setMissingMap(new Map());
       setData({ file: file.name, items });
       setDate(d);
-      setRound(nextRound(d));
+      setRound(same ? same.round : nextRound(d));
       setSavedSig('');
+      if (same) {
+        // Bring back what was done on that round: rows moved by hand, and the out-of-stock ticks.
+        const { lines: saved } = await api.purchaseLines(same.id);
+        const fresh = new Map(buildLines(items, lookup).map((l) => [l.sku, l.group]));
+        setMoves(new Map(saved.filter((l) => fresh.has(l.sku) && fresh.get(l.sku) !== l.grp).map((l) => [l.sku, l.grp])));
+        setMissingMap(new Map(saved.filter((l) => l.missing > 0).map((l) => [lineKey({ sku: l.sku }), l.missing])));
+        toast(`ไฟล์นี้เคยบันทึกเป็น ${thaiShortDate(same.date)} รอบ ${same.round} · เปิดรอบเดิมพร้อมการย้ายร้านและติ๊กของไม่มี · ดาวน์โหลด/พิมพ์/ติ๊ก จะอัปเดตรอบนี้ (เติมเลขคำสั่งซื้อ)`, 'info');
+      }
     } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(''); }
   }
 
@@ -273,6 +285,9 @@ export function OrdersApp() {
             <label>วันที่<input type="date" value={date} disabled={!!viewing} onChange={(e) => { setDate(e.target.value); if (!viewing) setRound(nextRound(e.target.value)); }} /></label>
             <label>รอบ<select value={round} disabled={!!viewing} onChange={(e) => setRound(Number(e.target.value))}>{[1, 2, 3, 4, 5, 6].map((r) => <option key={r} value={r}>รอบ {r}{history.some((h) => h.date === date && h.round === r) ? ' (มีแล้ว)' : ''}</option>)}</select></label>
             {viewing && <button className="ghost small" onClick={() => setViewing(null)}>ปิดใบย้อนหลัง</button>}
+            {viewing && viewing.lines.length > 0 && viewing.lines.every((l) => !l.orders?.length) && (
+              <span className="warn small">รอบนี้บันทึกก่อนระบบเก็บเลขคำสั่งซื้อ · อัปโหลดไฟล์เดิม{viewing.upload.file ? ` (${viewing.upload.file})` : ''} อีกครั้ง แล้วกดดาวน์โหลด/พิมพ์ จะเติมเลขให้รอบนี้ (ติ๊กของไม่มียังอยู่)</span>
+            )}
             {!viewing && history.some((h) => h.date === date && h.round === round) && <span className="warn small">วันที่และรอบนี้มีใบสั่งแล้ว · ดาวน์โหลด/พิมพ์จะบันทึกทับ</span>}
           </div>
         )}

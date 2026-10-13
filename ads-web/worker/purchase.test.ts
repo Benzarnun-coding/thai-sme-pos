@@ -160,6 +160,10 @@ test('picture blocks: one per product, sizes in order, quantities added up', asy
   const info = (sku: string) => { const r = lookup.rows.get(sku.toUpperCase()); return r ? { key: `${r.tab}|${r.sku.split('-').slice(0, -1).join('-')}`, code: r.code, color: r.color, image: r.image } : undefined; };
   const blocks = pictureBlocks(g, info);
   assert.deepEqual(blocks.map((b) => [b.code, b.color, b.qty, b.sizes.map((s) => `${s.size}×${s.qty}`).join(' ')]), [['C01', 'GN', 1, 'M×1'], ['PK-004', 'BL', 4, 'L×3 2XL×1']]);
+  const withOrders = pictureBlocks(groupLines(buildLines(readOrderItems([
+    { SKU: 'PK004-CN-BL-L', 'จำนวน': '1', 'หมายเลขคำสั่งซื้อ': 'O1' }, { SKU: 'PK004-CN-BL-L', 'จำนวน': '1', 'หมายเลขคำสั่งซื้อ': 'O2' }, { SKU: 'PK004-CN-BL-2XL', 'จำนวน': '1', 'หมายเลขคำสั่งซื้อ': 'O1' },
+  ]), lookup))[0], info);
+  assert.deepEqual(withOrders[0].sizes.map((s) => [s.size, s.orders]), [['L', ['O1', 'O2']], ['2XL', ['O1']]], 'order numbers per size');
   assert.equal(blocks[1].image, 'https://cf.shopee.co.th/file/a', 'photo from the first size listed (L), which has one');
   assert.ok(!wantsPictures(groupLines(buildLines(readOrderItems(RAW), makeLookup(CATALOG, new Map())))[0]));
 });
