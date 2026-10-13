@@ -1079,6 +1079,10 @@ async function discordInteraction(req: Request, env: Env): Promise<Response> {
   const d = JSON.parse(p.detail || '{}');
   const mark = (status: string) => env.DB.prepare('UPDATE proposals SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = \'pending\'').bind(status, who, at, p.id).run();
   try {
+    if ((p.kind as string) === 'test') {
+      await mark(verb === 'approve' ? 'approved' : 'rejected');
+      return reply(`✅ **ทดสอบปุ่มสำเร็จ** — ${who} กด "${verb === 'approve' ? 'อนุมัติ' : verb === 'reject' ? 'ไม่' : 'ย้ายไปทดสอบ'}" · บอทพร้อมใช้งาน (ข้อความนี้เป็นการทดสอบ ไม่ได้แตะแอดจริง)`);
+    }
     if (verb === 'approve' && p.kind === 'pause') {
       await metaFor(env).setStatus(p.entity_id, 'PAUSED');
       await patchCachedEntity(env.DB, p.entity_id, { status: 'PAUSED' }).catch(() => null);
