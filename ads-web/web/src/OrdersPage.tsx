@@ -17,7 +17,6 @@ import { useCatalog } from './useCatalog.ts';
 import { readFirstSheet } from './xlsx.ts';
 import { parseExport } from './gosell.ts';
 
-const ROWS_PER_COLUMN = 32;
 
 interface Loaded { file: string; items: OrderItem[] }
 interface FromHistory { upload: PurchaseUpload; lines: PurchaseLine[] }
@@ -628,42 +627,37 @@ function PictureModal({ group, date, round, info, orders, onClose }: {
   );
 }
 
-// ---- print: one A4 page per sheet, two columns like the hand-made ones ----
+// ---- print: one sheet per supplier/warehouse, starting on a new page; long sheets run on with the header repeated ----
 
 function PrintSheets({ groups, date, round }: { groups: PurchaseGroup[]; date: string; round: number }) {
-  const pages: { g: PurchaseGroup; cols: ReturnType<typeof sheetRows>[]; last: boolean }[] = [];
-  for (const g of groups) {
-    const rows = sheetRows(g);
-    const perPage = ROWS_PER_COLUMN * 2;
-    for (let i = 0; i < Math.max(rows.length, 1); i += perPage) {
-      const chunk = rows.slice(i, i + perPage);
-      pages.push({ g, cols: [chunk.slice(0, ROWS_PER_COLUMN), chunk.slice(ROWS_PER_COLUMN)], last: i + perPage >= rows.length });
-    }
-  }
   return (
     <div className="print-area">
-      {pages.map((p, pi) => (
-        <div className="po-page" key={pi}>
-          <div className="po-page-head">
-            <span>{thaiShortDate(date)}</span>
-            <b>{p.g.name}</b>
-            <span>รอบ {round}</span>
+      {groups.map((g) => {
+        const showNote = g.kind === 'unassigned' || g.name === MISSING_GROUP;
+        return (
+          <div className="po-page" key={g.name}>
+            <div className="po-page-head">
+              <span>{thaiShortDate(date)}</span>
+              <b>{g.name}</b>
+              <span>รอบ {round}</span>
+            </div>
+            <table className="po-sheet">
+              <colgroup><col className="c-code" /><col className="c-size" /><col className="c-qty" /><col className="c-orders" /><col className="c-note" /></colgroup>
+              <thead><tr><th>รหัสสินค้า</th><th>ไซส์</th><th>จำนวน</th><th>เลขคำสั่งซื้อ</th><th>หมายเหตุ</th></tr></thead>
+              <tbody>
+                {sheetRows(g).map((r, ri) => (
+                  <tr key={ri} className={r.band % 2 === 0 ? 'shade' : ''}>
+                    <td>{r.label}</td><td>{r.size}</td><td>{r.qty}</td>
+                    <td className="orders">{r.orders.map((o) => <div key={o}>{o}</div>)}</td>
+                    <td>{showNote ? r.note : ''}</td>
+                  </tr>
+                ))}
+                <tr className="total"><td>รวม</td><td /><td>{g.pieces}</td><td /><td /></tr>
+              </tbody>
+            </table>
           </div>
-          <div className="po-page-cols">
-            {p.cols.map((col, ci) => (
-              <table key={ci} className="po-sheet">
-                <thead><tr><th>รหัสสินค้า</th><th>ไซส์</th><th>จำนวน</th><th>หมายเหตุ</th></tr></thead>
-                <tbody>
-                  {col.map((r, ri) => (
-                    <tr key={ri} className={r.band % 2 === 0 ? 'shade' : ''}><td>{r.label}</td><td>{r.size}</td><td>{r.qty}</td><td>{p.g.kind === 'unassigned' || p.g.name === MISSING_GROUP ? r.note : ''}</td></tr>
-                  ))}
-                  {p.last && ci === (p.cols[1].length ? 1 : 0) && <tr className="total"><td>รวม</td><td /><td>{p.g.pieces}</td><td /></tr>}
-                </tbody>
-              </table>
-            ))}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
