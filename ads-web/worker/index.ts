@@ -28,7 +28,8 @@ import { PRIVACY_HTML } from './privacy.ts';
 import { deletePurchase, listPurchases, purchaseLines, savePurchase, setMissing, validateMissing, validatePurchase } from './purchase.ts';
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveImageLink, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
-import { approvalsEnabled, idList, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
+import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
+import { approvalsEnabled, expireOld, idList, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
@@ -136,7 +137,9 @@ export default {
         ctx.waitUntil(insertRun(env.DB, { run_at, trigger: 'schedule', dry_run: true, summary: `ผิดพลาด: ${err.message}`, report: { run_at, dry_run: true, entities_evaluated: 0, decisions: [], totals: { daily_budget_before: 0, daily_budget_after: 0 }, errors: [err.message], notes: [] } }));
         return;
       }
-      ctx.waitUntil(runAutomation(env, meta, { trigger: 'schedule' }));
+      // Monday 08:00 Bangkok: after the run, ask whether the shop-wide daily cap may grow (goal.ts).
+      const monday = new Date(Date.now() + 7 * 3_600_000).getUTCDay() === 1 && new Date().getUTCHours() < 6;
+      ctx.waitUntil(runAutomation(env, meta, { trigger: 'schedule' }).then(() => (monday ? scaleCheck(env).catch((err) => console.error('scale', err)) : null)));
     }
   },
 } satisfies ExportedHandler<Env>;
@@ -414,6 +417,13 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
 
   // ---- Discord bot: a test question with buttons ----
+  if (path === '/api/goal' && method === 'GET') return json(await loadGoal(env));
+  if (path === '/api/goal/scale-check' && method === 'POST') {
+    const r = await scaleCheck(env);
+    await audit(env.DB, user, 'goal.scale_check', 'shop', r);
+    return json(r);
+  }
+
   if (path === '/api/discord/test' && method === 'POST') {
     if (!approvalsEnabled(env)) throw new BadRequest('ยังตั้งค่าบอท Discord ไม่ครบ (DISCORD_BOT_TOKEN / DISCORD_APP_PUBLIC_KEY / DISCORD_CHANNEL_ID)');
     if (url.searchParams.get('kind') === 'upload') {
@@ -1082,7 +1092,65 @@ function finite<T extends object | undefined>(m: T): T {
 
 /** 07:30 Discord note: yesterday's real numbers (Page365) when the file is in; the reminder waits until 10:00. */
 async function dailyDigest(env: Env): Promise<void> {
-  return salesDigest(env, bkkDate(1));
+  await salesDigest(env, bkkDate(1));
+  if (!env.DISCORD_WEBHOOK_URL) return;
+  const g = await loadGoal(env).catch(() => null);
+  if (g) await pushDiscord(goalText(g), env.DISCORD_WEBHOOK_URL);
+}
+
+/** Month-to-date real net vs the monthly goal, the MER the goal needs, and the last 7 days' real MER. */
+async function loadGoal(env: Env): Promise<GoalStatus> {
+  const yesterday = bkkDate(1);
+  const { month, daysInMonth, dates } = monthDates(yesterday);
+  const last7 = Array.from({ length: 7 }, (_, i) => bkkDate(i + 1));
+  const all = [...new Set([...dates, ...last7])].sort();
+  const [settings, uploads, orders] = await Promise.all([loadSettings(env.DB), loadUploads(env.DB, all), loadOrders(env.DB, all)]);
+  // Spend per day from one Meta call over the whole span (cached; at most 31 days).
+  const rows = uploads.size ? await (await metaData(env)).data.dailyAll(`range:${all[0]}:${yesterday}` as Window) : [];
+  const spend = new Map<string, number>();
+  for (const r of rows) spend.set(r.date, (spend.get(r.date) ?? 0) + r.spend);
+  const byDate = new Map<string, typeof orders>();
+  for (const o of orders) byDate.set(o.date, [...(byDate.get(o.date) ?? []), o]);
+  const net = (d: string): DayNet => dayNet(d, byDate.get(d) ?? [], settings.order_fees, spend.get(d) ?? 0);
+  return goalStatus(month, daysInMonth, dates, dates.filter((d) => uploads.has(d)).map(net), last7.filter((d) => uploads.has(d)).map(net), settings.goal);
+}
+
+function goalText(g: GoalStatus): string {
+  const b = (x: number) => Math.round(x).toLocaleString('th-TH');
+  const pct = g.goal.monthly_net ? Math.round((g.net / g.goal.monthly_net) * 100) : 0;
+  const monthTh = new Date(`${g.month}-01T00:00:00+07:00`).toLocaleDateString('th-TH', { month: 'long', timeZone: 'Asia/Bangkok' });
+  return [
+    `🎯 **เป้ากำไร${monthTh} ${b(g.goal.monthly_net)}** · ได้แล้ว **${b(g.net)}** (${pct}%) จาก ${g.days.length} วันที่มีไฟล์${g.missing.length ? ` · ขาดไฟล์ ${g.missing.length} วัน` : ''}`,
+    g.avg_net === null ? '' : `เฉลี่ยวันละ ${b(g.avg_net)} → คาดสิ้นเดือน **${b(g.projected ?? 0)}** · ต้องได้วันละ **${b(g.needed_per_day)}** ถึงจะทัน`,
+    `MER จริง 7 วัน ${g.mer_7d === null ? '– (ไฟล์ไม่ครบ)' : `**${g.mer_7d.toFixed(2)}**`} (เป้า ≥ ${g.goal.scale_mer})${g.target_revenue_per_day ? ` · ต้องขายวันละ ~${b(g.target_revenue_per_day)} ที่ MER นี้` : ''}`,
+  ].filter(Boolean).join('\n');
+}
+
+/**
+ * Weekly: real 7-day MER ≥ the goal's MER → ask in Discord to raise the shop-wide daily cap by goal.scale_pct;
+ * below it → a note only. Nothing changes until someone presses the button.
+ */
+async function scaleCheck(env: Env): Promise<{ asked: boolean; reason: string }> {
+  const [g, settings] = await Promise.all([loadGoal(env), loadSettings(env.DB)]);
+  const cap = settings.guardrails.max_total_daily_budget;
+  const say = async (reason: string, asked = false) => {
+    if (!asked && env.DISCORD_WEBHOOK_URL) await pushDiscord(`📈 **เช็กขยายเพดานงบประจำสัปดาห์** — ${reason}`, env.DISCORD_WEBHOOK_URL).catch(() => false);
+    return { asked, reason };
+  };
+  if (g.mer_7d === null) return say(`ไฟล์ Page365 7 วันล่าสุดมีแค่ ${g.mer_7d_days} วัน (ต้อง ≥ 6) — ยังไม่ขยาย เพดานคง ${cap.toLocaleString('th-TH')}`);
+  if (g.mer_7d < g.goal.scale_mer) return say(`MER จริง 7 วัน ${g.mer_7d.toFixed(2)} ต่ำกว่าเกณฑ์ ${g.goal.scale_mer} — ยังไม่ขยาย เพดานคง ${cap.toLocaleString('th-TH')} · ให้กฎคุมความคุ้มก่อน`);
+  if (!approvalsEnabled(env)) return say(`MER จริง 7 วัน ${g.mer_7d.toFixed(2)} ผ่านเกณฑ์ แต่ยังไม่ได้ตั้งบอท Discord — ขยายเองในหน้าตั้งค่า`);
+  const now = new Date().toISOString();
+  await expireOld(env, now).catch(() => null);
+  if ((await recentlyAsked(env.DB, new Date(Date.now() - 3 * 86_400_000).toISOString())).has('cap-up:shop')) return { asked: false, reason: 'ถามไปแล้ว รอคำตอบ' };
+  const net7 = g.days.filter((d) => d.date >= bkkDate(7)).reduce((t, d) => t + d.net, 0);
+  const p = { id: crypto.randomUUID(), created_at: now, kind: 'cap', entity_id: 'shop', entity_name: 'เพดานงบรวมต่อวัน', rule_id: 'cap-up',
+    plan: `MER 7 วัน ${g.mer_7d.toFixed(2)} ≥ ${g.goal.scale_mer}`, detail: JSON.stringify({ from: cap, to: nextCap(cap, g.goal.scale_pct), pct: g.goal.scale_pct, mer: g.mer_7d, need: g.goal.scale_mer, net7 }),
+    status: 'pending', decided_by: null, decided_at: null, message_id: null } as Proposal;
+  await saveProposals(env.DB, [p]);
+  const id = await postProposal(env, p);
+  if (id) await env.DB.prepare('UPDATE proposals SET message_id = ? WHERE id = ?').bind(id, p.id).run();
+  return { asked: !!id, reason: `MER จริง 7 วัน ${g.mer_7d.toFixed(2)} ผ่านเกณฑ์ — ถามใน Discord แล้ว (${cap} → ${nextCap(cap, g.goal.scale_pct)})` };
 }
 
 const thaiDay = (date: string) => new Date(`${date}T00:00:00+07:00`).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' });
@@ -1187,6 +1255,18 @@ async function discordInteraction(req: Request, env: Env): Promise<Response> {
   const d = JSON.parse(p.detail || '{}');
   const mark = (status: string) => env.DB.prepare('UPDATE proposals SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = \'pending\'').bind(status, who, at, p.id).run();
   try {
+    if (verb === 'approve' && p.kind === 'cap') {
+      const settings = await loadSettings(env.DB);
+      if (settings.guardrails.max_total_daily_budget !== d.from) {
+        await mark('expired');
+        return reply(`เพดานงบเปลี่ยนไปแล้ว (ตอนนี้ ${settings.guardrails.max_total_daily_budget}) — คำถามนี้ไม่ใช้แล้วค่ะ`);
+      }
+      const next = { ...settings, guardrails: { ...settings.guardrails, max_total_daily_budget: d.to } };
+      await saveSettings(env.DB, next);
+      await mark('approved');
+      await audit(env.DB, `discord:${who}`, 'settings.update', 'settings', { before: settings, after: next });
+      return reply(`📈 **ขยายเพดานงบแล้วค่ะ** ${Number(d.from).toLocaleString('th-TH')} → **${Number(d.to).toLocaleString('th-TH')}** บาท/วัน — ${who} อนุมัติ ขอบคุณค่ะ 🙏 กฎจะค่อยๆ เพิ่มงบตัวที่ทำกำไรรอบละไม่เกิน 20% นะคะ`);
+    }
     if ((p.kind as string) === 'test') {
       await mark(verb === 'approve' ? 'approved' : 'rejected');
       return reply(`✅ **น้องจิบิได้รับแล้วค่ะ** — ${who} กด "${verb === 'approve' ? 'อนุมัติ' : verb === 'reject' ? 'ไม่' : 'ย้ายไปทดสอบ'}" · บอทพร้อมใช้งาน (ข้อความนี้เป็นการทดสอบ ไม่ได้แตะแอดจริง)`);
@@ -1212,6 +1292,7 @@ async function discordInteraction(req: Request, env: Env): Promise<Response> {
     if (verb === 'reject') {
       await mark('rejected');
       await audit(env.DB, `discord:${who}`, 'proposal.reject', p.entity_id, { rule: p.rule_id, kind: p.kind });
+      if (p.kind === 'cap') return reply(`✋ **รับทราบค่ะ ยังไม่ขยายเพดานงบ** (คง ${Number(d.from).toLocaleString('th-TH')}) — ${who} ตัดสิน · สัปดาห์หน้าน้องจะเช็กใหม่นะคะ`);
       return reply(`✋ **รับทราบค่ะ ยังไม่${p.kind === 'pause' ? 'หยุด' : 'ย้าย'}** "${p.entity_name}" — ${who} ตัดสิน · น้องจะไม่ถามเรื่องนี้ซ้ำ 3 วันนะคะ`);
     }
   } catch (err: any) {

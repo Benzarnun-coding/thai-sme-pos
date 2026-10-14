@@ -180,6 +180,11 @@ export function validateSettings(input: any, current: Settings): Settings {
       vat_base: input.order_fees.vat_base === 'goods' ? 'goods' : input.order_fees.vat_base === 'after_ship' ? 'after_ship' : 'total',
       bag: num(input.order_fees.bag, 'ค่าซองต่อออเดอร์', 0, 1000),
     },
+    goal: input?.goal === undefined ? current.goal : {
+      monthly_net: num(input.goal.monthly_net, 'เป้ากำไรสุทธิต่อเดือน', 0, 100_000_000),
+      scale_mer: num(input.goal.scale_mer, 'MER ขั้นต่ำก่อนขยายเพดานงบ', 1, 50),
+      scale_pct: num(input.goal.scale_pct, 'ขยายเพดานงบครั้งละ (%)', 1, 100),
+    },
     ads_cost_sheet_id: typeof input?.ads_cost_sheet_id === 'string' ? sheetId(input.ads_cost_sheet_id) : current.ads_cost_sheet_id,
     // Tab names may end with a space (this one does), so it is kept as typed.
     ads_cost_tab: typeof input?.ads_cost_tab === 'string' && input.ads_cost_tab.trim() ? input.ads_cost_tab.slice(0, 100) : current.ads_cost_tab,

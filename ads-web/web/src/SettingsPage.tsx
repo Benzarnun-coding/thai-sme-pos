@@ -90,6 +90,17 @@ export function SettingsPage({ costsLoaded, campaignNames, onSaved }: { costsLoa
       <CampaignCostSheet s={s} setS={setS} busy={busy} onSave={() => save(s)} campaignNames={campaignNames} onSynced={onSaved} />
 
       <section className="card">
+        <h2>เป้ากำไรและการขยายงบ</h2>
+        <p className="muted small">กำไรสุทธิ = ยอดขายจริง − ทุนสินค้า − ค่าใช้จ่ายต่อออเดอร์ − ค่าแอด (ยังไม่หักค่าใช้จ่ายคงที่) · ทุกเช้าวันจันทร์ ถ้า MER จริง 7 วันถึงเกณฑ์ น้องจิบิจะถามใน Discord ว่าจะขยายเพดานงบรวมไหม</p>
+        <div className="grid2">
+          <label>เป้ากำไรสุทธิต่อเดือน (฿)<input type="number" min={0} step={1000} value={s.goal.monthly_net} onChange={(e) => setS({ ...s, goal: { ...s.goal, monthly_net: Number(e.target.value) } })} /></label>
+          <label>MER จริง 7 วันขั้นต่ำก่อนขยายเพดานงบ<input type="number" min={1} step={0.01} value={s.goal.scale_mer} onChange={(e) => setS({ ...s, goal: { ...s.goal, scale_mer: Number(e.target.value) } })} /></label>
+          <label>ขยายเพดานงบครั้งละ (%)<input type="number" min={1} max={100} value={s.goal.scale_pct} onChange={(e) => setS({ ...s, goal: { ...s.goal, scale_pct: Number(e.target.value) } })} /></label>
+        </div>
+        <ScaleCheckButton />
+      </section>
+
+      <section className="card">
         <h2>ค่าใช้จ่ายต่อออเดอร์ (ไฟล์ Page365)</h2>
         <p className="muted small">หักจากทุกออเดอร์จริงตามสูตรของทีม (เหมือนชีต "รวม"): ค่าธรรมเนียม COD คิดเฉพาะออเดอร์เก็บปลายทาง · เปอร์เซ็นต์คิดจากยอดที่ลูกค้าจ่าย · ค่าส่งและค่าซองคิดต่อออเดอร์</p>
         <div className="grid2">
@@ -270,6 +281,17 @@ function WebhookCard() {
         </>
       )}
     </section>
+  );
+}
+
+function ScaleCheckButton() {
+  const { toast } = useUi();
+  const [busy, setBusy] = useState(false);
+  return (
+    <button className="ghost" disabled={busy} onClick={async () => {
+      setBusy(true);
+      try { const r = await api.goalScaleCheck(); toast(r.reason, r.asked ? 'ok' : undefined); } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
+    }}>{busy ? 'กำลังเช็ก…' : 'เช็กขยายเพดานงบตอนนี้'}</button>
   );
 }
 

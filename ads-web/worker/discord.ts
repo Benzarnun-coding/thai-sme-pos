@@ -19,7 +19,7 @@ const deciders = (env: DiscordEnv) => idList(env.DISCORD_DECIDER_IDS);
 export const approvalsEnabled = (env: DiscordEnv) => !!(env.DISCORD_BOT_TOKEN && env.DISCORD_CHANNEL_ID && env.DISCORD_APP_PUBLIC_KEY);
 
 export interface Proposal {
-  id: string; created_at: string; kind: 'pause' | 'move'; entity_id: string; entity_name: string; rule_id: string;
+  id: string; created_at: string; kind: 'pause' | 'move' | 'cap'; entity_id: string; entity_name: string; rule_id: string;
   plan: string; detail: string; status: string; decided_by: string | null; decided_at: string | null; message_id: string | null;
 }
 
@@ -51,6 +51,16 @@ export function proposalMessage(p: Proposal, mention = ''): { content: string; c
   let body: string[];
   if ((p.kind as string) === 'test') {
     body = [`น้องจิบิขอทดสอบปุ่มกับ${who}ค่ะ 🙏 กดปุ่มไหนก็ได้ ข้อความนี้ไม่แตะแอดจริงนะคะ`];
+  } else if (p.kind === 'cap') {
+    body = [
+      `น้องจิบิขอถาม${who}ค่ะ 🙏 ขยายเพดานงบรวมต่อวันไหมคะ`,
+      `📊 MER จริง 7 วัน (ยอดขาย Page365 ÷ ค่าแอด) **${Number(d.mer).toFixed(2)}** ผ่านเกณฑ์ ${Number(d.need).toFixed(2)} แล้วค่ะ · กำไรสุทธิ 7 วัน ${Math.round(d.net7 ?? 0).toLocaleString('th-TH')} บาท`,
+      `เพดานงบรวม **${Number(d.from).toLocaleString('th-TH')} → ${Number(d.to).toLocaleString('th-TH')}** บาท/วัน (+${d.pct}%) — กฎจะค่อยๆ เพิ่มงบตัวที่ทำกำไรได้ถึงเพดานใหม่ ครั้งละไม่เกิน 20%`,
+      '',
+      '1️⃣ **ขยายเลย**  2️⃣ **ยังไม่ขยาย**',
+      '',
+      '💡 น้องแนะนำข้อ 1 ค่ะ ตัวเลขจริงคุ้มพอสำหรับเป้ากำไรเดือนนี้',
+    ];
   } else if (p.kind === 'pause') {
     const advise = x !== null && x < 0.8 ? 'ข้อ 1 หยุดเลยค่ะ เพราะต่ำกว่าเกณฑ์มาก ปล่อยไว้จะเสียเงินต่อ'
       : 'ข้อ 3 ย้ายไปกลุ่มทดสอบค่ะ เพราะต่ำกว่าเกณฑ์ไม่มาก ยังขายได้อยู่ ให้กฎกลุ่มทดสอบค่อยๆ ลดงบแทนการหยุดทันที';
@@ -83,8 +93,8 @@ export function proposalMessage(p: Proposal, mention = ''): { content: string; c
     components: [{ type: 1, components: (p.kind as string) === 'test'
       ? [{ type: 2, style: 3, label: 'ทดสอบ: ตกลง', custom_id: `approve:${p.id}` }, { type: 2, style: 2, label: 'ทดสอบ: ไม่', custom_id: `reject:${p.id}` }]
       : [
-        { type: 2, style: 4, label: p.kind === 'pause' ? '1️⃣ หยุดเลย' : '1️⃣ ย้ายเลย', custom_id: `approve:${p.id}` },
-        { type: 2, style: 2, label: p.kind === 'pause' ? '2️⃣ ยังไม่หยุด รอ 3 วัน' : '2️⃣ ยังไม่ย้าย รอ 3 วัน', custom_id: `reject:${p.id}` },
+        { type: 2, style: p.kind === 'cap' ? 3 : 4, label: p.kind === 'pause' ? '1️⃣ หยุดเลย' : p.kind === 'cap' ? '1️⃣ ขยายเลย' : '1️⃣ ย้ายเลย', custom_id: `approve:${p.id}` },
+        { type: 2, style: 2, label: p.kind === 'pause' ? '2️⃣ ยังไม่หยุด รอ 3 วัน' : p.kind === 'cap' ? '2️⃣ ยังไม่ขยาย' : '2️⃣ ยังไม่ย้าย รอ 3 วัน', custom_id: `reject:${p.id}` },
         ...(p.kind === 'pause' ? [{ type: 2, style: 1, label: '3️⃣ ย้ายไปทดสอบ', custom_id: `totesting:${p.id}` }] : []),
       ] }],
   };
@@ -154,8 +164,11 @@ export async function recentlyAsked(db: D1Database, since: string): Promise<Set<
 
 /** Pending questions older than the new run are closed: the new run asks again if the rule still holds. */
 export async function expireOld(env: DiscordEnv, before: string): Promise<void> {
-  const { results } = await env.DB.prepare(`SELECT * FROM proposals WHERE status = 'pending' AND created_at < ?`).bind(before).all<Proposal>();
+  // The weekly cap question stays open for 6 days; the rest are asked again by the next run.
+  const capBefore = new Date(Date.parse(before) - 6 * 86_400_000).toISOString();
+  const where = `status = 'pending' AND ((kind != 'cap' AND created_at < ?1) OR (kind = 'cap' AND created_at < ?2))`;
+  const { results } = await env.DB.prepare(`SELECT * FROM proposals WHERE ${where}`).bind(before, capBefore).all<Proposal>();
   if (!results.length) return;
-  await env.DB.prepare(`UPDATE proposals SET status = 'expired', decided_at = ? WHERE status = 'pending' AND created_at < ?`).bind(new Date().toISOString(), before).run();
-  for (const p of results) if (p.message_id) await editMessage(env, p.message_id, `⌛ หมดเวลา (ไม่มีคนกด) — ${p.kind === 'pause' ? 'หยุด' : 'ย้าย'} "${p.entity_name}" · รอบนี้ถามใหม่ถ้ายังเข้าเงื่อนไข`);
+  await env.DB.prepare(`UPDATE proposals SET status = 'expired', decided_at = ?3 WHERE ${where}`).bind(before, capBefore, new Date().toISOString()).run();
+  for (const p of results) if (p.message_id) await editMessage(env, p.message_id, `⌛ หมดเวลา (ไม่มีคนกด) — ${p.kind === 'pause' ? 'หยุด' : p.kind === 'cap' ? 'ขยายเพดานงบ' : 'ย้าย'} "${p.entity_name}" · รอบนี้ถามใหม่ถ้ายังเข้าเงื่อนไข`);
 }

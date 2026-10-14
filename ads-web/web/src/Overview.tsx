@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { parseRange, rangeWindow, WINDOW_LABEL, windowLabel, type CampaignView, type Idea, type Overview as OverviewData, type Preview, type PreviewItem, type Stage, type Window } from './api.ts';
+import { useEffect, useMemo, useState } from 'react';
+import { api, parseRange, type GoalStatus, rangeWindow, WINDOW_LABEL, windowLabel, type CampaignView, type Idea, type Overview as OverviewData, type Preview, type PreviewItem, type Stage, type Window } from './api.ts';
 import { stageLabel, useCampaignActions } from './actions.tsx';
 import { baht, bahtRange, cvr, num, profitTone, roasTone, time, when } from './fmt.ts';
 import type { RulesTarget } from './RulesPage.tsx';
@@ -107,6 +107,8 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
         {data.last_run && <> · รันกฎล่าสุด {when(data.last_run.run_at)} — {data.last_run.summary}</>}
       </p>
 
+      <GoalCard />
+
       <StageTabs stages={data.stages} campaigns={data.campaigns} value={stageTab} onChange={onStageTab} withAll />
       <StageSection
         key={stageTab}
@@ -121,6 +123,36 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
         onOpenCampaign={onOpenCampaign}
       />
     </>
+  );
+}
+
+/** Month-to-date real net (Page365 days) against the monthly goal; loaded on its own so the overview isn't slowed. */
+function GoalCard() {
+  const [g, setG] = useState<GoalStatus | null>(null);
+  const [err, setErr] = useState('');
+  useEffect(() => { api.goal().then(setG).catch((e) => setErr(e.message)); }, []);
+  if (err) return <p className="muted small">เป้ากำไร: {err}</p>;
+  if (!g) return <section className="card goal-card"><div className="skeleton" style={{ height: 72 }} /></section>;
+  const pct = g.goal.monthly_net ? Math.min(100, (g.net / g.goal.monthly_net) * 100) : 0;
+  const monthTh = new Date(`${g.month}-01T00:00:00+07:00`).toLocaleDateString('th-TH', { month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' });
+  const onTrack = g.projected !== null && g.projected >= g.goal.monthly_net;
+  const perDayGoal = g.goal.monthly_net / g.days_in_month;
+  return (
+    <section className="card goal-card">
+      <div className="row between">
+        <h2>🎯 เป้ากำไรสุทธิ {monthTh} <span className="muted small">หลังหักทุน ค่าใช้จ่ายต่อออเดอร์ และค่าแอด · ยอดจริง Page365</span></h2>
+        <b className={onTrack ? 'good' : 'bad'}>{baht(g.net)} / {baht(g.goal.monthly_net)}</b>
+      </div>
+      <div className="bar-track goal-track"><i style={{ width: `${pct}%` }} /></div>
+      <div className="goal-grid">
+        <div><span className="muted small">ได้แล้ว</span><b>{num(pct)}%</b><span className="muted small">{g.days.length} วันที่มีไฟล์{g.missing.length ? ` · ขาด ${g.missing.length} วัน` : ''}</span></div>
+        <div><span className="muted small">เฉลี่ยต่อวัน</span><b className={g.avg_net !== null && g.avg_net >= perDayGoal ? 'good' : 'bad'}>{g.avg_net === null ? '–' : baht(g.avg_net)}</b><span className="muted small">เป้า {baht(perDayGoal)}/วัน</span></div>
+        <div><span className="muted small">คาดสิ้นเดือน</span><b className={onTrack ? 'good' : 'bad'}>{g.projected === null ? '–' : baht(g.projected)}</b><span className="muted small">ถ้าเฉลี่ยเท่าเดิม</span></div>
+        <div><span className="muted small">ต้องได้ต่อวันจากนี้</span><b>{baht(g.needed_per_day)}</b><span className="muted small">{g.days_in_month - g.days.length} วันที่เหลือ</span></div>
+        <div><span className="muted small">MER จริง 7 วัน</span><b className={g.mer_7d !== null && g.mer_7d >= g.goal.scale_mer ? 'good' : 'bad'}>{g.mer_7d === null ? '–' : num(g.mer_7d, 2)}</b><span className="muted small">เป้า ≥ {g.goal.scale_mer} · ขยายงบได้เมื่อผ่าน</span></div>
+        <div><span className="muted small">ยอดขายที่ต้องได้/วัน</span><b>{g.target_revenue_per_day ? baht(g.target_revenue_per_day) : '–'}</b><span className="muted small">กำไรก่อนแอด {g.gross_margin === null ? '–' : `${num(g.gross_margin * 100, 1)}%`} · ที่ MER {g.goal.scale_mer}</span></div>
+      </div>
+    </section>
   );
 }
 

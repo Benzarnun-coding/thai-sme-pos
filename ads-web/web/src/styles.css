@@ -845,3 +845,10 @@ a.button.go:hover { background: color-mix(in srgb, var(--accent-soft) 70%, var(-
 .po-shop { flex-wrap: wrap; }
 .po-keep { flex-direction: row; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; color: var(--muted); }
 .po-keep input { width: 14px; height: 14px; }
+
+/* Monthly goal card on the overview */
+.goal-card h2 { margin: 0; }
+.goal-track { height: 10px; margin: 10px 0 12px; }
+.goal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 16px; }
+.goal-grid > div { display: flex; flex-direction: column; gap: 2px; }
+.goal-grid b { font-size: 18px; }
