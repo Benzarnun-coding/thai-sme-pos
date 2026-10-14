@@ -424,6 +424,15 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
 
   // ---- Discord bot: a test question with buttons ----
   if (path === '/api/goal' && method === 'GET') return json(await loadGoal(env));
+  // A note from the owners to the deciders, posted by the bot (e.g. the plan summary for Max).
+  if (path === '/api/discord/announce' && method === 'POST') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const text = String((await body())?.text ?? '').trim();
+    if (!text || text.length > 2000) throw new BadRequest('ข้อความต้องมี 1–2000 ตัวอักษร');
+    if (!(await postToDeciders(env, (mention) => text.replaceAll('{mention}', mention || 'ทีม')))) throw new BadRequest('ส่งเข้า Discord ไม่สำเร็จ');
+    await audit(env.DB, user, 'discord.announce', 'discord', { chars: text.length });
+    return json({ ok: true });
+  }
   if (path === '/api/post-ideas' && method === 'GET') return json(await buildPostIdeas(env));
   if (path === '/api/post-ideas/send' && method === 'POST') {
     const r = await sendPostIdeas(env);
