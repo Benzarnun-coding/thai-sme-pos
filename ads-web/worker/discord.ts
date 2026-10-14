@@ -47,7 +47,7 @@ export function proposalMessage(p: Proposal, mention = ''): { content: string; c
   const d = JSON.parse(p.detail || '{}');
   const who = mention ? `คุณ ${mention}` : 'ทีม';
   const x = typeof d.observed === 'number' && typeof d.threshold === 'number' && d.threshold > 0 ? d.observed / d.threshold : null;
-  const seen = typeof d.observed === 'number' ? `ROAS ${d.window === 'last_3d' ? '3' : '7'} วัน **${d.observed.toFixed(2)}** เทียบเกณฑ์ ${d.threshold.toFixed(2)}${x !== null ? ` (${Math.round(x * 100)}% ของเกณฑ์)` : ''}` : p.plan;
+  const seen = typeof d.observed === 'number' ? `ROAS ${d.window === 'last_3d' ? '3' : '7'} วัน${d.actual ? ' (ยอดขายจริง Page365)' : ''} **${d.observed.toFixed(2)}** เทียบเกณฑ์ ${d.threshold.toFixed(2)}${x !== null ? ` (${Math.round(x * 100)}% ของเกณฑ์)` : ''}` : p.plan;
   let body: string[];
   if ((p.kind as string) === 'test') {
     body = [`น้องจิบิขอทดสอบปุ่มกับ${who}ค่ะ 🙏 กดปุ่มไหนก็ได้ ข้อความนี้ไม่แตะแอดจริงนะคะ`];

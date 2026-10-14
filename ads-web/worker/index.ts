@@ -1039,7 +1039,7 @@ async function preview(env: Env) {
   const [{ data }, settings, state] = await Promise.all([metaData(env), loadSettings(env.DB), loadState(env.DB)]);
   const entities: Entity[] = data.entities.map((e) => ({ ...e, metrics: {} }));
   const now = new Date();
-  const { plan } = await planRun(env.DB, entities, (level, w) => data.insights(level, w), state, now);
+  const { plan } = await planRun(env.DB, entities, (level, w) => data.insights(level, w), state, now, (w) => data.dailyAll(w));
   capChanges(plan);
   const noop = { setStatus: async () => {}, setDailyBudget: async () => {} };
   await applyDecisions(plan.decisions, entities, noop, settings.guardrails, { last_action: { ...state.last_action } }, { dryRun: true, now });

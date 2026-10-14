@@ -7,6 +7,7 @@ import type { Entity, Level, Metrics, RunReport, State, Window } from '../../ads
 import { applyMoves, codOf, insertRun, loadCampaignSettings, loadCosts, loadSections, loadSettings, loadStages, loadState, saveState } from './db.ts';
 import { buildGroups, neededWindows, planDecisions, sectionMap, type MoveDecision, type Plan } from './engine.ts';
 import { loadOrders, orderFees } from './p365.ts';
+import { applyActual } from './actualMetrics.ts';
 import { approvalsEnabled, expireOld, postProposal, recentlyAsked, saveProposals, type Proposal } from './discord.ts';
 
 /** Keeps a run well inside the Workers free plan's 50 outbound requests, and limits damage from a bad rule. */
@@ -64,7 +65,7 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
 
   try {
     const [entities, state] = await Promise.all([meta.listEntities(), loadState(env.DB)]);
-    const { plan, evaluated } = await planRun(env.DB, entities, (level, window) => meta.insights(level, window), state, now);
+    const { plan, evaluated } = await planRun(env.DB, entities, (level, window) => meta.insights(level, window), state, now, (w) => meta.dailyCampaignInsights(w));
     report.entities_evaluated = evaluated;
     report.totals.daily_budget_before = sumBudget(entities);
     report.notes.push(...plan.notes);
@@ -84,13 +85,14 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
         proposals.push({ id: crypto.randomUUID(), created_at: report.run_at, kind, entity_id: id, entity_name: name, rule_id: rule, plan: planText, detail: JSON.stringify(detail), status: 'pending', decided_by: null, decided_at: null, message_id: null });
         return 'รออนุมัติใน Discord';
       };
+      const actual = plan.notes.some((n) => n.startsWith('ตัดสินจากยอดขายจริง'));
       for (const d of plan.decisions) {
         if (d.skipped_reason || d.action.type !== 'pause') continue;
-        d.skipped_reason = hold('pause', d.entity.id, d.entity.name, d.rule_id, d.plan, { level: d.entity.level, window: d.window, metric: d.metric, observed: d.observed, threshold: d.threshold });
+        d.skipped_reason = hold('pause', d.entity.id, d.entity.name, d.rule_id, d.plan, { level: d.entity.level, window: d.window, metric: d.metric, observed: d.observed, threshold: d.threshold, actual });
       }
       for (const m of report.moves) {
         if (m.skipped_reason || m.move_to !== 'retest') continue;
-        m.skipped_reason = hold('move', m.entity.id, m.entity.name, m.rule_id, m.plan, { level: 'campaign', move_from: m.move_from, move_to: m.move_to, window: m.window, metric: m.metric, observed: m.observed, threshold: m.threshold });
+        m.skipped_reason = hold('move', m.entity.id, m.entity.name, m.rule_id, m.plan, { level: 'campaign', move_from: m.move_from, move_to: m.move_to, window: m.window, metric: m.metric, observed: m.observed, threshold: m.threshold, actual });
       }
       await saveProposals(env.DB, proposals);
     }
@@ -139,6 +141,7 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
  */
 export async function planRun(
   db: D1Database, entities: Entity[], insights: (level: Level, window: Window) => Promise<Map<string, Metrics>>, state: State, now: Date,
+  daily?: (window: Window) => Promise<CampaignDayRow[]>,
 ): Promise<{ plan: Plan; evaluated: number }> {
   const [sections, stages, campaignSettings, costs, settings] = await Promise.all([loadSections(db), loadStages(db), loadCampaignSettings(db), loadCosts(db), loadSettings(db)]);
   const sectionOf = sectionMap(entities, sections, campaignSettings);
@@ -148,9 +151,15 @@ export async function planRun(
   calls.forEach(([level, w], i) => {
     for (const e of entities) if (e.level === level) e.metrics[w] = results[i].get(e.id) ?? zeroMetrics();
   });
+  // Uploaded Page365 days replace Meta's admin-tagged purchases (campaign level).
+  const actualNotes = daily ? await applyActual(db, entities, [...(neededWindowsOf(calls, 'campaign'))], daily, now) : [];
   const evaluated = entities.filter((e) => groups.some((g) => g.campaignIds.has(e.campaign_id))).length;
-  return { plan: planDecisions(groups, entities, sectionOf, costs, campaignSettings, stages, state, now, codOf(settings), await shopBreakeven(db, settings, now)), evaluated };
+  const plan = planDecisions(groups, entities, sectionOf, costs, campaignSettings, stages, state, now, codOf(settings), await shopBreakeven(db, settings, now));
+  plan.notes.unshift(...actualNotes);
+  return { plan, evaluated };
 }
+
+const neededWindowsOf = (calls: (readonly [Level, Window])[], level: Level) => new Set(calls.filter(([l]) => l === level).map(([, w]) => w));
 
 /**
  * Break-even ROAS of the whole shop from the last 14 days of real orders: revenue ÷ (revenue − product cost −
