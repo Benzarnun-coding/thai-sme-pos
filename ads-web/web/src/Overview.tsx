@@ -59,6 +59,8 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
         )}
       </div>
 
+      <GoalCard />
+
       <div className="kpis">
         {(() => {
           // Real Page365 numbers when uploaded; Meta's tagged figures alongside so the two can be compared.
@@ -107,8 +109,6 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
         {data.last_run && <> · รันกฎล่าสุด {when(data.last_run.run_at)} — {data.last_run.summary}</>}
       </p>
 
-      <GoalCard />
-
       <StageTabs stages={data.stages} campaigns={data.campaigns} value={stageTab} onChange={onStageTab} withAll />
       <StageSection
         key={stageTab}
@@ -126,30 +126,73 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
   );
 }
 
-/** Month-to-date real net (Page365 days) against the monthly goal; loaded on its own so the overview isn't slowed. */
+/** Counts up from 0 to the value once, so the scoreboard "runs" when the page opens. */
+function useCountUp(target: number, ms = 1200): number {
+  const [v, setV] = useState(0);
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { setV(target); return; }
+    let raf = 0;
+    const t0 = performance.now();
+    const tick = (t: number) => {
+      const k = Math.min(1, (t - t0) / ms);
+      setV(target * (1 - Math.pow(1 - k, 3)));
+      if (k < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms]);
+  return v;
+}
+
+/**
+ * Scoreboard: month-to-date real net (Page365 days) against the monthly goal — how much is still missing, a running
+ * bar with a marker where the month should be by now, and the pace needed. Loaded on its own so the overview isn't slowed.
+ */
 function GoalCard() {
   const [g, setG] = useState<GoalStatus | null>(null);
   const [err, setErr] = useState('');
-  useEffect(() => { api.goal().then(setG).catch((e) => setErr(e.message)); }, []);
+  const [shown, setShown] = useState(false);
+  useEffect(() => { api.goal().then((x) => { setG(x); requestAnimationFrame(() => setShown(true)); }).catch((e) => setErr(e.message)); }, []);
+  const net = useCountUp(g?.net ?? 0);
   if (err) return <p className="muted small">เป้ากำไร: {err}</p>;
-  if (!g) return <section className="card goal-card"><div className="skeleton" style={{ height: 72 }} /></section>;
-  const pct = g.goal.monthly_net ? Math.min(100, (g.net / g.goal.monthly_net) * 100) : 0;
+  if (!g) return <section className="card scoreboard"><div className="skeleton" style={{ height: 120 }} /></section>;
+  const goal = g.goal.monthly_net;
+  const pct = goal ? Math.max(0, Math.min(100, (g.net / goal) * 100)) : 0;
+  const pacePct = Math.min(100, (g.elapsed.length / g.days_in_month) * 100);
+  const paceNet = (goal * g.elapsed.length) / g.days_in_month;
+  const gap = g.net - paceNet;
+  const missing = Math.max(0, goal - g.net);
   const monthTh = new Date(`${g.month}-01T00:00:00+07:00`).toLocaleDateString('th-TH', { month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' });
-  const onTrack = g.projected !== null && g.projected >= g.goal.monthly_net;
-  const perDayGoal = g.goal.monthly_net / g.days_in_month;
+  const onTrack = g.projected !== null && g.projected >= goal;
+  const perDayGoal = goal / g.days_in_month;
+  const daysLeft = g.days_in_month - g.elapsed.length;
   return (
-    <section className="card goal-card">
-      <div className="row between">
-        <h2>🎯 เป้ากำไรสุทธิ {monthTh} <span className="muted small">หลังหักทุน ค่าใช้จ่ายต่อออเดอร์ และค่าแอด · ยอดจริง Page365</span></h2>
-        <b className={onTrack ? 'good' : 'bad'}>{baht(g.net)} / {baht(g.goal.monthly_net)}</b>
+    <section className={`card scoreboard ${gap >= 0 ? 'ahead' : 'behind'}`} aria-label="สกอร์บอร์ดเป้ากำไร">
+      <div className="sb-head">
+        <div>
+          <span className="sb-label">🎯 เป้ากำไรสุทธิ {monthTh}</span>
+          <div className="sb-score"><b>{baht(net)}</b><span> / {baht(goal)}</span></div>
+        </div>
+        <div className="sb-missing">
+          <span className="sb-label">{missing > 0 ? 'ขาดอีก' : 'ถึงเป้าแล้ว 🎉'}</span>
+          <b>{missing > 0 ? baht(missing) : baht(g.net - goal)}</b>
+          <span className="muted small">{daysLeft > 0 ? `เหลือ ${daysLeft} วัน · ต้องได้วันละ ${baht(g.needed_per_day)}` : 'จบเดือนแล้ว'}</span>
+        </div>
       </div>
-      <div className="bar-track goal-track"><i style={{ width: `${pct}%` }} /></div>
+
+      <div className="sb-track" role="progressbar" aria-valuemin={0} aria-valuemax={goal} aria-valuenow={Math.round(g.net)} aria-label={`ได้ ${num(pct)}% ของเป้า`}>
+        <i className="sb-fill" style={{ width: shown ? `${pct}%` : '0%' }}><span>{num(pct)}%</span></i>
+        <em className="sb-pace" style={{ left: `${pacePct}%` }} title={`ควรถึง ${baht(paceNet)} ภายในวันนี้`}><span>ควรถึง {baht(paceNet)}</span></em>
+      </div>
+      <p className={`sb-status ${gap >= 0 ? 'good' : 'bad'}`}>
+        {gap >= 0 ? `▲ นำเป้า ${baht(gap)}` : `▼ ช้ากว่าเป้า ${baht(-gap)}`}
+        <span className="muted"> · ยอดจริง Page365 {g.days.length} วัน{g.missing.length ? ` (ขาดไฟล์ ${g.missing.length} วัน)` : ''} · หลังหักทุน ค่าใช้จ่ายต่อออเดอร์ และค่าแอด</span>
+      </p>
+
       <div className="goal-grid">
-        <div><span className="muted small">ได้แล้ว</span><b>{num(pct)}%</b><span className="muted small">{g.days.length} วันที่มีไฟล์{g.missing.length ? ` · ขาด ${g.missing.length} วัน` : ''}</span></div>
         <div><span className="muted small">เฉลี่ยต่อวัน</span><b className={g.avg_net !== null && g.avg_net >= perDayGoal ? 'good' : 'bad'}>{g.avg_net === null ? '–' : baht(g.avg_net)}</b><span className="muted small">เป้า {baht(perDayGoal)}/วัน</span></div>
         <div><span className="muted small">คาดสิ้นเดือน</span><b className={onTrack ? 'good' : 'bad'}>{g.projected === null ? '–' : baht(g.projected)}</b><span className="muted small">ถ้าเฉลี่ยเท่าเดิม</span></div>
-        <div><span className="muted small">ต้องได้ต่อวันจากนี้</span><b>{baht(g.needed_per_day)}</b><span className="muted small">{g.days_in_month - g.days.length} วันที่เหลือ</span></div>
-        <div><span className="muted small">MER จริง 7 วัน</span><b className={g.mer_7d !== null && g.mer_7d >= g.goal.scale_mer ? 'good' : 'bad'}>{g.mer_7d === null ? '–' : num(g.mer_7d, 2)}</b><span className="muted small">เป้า ≥ {g.goal.scale_mer} · ขยายงบได้เมื่อผ่าน</span></div>
+        <div><span className="muted small">MER จริง 7 วัน</span><b className={g.mer_7d !== null && g.mer_7d >= g.goal.scale_mer ? 'good' : 'bad'}>{g.mer_7d === null ? '–' : num(g.mer_7d, 2)}</b><span className="muted small">เป้า ≥ {g.goal.scale_mer} · ผ่านแล้วขยายงบได้</span></div>
         <div><span className="muted small">ยอดขายที่ต้องได้/วัน</span><b>{g.target_revenue_per_day ? baht(g.target_revenue_per_day) : '–'}</b><span className="muted small">กำไรก่อนแอด {g.gross_margin === null ? '–' : `${num(g.gross_margin * 100, 1)}%`} · ที่ MER {g.goal.scale_mer}</span></div>
       </div>
     </section>

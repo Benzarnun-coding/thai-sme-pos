@@ -846,9 +846,34 @@ a.button.go:hover { background: color-mix(in srgb, var(--accent-soft) 70%, var(-
 .po-keep { flex-direction: row; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; color: var(--muted); }
 .po-keep input { width: 14px; height: 14px; }
 
-/* Monthly goal card on the overview */
-.goal-card h2 { margin: 0; }
-.goal-track { height: 10px; margin: 10px 0 12px; }
+/* Monthly goal scoreboard on the overview */
+.scoreboard { margin-bottom: 16px; }
+.sb-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.sb-label { font-size: 13px; color: var(--muted); font-weight: 600; }
+.sb-score b { font-size: 30px; font-variant-numeric: tabular-nums; }
+.sb-score span { color: var(--muted); font-size: 16px; }
+.sb-missing { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.sb-missing b { font-size: 26px; font-variant-numeric: tabular-nums; color: var(--bad); }
+.scoreboard.ahead .sb-missing b { color: var(--good); }
+.sb-track { position: relative; height: 26px; margin: 14px 0 6px; background: var(--surface-3); border-radius: 999px; overflow: visible; }
+.sb-fill {
+  display: block; height: 100%; border-radius: 999px; min-width: 0; position: relative; overflow: hidden;
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 60%, var(--good)));
+  transition: width 1.4s cubic-bezier(.22, 1, .36, 1);
+}
+.sb-fill::after {
+  content: ''; position: absolute; inset: 0;
+  background: repeating-linear-gradient(-45deg, rgba(255,255,255,.22) 0 10px, transparent 10px 20px);
+  background-size: 28px 28px; animation: sb-run 1s linear infinite;
+}
+.sb-fill span { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); color: #fff; font-size: 12px; font-weight: 700; z-index: 1; }
+.sb-pace { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--text); border-radius: 2px; }
+.sb-pace span { position: absolute; top: 100%; margin-top: 4px; transform: translateX(-50%); white-space: nowrap; font-size: 11.5px; font-style: normal; color: var(--muted); }
+.sb-status { margin: 22px 0 12px; font-weight: 600; font-size: 14px; }
+.sb-status .muted { font-weight: 400; font-size: 12.5px; }
+@keyframes sb-run { from { background-position: 0 0; } to { background-position: 28px 0; } }
+@media (prefers-reduced-motion: reduce) { .sb-fill { transition: none; } .sb-fill::after { animation: none; } }
+@media (max-width: 560px) { .sb-missing { align-items: flex-start; text-align: left; } .sb-score b { font-size: 24px; } }
 .goal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 16px; }
 .goal-grid > div { display: flex; flex-direction: column; gap: 2px; }
 .goal-grid b { font-size: 18px; }
