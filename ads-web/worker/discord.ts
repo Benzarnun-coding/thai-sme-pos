@@ -19,7 +19,7 @@ const deciders = (env: DiscordEnv) => idList(env.DISCORD_DECIDER_IDS);
 export const approvalsEnabled = (env: DiscordEnv) => !!(env.DISCORD_BOT_TOKEN && env.DISCORD_CHANNEL_ID && env.DISCORD_APP_PUBLIC_KEY);
 
 export interface Proposal {
-  id: string; created_at: string; kind: 'pause' | 'move' | 'cap'; entity_id: string; entity_name: string; rule_id: string;
+  id: string; created_at: string; kind: 'pause' | 'move' | 'cap' | 'dup'; entity_id: string; entity_name: string; rule_id: string;
   plan: string; detail: string; status: string; decided_by: string | null; decided_at: string | null; message_id: string | null;
 }
 
@@ -61,6 +61,16 @@ export function proposalMessage(p: Proposal, mention = ''): { content: string; c
       '',
       '💡 น้องแนะนำข้อ 1 ค่ะ ตัวเลขจริงคุ้มพอสำหรับเป้ากำไรเดือนนี้',
     ];
+  } else if (p.kind === 'dup') {
+    body = [
+      `น้องจิบิขอถาม${who}ค่ะ 🙏 แคมเปญ **"${p.entity_name}"** ขายดีจนงบชนเพดานแล้ว คัดลอกเพิ่มไหมคะ`,
+      `📊 ROAS 3 วัน${d.actual ? ' (ยอดขายจริง Page365)' : ''} **${Number(d.roas).toFixed(2)}** = ${(Number(d.roas) / Number(d.breakeven)).toFixed(1)}× คุ้มทุน (${Number(d.breakeven).toFixed(2)}) · ${d.purchases} ออเดอร์ · งบตอนนี้ ${Number(d.budget).toLocaleString('th-TH')}/วัน (เพดาน)`,
+      `ถ้าคัดลอก: ได้แคมเปญใหม่หน้าตาเดียวกัน (ชุดโฆษณา + โฆษณาเดิม) งบ **${Number(d.new_budget).toLocaleString('th-TH')}/วัน** เปิดทันที อยู่กลุ่ม "ทดสอบ" ให้กฎดูแลต่อ — ตัวเดิมไม่ถูกแตะ จะได้ไม่เริ่มเรียนรู้ใหม่`,
+      '',
+      '1️⃣ **คัดลอกเลย**  2️⃣ **ยังไม่ รอ 3 วัน**',
+      '',
+      '💡 น้องแนะนำข้อ 1 ค่ะ ตัวนี้คุ้มกว่าคุ้มทุนมาก ถ้าไม่ขยายจะเสียโอกาสขายค่ะ',
+    ];
   } else if (p.kind === 'pause') {
     const advise = x !== null && x < 0.8 ? 'ข้อ 1 หยุดเลยค่ะ เพราะต่ำกว่าเกณฑ์มาก ปล่อยไว้จะเสียเงินต่อ'
       : 'ข้อ 3 ย้ายไปกลุ่มทดสอบค่ะ เพราะต่ำกว่าเกณฑ์ไม่มาก ยังขายได้อยู่ ให้กฎกลุ่มทดสอบค่อยๆ ลดงบแทนการหยุดทันที';
@@ -93,8 +103,8 @@ export function proposalMessage(p: Proposal, mention = ''): { content: string; c
     components: [{ type: 1, components: (p.kind as string) === 'test'
       ? [{ type: 2, style: 3, label: 'ทดสอบ: ตกลง', custom_id: `approve:${p.id}` }, { type: 2, style: 2, label: 'ทดสอบ: ไม่', custom_id: `reject:${p.id}` }]
       : [
-        { type: 2, style: p.kind === 'cap' ? 3 : 4, label: p.kind === 'pause' ? '1️⃣ หยุดเลย' : p.kind === 'cap' ? '1️⃣ ขยายเลย' : '1️⃣ ย้ายเลย', custom_id: `approve:${p.id}` },
-        { type: 2, style: 2, label: p.kind === 'pause' ? '2️⃣ ยังไม่หยุด รอ 3 วัน' : p.kind === 'cap' ? '2️⃣ ยังไม่ขยาย' : '2️⃣ ยังไม่ย้าย รอ 3 วัน', custom_id: `reject:${p.id}` },
+        { type: 2, style: p.kind === 'cap' || p.kind === 'dup' ? 3 : 4, label: { pause: '1️⃣ หยุดเลย', cap: '1️⃣ ขยายเลย', dup: '1️⃣ คัดลอกเลย', move: '1️⃣ ย้ายเลย' }[p.kind], custom_id: `approve:${p.id}` },
+        { type: 2, style: 2, label: { pause: '2️⃣ ยังไม่หยุด รอ 3 วัน', cap: '2️⃣ ยังไม่ขยาย', dup: '2️⃣ ยังไม่ รอ 3 วัน', move: '2️⃣ ยังไม่ย้าย รอ 3 วัน' }[p.kind], custom_id: `reject:${p.id}` },
         ...(p.kind === 'pause' ? [{ type: 2, style: 1, label: '3️⃣ ย้ายไปทดสอบ', custom_id: `totesting:${p.id}` }] : []),
       ] }],
   };
@@ -183,5 +193,5 @@ export async function expireOld(env: DiscordEnv, before: string): Promise<void> 
   const { results } = await env.DB.prepare(`SELECT * FROM proposals WHERE ${where}`).bind(before, capBefore).all<Proposal>();
   if (!results.length) return;
   await env.DB.prepare(`UPDATE proposals SET status = 'expired', decided_at = ?3 WHERE ${where}`).bind(before, capBefore, new Date().toISOString()).run();
-  for (const p of results) if (p.message_id) await editMessage(env, p.message_id, `⌛ หมดเวลา (ไม่มีคนกด) — ${p.kind === 'pause' ? 'หยุด' : p.kind === 'cap' ? 'ขยายเพดานงบ' : 'ย้าย'} "${p.entity_name}" · รอบนี้ถามใหม่ถ้ายังเข้าเงื่อนไข`);
+  for (const p of results) if (p.message_id) await editMessage(env, p.message_id, `⌛ หมดเวลา (ไม่มีคนกด) — ${{ pause: 'หยุด', cap: 'ขยายเพดานงบ', dup: 'คัดลอก', move: 'ย้าย' }[p.kind] ?? 'ย้าย'} "${p.entity_name}" · รอบนี้ถามใหม่ถ้ายังเข้าเงื่อนไข`);
 }

@@ -133,11 +133,11 @@ export interface Overview {
 
 export interface OrderFees { cod_pct: number; loss_pct: number; ship: number; vat_pct: number; vat_base: 'total' | 'goods' | 'after_ship'; bag: number }
 export interface Goal { monthly_net: number; scale_mer: number; scale_pct: number }
-export interface GoalDay { date: string; revenue: number; cost: number; fees: number; ads: number; net: number; orders: number }
+export interface GoalDay { date: string; revenue: number; cost: number; fees: number; ads: number; net: number; orders: number; units: number; multi: number }
 export interface GoalStatus {
   month: string; goal: Goal; days_in_month: number; elapsed: string[]; days: GoalDay[]; missing: string[];
   net: number; revenue: number; ads: number; avg_net: number | null; projected: number | null; needed_per_day: number;
-  gross_margin: number | null; mer: number | null; target_revenue_per_day: number | null; mer_7d: number | null; mer_7d_days: number;
+  gross_margin: number | null; mer: number | null; target_revenue_per_day: number | null; mer_7d: number | null; mer_7d_days: number; multi_share: number | null; multi_share_7d: number | null; units_per_order: number | null;
 }
 export interface Settings { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails; sheet_id: string; sheet_tabs: string[]; cod_share_pct: number; cod_fee: number; ads_cost_sheet_id: string; ads_cost_tab: string; cost_editors: string[]; order_fees: OrderFees; goal: Goal }
 

@@ -227,6 +227,27 @@ export class MetaClient {
     await this.post(id, { status });
   }
 
+  /** How many ads a campaign holds (a synchronous deep copy takes at most 3). */
+  async adCount(campaignId: string): Promise<number> {
+    const b = await this.get(`${campaignId}/ads`, { fields: 'id', limit: '10' });
+    return (b.data ?? []).length;
+  }
+
+  /**
+   * Deep copy of a campaign (ad sets + ads), everything PAUSED so the caller can set the budget before anything
+   * spends; returns the new campaign id and the ids of every copied ad set and ad (to switch on afterwards).
+   */
+  async copyCampaign(campaignId: string, suffix: string): Promise<{ id: string; children: string[] }> {
+    const b = await this.post(`${campaignId}/copies`, {
+      deep_copy: 'true',
+      status_option: 'PAUSED',
+      rename_options: JSON.stringify({ rename_strategy: 'ONLY_TOP_LEVEL_RENAME', rename_suffix: suffix }),
+    });
+    if (!b.copied_campaign_id) throw new Error('Meta ไม่ได้ส่ง id แคมเปญใหม่กลับมา');
+    const children = (b.ad_object_ids ?? []).filter((o: any) => o.ad_object_type === 'ad_set' || o.ad_object_type === 'ad').map((o: any) => String(o.copied_id));
+    return { id: String(b.copied_campaign_id), children };
+  }
+
   /** amount in account currency; Meta wants minor units */
   async setDailyBudget(id: string, amount: number): Promise<void> {
     await this.post(id, { daily_budget: String(Math.round(amount * 100)) });

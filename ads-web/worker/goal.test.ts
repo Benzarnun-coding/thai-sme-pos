@@ -4,7 +4,7 @@ import { DEFAULT_GOAL, goalStatus, monthDates, nextCap, type DayNet } from './go
 
 const day = (date: string, revenue: number, ads: number): DayNet => {
   const cost = revenue * 0.516, fees = revenue * 0.125;
-  return { date, revenue, cost, fees, ads, net: revenue - cost - fees - ads, orders: 80 };
+  return { date, revenue, cost, fees, ads, net: revenue - cost - fees - ads, orders: 80, units: 150, multi: 50 };
 };
 
 test('month dates run from the 1st to the last counted day', () => {

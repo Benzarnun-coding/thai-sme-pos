@@ -1,7 +1,7 @@
 // Worker entry: JSON API for the dashboard + cron triggers. Static files in dist/ are served by Cloudflare before this runs.
 
 import { MetaClient } from '../../ads-engine/src/meta.ts';
-import { applyDecisions } from '../../ads-engine/src/apply.ts';
+import { applyDecisions, sumBudget } from '../../ads-engine/src/apply.ts';
 import type { Entity, Level, Window } from '../../ads-engine/src/types.ts';
 import { authenticate } from './auth.ts';
 import { canWrite, roleOf, type Role } from './roles.ts';
@@ -30,7 +30,7 @@ import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, del
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { familyStats, postIdeas, postIdeasText } from './postIdeas.ts';
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
-import { approvalsEnabled, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
+import { approvalsEnabled, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
@@ -86,7 +86,7 @@ export default {
     const url = new URL(req.url);
     // Meta's webhook comes from outside Cloudflare Access (bypassed for /webhook/* there); it is signed instead.
     if (url.pathname === '/webhook/privacy') return new Response(PRIVACY_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-    if (url.pathname === '/webhook/discord' && req.method === 'POST') return discordInteraction(req, env);
+    if (url.pathname === '/webhook/discord' && req.method === 'POST') return discordInteraction(req, env, ctx);
     if (url.pathname === '/webhook/meta') {
       if (req.method === 'GET') return verifyChallenge(url, env);
       if (req.method === 'POST') return receiveWebhook(req, env, ctx);
@@ -143,7 +143,9 @@ export default {
       const day = new Date(Date.now() + 7 * 3_600_000).getUTCDay(), morning = new Date().getUTCHours() < 6;
       ctx.waitUntil(runAutomation(env, meta, { trigger: 'schedule' })
         .then(() => (morning && day === 1 ? scaleCheck(env).catch((err) => console.error('scale', err)) : null))
-        .then(() => (morning && (day === 1 || day === 4) ? sendPostIdeas(env).catch((err) => console.error('ideas', err)) : null)));
+        .then(() => (morning && (day === 1 || day === 4) ? sendPostIdeas(env).catch((err) => console.error('ideas', err)) : null))
+        // 20:00: how today is doing against the goal's daily pace.
+        .then(() => (!morning ? eveningPace(env).catch((err) => console.error('pace', err)) : null)));
     }
   },
 } satisfies ExportedHandler<Env>;
@@ -1158,6 +1160,31 @@ async function sendPostIdeas(env: Env): Promise<{ sent: boolean; ideas: number }
 }
 
 /**
+ * Today so far against the goal's daily pace. Today has no Page365 file yet, so revenue is Meta's tagged value
+ * scaled by how real revenue compared to it over the last 7 uploaded days; net uses the month's gross margin.
+ */
+async function eveningPace(env: Env): Promise<void> {
+  if (!env.DISCORD_WEBHOOK_URL) return;
+  const g = await loadGoal(env);
+  if (g.gross_margin === null) return;
+  const { data } = await metaData(env);
+  const [today, rows] = await Promise.all([data.insights('campaign', 'today'), data.dailyAll(`range:${bkkDate(7)}:${bkkDate(1)}` as Window)]);
+  const spend = [...today.values()].reduce((t, m) => t + m.spend, 0);
+  const tagged = [...today.values()].reduce((t, m) => t + m.purchase_value, 0);
+  const real7 = g.days.filter((d) => d.date >= bkkDate(7));
+  const metaOn = new Set(real7.map((d) => d.date));
+  const meta7 = rows.filter((r) => metaOn.has(r.date)).reduce((t, r) => t + r.purchase_value, 0);
+  const ratio = meta7 > 0 ? real7.reduce((t, d) => t + d.revenue, 0) / meta7 : 1;
+  const revenue = tagged * ratio, net = revenue * g.gross_margin - spend;
+  const need = g.needed_per_day, needRevenue = (need + spend) / g.gross_margin;
+  const b = (x: number) => Math.round(x).toLocaleString('th-TH');
+  await pushDiscord([
+    `🎯 **วันนี้ถึง 20:00 เทียบเป้า** (ประมาณจากยอดแท็ก Meta × ${ratio.toFixed(2)} ตามของจริง 7 วัน)`,
+    `ยอดขาย ~${b(revenue)} · ค่าแอด ${b(spend)} · กำไรสุทธิ ~**${b(net)}** · เป้าวันนี้ **${b(need)}** → ${net >= need ? `✅ เกินเป้า ${b(net - need)}` : `⚠️ ยังขาด ${b(need - net)} — ต้องขายรวมทั้งวัน ~${b(needRevenue)} (ชวนลูกค้าเพิ่มเป็นโปร 3 ตัวช่วยได้มากที่สุดค่ะ)`}`,
+  ].join('\n'), env.DISCORD_WEBHOOK_URL);
+}
+
+/**
  * Weekly: real 7-day MER ≥ the goal's MER → ask in Discord to raise the shop-wide daily cap by goal.scale_pct;
  * below it → a note only. Nothing changes until someone presses the button.
  */
@@ -1239,6 +1266,34 @@ function parseView(w: string | null): Window {
   return 'last_7d';
 }
 
+/**
+ * Copies a winning campaign: checks the shop-wide cap and the ad count first, copies everything paused, sets the
+ * copy's budget, then switches it on and puts it in the "testing" stage. Reports back by editing the question.
+ */
+async function copyWinner(env: Env, p: Proposal, d: { new_budget: number }, who: string): Promise<void> {
+  const done = async (status: string, content: string) => {
+    await env.DB.prepare('UPDATE proposals SET status = ? WHERE id = ?').bind(status, p.id).run();
+    if (p.message_id) await editMessage(env, p.message_id, content);
+  };
+  try {
+    const meta = metaFor(env);
+    const [settings, entities, ads] = await Promise.all([loadSettings(env.DB), meta.listEntities(), meta.adCount(p.entity_id)]);
+    const total = sumBudget(entities), cap = settings.guardrails.max_total_daily_budget;
+    if (total + d.new_budget > cap) return done('failed', `❌ คัดลอก "${p.entity_name}" ไม่ได้ค่ะ — งบรวมตอนนี้ ${total.toLocaleString('th-TH')} + ${d.new_budget} จะเกินเพดาน ${cap.toLocaleString('th-TH')} (ขยายเพดานก่อน หรือรอกฎลดตัวอื่น)`);
+    if (ads > 3) return done('failed', `❌ คัดลอก "${p.entity_name}" อัตโนมัติไม่ได้ค่ะ — มีโฆษณา ${ads} ชิ้น (Meta คัดลอกพร้อมกันได้ไม่เกิน 3) รบกวนคัดลอกใน Ads Manager แล้วตั้งงบ ${d.new_budget} นะคะ`);
+    const copy = await meta.copyCampaign(p.entity_id, ' (คัดลอก)');
+    await meta.setDailyBudget(copy.id, d.new_budget);
+    await meta.setStatus(copy.id, 'ACTIVE');
+    for (const id of copy.children) await meta.setStatus(id, 'ACTIVE');
+    const at = new Date().toISOString();
+    await applyMoves(env.DB, [{ campaign_id: copy.id, name: `${p.entity_name} (คัดลอก)`, from: null, to: 'testing' }], at);
+    await audit(env.DB, `discord:${who}`, 'campaign.copy', p.entity_id, { copy: copy.id, budget: d.new_budget, children: copy.children.length });
+    await done('approved', `🧬 **คัดลอกแล้วค่ะ** "${p.entity_name}" → แคมเปญใหม่ "${p.entity_name} (คัดลอก)" งบ **${d.new_budget}/วัน** เปิดแล้ว อยู่กลุ่มทดสอบ — ${who} อนุมัติ ขอบคุณค่ะ 🙏`);
+  } catch (err: any) {
+    await done('failed', `❌ คัดลอก "${p.entity_name}" ไม่สำเร็จค่ะ: ${err?.message ?? err} — ถ้ามีแคมเปญ "(คัดลอก)" ค้างอยู่ใน Ads Manager (หยุดอยู่) ลบหรือเปิดเองได้เลยค่ะ`);
+  }
+}
+
 /** The reminder's buttons: "uploaded" is checked against the uploads table; "not yet" keeps the buttons. */
 async function uploadButton(env: Env, verb: string, date: string, who: string): Promise<Response> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ type: 4, data: { content: 'ไม่รู้จักวันที่นี้ค่ะ', flags: 64 } });
@@ -1258,7 +1313,7 @@ async function uploadButton(env: Env, verb: string, date: string, who: string): 
  * A button pressed in Discord. Ping → pong (Discord checks the URL with it); a button → do what it says, reply
  * by editing the question so everyone sees who decided what. Signed with the app's Ed25519 key.
  */
-async function discordInteraction(req: Request, env: Env): Promise<Response> {
+async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const body = await req.text();
   if (!env.DISCORD_APP_PUBLIC_KEY || !(await verifyDiscord(req, body, env.DISCORD_APP_PUBLIC_KEY))) return new Response('bad signature', { status: 401 });
   const i = JSON.parse(body);
@@ -1286,6 +1341,14 @@ async function discordInteraction(req: Request, env: Env): Promise<Response> {
   const d = JSON.parse(p.detail || '{}');
   const mark = (status: string) => env.DB.prepare('UPDATE proposals SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = \'pending\'').bind(status, who, at, p.id).run();
   try {
+    if (verb === 'approve' && p.kind === 'dup') {
+      // Copying takes longer than Discord's 3-second reply window: claim it, answer now, finish in the background
+      // and edit the question with the result.
+      const claimed = await env.DB.prepare(`UPDATE proposals SET status = 'working', decided_by = ?, decided_at = ? WHERE id = ? AND status = 'pending'`).bind(who, at, p.id).run();
+      if (!claimed.meta.changes) return reply('มีคนกดไปแล้วค่ะ');
+      ctx.waitUntil(copyWinner(env, p, d, who).catch(() => null));
+      return reply(`⏳ **น้องกำลังคัดลอก** "${p.entity_name}" ค่ะ — ${who} อนุมัติ · เสร็จแล้วข้อความนี้จะเปลี่ยนนะคะ`);
+    }
     if (verb === 'approve' && p.kind === 'cap') {
       const settings = await loadSettings(env.DB);
       if (settings.guardrails.max_total_daily_budget !== d.from) {

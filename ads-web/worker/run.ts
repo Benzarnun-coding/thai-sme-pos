@@ -20,6 +20,8 @@ export interface MetaLike extends Mutator {
   dailyInsights(campaignId: string, window: Window): Promise<DailyRow[]>;
   dailyCampaignInsights(window: Window): Promise<CampaignDayRow[]>;
   hourlyConversions(date: string): Promise<HourlyConversion[]>;
+  adCount(campaignId: string): Promise<number>;
+  copyCampaign(campaignId: string, suffix: string): Promise<{ id: string; children: string[] }>;
 }
 
 export interface RunEnv {
@@ -93,6 +95,23 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
       for (const m of report.moves) {
         if (m.skipped_reason || m.move_to !== 'retest') continue;
         m.skipped_reason = hold('move', m.entity.id, m.entity.name, m.rule_id, m.plan, { level: 'campaign', move_from: m.move_from, move_to: m.move_to, window: m.window, metric: m.metric, observed: m.observed, threshold: m.threshold, actual });
+      }
+      // A winner sitting at the per-campaign cap and still well above break-even: offer a copy (new campaign at a
+      // small budget) so it can grow without pushing the original past the cap. Once approved, not asked again for 7 days.
+      const be = await shopBreakeven(env.DB, settings, now);
+      if (be) {
+        const [cs, done] = await Promise.all([
+          loadCampaignSettings(env.DB),
+          env.DB.prepare(`SELECT entity_id FROM proposals WHERE kind = 'dup' AND status = 'approved' AND decided_at >= ?`).bind(new Date(now.getTime() - 7 * 86_400_000).toISOString()).all<{ entity_id: string }>().then((r) => new Set(r.results.map((x) => x.entity_id))).catch(() => new Set<string>()),
+        ]);
+        for (const c of entities) {
+          const m = c.metrics.last_3d;
+          if (c.level !== 'campaign' || c.status !== 'ACTIVE' || !m || c.daily_budget === null || done.has(c.id)) continue;
+          if (cs.get(c.id)?.stage_id !== 'winning' || c.daily_budget < settings.guardrails.max_daily_budget * 0.9) continue;
+          if (m.roas < be * 1.5 || m.purchases < 10) continue;
+          hold('dup', c.id, c.name, 'dup-winner', `ROAS 3 วัน ${m.roas.toFixed(2)} ≥ 1.5× คุ้มทุน ${be.toFixed(2)} และงบชนเพดาน ${c.daily_budget}`,
+            { level: 'campaign', budget: c.daily_budget, new_budget: Math.min(1000, settings.guardrails.max_daily_budget), roas: m.roas, breakeven: be, purchases: m.purchases, actual });
+        }
       }
       await saveProposals(env.DB, proposals);
     }

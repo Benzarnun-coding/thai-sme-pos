@@ -1,8 +1,8 @@
 // Plans one automation run: group campaigns by the rules that apply to them (stage × product break-even),
 // run the ads-engine evaluator per group, and work out which campaigns move to another stage.
 
-import { evaluate } from '../../ads-engine/src/rules.ts';
-import type { Decision, Entity, Level, Metrics, Scope, State, Window } from '../../ads-engine/src/types.ts';
+import { evaluate, onCooldown } from '../../ads-engine/src/rules.ts';
+import type { Decision, Entity, Level, Metrics, Rule, Scope, State, Window } from '../../ads-engine/src/types.ts';
 import {
   DEFAULT_SECTION_ID, NO_COD, daysInStage, economics, materializeRules, resolveSectionId, storedRulesFor, sumMetrics,
   type CampaignSetting, type Cod, type CostRow, type Section, type Stage, type WebRule,
@@ -112,8 +112,10 @@ export function planDecisions(
     if (econ.breakeven_roas === null && be !== null) notes.push(`[${g.label}] ใช้ ROAS คุ้มทุนรวมร้าน ${be.toFixed(2)} (จากออเดอร์จริง Page365) เพราะสินค้านี้ยังคิดคุ้มทุนเองไม่ได้`);
     const { actions, moves: moveRules, notes: ruleNotes } = materializeRules(g.stored, be);
     notes.push(...ruleNotes.map((n) => `[${g.label}] ${n}`));
-    const members = entities.filter((e) => g.campaignIds.has(e.campaign_id));
-    for (const d of evaluate(members, actions, NO_SCOPE, state, now)) decisions.push({ ...d, group: g.label });
+    // Paused campaigns (and their ad sets) aren't spending: nothing to decide for them.
+    const pausedCampaigns = new Set(entities.filter((e) => e.level === 'campaign' && e.status !== 'ACTIVE').map((e) => e.id));
+    const members = entities.filter((e) => g.campaignIds.has(e.campaign_id) && !pausedCampaigns.has(e.campaign_id));
+    for (const d of withAdsetBudgets(evaluate(members, actions, NO_SCOPE, state, now), entities, actions, state, now)) decisions.push({ ...d, group: g.label });
 
     // Moves: each rule separately (so a too-young campaign can't block a later rule), campaign level only.
     const campaigns = members.filter((e) => e.level === 'campaign');
@@ -136,4 +138,33 @@ export function planDecisions(
     }
   }
   return { decisions, moves, notes };
+}
+
+/**
+ * A campaign whose budget lives on its ad sets (ABO, e.g. "REV 801 - กระบอกยืด 3 ตัว 799") can't take a campaign
+ * budget change. Its campaign-level budget decision is turned into the same change on each active ad set with a
+ * daily budget, judged by the campaign's numbers; each ad set keeps its own cooldown.
+ */
+export function withAdsetBudgets(decisions: Decision[], entities: Entity[], rules: Rule[], state: State, now: Date): Decision[] {
+  const out: Decision[] = [];
+  for (const d of decisions) {
+    out.push(d);
+    if (d.action.type !== 'budget_pct' || d.entity.level !== 'campaign' || !d.skipped_reason?.startsWith('no daily budget')) continue;
+    const adsets = entities.filter((e) => e.level === 'adset' && e.campaign_id === d.entity.id && e.status === 'ACTIVE' && e.daily_budget !== null);
+    const rule = rules.find((r) => r.id === d.rule_id);
+    if (!adsets.length || !rule) continue;
+    d.skipped_reason = `งบอยู่ที่ชุดโฆษณา (ABO) → ปรับ ${adsets.length} ชุดโฆษณาแทน`;
+    const pct = d.action.pct ?? 0;
+    for (const a of adsets) {
+      const ad: Decision = {
+        ...d,
+        entity: { level: 'adset', id: a.id, name: a.name, campaign_name: a.campaign_name },
+        before: { status: a.status, daily_budget: a.daily_budget },
+        plan: `BUDGET ${pct > 0 ? '+' : ''}${pct}% on adset "${a.name}" ของแคมเปญ "${d.entity.name}" [${d.window} ${d.metric}=${d.observed} vs ${d.threshold}] (now ${a.daily_budget})`,
+        skipped_reason: onCooldown(rule, a.id, state, now) ? 'cooldown' : undefined,
+      };
+      out.push(ad);
+    }
+  }
+  return out;
 }

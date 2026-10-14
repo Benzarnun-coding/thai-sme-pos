@@ -1,5 +1,6 @@
 // Suggested starting rules per stage (the set agreed 12 Oct 2026: thresholds are multiples of each product's
 // break-even; windows 3 days for budget moves, 7 days for stage moves; every cut needs real spend first).
+// 14 Oct 2026: win-boost / test-boost added (Benz: aggressive mode for clear winners, every run).
 // Not active by default: the "ใส่กฎแนะนำ" button copies them into a stage.
 
 import type { Rule } from './api.ts';
@@ -53,6 +54,23 @@ export const STAGE_TEMPLATES: Record<string, Rule[]> = {
     }
   ],
   "testing": [
+    {
+      "id": "test-boost",
+      "description": "โหมดเร่ง: 3 วัน ROAS ≥ 1.6× คุ้มทุน และ ≥ 5 ออเดอร์ → +20% ทุกรอบ (เว้น 11 ชม.)",
+      "level": "campaign",
+      "window": "last_3d",
+      "metric": "roas",
+      "op": ">=",
+      "value": 1.6,
+      "value_mode": "x_breakeven",
+      "min_spend": 450,
+      "min_purchases": 5,
+      "action": {
+        "type": "budget_pct",
+        "pct": 20
+      },
+      "cooldown_hours": 11
+    },
     {
       "id": "test-up",
       "description": "3 วัน ROAS ≥ 1.4× คุ้มทุน และ ≥ 5 ออเดอร์ → +20% (เว้น 72 ชม.)",
@@ -166,6 +184,23 @@ export const STAGE_TEMPLATES: Record<string, Rule[]> = {
     }
   ],
   "winning": [
+    {
+      "id": "win-boost",
+      "description": "โหมดเร่ง: 3 วัน ROAS ≥ 1.5× คุ้มทุน และ ≥ 6 ออเดอร์ → +20% ทุกรอบ (เว้น 11 ชม.)",
+      "level": "campaign",
+      "window": "last_3d",
+      "metric": "roas",
+      "op": ">=",
+      "value": 1.5,
+      "value_mode": "x_breakeven",
+      "min_spend": 600,
+      "min_purchases": 6,
+      "action": {
+        "type": "budget_pct",
+        "pct": 20
+      },
+      "cooldown_hours": 11
+    },
     {
       "id": "win-up",
       "description": "3 วัน ROAS ≥ 1.4× คุ้มทุน และ ≥ 8 ออเดอร์ → +20% (เว้น 72 ชม.)",

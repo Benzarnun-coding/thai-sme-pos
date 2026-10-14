@@ -193,6 +193,7 @@ function GoalCard() {
         <div><span className="muted small">เฉลี่ยต่อวัน</span><b className={g.avg_net !== null && g.avg_net >= perDayGoal ? 'good' : 'bad'}>{g.avg_net === null ? '–' : baht(g.avg_net)}</b><span className="muted small">เป้า {baht(perDayGoal)}/วัน</span></div>
         <div><span className="muted small">คาดสิ้นเดือน</span><b className={onTrack ? 'good' : 'bad'}>{g.projected === null ? '–' : baht(g.projected)}</b><span className="muted small">ถ้าเฉลี่ยเท่าเดิม</span></div>
         <div><span className="muted small">MER จริง 7 วัน</span><b className={g.mer_7d !== null && g.mer_7d >= g.goal.scale_mer ? 'good' : 'bad'}>{g.mer_7d === null ? '–' : num(g.mer_7d, 2)}</b><span className="muted small">เป้า ≥ {g.goal.scale_mer} · ผ่านแล้วขยายงบได้</span></div>
+        <div><span className="muted small">ออเดอร์หลายตัว (ปิดการขาย)</span><b>{g.multi_share_7d === null ? '–' : `${num(g.multi_share_7d * 100)}%`}</b><span className="muted small">7 วันล่าสุด · ทั้งเดือน {g.multi_share === null ? '–' : `${num(g.multi_share * 100)}%`} · {g.units_per_order === null ? '–' : num(g.units_per_order, 2)} ตัว/ออเดอร์</span></div>
         <div><span className="muted small">ยอดขายที่ต้องได้/วัน</span><b>{g.target_revenue_per_day ? baht(g.target_revenue_per_day) : '–'}</b><span className="muted small">กำไรก่อนแอด {g.gross_margin === null ? '–' : `${num(g.gross_margin * 100, 1)}%`} · ที่ MER {g.goal.scale_mer}</span></div>
       </div>
     </section>
