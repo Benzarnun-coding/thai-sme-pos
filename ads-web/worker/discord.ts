@@ -139,6 +139,19 @@ export async function postUploadReminder(env: DiscordEnv, date: string, thai: st
   return res.ok;
 }
 
+/** A plain message from the bot that pings the deciders (Max); false when the bot isn't set up or Discord refused. */
+export async function postToDeciders(env: DiscordEnv, content: (mention: string) => string): Promise<boolean> {
+  if (!approvalsEnabled(env)) return false;
+  const ids = deciders(env);
+  const res = await fetch(`https://discord.com/api/v10/channels/${env.DISCORD_CHANNEL_ID}/messages`, {
+    method: 'POST',
+    headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: content(ids.map((id) => `<@${id}>`).join(' ')).slice(0, 2000), allowed_mentions: { users: ids } }),
+  });
+  if (!res.ok) console.error('discord post', res.status, await res.text());
+  return res.ok;
+}
+
 /** Edit an earlier question (e.g. mark it expired) so its buttons go away. */
 export async function editMessage(env: DiscordEnv, messageId: string, content: string): Promise<void> {
   await fetch(`https://discord.com/api/v10/channels/${env.DISCORD_CHANNEL_ID}/messages/${messageId}`, {

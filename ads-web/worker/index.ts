@@ -28,8 +28,9 @@ import { PRIVACY_HTML } from './privacy.ts';
 import { deletePurchase, listPurchases, purchaseLines, savePurchase, setMissing, validateMissing, validatePurchase } from './purchase.ts';
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveImageLink, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
+import { familyStats, postIdeas, postIdeasText } from './postIdeas.ts';
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
-import { approvalsEnabled, expireOld, idList, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
+import { approvalsEnabled, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
@@ -138,8 +139,11 @@ export default {
         return;
       }
       // Monday 08:00 Bangkok: after the run, ask whether the shop-wide daily cap may grow (goal.ts).
-      const monday = new Date(Date.now() + 7 * 3_600_000).getUTCDay() === 1 && new Date().getUTCHours() < 6;
-      ctx.waitUntil(runAutomation(env, meta, { trigger: 'schedule' }).then(() => (monday ? scaleCheck(env).catch((err) => console.error('scale', err)) : null)));
+      // Monday and Thursday 08:00: น้องจิบิ's new-post ideas for Max (postIdeas.ts).
+      const day = new Date(Date.now() + 7 * 3_600_000).getUTCDay(), morning = new Date().getUTCHours() < 6;
+      ctx.waitUntil(runAutomation(env, meta, { trigger: 'schedule' })
+        .then(() => (morning && day === 1 ? scaleCheck(env).catch((err) => console.error('scale', err)) : null))
+        .then(() => (morning && (day === 1 || day === 4) ? sendPostIdeas(env).catch((err) => console.error('ideas', err)) : null)));
     }
   },
 } satisfies ExportedHandler<Env>;
@@ -418,6 +422,12 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
 
   // ---- Discord bot: a test question with buttons ----
   if (path === '/api/goal' && method === 'GET') return json(await loadGoal(env));
+  if (path === '/api/post-ideas' && method === 'GET') return json(await buildPostIdeas(env));
+  if (path === '/api/post-ideas/send' && method === 'POST') {
+    const r = await sendPostIdeas(env);
+    if (!r.sent) throw new BadRequest('ส่งเข้า Discord ไม่สำเร็จ — เช็กการตั้งค่าบอท');
+    return json(r);
+  }
   if (path === '/api/goal/scale-check' && method === 'POST') {
     const r = await scaleCheck(env);
     await audit(env.DB, user, 'goal.scale_check', 'shop', r);
@@ -1124,6 +1134,27 @@ function goalText(g: GoalStatus): string {
     g.avg_net === null ? '' : `เฉลี่ยวันละ ${b(g.avg_net)} → คาดสิ้นเดือน **${b(g.projected ?? 0)}** · ต้องได้วันละ **${b(g.needed_per_day)}** ถึงจะทัน`,
     `MER จริง 7 วัน ${g.mer_7d === null ? '– (ไฟล์ไม่ครบ)' : `**${g.mer_7d.toFixed(2)}**`} (เป้า ≥ ${g.goal.scale_mer})${g.target_revenue_per_day ? ` · ต้องขายวันละ ~${b(g.target_revenue_per_day)} ที่ MER นี้` : ''}`,
   ].filter(Boolean).join('\n');
+}
+
+/** Product families from the last 14 days of real orders, with last-7-day spend and real revenue per campaign. */
+async function buildPostIdeas(env: Env) {
+  const days14 = Array.from({ length: 14 }, (_, i) => bkkDate(i + 1)), days7 = days14.slice(0, 7);
+  const [settings, orders, { data }] = await Promise.all([loadSettings(env.DB), loadOrders(env.DB, days14), metaData(env)]);
+  const ins = await data.insights('campaign', 'last_7d');
+  const campaigns = data.entities.filter((e) => e.level === 'campaign').map((e) => ({ id: e.id, name: e.name, spend: ins.get(e.id)?.spend ?? 0 })).filter((c) => c.spend > 0);
+  const uploaded = new Set(orders.map((o) => o.date)).size;
+  const revenue = orders.reduce((t, o) => t + o.total, 0);
+  const gross = orders.reduce((t, o) => t + o.total - (o.cost ?? 0) - orderFees(o, settings.order_fees), 0);
+  const breakeven = revenue > 0 && gross > 0 ? revenue / gross : 2.8;
+  const stats = familyStats(orders, settings.order_fees, campaigns, new Set(days7));
+  return { days: uploaded, breakeven, ideas: postIdeas(stats, breakeven, uploaded), families: stats.slice(0, 20) };
+}
+
+async function sendPostIdeas(env: Env): Promise<{ sent: boolean; ideas: number }> {
+  const r = await buildPostIdeas(env);
+  if (!r.days) return { sent: false, ideas: 0 };
+  const sent = await postToDeciders(env, (mention) => postIdeasText(r.ideas, mention, r.days));
+  return { sent, ideas: r.ideas.length };
 }
 
 /**
