@@ -35,7 +35,7 @@ import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './chatLog.ts';
 import { aiEnabled, askAI, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
 import { kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, setKbStatus, speaker } from './botKb.ts';
-import { familyStats, postIdeas, postIdeasText } from './postIdeas.ts';
+import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './postIdeas.ts';
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
 import { approvalsEnabled, blockedByKillSwitch, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
@@ -1651,7 +1651,8 @@ async function buildPostIdeas(env: Env) {
   const revenue = orders.reduce((t, o) => t + o.total, 0);
   const gross = orders.reduce((t, o) => t + o.total - (o.cost ?? 0) - orderFees(o, settings.order_fees), 0);
   const breakeven = revenue > 0 && gross > 0 ? revenue / gross : 2.8;
-  const stats = familyStats(orders, settings.order_fees, campaigns, new Set(days7));
+  const week = spendForUploadedDays(campaigns, days7, new Set(orders.map((o) => o.date)));
+  const stats = familyStats(orders, settings.order_fees, week.campaigns, week.week);
   return { days: uploaded, breakeven, ideas: postIdeas(stats, breakeven, uploaded), families: stats.slice(0, 20) };
 }
 

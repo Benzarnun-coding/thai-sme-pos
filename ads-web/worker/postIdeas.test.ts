@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { familyOf, nameHasFamily, postIdeas, type FamilyStats } from './postIdeas.ts';
+import { familyOf, nameHasFamily, postIdeas, spendForUploadedDays, type FamilyStats } from './postIdeas.ts';
 
 test('product family from the Page365 item name', () => {
   assert.deepEqual(familyOf('501/2  ยีนส์กระบอกเล็กผ้าไม่ยืดสีกรม Ni9'), { family: '501', label: 'ยีนส์กระบอกเล็กผ้าไม่ยืด' });
@@ -30,4 +30,13 @@ test('ideas: winners get new posts, sellers without ads get a test, losers wait'
     fam({ family: '444', pieces: 50, spend: 3000, roas: 3, own_campaign: true }),
   ], 2.8, 14);
   assert.deepEqual(ideas.map((i) => `${i.kind}:${i.family}`), ['scale:NI9', 'untapped:301', 'hold:801']);
+});
+
+test('a week with 4 of 7 Page365 files compares 4 days of spend with 4 days of sales', () => {
+  const days7 = ['2026-10-14', '2026-10-13', '2026-10-12', '2026-10-11', '2026-10-10', '2026-10-09', '2026-10-08'];
+  const uploaded = new Set(['2026-10-14', '2026-10-13', '2026-10-11', '2026-10-08', '2026-10-01']); // 10-01 is outside the week
+  const r = spendForUploadedDays([{ id: 'c', name: '501', spend: 7000 }], days7, uploaded);
+  assert.equal(r.campaigns[0].spend, 4000);
+  assert.deepEqual([...r.week].sort(), ['2026-10-08', '2026-10-11', '2026-10-13', '2026-10-14']);
+  assert.equal(spendForUploadedDays([{ id: 'c', name: '501', spend: 7000 }], days7, new Set(days7)).campaigns[0].spend, 7000);
 });
