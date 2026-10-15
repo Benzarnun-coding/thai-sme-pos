@@ -61,6 +61,9 @@ export function UnitsApp() {
   }, [allRows, imageMap]);
 
   const total = shown.reduce((n, r) => n + r.qty, 0);
+  // Real money only: what Page365 customers paid. Bigseller's in-process file has no prices.
+  const revenueKnown = !channel || channel === 'Facebook';
+  const revenue = days.reduce((n, d) => n + d.revenue, 0);
   const orders = days.reduce((n, d) => n + d.orders, 0);
   const counted = days.filter((d) => d.bigseller || d.page365).length;
   const channelTotals = CHANNELS.map((c) => ({ c, qty: sales.filter((r) => r.channel === c).reduce((n, r) => n + r.qty, 0) })).filter((x) => x.qty > 0);
@@ -90,11 +93,20 @@ export function UnitsApp() {
         {busy && <span className="muted small">กำลังโหลด…</span>}
       </section>
 
-      <div className="kpis po-kpis">
+      <div className="kpis units-kpis">
         <div className="kpi"><span>ขายได้</span><b>{num(total)} ตัว</b><small>{channel ? `เฉพาะ ${channel}` : `${num(counted)} จาก ${num(days.length)} วันที่มีข้อมูล`}</small></div>
         <div className="kpi"><span>ออเดอร์</span><b>{num(orders)}</b><small>ทุกช่องทาง</small></div>
         <div className="kpi"><span>เฉลี่ยต่อวัน</span><b>{counted ? num(total / counted, 1) : '—'} ตัว</b><small>เฉพาะวันที่มีข้อมูล</small></div>
-        <div className="kpi"><span>ทุนสินค้าที่ขาย</span><b>฿{num(cost.cost)}</b><small>{cost.unpriced ? `ไม่มีทุน ${num(cost.unpriced)} ตัว` : 'ทุนคอลัมน์ H'}</small></div>
+        <div className="kpi">
+          <span>ยอดขาย (บาท)</span>
+          <b>{revenueKnown ? `฿${num(revenue)}` : '—'}</b>
+          <small>{channel && channel !== 'Facebook' ? 'ไฟล์ Bigseller ไม่มีราคาขาย' : 'เฉพาะ Facebook (Page365) · TikTok/Shopee: ไฟล์ Bigseller ไม่มีราคาขาย'}</small>
+        </div>
+        <div className="kpi">
+          <span>ต้นทุนของเรา</span>
+          <b>฿{num(cost.cost)}</b>
+          <small>ทุน H ของสินค้าที่ขาย · ไม่ใช่ยอดขาย{cost.unpriced ? ` · ไม่มีทุน ${num(cost.unpriced)} ตัว` : ''}</small>
+        </div>
       </div>
 
       <section className="card">
@@ -114,7 +126,7 @@ export function UnitsApp() {
         <div className="table-wrap">
           <table className="data-table">
             <thead>
-              <tr><th>วันที่</th><th className="num">รวม</th>{CHANNELS.filter((c) => channelTotals.some((x) => x.c === c)).map((c) => <th key={c} className="num">{c}</th>)}<th className="num">ออเดอร์</th><th>ข้อมูล</th></tr>
+              <tr><th>วันที่</th><th className="num">รวม</th>{CHANNELS.filter((c) => channelTotals.some((x) => x.c === c)).map((c) => <th key={c} className="num">{c}</th>)}<th className="num">ออเดอร์</th><th className="num" title="เฉพาะ Facebook (Page365) · ไฟล์ Bigseller ไม่มีราคาขาย">ยอดขาย FB (฿)</th><th>ข้อมูล</th></tr>
             </thead>
             <tbody>
               {[...days].reverse().map((d) => (
@@ -123,6 +135,7 @@ export function UnitsApp() {
                   <td className="num"><b>{num(d.total)}</b></td>
                   {CHANNELS.filter((c) => channelTotals.some((x) => x.c === c)).map((c) => <td key={c} className="num">{d.channels[c] ? num(d.channels[c]) : '—'}</td>)}
                   <td className="num">{d.orders ? num(d.orders) : '—'}</td>
+                  <td className="num">{d.revenue ? num(d.revenue) : '—'}</td>
                   <td className="small">
                     <span className={d.bigseller ? 'good' : 'muted'}>Bigseller {d.bigseller ? '✓' : 'ไม่มีไฟล์'}</span>
                     {' · '}

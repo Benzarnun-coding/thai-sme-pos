@@ -33,10 +33,11 @@ export function daysBetween(from: string, to: string): string[] {
 
 const emptyChannels = (): Record<Channel, number> => ({ TikTok: 0, Shopee: 0, Facebook: 0, Lazada: 0, 'อื่นๆ': 0 });
 
-export interface DayTotal { date: string; total: number; channels: Record<Channel, number>; orders: number; bigseller: boolean; page365: boolean }
+/** `revenue` = what Page365 (Facebook) customers paid; Bigseller's in-process export has no prices, so TikTok/Shopee have none. */
+export interface DayTotal { date: string; total: number; channels: Record<Channel, number>; orders: number; revenue: number; bigseller: boolean; page365: boolean }
 
 export function byDay(rows: SaleRow[], d: SalesData): DayTotal[] {
-  const days = new Map(daysBetween(d.from, d.to).map((date) => [date, { date, total: 0, channels: emptyChannels(), orders: 0, bigseller: d.bigsellerDays.includes(date), page365: d.page365Days.includes(date) } as DayTotal]));
+  const days = new Map(daysBetween(d.from, d.to).map((date) => [date, { date, total: 0, channels: emptyChannels(), orders: 0, revenue: 0, bigseller: d.bigsellerDays.includes(date), page365: d.page365Days.includes(date) } as DayTotal]));
   for (const r of rows) {
     const day = days.get(r.date);
     if (!day) continue;
@@ -44,7 +45,7 @@ export function byDay(rows: SaleRow[], d: SalesData): DayTotal[] {
     day.channels[r.channel] += r.qty;
   }
   for (const o of d.bigsellerOrders) { const day = days.get(o.date); if (day) day.orders += o.orders; }
-  for (const o of d.page365Orders) { const day = days.get(o.date); if (day) day.orders += o.orders; }
+  for (const o of d.page365Orders) { const day = days.get(o.date); if (day) { day.orders += o.orders; day.revenue += Number(o.total) || 0; } }
   return [...days.values()];
 }
 

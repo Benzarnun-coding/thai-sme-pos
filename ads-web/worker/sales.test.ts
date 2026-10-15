@@ -84,3 +84,8 @@ test('date range for the units page', () => {
   assert.throws(() => parseRange('2026-10-15', '2026-10-01'), /ไม่หลัง/);
   assert.throws(() => parseRange('2026-01-01', '2026-10-15'), /62 วัน/);
 });
+
+test('sales in baht come only from Page365 (Bigseller files have no prices); cost is kept apart', () => {
+  const days = byDay(saleRows(DATA), DATA);
+  assert.deepEqual(days.map((d) => [d.date, d.revenue]), [['2026-10-13', 0], ['2026-10-14', 800], ['2026-10-15', 0]]);
+});
