@@ -1,0 +1,58 @@
+// Every order-note format the admins have actually typed (Benz 15 Oct: keep them all when a format is fixed).
+// When a note is missed or misread, add its real text here with what it should read as, then fix the parser —
+// all of these must keep passing. Also listed in docs/orders.md ("Order-note formats").
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { parseOrderNote } from './orderNotes.ts';
+
+/** [what the admin typed, "code size ×qty, … | payment total"] */
+export const NOTE_FORMATS: [string, string][] = [
+  ["501/1  32\ncod  249", "501/1 32 | cod 249"],
+  ["501/1/2  32\ncod  749", "501/1 32, 501/2 32 | cod 749"],
+  ["501/1/2/3  32\ncod  649", "501/1 32, 501/2 32, 501/3 32 | cod 649"],
+  ["801/1/2/3 sz38\ncod 1029", "801/1 38, 801/2 38, 801/3 38 | cod 1029"],
+  ["Ni9-1  30\ncod  239", "NI9-1 30 | cod 239"],
+  ["Ni9-1-2-5  31\ncod  549", "NI9-1 31, NI9-2 31, NI9-5 31 | cod 549"],
+  ["ni9-1-2-3 sz34\ncod 549", "NI9-1 34, NI9-2 34, NI9-3 34 | cod 549"],
+  ["009-1-2  36\ncod  299", "009-1 36, 009-2 36 | cod 299"],
+  ["009-1-2  30\ncod299", "009-1 30, 009-2 30 | cod 299"],
+  ["16-9 , 16-10 sz36\ncod 549", "16-9 36, 16-10 36 | cod 549"],
+  ["D01 32 1\ncod 249", "D01 32 | cod 249"],
+  ["D01 D02 34\ncod 448", "D01 34, D02 34 | cod 448"],
+  ["D01 D02 sz34\ncod 447", "D01 34, D02 34 | cod 447"],
+  ["200  200/2  30\ncod  448", "200 30, 200/2 30 | cod 448"],
+  ["200  31\ncod  249", "200 31 | cod 249"],
+  ["444/2  38  2\n555/3  38  2\ncod  1290", "444/2 38 ×2, 555/3 38 ×2 | cod 1290"],
+  ["200  36\n111  36\n222  36\n301/3  36\n301/1  36\ncod  1299", "200 36, 111 36, 222 36, 301/3 36, 301/1 36 | cod 1299"],
+  ["301/1 32 1\nCod 199", "301/1 32 | cod 199"],
+  ["cod199\n501/3 34", "501/3 34 | cod 199"], // 15 Oct: total first
+  ["Cod599\n501/3 501/1 501/2 sz36", "501/3 36, 501/1 36, 501/2 36 | cod 599"],
+  ["cod199\nE200 34", "E200 34 | cod 199"], // 15 Oct: stray letter, Page365 has 200
+  ["- สีเทา (16-10) 1 ตัว\n- สีเทาเข้ม (16-12) 1 ตัว\n- สีกากี (16-9) 1 ตัว\n- สีดำ (16-4) 1 ตัว\nsz34 \ncod 1048", "16-10 34, 16-12 34, 16-9 34, 16-4 34 | cod 1048"], // 15 Oct: list style, size on its own line
+  ["• ดำ (501/3) 2 ตัว sz32\ncod 449", "501/3 32 ×2 | cod 449"],
+  ["โอน349kb\n301/1 sz34  2ตัว", "301/1 34 ×2 | transfer 349"], // 15 Oct, Ou Aumaporn: bank after the total, "2ตัว"
+  ["501/1 32 x3\ncod 549 บาท", "501/1 32 ×3 | cod 549"],
+  ["501/1 32 2 ชิ้น\nโอน 399 กสิกร", "501/1 32 ×2 | transfer 399"],
+];
+
+/** Shop messages that must never become notes (customer details, chat). */
+const NOT_NOTES = [
+  'สีดำครับ ไซส์30 อรรถพล 31 ม.8 ต.ท่าซุง 61000 สีดำ 1 ตัว',
+  '501/1 32\nบ้านเลขที่ 22/6 ม.1\ncod 249',
+  'John Smith\n0812345678\ncod 249',
+  'cod 249 ขอบคุณค่ะ',
+  'ขอบคุณค่ะ',
+];
+
+const show = (t: string) => {
+  const p = parseOrderNote(t);
+  return p && `${p.items.map((i) => `${i.code} ${i.size}${i.qty > 1 ? ` ×${i.qty}` : ''}`).join(', ')} | ${p.payment} ${p.total}`;
+};
+
+test('every format the admins have typed is read', () => {
+  for (const [text, want] of NOTE_FORMATS) assert.equal(show(text), want, JSON.stringify(text));
+});
+
+test('customer details and chat are never read as notes', () => {
+  for (const text of NOT_NOTES) assert.equal(parseOrderNote(text), null, JSON.stringify(text));
+});
