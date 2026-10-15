@@ -144,6 +144,8 @@ export interface FillPlan {
   address: PlanAddress | null;
   /** stop everything */
   problems: string[];
+  /** how the note was read where it wasn't literal ("อ่าน E200 เป็น 200") */
+  notes?: string[];
   /** fine for one bill after a look, but not for "fill all" */
   warnings: string[];
   /** the customer's own messages about size, when a line's size isn't made */
@@ -182,8 +184,15 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   const cache = new Map<string, { productId: number; variants: Variant[] } | null>();
   const lines: PlanLine[] = [];
   let missingSize = false;
+  const notes: string[] = [];
   for (const it of parsed.items) {
-    const found = await findVariant(env, it, cache);
+    // "E200" when Page365's model is "200": a stray letter before a numeric code — tried without it, and said so.
+    let found = await findVariant(env, it, cache);
+    const bare = it.code.replace(/^[A-Z](?=\d+(?:[/-]\d+)*$)/i, '');
+    if (!found && bare !== it.code) {
+      found = await findVariant(env, { ...it, code: bare }, cache);
+      if (found) notes.push(`อ่าน ${it.code} เป็น ${bare}`);
+    }
     const hit = found?.variant ? { productId: found.productId, variant: found.variant } : null;
     if (!found) problems.push(`ไม่พบรุ่น ${it.code} ใน Page365`);
     else if (!hit) { problems.push(`${it.code} ไม่มีไซส์ ${it.size} — รุ่นนี้มี ${found.sizes.join(', ')} · ต้องถามลูกค้าใหม่`); missingSize = true; }
@@ -224,7 +233,7 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
     }
   }
   const bill_name = draft ? billName(draft.no, lines[0]?.sku ?? null, address?.name || draft.customer_name || '') : null;
-  return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, subtotal, shipping, discount: Math.max(0, discount), total, chat_total, bill_name, address, problems, warnings, said };
+  return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, subtotal, shipping, discount: Math.max(0, discount), total, chat_total, bill_name, address, problems, warnings, said, notes };
 }
 
 /** A checked address from the screen (the admin may have corrected it), or null. */

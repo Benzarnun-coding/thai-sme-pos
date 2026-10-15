@@ -125,3 +125,10 @@ test('a draft passed in is used as is (the auto path looks it up once)', async (
   assert.equal(plan.order, null);
   assert.ok(!calls.some((c) => c.startsWith('GET orders.json')), 'no draft search');
 });
+
+test('"E200" is read as model 200 when Page365 has no E200', async () => {
+  fakePage365();
+  const plan = await planFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: 'cod249\nE501/1 30' });
+  assert.deepEqual(plan.problems, []);
+  assert.deepEqual(plan.notes, ['อ่าน E501/1 เป็น 501/1']);
+});

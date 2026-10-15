@@ -166,3 +166,28 @@ export async function recentPurchases(db: D1Database, days = 7): Promise<{ order
   return results;
 }
 
+
+/** Sends one Page365 bill as a real Purchase now, whatever the mode — only if it counts, came from Messenger, has a value and wasn't sent before. */
+export async function sendOne(env: CapiEnv, no: number): Promise<{ order_no: number; value: number; stage: string; meta: unknown }> {
+  const cfg = await loadCapi(env.DB);
+  if (!cfg.dataset_id) throw new Error('ยังไม่มี Dataset ID');
+  if (!env.META_ACCESS_TOKEN) throw new Error('ยังไม่ได้ตั้ง META_ACCESS_TOKEN');
+  let found: ListOrder | undefined;
+  for (let page = 1; page <= 3 && !found; page++) found = (await call<{ orders: ListOrder[] }>(env, `orders.json?page=${page}`)).orders.find((o) => o.no === no);
+  if (!found) throw new Error(`ไม่เจอบิล #${no} ในบิลล่าสุด`);
+  const d = await call<DetailOrder>(env, `orders/${found.id}.json`);
+  if (!counts(d)) throw new Error(`บิล #${no} ยังไม่นับเป็นยอดขาย (สถานะ ${d.stage}${d.cod ? '' : ', โอนยังไม่ได้เงิน'})`);
+  if (!d.customer_fbid) throw new Error(`บิล #${no} ไม่ได้มาจากแชท Messenger`);
+  if (!(Number(d.total) > 0)) throw new Error(`บิล #${no} ยอด 0`);
+  const sent = await env.DB.prepare("SELECT status FROM meta_purchases WHERE order_id = ? AND status IN ('sent', 'test')").bind(d.id).first();
+  if (sent) throw new Error(`บิล #${no} ส่งไปแล้ว`);
+  const r = await fetch(`https://graph.facebook.com/${env.META_API_VERSION ?? 'v21.0'}/${cfg.dataset_id}/events?access_token=${encodeURIComponent(env.META_ACCESS_TOKEN)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: [purchaseEvent(d, PAGE_ID(env))] }),
+  });
+  const meta: any = await r.json().catch(() => ({}));
+  const ok = r.ok && !meta.error;
+  await env.DB.prepare(`INSERT OR REPLACE INTO meta_purchases (order_id, order_no, psid, value, cod, stage, event_time, status, detail, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(d.id, d.no, d.customer_fbid, d.total, d.cod ? 1 : 0, d.stage, d.created_at, ok ? 'sent' : 'error', ok ? null : meta?.error?.message ?? `Meta ${r.status}`, new Date().toISOString()).run();
+  if (!ok) throw new Error(meta?.error?.message ?? `Meta ${r.status}`);
+  return { order_no: d.no, value: Number(d.total), stage: d.stage, meta };
+}

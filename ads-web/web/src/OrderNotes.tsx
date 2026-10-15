@@ -122,6 +122,7 @@ function FillModal({ note, onClose, onDone }: { note: NoteCheck; onClose: () => 
             สินค้า {baht(plan.subtotal)} + ค่าส่ง {baht(plan.shipping)} − ส่วนลดโปร {baht(plan.discount)} = <b>{plan.total != null ? baht(plan.total) : '–'}</b>
             {' '}({plan.payment === 'cod' ? 'ปลายทาง' : 'โอน'}){plan.chat_total != null && <span className="muted"> · ในแชทตกลง {baht(plan.chat_total)}</span>}
           </p>
+          {(plan.notes ?? []).length > 0 && <p className="small muted">{plan.notes!.join(' · ')}</p>}
           {plan.problems.length > 0 && <ul className="small bad">{plan.problems.map((p, i) => <li key={i}>{p}</li>)}</ul>}
           {plan.warnings.length > 0 && <ul className="small warn">{plan.warnings.map((p, i) => <li key={i}>{p}</li>)}</ul>}
           {plan.said.length > 0 && (

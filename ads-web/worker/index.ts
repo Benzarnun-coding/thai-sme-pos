@@ -41,7 +41,7 @@ import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, 
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
 import { autoFillNote, autoFillOn, customerFor, setAutoFill } from './autoFill.ts';
-import { loadCapi, recentPurchases, saveCapi, syncPurchases } from './metaPurchases.ts';
+import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './metaPurchases.ts';
 import { adjustmentDays, seedFromSent } from './metaAdjust.ts';
 import { pageOf, receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
@@ -497,6 +497,20 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     await audit(env.DB, user, 'p365.auto_run', note.mid, r);
     return json(r);
   }
+  // Which Claude models the shop's key/workspace accepts (tiny request each) — for the address reader's model choice.
+  if (path === '/api/ai-check' && method === 'GET') {
+    const models = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
+    const out: Record<string, string> = {};
+    for (const model of models) {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': env.ANTHROPIC_API_KEY ?? '', 'anthropic-version': '2023-06-01', 'content-type': 'application/json', ...((env as any).ANTHROPIC_WORKSPACE_ID ? { 'anthropic-workspace-id': (env as any).ANTHROPIC_WORKSPACE_ID } : {}) },
+        body: JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: 'ok' }] }),
+      });
+      out[model] = `${r.status} ${(await r.text()).slice(0, 160)}`;
+    }
+    return json({ colo: (req as any).cf?.colo ?? null, out });
+  }
   if (path === '/api/order-notes/days' && method === 'GET') return json({ days: await noteDays(env.DB, 14) });
   if (path === '/api/order-notes' && method === 'GET') {
     const date = url.searchParams.get('date') ?? '';
@@ -604,6 +618,15 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const credits = await recreditDates(env.DB, [date]);
     await audit(env.DB, user, 'meta.adjust.delete', date, credits);
     return json({ ok: true });
+  }
+  // One bill, sent for real now (a person asked for it, e.g. the first bill of the new flow); refuses bills not sold yet or already sent.
+  if (path === '/api/meta/purchases/send-one' && method === 'POST') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const no = Number((await body())?.order_no);
+    if (!Number.isInteger(no)) throw new BadRequest('เลขบิลไม่ถูกต้อง');
+    const r = await sendOne(env, no).catch((err) => { throw new BadRequest(err.message); });
+    await audit(env.DB, user, 'meta.capi.send_one', String(no), r);
+    return json(r);
   }
   if (path === '/api/meta/purchases/sync' && method === 'POST') {
     const dry = url.searchParams.get('dry') === '1';
