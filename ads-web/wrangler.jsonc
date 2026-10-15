@@ -35,6 +35,8 @@
     "DISCORD_APPROVER_IDS": "869116667945439323,698435075422945301",
     // Discord user IDs who upload Page365 (มอส): tagged at 10:00 when yesterday's file is missing.
     "DISCORD_UPLOADER_IDS": "1182968969976610828",
+    // Discord user IDs tagged on bills the auto-fill leaves for a person (เนย, Benz 15 Oct); empty = the deciders.
+    "DISCORD_ORDER_OWNER_IDS": "1044965812810809405",
     // Anthropic workspace that pays for (and caps, $20/month) the nightly chat read; the key is a secret.
     "ANTHROPIC_WORKSPACE_ID": "wrkspc_015DExBRoBN7XAb6TgX2Cudh",
     // Messenger echo app ids. 237031236431724 = Page365 (admins). 263902037430900 = Meta's own app, used by BOTH the

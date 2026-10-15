@@ -19,6 +19,8 @@ export const AddressSchema = z.object({
   postal_code: z.string().describe('5-digit postcode, \'\' if none'),
   from_image: z.boolean().describe('true if the address was read from a photo'),
   doubt: z.string().describe('anything unclear or conflicting (two addresses, unreadable digits), in Thai; \'\' if none'),
+  cancelled: z.boolean().describe('true only if the customer cancelled this order in the chat after agreeing to it and did not order again afterwards'),
+  size_mismatch: z.string().describe("if the shop's order note has a size different from the one the customer last asked for, say which (in Thai, e.g. 'โน้ต 30 แต่ลูกค้าขอ 32'); '' if they match or the customer never said"),
 });
 export type ReadAddress = z.infer<typeof AddressSchema>;
 
@@ -29,17 +31,20 @@ The customer may type it or send a photo of it. The first photo in a chat is usu
 If the customer gave more than one address, use the latest one and say so in "doubt". Copy names and place names exactly as written;
 fix only obvious typing errors in place names. Never invent a postcode or phone number — leave it empty if it isn't there.
 A missing postcode is fine (it is looked up from the subdistrict afterwards): don't mention it in "doubt".
-If the customer later corrected part of it (a name, a house number), use the correction — that is settled, not a doubt.`;
+If the customer later corrected part of it (a name, a house number), use the correction — that is settled, not a doubt.
+If the customer never typed a recipient name, leave "name" empty (the Facebook name is used) — that is normal, not a doubt.
+You are also given the shop's order note (codes, waist size, payment and total). Only check two things against the chat:
+whether the customer cancelled after agreeing (and didn't reorder), and whether the note's size is the one the customer asked for last.`;
 
 /** The chat as Claude sees it: the last 40 messages as text, plus the customer's last 3 photos after the first message. */
-export function chatInput(messages: ChatMessage[]): Anthropic.ContentBlockParam[] {
+export function chatInput(messages: ChatMessage[], orderNote = ''): Anthropic.ContentBlockParam[] {
   const recent = messages.slice(-40);
   const lines = recent
     .filter((m) => m.message?.trim())
     .map((m) => `${m.own ? 'ร้าน' : 'ลูกค้า'}: ${m.message!.replace(/\s+/g, ' ').trim()}`);
   const photos = messages.slice(1).filter((m) => !m.own).flatMap((m) => (m.attachments ?? []).filter((a) => a.url && /^image\//.test(a.content_type ?? '')).map((a) => a.url!)).slice(-3);
   return [
-    { type: 'text', text: `แชท (เก่า → ใหม่):\n${lines.join('\n')}\n\nรูปที่ลูกค้าส่ง: ${photos.length} รูป (แนบด้านล่าง ถ้ามี)` },
+    { type: 'text', text: `แชท (เก่า → ใหม่):\n${lines.join('\n')}\n\n${orderNote ? `โน้ตสรุปออเดอร์ของร้าน: ${orderNote.replace(/\s+/g, ' ')}\n\n` : ''}รูปที่ลูกค้าส่ง: ${photos.length} รูป (แนบด้านล่าง ถ้ามี)` },
     ...photos.map((url): Anthropic.ContentBlockParam => ({ type: 'image', source: { type: 'url', url } })),
   ];
 }
@@ -48,8 +53,8 @@ export function chatInput(messages: ChatMessage[]): Anthropic.ContentBlockParam[
  * The same, with the photos downloaded here and sent inline: the shop's key refuses image URLs (403 "Request not
  * allowed", 15 Oct). Photos that fail or are over ~4 MB are left out (the text is still read).
  */
-export async function chatInputInline(messages: ChatMessage[]): Promise<Anthropic.ContentBlockParam[]> {
-  const blocks = chatInput(messages);
+export async function chatInputInline(messages: ChatMessage[], orderNote = ''): Promise<Anthropic.ContentBlockParam[]> {
+  const blocks = chatInput(messages, orderNote);
   const out: Anthropic.ContentBlockParam[] = [];
   for (const b of blocks) {
     if (b.type !== 'image' || b.source.type !== 'url') { out.push(b); continue; }
@@ -95,7 +100,7 @@ export function addressLine(a: Pick<ReadAddress, 'street' | 'subdistrict' | 'dis
     .filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
 }
 
-export async function readAddress(apiKey: string, messages: ChatMessage[], model = 'claude-opus-5-5', workspaceId?: string): Promise<ReturnType<typeof cleanAddress>> {
+export async function readAddress(apiKey: string, messages: ChatMessage[], model = 'claude-opus-5-5', workspaceId?: string, orderNote = ''): Promise<ReturnType<typeof cleanAddress>> {
   // The shop's key is an org key: it must name the workspace (var ANTHROPIC_WORKSPACE_ID, shared with chatInsights.ts).
   const client = new Anthropic({ apiKey, defaultHeaders: workspaceId ? { 'anthropic-workspace-id': workspaceId } : undefined });
   // A 403 "Request not allowed" came and went within minutes on 15 Oct (same key, same request): one retry.
@@ -106,14 +111,14 @@ export async function readAddress(apiKey: string, messages: ChatMessage[], model
     system: SYSTEM,
     messages: [{ role: 'user', content }],
   });
-  const content = await chatInputInline(messages);
+  const content = await chatInputInline(messages, orderNote);
   const res = await ask().catch(async (err) => {
     if (err?.status !== 403) throw err;
     await new Promise((r) => setTimeout(r, 1500));
     return ask();
   });
   if (res.stop_reason === 'refusal' || !res.parsed_output) {
-    return cleanAddress({ found: false, name: '', phone: '', street: '', subdistrict: '', district: '', province: '', postal_code: '', from_image: false, doubt: 'อ่านที่อยู่ไม่สำเร็จ' });
+    return cleanAddress({ found: false, name: '', phone: '', street: '', subdistrict: '', district: '', province: '', postal_code: '', from_image: false, doubt: 'อ่านที่อยู่ไม่สำเร็จ', cancelled: false, size_mismatch: '' });
   }
   return cleanAddress(res.parsed_output);
 }

@@ -230,16 +230,22 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   if (total != null && chat_total != null && chat_total !== total && chat_total + shipping !== total) problems.push(`ในแชทตกลงยอด ${chat_total} แต่สรุปไว้ ${total} — เช็กกับลูกค้า/แอดมิน`);
   // No total written in the chat is fine: the admin's note is the trigger and its total is the price (Benz 15 Oct).
 
-  // Address: Page365's own when complete, else read from the chat (typed or a photo).
+  // The chat is read whenever a key is set, also when Page365 already has the address: it is what catches a
+  // customer who cancelled, or a size in the note that isn't the one they asked for (Benz 15 Oct, #29329, #29367).
+  // Address: Page365's own when complete, else the one read from the chat (typed or a photo).
   let address: PlanAddress | null = draft ? draftAddress(draft) : null;
-  if (draft && !address) {
-    if (opts.readAddress === false) warnings.push('ยังไม่ได้อ่านที่อยู่จากแชท');
-    else if (!env.ANTHROPIC_API_KEY) warnings.push('ร่างยังไม่มีที่อยู่ครบ และยังไม่ได้ตั้ง ANTHROPIC_API_KEY ให้ระบบอ่านที่อยู่จากแชท — แอดมินกรอกเอง');
-    else {
-      const read = await readAddress(env.ANTHROPIC_API_KEY, chat, env.ADDRESS_MODEL, env.ANTHROPIC_WORKSPACE_ID).catch((err) => ({ problems: [`อ่านที่อยู่ไม่สำเร็จ: ${err?.message ?? err}`] } as { problems: string[] } & Partial<PlanAddress>));
+  if (draft && opts.readAddress !== false && env.ANTHROPIC_API_KEY) {
+    const read = await readAddress(env.ANTHROPIC_API_KEY, chat, env.ADDRESS_MODEL, env.ANTHROPIC_WORKSPACE_ID, note.text).catch((err) => ({ problems: [`อ่านที่อยู่ไม่สำเร็จ: ${err?.message ?? err}`] } as { problems: string[]; cancelled?: boolean; size_mismatch?: string } & Partial<PlanAddress>));
+    if (read.cancelled) problems.push('ลูกค้าขอยกเลิกในแชท (และยังไม่ได้สั่งใหม่) — เช็กก่อนว่ายังเอาไหม');
+    if (read.size_mismatch?.trim()) problems.push(`ไซส์ไม่ตรงกับที่ลูกค้าขอ: ${read.size_mismatch.trim()}`);
+    if (!address) {
       if (read.problems.length) warnings.push(...read.problems.map((p) => `ที่อยู่: ${p}`));
-      else address = { name: read.name || draft.customer_name || '', phone: read.phone!, street: read.street!, subdistrict: read.subdistrict!, district: read.district!, province: read.province!, postal_code: read.postal_code!, from_image: !!read.from_image, source: 'chat' };
+      // A doubt alone (a name, a house number) doesn't keep the address off the bill: whatever is complete
+      // enough to ship goes in, and the doubt goes to a person to check (Benz 15 Oct, bill #29372).
+      address = validAddress({ ...read, name: read.name || draft.customer_name || '', source: 'chat' });
     }
+  } else if (draft && !address) {
+    warnings.push(opts.readAddress === false ? 'ยังไม่ได้อ่านที่อยู่จากแชท' : 'ร่างยังไม่มีที่อยู่ครบ และยังไม่ได้ตั้ง ANTHROPIC_API_KEY ให้ระบบอ่านที่อยู่จากแชท — แอดมินกรอกเอง');
   }
   const bill_name = draft ? billName(draft.no, lines[0]?.sku ?? null, address?.name || draft.customer_name || '') : null;
   return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, subtotal, shipping, discount: Math.max(0, discount), total, chat_total, bill_name, address, problems, warnings, said, notes };

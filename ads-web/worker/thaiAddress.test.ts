@@ -22,3 +22,10 @@ test('numbered canals written with a digit', () => {
   assert.equal(r.parts.subdistrict, 'คลองเจ็ด');
   assert.equal(r.doubt, null);
 });
+
+test('a misspelt subdistrict is matched within its district', () => {
+  const { parts, doubt } = completeAddress({ subdistrict: 'ตลาดตะเคียน', district: 'กบินทร์บุรี', province: 'ปราจีนบุรี', postal_code: '' });
+  assert.equal(parts.subdistrict, 'ลาดตะเคียน');
+  assert.match(parts.postal_code, /^\d{5}$/);
+  assert.match(doubt ?? '', /ลาดตะเคียน/);
+});
