@@ -39,7 +39,8 @@ import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus }
 import { approvalsEnabled, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
-import { applyFill, planFill, sessionStatus, P365Error } from './p365fill.ts';
+import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
+import { autoFillNote, autoFillOn, customerFor, setAutoFill } from './autoFill.ts';
 import { loadCapi, recentPurchases, saveCapi, syncPurchases } from './metaPurchases.ts';
 import { pageOf, receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
@@ -468,6 +469,30 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
       await audit(env.DB, user, 'p365.fill_failed', note.mid, { error: msg });
       throw new BadRequest(msg);
     }
+  }
+  // Phase 3: open + fill drafts by themselves when a note arrives (autoFill.ts). Switch, a read-only check, a manual run.
+  if (path === '/api/order-notes/auto' && method === 'GET') return json({ on: await autoFillOn(env.DB) });
+  if (path === '/api/order-notes/auto' && method === 'PUT') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const on = (await body())?.on === true;
+    await setAutoFill(env.DB, on);
+    await audit(env.DB, user, 'p365.auto_fill', on ? 'on' : 'off', {});
+    return json({ on });
+  }
+  if (path === '/api/order-notes/draft-check' && method === 'GET') {
+    const note = await loadNote(env.DB, url.searchParams.get('mid') ?? '');
+    if (!note) throw new BadRequest('ไม่พบบรรทัดสรุปนี้');
+    const draft = await findDraft(env, note.psid, note.at);
+    const who = draft ? null : await customerFor(env, note.psid);
+    return json({ draft: draft ? { no: draft.no, items: draft.items.length } : null, customer: who ? { conversation_id: who.conversation_id, customer_id: who.customer_id, has_name: !!who.name } : null });
+  }
+  if (path === '/api/order-notes/auto-run' && method === 'POST') {
+    const note = await loadNote(env.DB, String((await body())?.mid ?? ''));
+    if (!note) throw new BadRequest('ไม่พบบรรทัดสรุปนี้');
+    if (note.filled_at) throw new BadRequest('ใส่ไปแล้ว');
+    const r = await autoFillNote(env, note, { force: true });
+    await audit(env.DB, user, 'p365.auto_run', note.mid, r);
+    return json(r);
   }
   if (path === '/api/order-notes/days' && method === 'GET') return json({ days: await noteDays(env.DB, 14) });
   if (path === '/api/order-notes' && method === 'GET') {
