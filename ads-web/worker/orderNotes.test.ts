@@ -103,3 +103,12 @@ test('payment and total first, on their own line (15 Oct)', () => {
   assert.equal(parseOrderNote('cod199\nE200 34')?.total, 199);
   assert.equal(parseOrderNote('cod 249 ขอบคุณค่ะ'), null);
 });
+
+test('a bank after a transfer total and "2ตัว" quantities are read', () => {
+  const n = parseOrderNote('โอน349kb\n301/1 sz34  2ตัว');
+  assert.deepEqual(n?.items, [{ code: '301/1', prefix: '3011', size: '34', qty: 2 }]);
+  assert.equal(n?.payment, 'transfer');
+  assert.equal(n?.total, 349);
+  assert.equal(parseOrderNote('501/1 32 x3\ncod 549 บาท')?.items[0].qty, 3);
+  assert.equal(parseOrderNote('501/1 32 2 ชิ้น\nโอน 399 กสิกร')?.total, 399);
+});

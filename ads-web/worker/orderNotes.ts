@@ -22,13 +22,16 @@ const SIZE_ONLY = /^(?:sz|size|w|เอว|ไซส์|ไซซ์)\.?\s*((?:2
 const LIST_LINE = /^[-•*·]?\s*[\u0E00-\u0E7Fa-z ]{0,30}\(\s*([a-z]{0,4}\d+[a-z0-9]*(?:[/-][a-z0-9]+)*)\s*\)\s*(?:(\d{1,2})\s*(?:ตัว|ชิ้น|ตว)?)?\s*(?:(?:sz|size|เอว|ไซส์)\.?\s*((?:2[4-9]|[34]\d|50)|xs|s|m|l|xl|xxl|[2-5]xl))?$/i;
 
 /** One message → its items, or null when it is not an order note (no payment + total, or other text in it). */
+const PAY_TAIL = String.raw`\s*(?:บาท|บ\.?|\.-)?\s*(?:k-?bank|kb|scb|ktb|bbl|bay|ttb|gsb|pp|promptpay|กสิกร|ไทยพาณิชย์|กรุงไทย|กรุงเทพ|กรุงศรี|ออมสิน|พร้อมเพย์)?`;
+
 export function parseOrderNote(text: string | null | undefined): ParsedNote | null {
   const t = (text ?? '').replace(/ /g, ' ').trim();
   if (!t || t.length > 400) return null;
   // Payment + total may be on its own line or at the end of the last item line.
   // …or first, on its own line ("cod249\n501/3 34" — some admins write the total first).
-  const last = t.match(/(?:^|\s)(cod|โอน|ปลายทาง)\s*(\d{2,5})\s*$/i);
-  const first = last ? null : t.match(/^(cod|โอน|ปลายทาง)\s*(\d{2,5})\s*\n/i);
+  // The total may carry "บาท"/"บ." and, for transfers, the bank it went to ("โอน349kb", 15 Oct).
+  const last = t.match(new RegExp(`(?:^|\\s)(cod|โอน|ปลายทาง)\\s*(\\d{2,5})${PAY_TAIL}\\s*$`, 'i'));
+  const first = last ? null : t.match(new RegExp(`^(cod|โอน|ปลายทาง)\\s*(\\d{2,5})${PAY_TAIL}\\s*\\n`, 'i'));
   const pay = last ?? first;
   if (!pay) return null;
   const body = (last ? t.slice(0, last.index) : t.slice(first![0].length)).trim();
@@ -50,8 +53,10 @@ export function parseOrderNote(text: string | null | undefined): ParsedNote | nu
       continue;
     }
     // Thai letters or anything long → not an order note at all (keeps addresses and chat out of storage).
-    if (line.length > 60 || /[฀-๿]/.test(line.replace(/เอว|ไซส์|ไซซ์/g, ''))) return null;
-    const parsed = parseLine(line);
+    // A quantity may be written "2ตัว", "2 ชิ้น" or "x2" (15 Oct).
+    const plain = line.replace(/(?:^|\s)x\s*(\d{1,2})(?=\s|$)/gi, ' $1').replace(/(\d{1,2})\s*(?:ตัว|ชิ้น|ตว)(?=\s|$)/g, '$1').trim();
+    if (plain.length > 60 || /[฀-๿]/.test(plain.replace(/เอว|ไซส์|ไซซ์/g, ''))) return null;
+    const parsed = parseLine(plain);
     if (parsed) { items.push(...parsed); continue; }
     // An unread line is kept only if it can't be customer details: no phone/postcode-length numbers, no @, and
     // every word either has a digit or is short ("501 ดำ", a name or a phone number → the whole message is dropped).

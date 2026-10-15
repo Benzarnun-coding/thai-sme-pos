@@ -5,7 +5,8 @@
 // Page365 and presses "ส่งบิล". Switch: meta_capi key auto_fill (on/off), on the settings page.
 
 import { postToDeciders, type DiscordEnv } from './discord.ts';
-import { markFill, type StoredNote } from './orderNotes.ts';
+import { markFill, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
+import { sendNotePurchase } from './notePurchases.ts';
 import { applyFill, call, findDraft, P365Error, planFill, type FillEnv, type P365Order } from './p365fill.ts';
 
 export interface AutoEnv extends FillEnv, DiscordEnv { DB: D1Database; /** #ออเดอร์มีปัญหา (Benz 15 Oct); falls back to the ads channel via the bot */ DISCORD_ORDER_WEBHOOK_URL?: string; /** who answers for problem bills (เนย, Benz 15 Oct); empty = the deciders */ DISCORD_ORDER_OWNER_IDS?: string }
@@ -179,6 +180,17 @@ export async function sweepNotes(env: AutoEnv): Promise<AutoResult | null> {
   await env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('fill_sweep_at', ?)").bind(new Date().toISOString()).run();
   const from = new Date(Math.max(Date.now() - 86_400_000, Date.parse(SWEEP_FROM))).toISOString();
   const to = new Date(Date.now() - 3 * 60_000).toISOString();
+  // Notes the parser missed when they came in ("โอน349kb … 2ตัว", 15 Oct) are read again from the stored chat
+  // (redacted shop messages, chatLog.ts) after a parser fix; their sale goes to Meta at the note's own time.
+  const { results: shopLines } = await env.DB.prepare(
+    `SELECT c.mid, c.psid, c.at, c.text FROM chat_messages c LEFT JOIN order_notes o ON o.mid = c.mid
+      WHERE c.from_page = 1 AND c.at >= ? AND c.text IS NOT NULL AND o.mid IS NULL`,
+  ).bind(from).all<{ mid: string; psid: string; at: string; text: string }>();
+  const rescued: StoredNote[] = shopLines.filter((m) => parseOrderNote(m.text)).map((m) => ({ mid: m.mid, psid: m.psid, at: m.at, text: m.text.trim(), name_hash: null }));
+  if (rescued.length) {
+    await saveNotes(env.DB, rescued);
+    for (const n of rescued) await sendNotePurchase(env as any, n).catch((err) => console.error('note purchase', err));
+  }
   const note = await env.DB.prepare(
     `SELECT * FROM order_notes WHERE at >= ? AND at <= ? AND filled_at IS NULL
        AND (fill_error IS NULL OR fill_error LIKE ? OR fill_error LIKE ?) ORDER BY at LIMIT 1`,
