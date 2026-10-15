@@ -33,7 +33,7 @@ export function validatePurchase(input: any): { date: string; round: number; fil
   const raw: unknown[] = Array.isArray(input?.lines) ? input.lines : [];
   if (!raw.length) throw new BadRequest('ไม่มีรายการ');
   if (raw.length > MAX_LINES) throw new BadRequest(`รายการเกิน ${MAX_LINES}`);
-  const seen = new Set<string>();
+  const seen = new Map<string, SavedLine>();
   const lines = raw.map((x: any) => {
     const l: SavedLine = {
       grp: cleanText(x?.group, 80), kind: String(x?.kind ?? ''), sku: cleanText(x?.sku, 200), tab: cleanText(x?.tab, 40),
@@ -49,10 +49,16 @@ export function validatePurchase(input: any): { date: string; round: number; fil
       for (const o of l.orders) { const v = cleanText(x.stores[o], 80); if (v) l.stores[o] = v; }
     }
     if (!l.grp || !l.sku || !KINDS.has(l.kind) || !(l.qty > 0 && l.qty < 100_000)) throw new BadRequest(`รายการไม่ครบ: ${l.sku || '(ไม่มี SKU)'}`);
-    const k = `${l.grp}\u0000${l.sku}`;
-    if (seen.has(k)) throw new BadRequest(`รายการซ้ำ: ${l.grp} ${l.sku}`);
-    seen.add(k);
     return l;
+  }).filter((l) => {
+    // Two rows that become the same after cleaning (e.g. a SKU with and without an invisible character) are one.
+    const k = `${l.grp}\u0000${l.sku}`;
+    const prev = seen.get(k);
+    if (!prev) { seen.set(k, l); return true; }
+    prev.qty += l.qty;
+    for (const o of l.orders) if (!prev.orders.includes(o)) prev.orders.push(o);
+    Object.assign(prev.stores, l.stores);
+    return false;
   });
   // Per-order rows (only when saved from a file): duplicates of order + SKU are added up.
   let items: SavedItem[] | null = null;

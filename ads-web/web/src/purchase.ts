@@ -7,7 +7,7 @@
 //   4. other tabs → the warehouse itself (PK, CM, CN …)
 // Rows whose SKU is missing or not in the catalog go to "ตรวจสอบ". Shared by the page and the tests.
 
-import { COLOR_NAMES, compareSize, SHOP_STATUSES, skuKey, spuOf, type CatalogRow } from './catalog.ts';
+import { cleanSku, COLOR_NAMES, compareSize, SHOP_STATUSES, skuKey, spuOf, type CatalogRow } from './catalog.ts';
 import { buildXlsx, S, type Cell, type Sheet } from './xlsxWrite.ts';
 
 export type GroupKind = 'supplier' | 'warehouse' | 'unassigned' | 'review';
@@ -246,10 +246,12 @@ export function buildLines(items: OrderItem[], lookup: Lookup): PurchaseLine[] {
     const r = it.sku ? lookup.rows.get(skuKey(it.sku)) : undefined;
     let line: PurchaseLine;
     if (!r) {
+      // Invisible characters removed, so "5012-PK-NV-30" and "5012-PK-NV-30\u200b" are one row (as the server sees them)
+      const sku = cleanSku(it.sku);
       const what = it.option || it.name.slice(0, 60);
       line = {
-        group: REVIEW, kind: 'review', sku: it.sku || `?${it.name.slice(0, 60)} · ${it.option}`, tab: '', product: '',
-        label: it.sku || '(ไม่มี SKU)', size: (it.sku ? sizeFromSku(it.sku) : '') || optionParts(it.option).size, qty: 0,
+        group: REVIEW, kind: 'review', sku: sku || `?${it.name.slice(0, 60)} · ${it.option}`, tab: '', product: '',
+        label: sku || '(ไม่มี SKU)', size: (sku ? sizeFromSku(sku) : '') || optionParts(it.option).size, qty: 0,
         note: `${it.sku ? 'SKU ไม่มีในแคตตาล็อก' : 'ไม่มี SKU ใน Bigseller'} · ${what}`, orders: [],
       };
     } else {

@@ -894,6 +894,13 @@ function OrderSearch({ lines, history, currentId, onGo, onOpenRound }: {
         <label className="search">
           <span className="ico"><Icon name="search" size={16} /></span>
           <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') run(); }}
+            onPaste={(e) => {
+              // A pasted column (Excel, the copy buttons) has one number per line; a one-line box would glue them.
+              const text = e.clipboardData.getData('text');
+              if (!/[\r\n]/.test(text)) return;
+              e.preventDefault();
+              setQ((v) => `${v.trim()} ${text.replace(/\s+/g, ' ')}`.trim());
+            }}
             placeholder="ค้นหาเลขคำสั่งซื้อ · วางได้หลายเลข (เว้นวรรค/ขึ้นบรรทัด) · พิมพ์บางส่วน 4 ตัวขึ้นไปก็ได้" aria-label="ค้นหาเลขคำสั่งซื้อ" />
           {q && <button className="icon-btn" onClick={() => { setQ(''); setResult(null); }} aria-label="ล้าง"><Icon name="x" size={16} /></button>}
         </label>
