@@ -18,7 +18,7 @@ export const aiEnabled = (env: AIEnv) => !!env.ANTHROPIC_API_KEY;
 
 export interface AIResult { text: string; input_tokens: number; output_tokens: number; model: string }
 
-export async function askAI(env: AIEnv, system: string, user: string, maxTokens = 1500): Promise<AIResult> {
+export async function askAI(env: AIEnv, system: string, user: string, maxTokens = 3000): Promise<AIResult> {
   if (!env.ANTHROPIC_API_KEY) throw new Error('ยังไม่ได้ตั้ง ANTHROPIC_API_KEY');
   const model = env.CHAT_AI_MODEL || 'claude-haiku-5-5';
   const res = await fetch('https://api.anthropic.com/v1/messages', {
