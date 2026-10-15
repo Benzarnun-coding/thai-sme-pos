@@ -1,4 +1,5 @@
 // Typed client for the Worker API. Types mirror worker/model.ts and ads-engine/src/types.ts (the UI never imports worker code).
+import type { WebSku } from './catalog.ts';
 
 export type Level = 'campaign' | 'adset';
 export type Window = 'today' | 'yesterday' | 'last_3d' | 'last_7d' | 'last_14d' | 'last_30d';
@@ -131,7 +132,14 @@ export interface Overview {
 }
 
 export interface OrderFees { cod_pct: number; loss_pct: number; ship: number; vat_pct: number; vat_base: 'total' | 'goods' | 'after_ship'; bag: number }
-export interface Settings { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails; sheet_id: string; sheet_tabs: string[]; cod_share_pct: number; cod_fee: number; ads_cost_sheet_id: string; ads_cost_tab: string; cost_editors: string[]; order_fees: OrderFees }
+export interface Goal { monthly_net: number; scale_mer: number; scale_pct: number }
+export interface GoalDay { date: string; revenue: number; cost: number; fees: number; ads: number; net: number; orders: number; units: number; multi: number }
+export interface GoalStatus {
+  month: string; goal: Goal; days_in_month: number; elapsed: string[]; days: GoalDay[]; missing: string[];
+  net: number; revenue: number; ads: number; avg_net: number | null; projected: number | null; needed_per_day: number;
+  gross_margin: number | null; mer: number | null; target_revenue_per_day: number | null; mer_7d: number | null; mer_7d_days: number; multi_share: number | null; multi_share_7d: number | null; units_per_order: number | null;
+}
+export interface Settings { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails; sheet_id: string; sheet_tabs: string[]; cod_share_pct: number; cod_fee: number; ads_cost_sheet_id: string; ads_cost_tab: string; cost_editors: string[]; order_fees: OrderFees; goal: Goal }
 
 export interface CostRow { tab: string; code: string; name: string; sku_count: number; avg_cost: number; min_cost: number; max_cost: number; avg_price: number }
 
@@ -272,8 +280,68 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return data as T;
 }
 
+export interface CatalogTab { tab: string; gid: string; sort: number; skus: number; synced_at: string; synced_by: string }
+export interface CatalogImage { key: string; tab: string; spu: string; url: string | null; uploaded: boolean; bytes: number; updated_by: string; updated_at: string }
+export interface CatalogSupplier { key: string; tab: string; spu: string; shop: string; updated_by: string; updated_at: string }
+export interface CatalogPrice { key: string; tab: string; spu: string; price: number; updated_by: string; updated_at: string }
+export interface CatalogLabel { key: string; tab: string; spu: string; label: string; updated_by: string; updated_at: string }
+export interface CatalogMeta { version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; prices: CatalogPrice[]; labels: CatalogLabel[]; sheet_configured: boolean }
+export type PurchaseKind = 'supplier' | 'warehouse' | 'unassigned' | 'review';
+export interface SalesData {
+  from: string; to: string;
+  bigseller: { date: string; store: string; sku: string; qty: number }[];
+  bigsellerOrders: { date: string; store: string; orders: number }[];
+  page365: { date: string; sku: string; name: string; qty: number }[];
+  page365Orders: { date: string; orders: number; units: number; total: number }[];
+  bigsellerDays: string[];
+  page365Days: string[];
+}
+export interface LedgerRow { upload_id: string; date: string; round: number; grp: string; kind: string; due: number; unpriced: number; paid: number | null; done: boolean; note: string; updated_by: string | null; updated_at: string | null }
+export interface PurchaseUpload { id: string; date: string; round: number; file: string; pieces: number; review: number; missing: number; groups: { name: string; kind: PurchaseKind; pieces: number }[]; saved_by: string; saved_at: string }
+export interface SavedPurchaseLine { grp: string; kind: PurchaseKind; sku: string; tab: string; label: string; size: string; qty: number; note: string; orders: string[]; missing: number; stores: Record<string, string>; price: number | null; price_source: string }
+export type WebSkuInput = Omit<WebSku, 'created_by' | 'created_at' | 'updated_at'>;
+
 export const api = {
-  me: () => call<{ email: string; role: 'admin' | 'costs'; mock: boolean }>('GET', '/api/me'),
+  me: () => call<{ email: string; role: Role; mock: boolean }>('GET', '/api/me'),
+  catalog: () => call<CatalogMeta>('GET', '/api/catalog'),
+  catalogRows: (tab: string, after: string, version: string) =>
+    call<{ rows: unknown[][]; next: string | null }>('GET', `/api/catalog/rows?tab=${encodeURIComponent(tab)}&after=${encodeURIComponent(after)}&v=${encodeURIComponent(version || 'none')}`),
+  uploadCatalogImage: async (tab: string, spu: string, pics: { thumb: Blob; full: Blob }) => {
+    const form = new FormData();
+    form.set('tab', tab);
+    form.set('spu', spu);
+    form.set('thumb', pics.thumb, 'thumb.jpg');
+    form.set('full', pics.full, 'full.jpg');
+    const res = await fetch('/api/catalog/image', { method: 'POST', body: form });
+    const data: any = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+    return data as { image: CatalogImage };
+  },
+  linkCatalogImage: (tab: string, spu: string, url: string) => call<{ image: CatalogImage }>('POST', '/api/catalog/image', { tab, spu, url }),
+  deleteCatalogImage: (tab: string, spu: string) => call<{ ok: true }>('DELETE', `/api/catalog/image?tab=${encodeURIComponent(tab)}&spu=${encodeURIComponent(spu)}`),
+  setLabels: (items: { tab: string; spu: string; label: string }[]) => call<{ labels: CatalogLabel[] }>('PUT', '/api/catalog/label', { items }),
+  setPrices: (items: { tab: string; spu: string; price: number | null }[]) => call<{ prices: CatalogPrice[] }>('PUT', '/api/catalog/price', { items }),
+  setSuppliers: (items: { tab: string; spu: string; shop: string }[]) => call<{ suppliers: CatalogSupplier[] }>('PUT', '/api/catalog/supplier', { items }),
+  purchases: () => call<{ uploads: PurchaseUpload[] }>('GET', '/api/purchase'),
+  purchaseLines: (id: string) => call<{ lines: SavedPurchaseLine[] }>('GET', `/api/purchase/lines?id=${encodeURIComponent(id)}`),
+  savePurchase: (p: { date: string; round: number; file: string; lines: unknown[]; items?: unknown[] }) => call<{ upload: PurchaseUpload }>('PUT', '/api/purchase', p),
+  setMissing: (id: string, items: { grp: string; sku: string; missing: number }[]) => call<{ missing: number }>('PUT', '/api/purchase/missing', { id, items }),
+  sales: (from: string, to: string) => call<SalesData>('GET', `/api/sales?from=${from}&to=${to}`),
+  ledger: (days = 60) => call<{ since: string; rows: LedgerRow[] }>('GET', `/api/purchase/ledger?days=${days}`),
+  savePayments: (id: string, items: { grp: string; paid: number | null; done: boolean; note: string }[]) => call<{ ok: true }>('PUT', '/api/purchase/payments', { id, items }),
+  deletePurchase: (id: string) => call<{ ok: true }>('DELETE', `/api/purchase?id=${encodeURIComponent(id)}`),
+  setCatalogSheet: (sheet: string) => call<{ ok: true }>('PUT', '/api/catalog/sheet', { sheet }),
+  catalogSheetTabs: () => call<{ tabs: { tab: string; gid: string }[] }>('GET', '/api/catalog/sheet'),
+  catalogCsv: async (gid: string) => {
+    const res = await fetch(`/api/catalog/sheet/csv?gid=${encodeURIComponent(gid)}`);
+    if (!res.ok) throw new Error(((await res.json().catch(() => null)) as any)?.error ?? `HTTP ${res.status}`);
+    return res.text();
+  },
+  catalogSync: (b: { tab: string; gid: string; sort: number; rows: unknown[][]; remove: string[]; done: { skus: number } | null }) =>
+    call<{ written: number; removed: number }>('POST', '/api/catalog/sync', b),
+  addWebSkus: (items: WebSkuInput[]) => call<{ rows: WebSku[] }>('POST', '/api/catalog/web', { items }),
+  updateWebSku: (sku: string, v: Partial<WebSkuInput>) => call<{ row: WebSku }>('PUT', `/api/catalog/web?sku=${encodeURIComponent(sku)}`, v),
+  deleteWebSku: (sku: string) => call<{ ok: true }>('DELETE', `/api/catalog/web?sku=${encodeURIComponent(sku)}`),
   overview: (window: Window, fresh = false) => call<Overview>('GET', `/api/overview?window=${window}${fresh ? '&fresh=1' : ''}`),
   createSection: (s: Partial<Section>) => call<Section>('POST', '/api/sections', s),
   saveSection: (s: Section) => call<Section>('PUT', `/api/sections/${s.id}`, s),
@@ -311,6 +379,10 @@ export const api = {
   removeUser: (email: string) => call<{ ok: true; sync: { ok: boolean; error?: string } | null }>('DELETE', `/api/users/${encodeURIComponent(email)}`),
   syncAccess: () => call<{ emails: string[] }>('POST', '/api/users/access-sync'),
   webhook: () => call<WebhookStatus>('GET', '/api/webhook'),
+  sendPostIdeas: () => call<{ sent: boolean; ideas: number }>('POST', '/api/post-ideas/send'),
+  goal: () => call<GoalStatus>('GET', '/api/goal'),
+  goalScaleCheck: () => call<{ asked: boolean; reason: string }>('POST', '/api/goal/scale-check'),
+  discordTest: (kind?: 'upload') => call<{ ok: true }>('POST', `/api/discord/test${kind ? `?kind=${kind}` : ''}`),
   setupWebhook: () => call<{ app: unknown; page: unknown }>('POST', '/api/webhook/setup'),
   adReferrals: (q: { date?: string; window?: Window }) => call<{ dates: string[]; rows: ReferralSummary[] }>('GET', `/api/ad-referrals?${q.date ? `date=${q.date}` : `window=${q.window ?? 'last_7d'}`}`),
   conversionHours: () => call<{ stored: number; of: number; dates: string[] }>('GET', '/api/conversion-hours'),
@@ -340,6 +412,21 @@ export const tabLabel = (tab: string) => (tab === WEB_TAB ? 'กรอกใน�
 export const WINDOW_LABEL: Record<Window, string> = {
   today: 'วันนี้', yesterday: 'เมื่อวาน', last_3d: '3 วัน', last_7d: '7 วัน', last_14d: '14 วัน', last_30d: '30 วัน',
 };
+
+/** A custom date range, written into the window string as Ads Manager's picker would: "range:since:until" (Bangkok, inclusive). */
+export const rangeWindow = (since: string, until: string) => `range:${since <= until ? since : until}:${since <= until ? until : since}` as Window;
+export function parseRange(w: string): { since: string; until: string } | null {
+  const m = /^range:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/.exec(w);
+  return m ? { since: m[1], until: m[2] } : null;
+}
+/** Label for any window, presets and custom ranges alike ("11 ต.ค.", "5–11 ต.ค.") */
+export function windowLabel(w: Window): string {
+  const r = parseRange(w);
+  if (!r) return WINDOW_LABEL[w] ?? w;
+  const fmt = (d: string, month = true) => new Date(`${d}T00:00:00+07:00`).toLocaleDateString('th-TH', { day: 'numeric', ...(month ? { month: 'short' } : {}), timeZone: 'Asia/Bangkok' });
+  if (r.since === r.until) return fmt(r.since);
+  return r.since.slice(0, 7) === r.until.slice(0, 7) ? `${fmt(r.since, false)}–${fmt(r.until)}` : `${fmt(r.since)} – ${fmt(r.until)}`;
+}
 export const METRIC_LABEL: Record<Metric, string> = {
   spend: 'ใช้จ่าย', impressions: 'Impressions', clicks: 'คลิก', ctr: 'CTR %', cpc: 'CPC', frequency: 'Frequency',
   purchases: 'ยอดซื้อ', cpa: 'ต้นทุน/ออเดอร์', roas: 'ROAS', messages: 'แชท', cost_per_message: 'ต้นทุน/แชท',

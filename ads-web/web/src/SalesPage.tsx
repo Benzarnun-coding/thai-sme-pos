@@ -11,7 +11,7 @@ import { Icon, useUi } from './ui.tsx';
 
 const WINDOWS: Window[] = ['last_7d', 'last_14d', 'last_30d'];
 
-interface DayTotal { date: string; revenue: number; orders: number; units: number; cost: number; spend: number; profit: number; campaigns: number; uncosted: number; costedRevenue: number; organicRevenue: number; organicOrders: number; actual: boolean }
+interface DayTotal { date: string; revenue: number; orders: number; units: number; cost: number; fees: number; spend: number; profit: number; campaigns: number; uncosted: number; costedRevenue: number; organicRevenue: number; organicOrders: number; actual: boolean }
 
 /** Conservative figures (higher cost, lower profit) throughout, matching the rest of the dashboard. */
 function totalOf(rows: SalesRow[], date = ''): DayTotal {
@@ -21,6 +21,8 @@ function totalOf(rows: SalesRow[], date = ''): DayTotal {
     orders: t.orders + r.orders,
     units: t.units + (r.units_high ?? 0),
     cost: t.cost + (r.cost_high ?? 0),
+    // Page365 days: the per-order fees (COD 1%, loss, shipping, VAT, bag) are inside cost; shown in their own column.
+    fees: t.fees + (r.calc.method === 'actual' ? r.calc.fees : 0),
     spend: t.spend + r.spend,
     profit: t.profit + (r.profit_low ?? 0),
     campaigns: t.campaigns + (r.campaign_id === 'none' ? 0 : 1),
@@ -30,7 +32,7 @@ function totalOf(rows: SalesRow[], date = ''): DayTotal {
     organicRevenue: t.organicRevenue + (r.campaign_id === 'none' ? r.revenue : 0),
     organicOrders: t.organicOrders + (r.campaign_id === 'none' ? r.orders : 0),
     actual: t.actual || r.calc.method === 'actual',
-  }), { date, revenue: 0, orders: 0, units: 0, cost: 0, spend: 0, profit: 0, campaigns: 0, uncosted: 0, costedRevenue: 0, organicRevenue: 0, organicOrders: 0, actual: false });
+  }), { date, revenue: 0, orders: 0, units: 0, cost: 0, fees: 0, spend: 0, profit: 0, campaigns: 0, uncosted: 0, costedRevenue: 0, organicRevenue: 0, organicOrders: 0, actual: false });
 }
 
 const thaiDay = (iso: string) => new Date(`${iso}T00:00:00+07:00`).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' });
@@ -114,7 +116,7 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
             <div className="table-wrap">
               <table className="data-table">
                 <thead>
-                  <tr><th>วันที่</th><th className="num">ยอดขาย</th><th className="num">จากแอด</th><th className="num">ไม่ใช่แอด</th><th className="num">ออเดอร์</th><th className="num">ตัว</th><th className="num">ทุนสินค้า</th><th className="num">ค่าแอด</th><th className="num">กำไร</th><th className="num">ROAS</th><th className="num">แอดที่มียอด</th></tr>
+                  <tr><th>วันที่</th><th className="num">ยอดขาย</th><th className="num">จากแอด</th><th className="num">ไม่ใช่แอด</th><th className="num">ออเดอร์</th><th className="num">ตัว</th><th className="num">ทุนสินค้า</th><th className="num" title="วันที่อัปโหลด Page365: COD 1% (เฉพาะเก็บปลายทาง) · เสียหาย 1% · ค่าส่ง 15 · VAT 7% · ถุง 1 ต่อออเดอร์">ค่าใช้จ่ายต่อออเดอร์</th><th className="num">ค่าแอด</th><th className="num">กำไร</th><th className="num">ROAS</th><th className="num">แอดที่มียอด</th></tr>
                 </thead>
                 <tbody>
                   {days.map((d) => (
@@ -125,7 +127,8 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
                       <td className="num" title="ออเดอร์จริงที่จับคู่กับแอดไม่ได้: organic, เห็นแอดแล้วทักทีหลัง, ไม่ได้ติ๊กเข้า Meta">{d.actual ? <>{baht(d.organicRevenue)}<span className="muted small"> ({num(d.organicOrders)} ออเดอร์ · {d.revenue ? num((d.organicRevenue / d.revenue) * 100) : 0}%)</span></> : <span className="muted">–</span>}</td>
                       <td className="num">{num(d.orders)}</td>
                       <td className="num">{num(d.units)}</td>
-                      <td className="num">{baht(d.cost)}</td>
+                      <td className="num">{baht(d.cost - d.fees)}</td>
+                      <td className="num">{d.actual ? baht(d.fees) : <span className="muted" title="วันที่ยังไม่อัปโหลด: ทุนจากชีตรวมค่าใช้จ่ายแล้ว">–</span>}</td>
                       <td className="num">{baht(d.spend)}</td>
                       <td className={`num strong ${d.profit < 0 ? 'bad' : 'good'}`}>{baht(d.profit)}</td>
                       <td className="num">{d.spend ? num(d.revenue / d.spend, 2) : '–'}</td>
@@ -140,7 +143,7 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
                     <td className="num">{all.actual ? baht(days.filter((d) => d.actual).reduce((t, d) => t + d.revenue - d.organicRevenue, 0)) : '–'}</td>
                     <td className="num">{all.actual ? baht(all.organicRevenue) : '–'}</td>
                     <td className="num">{num(all.orders)}</td><td className="num">{num(all.units)}</td>
-                    <td className="num">{baht(all.cost)}</td><td className="num">{baht(all.spend)}</td>
+                    <td className="num">{baht(all.cost - all.fees)}</td><td className="num">{all.actual ? baht(all.fees) : '–'}</td><td className="num">{baht(all.spend)}</td>
                     <td className={`num ${all.profit < 0 ? 'bad' : 'good'}`}>{baht(all.profit)}</td>
                     <td className="num">{all.spend ? num(all.revenue / all.spend, 2) : '–'}</td><td />
                   </tr>
@@ -160,7 +163,7 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
               <div className="table-wrap">
                 <table className="data-table">
                   <thead>
-                    <tr><th>แคมเปญ</th><th className="num">ยอดขาย</th><th className="num">ออเดอร์</th><th className="num">ตัว</th><th className="num">ทุนสินค้า</th><th className="num">ค่าแอด</th><th className="num">กำไร</th><th className="num">ROAS</th><th>วิธีคิดทุน</th></tr>
+                    <tr><th>แคมเปญ</th><th className="num">ยอดขาย</th><th className="num">ออเดอร์</th><th className="num">ตัว</th><th className="num" title="วันที่อัปโหลด Page365: ทุนสินค้า + ค่าใช้จ่ายต่อออเดอร์">ทุน + ค่าใช้จ่าย</th><th className="num">ค่าแอด</th><th className="num">กำไร</th><th className="num">ROAS</th><th>วิธีคิดทุน</th></tr>
                   </thead>
                   <tbody>
                     {dayRows.map((r) => {

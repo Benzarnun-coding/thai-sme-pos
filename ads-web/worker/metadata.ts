@@ -8,7 +8,15 @@ import type { Entity, Level, Metrics, Window } from '../../ads-engine/src/types.
 import { MockMeta } from './mock.ts';
 import type { MetaLike } from './run.ts';
 
-const TTL_MS: Record<string, number> = { entities: 10 * 60_000, insights: 5 * 60_000, daily: 30 * 60_000 };
+const TTL_MS: Record<string, number> = { entities: 10 * 60_000, insights: 5 * 60_000, daily: 30 * 60_000, past: 12 * 3_600_000 };
+
+/** A custom range that ended before yesterday won't change any more: keep it for hours, not minutes. */
+function settled(window: string): boolean {
+  const m = /^range:\d{4}-\d{2}-\d{2}:(\d{4}-\d{2}-\d{2})$/.exec(window);
+  if (!m) return false;
+  const yesterday = new Date(Date.now() + 7 * 3_600_000 - 86_400_000).toISOString().slice(0, 10);
+  return m[1] < yesterday;
+}
 const MIN_REFRESH_MS = 60_000;
 
 export interface MetaData {
@@ -76,9 +84,9 @@ export async function loadMetaData(db: D1Database, meta: MetaLike, fresh: boolea
     account: base.account,
     entities: base.entities,
     insights: async (level, window) =>
-      new Map(Object.entries(await cached(`ins:${level}:${window}`, 'insights', async () => Object.fromEntries(await meta.insights(level, window))))),
+      new Map(Object.entries(await cached(`ins:${level}:${window}`, settled(window) ? 'past' : 'insights', async () => Object.fromEntries(await meta.insights(level, window))))),
     daily: (campaignId, window) => cached(`daily:${campaignId}:${window}`, 'daily', () => meta.dailyInsights(campaignId, window)),
-    dailyAll: (window) => cached(`dailyall:${window}`, 'daily', () => meta.dailyCampaignInsights(window)),
+    dailyAll: (window) => cached(`dailyall:${window}`, settled(window) ? 'past' : 'daily', () => meta.dailyCampaignInsights(window)),
     hourly: (date) => cached(`hourly:${date}`, 'daily', () => meta.hourlyConversions(date)),
     fetchedAt: () => (times.length ? times.reduce((a, b) => (a < b ? a : b)) : new Date().toISOString()),
     warning: () => warning,

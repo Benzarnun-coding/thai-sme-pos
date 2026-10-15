@@ -12,6 +12,12 @@ export const bkkDate = (offsetDays = 0, now = Date.now()) => new Date(now + 7 * 
 
 /** Dates Meta's presets cover: last_Nd = the N days before today; today/yesterday as named. */
 export function windowDates(window: Window, now = Date.now()): string[] {
+  const r = /^range:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/.exec(window);
+  if (r) {
+    const out: string[] = [];
+    for (let t = Date.parse(`${r[1]}T00:00:00Z`); t <= Date.parse(`${r[2]}T00:00:00Z`) && out.length < 400; t += DAY) out.push(new Date(t).toISOString().slice(0, 10));
+    return out;
+  }
   const n: Record<Window, [number, number]> = { today: [0, 0], yesterday: [1, 1], last_3d: [3, 1], last_7d: [7, 1], last_14d: [14, 1], last_30d: [30, 1] };
   const [from, to] = n[window];
   const out: string[] = [];

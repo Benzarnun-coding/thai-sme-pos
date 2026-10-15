@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { WINDOW_LABEL, type CampaignView, type Idea, type Overview as OverviewData, type Preview, type PreviewItem, type Stage, type Window } from './api.ts';
+import { useEffect, useMemo, useState } from 'react';
+import { api, parseRange, type GoalStatus, rangeWindow, WINDOW_LABEL, windowLabel, type CampaignView, type Idea, type Overview as OverviewData, type Preview, type PreviewItem, type Stage, type Window } from './api.ts';
 import { stageLabel, useCampaignActions } from './actions.tsx';
 import { baht, bahtRange, cvr, num, profitTone, roasTone, time, when } from './fmt.ts';
 import type { RulesTarget } from './RulesPage.tsx';
@@ -51,6 +51,7 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
             <button key={w} role="tab" aria-selected={w === window} className={w === window ? 'on' : ''} onClick={() => onWindow(w)}>{WINDOW_LABEL[w]}</button>
           ))}
         </div>
+        {!data.snapshot && <RangePicker window={window} onWindow={onWindow} />}
         {!data.snapshot && (
           <button className="ghost small fresh" onClick={onRefresh} title="ดึงข้อมูลใหม่จาก Meta (ไม่เกินนาทีละครั้ง)">
             <Icon name="refresh" size={16} /> อัปเดต {time(data.meta_fetched_at)}
@@ -58,10 +59,25 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
         )}
       </div>
 
+      <GoalCard />
+
       <div className="kpis">
-        <Kpi label="ยอดขาย" value={baht(all.value)} sub={all.purchases ? `เฉลี่ย ${baht(all.value / all.purchases)}/ออเดอร์` : undefined} />
-        <Kpi label="ใช้จ่าย" value={baht(all.spend)} sub={`${spending} แคมเปญที่ใช้เงิน`} />
-        <Kpi label="ออเดอร์" value={num(all.purchases)} sub={all.purchases ? `ค่าแอด ${baht(all.spend / all.purchases)}/ออเดอร์${all.clicks ? ` · CVR ${num((all.purchases / all.clicks) * 100, 2)}%` : ''}` : undefined} />
+        {(() => {
+          // Real Page365 numbers when uploaded; Meta's tagged figures alongside so the two can be compared.
+          const a = data.actual;
+          const tag = a ? (a.covered === a.dates ? ' · ของจริง' : ` · ของจริง ${a.covered}/${a.dates} วัน`) : '';
+          return (
+            <>
+              <Kpi label={`ยอดขาย${tag}`} value={baht(a ? a.revenue : all.value)}
+                sub={a ? `เฉลี่ย ${baht(a.orders ? a.revenue / a.orders : 0)}/ออเดอร์ · Meta นับ ${baht(all.value)}` : all.purchases ? `เฉลี่ย ${baht(all.value / all.purchases)}/ออเดอร์ · ตามที่ติ๊กใน Meta` : undefined} />
+              <Kpi label="ใช้จ่าย" value={baht(all.spend)} sub={`${spending} แคมเปญที่ใช้เงิน`} />
+              <Kpi label={`ออเดอร์${tag}`} value={num(a ? a.orders : all.purchases)}
+                sub={a
+                  ? `Meta นับ ${num(all.purchases)} · ไม่ใช่แอด ${num(a.organic_orders)} · ค่าแอด ${baht(a.orders ? a.ads / a.orders : 0)}/ออเดอร์จริง${a.covered < a.dates ? ' · ยังขาดไฟล์บางวัน' : ''}`
+                  : all.purchases ? `ค่าแอด ${baht(all.spend / all.purchases)}/ออเดอร์${all.clicks ? ` · CVR ${num((all.purchases / all.clicks) * 100, 2)}%` : ''} · ตามที่ติ๊กใน Meta` : undefined} />
+            </>
+          );
+        })()}
         <Kpi
           label={data.actual ? 'ทุนสินค้า · ของจริง' : 'ทุนสินค้า'}
           value={data.actual ? baht(data.actual.cost) : '–'}
@@ -107,6 +123,80 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
         onOpenCampaign={onOpenCampaign}
       />
     </>
+  );
+}
+
+/** Counts up from 0 to the value once, so the scoreboard "runs" when the page opens. */
+function useCountUp(target: number, ms = 1200): number {
+  const [v, setV] = useState(0);
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { setV(target); return; }
+    let raf = 0;
+    const t0 = performance.now();
+    const tick = (t: number) => {
+      const k = Math.min(1, (t - t0) / ms);
+      setV(target * (1 - Math.pow(1 - k, 3)));
+      if (k < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms]);
+  return v;
+}
+
+/**
+ * Scoreboard: month-to-date real net (Page365 days) against the monthly goal — how much is still missing, a running
+ * bar with a marker where the month should be by now, and the pace needed. Loaded on its own so the overview isn't slowed.
+ */
+function GoalCard() {
+  const [g, setG] = useState<GoalStatus | null>(null);
+  const [err, setErr] = useState('');
+  const [shown, setShown] = useState(false);
+  useEffect(() => { api.goal().then((x) => { setG(x); requestAnimationFrame(() => setShown(true)); }).catch((e) => setErr(e.message)); }, []);
+  const net = useCountUp(g?.net ?? 0);
+  if (err) return <p className="muted small">เป้ากำไร: {err}</p>;
+  if (!g) return <section className="card scoreboard"><div className="skeleton" style={{ height: 120 }} /></section>;
+  const goal = g.goal.monthly_net;
+  const pct = goal ? Math.max(0, Math.min(100, (g.net / goal) * 100)) : 0;
+  const pacePct = Math.min(100, (g.elapsed.length / g.days_in_month) * 100);
+  const paceNet = (goal * g.elapsed.length) / g.days_in_month;
+  const gap = g.net - paceNet;
+  const missing = Math.max(0, goal - g.net);
+  const monthTh = new Date(`${g.month}-01T00:00:00+07:00`).toLocaleDateString('th-TH', { month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' });
+  const onTrack = g.projected !== null && g.projected >= goal;
+  const perDayGoal = goal / g.days_in_month;
+  const daysLeft = g.days_in_month - g.elapsed.length;
+  return (
+    <section className={`card scoreboard ${gap >= 0 ? 'ahead' : 'behind'}`} aria-label="สกอร์บอร์ดเป้ากำไร">
+      <div className="sb-head">
+        <div>
+          <span className="sb-label">🎯 เป้ากำไรสุทธิ {monthTh}</span>
+          <div className="sb-score"><b>{baht(net)}</b><span> / {baht(goal)}</span></div>
+        </div>
+        <div className="sb-missing">
+          <span className="sb-label">{missing > 0 ? 'ขาดอีก' : 'ถึงเป้าแล้ว 🎉'}</span>
+          <b>{missing > 0 ? baht(missing) : baht(g.net - goal)}</b>
+          <span className="muted small">{daysLeft > 0 ? `เหลือ ${daysLeft} วัน · ต้องได้วันละ ${baht(g.needed_per_day)}` : 'จบเดือนแล้ว'}</span>
+        </div>
+      </div>
+
+      <div className="sb-track" role="progressbar" aria-valuemin={0} aria-valuemax={goal} aria-valuenow={Math.round(g.net)} aria-label={`ได้ ${num(pct)}% ของเป้า`}>
+        <i className="sb-fill" style={{ width: shown ? `${pct}%` : '0%' }}><span>{num(pct)}%</span></i>
+        <em className="sb-pace" style={{ left: `${pacePct}%` }} title={`ควรถึง ${baht(paceNet)} ภายในวันนี้`}><span>ควรถึง {baht(paceNet)}</span></em>
+      </div>
+      <p className={`sb-status ${gap >= 0 ? 'good' : 'bad'}`}>
+        {gap >= 0 ? `▲ นำเป้า ${baht(gap)}` : `▼ ช้ากว่าเป้า ${baht(-gap)}`}
+        <span className="muted"> · ยอดจริง Page365 {g.days.length} วัน{g.missing.length ? ` (ขาดไฟล์ ${g.missing.length} วัน)` : ''} · หลังหักทุน ค่าใช้จ่ายต่อออเดอร์ และค่าแอด</span>
+      </p>
+
+      <div className="goal-grid">
+        <div><span className="muted small">เฉลี่ยต่อวัน</span><b className={g.avg_net !== null && g.avg_net >= perDayGoal ? 'good' : 'bad'}>{g.avg_net === null ? '–' : baht(g.avg_net)}</b><span className="muted small">เป้า {baht(perDayGoal)}/วัน</span></div>
+        <div><span className="muted small">คาดสิ้นเดือน</span><b className={onTrack ? 'good' : 'bad'}>{g.projected === null ? '–' : baht(g.projected)}</b><span className="muted small">ถ้าเฉลี่ยเท่าเดิม</span></div>
+        <div><span className="muted small">MER จริง 7 วัน</span><b className={g.mer_7d !== null && g.mer_7d >= g.goal.scale_mer ? 'good' : 'bad'}>{g.mer_7d === null ? '–' : num(g.mer_7d, 2)}</b><span className="muted small">เป้า ≥ {g.goal.scale_mer} · ผ่านแล้วขยายงบได้</span></div>
+        <div><span className="muted small">ออเดอร์หลายตัว (ปิดการขาย)</span><b>{g.multi_share_7d === null ? '–' : `${num(g.multi_share_7d * 100)}%`}</b><span className="muted small">7 วันล่าสุด · ทั้งเดือน {g.multi_share === null ? '–' : `${num(g.multi_share * 100)}%`} · {g.units_per_order === null ? '–' : num(g.units_per_order, 2)} ตัว/ออเดอร์</span></div>
+        <div><span className="muted small">ยอดขายที่ต้องได้/วัน</span><b>{g.target_revenue_per_day ? baht(g.target_revenue_per_day) : '–'}</b><span className="muted small">กำไรก่อนแอด {g.gross_margin === null ? '–' : `${num(g.gross_margin * 100, 1)}%`} · ที่ MER {g.goal.scale_mer}</span></div>
+      </div>
+    </section>
   );
 }
 
@@ -364,4 +454,43 @@ function readSort(): SortKey {
 }
 function saveSort(v: string) {
   try { localStorage.setItem('sort', v); } catch { /* private mode */ }
+}
+
+/** Pick one day or a date range, like Ads Manager's date picker. Up to 90 days, nothing after today. */
+function RangePicker({ window, onWindow }: { window: Window; onWindow: (w: Window) => void }) {
+  const current = parseRange(window);
+  const today = new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10);
+  const yesterday = new Date(Date.now() + 7 * 3_600_000 - 86_400_000).toISOString().slice(0, 10);
+  const [open, setOpen] = useState(false);
+  const [since, setSince] = useState(current?.since ?? yesterday);
+  const [until, setUntil] = useState(current?.until ?? yesterday);
+  const days = Math.round((Date.parse(until) - Date.parse(since)) / 86_400_000) + 1;
+  const valid = since && until && since <= until && until <= today && days <= 31;
+  const apply = (s: string, u: string) => { onWindow(rangeWindow(s, u)); setOpen(false); };
+  return (
+    <span className="range-picker">
+      <button className={`range-btn ${current ? 'on' : ''}`} onClick={() => setOpen(!open)} aria-expanded={open}>
+        <Icon name="calendar" size={14} /> {current ? windowLabel(window) : 'เลือกวัน'}
+      </button>
+      {open && (
+        <div className="range-pop" role="dialog" aria-label="เลือกช่วงวันที่">
+          <div className="range-quick">
+            {[1, 2, 3, 4, 5, 6, 7].map((back) => {
+              const d = new Date(Date.now() + 7 * 3_600_000 - back * 86_400_000).toISOString().slice(0, 10);
+              return <button key={d} className="ghost small" onClick={() => apply(d, d)}>{windowLabel(rangeWindow(d, d))}</button>;
+            })}
+          </div>
+          <div className="row gap wrap">
+            <label>ตั้งแต่<input type="date" id="range-since" value={since} max={today} onChange={(e) => { setSince(e.target.value); if (e.target.value > until) setUntil(e.target.value); }} /></label>
+            <label>ถึง<input type="date" id="range-until" value={until} max={today} min={since} onChange={(e) => setUntil(e.target.value)} /></label>
+          </div>
+          <div className="row gap">
+            <button className="primary" disabled={!valid} onClick={() => apply(since, until)}>ดู {valid ? (days === 1 ? '1 วัน' : `${days} วัน`) : ''}</button>
+            <button className="ghost" onClick={() => setOpen(false)}>ปิด</button>
+          </div>
+          {!valid && days > 31 && <p className="small warn">เลือกได้ไม่เกิน 31 วัน (ช่วงยาวกว่านี้ดูที่ 30 วัน)</p>}
+        </div>
+      )}
+    </span>
+  );
 }

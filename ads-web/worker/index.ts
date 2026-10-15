@@ -1,7 +1,7 @@
 // Worker entry: JSON API for the dashboard + cron triggers. Static files in dist/ are served by Cloudflare before this runs.
 
 import { MetaClient } from '../../ads-engine/src/meta.ts';
-import { applyDecisions } from '../../ads-engine/src/apply.ts';
+import { applyDecisions, sumBudget } from '../../ads-engine/src/apply.ts';
 import type { Entity, Level, Window } from '../../ads-engine/src/types.ts';
 import { authenticate } from './auth.ts';
 import { canWrite, roleOf, type Role } from './roles.ts';
@@ -10,7 +10,7 @@ import { accessStatus, syncAccess } from './access.ts';
 import { syncCampaignCosts, syncCosts } from './costs.ts';
 import { CampaignCostIndex, tierEconomics, type CostTier } from './campaignCosts.ts';
 import {
-  audit, codOf, deleteSection, loadCampaignCosts, deleteWebCost, saveWebCost, insertRun, listAudit, listRuns, loadCampaignSettings, loadCosts, loadSections, loadSettings,
+  applyMoves, audit, codOf, deleteSection, loadCampaignCosts, deleteWebCost, saveWebCost, insertRun, lastRun, listAudit, listRuns, loadCampaignSettings, loadCosts, loadSections, loadSettings,
   loadStages, loadState, saveCampaignSetting, saveCampaignSettings, auditMany, campaignHistory, saveSection, saveSettings, saveStage,
 } from './db.ts';
 import { ECONOMICS_WINDOW, sectionMap, sectionTotals } from './engine.ts';
@@ -25,7 +25,13 @@ import { bkkDate, loadConversionHours, saveConversionDay, syncConversionHours, t
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
+import { parseRange, salesData } from './sales.ts';
+import { deletePurchase, ledger, listPurchases, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
+import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
+import { familyStats, postIdeas, postIdeasText } from './postIdeas.ts';
+import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
+import { approvalsEnabled, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
@@ -40,6 +46,15 @@ export interface Env {
   LINE_CHANNEL_ACCESS_TOKEN?: string;
   LINE_TO?: string;
   DISCORD_WEBHOOK_URL?: string;
+  /** Discord bot (buttons): token is a secret, the other two are vars */
+  DISCORD_BOT_TOKEN?: string;
+  DISCORD_APP_PUBLIC_KEY?: string;
+  DISCORD_CHANNEL_ID?: string;
+  DISCORD_DECIDER_IDS?: string;
+  /** Discord user IDs allowed to press the buttons (comma separated); empty = anyone in the channel */
+  DISCORD_APPROVER_IDS?: string;
+  /** Discord user IDs who upload Page365 (มอส); tagged at 10:00 if the file is missing, may press the upload buttons */
+  DISCORD_UPLOADER_IDS?: string;
   /** Messenger webhook (see worker/webhook.ts): app id is a var, the other two are secrets */
   META_APP_ID?: string;
   META_APP_SECRET?: string;
@@ -57,6 +72,8 @@ export interface Env {
 
 const RULES_CRON = '0 1,13 * * *';
 const COSTS_CRON = '30 0 * * *';
+/** 10:00 Bangkok: remind the uploaders if yesterday's Page365 file is still missing. */
+const REMIND_CRON = '0 3 * * *';
 const DASHBOARD_WINDOWS: Window[] = ['today', 'yesterday', 'last_3d', 'last_7d', 'last_14d', 'last_30d'];
 
 function metaFor(env: Env): MetaLike {
@@ -70,6 +87,7 @@ export default {
     const url = new URL(req.url);
     // Meta's webhook comes from outside Cloudflare Access (bypassed for /webhook/* there); it is signed instead.
     if (url.pathname === '/webhook/privacy') return new Response(PRIVACY_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    if (url.pathname === '/webhook/discord' && req.method === 'POST') return discordInteraction(req, env, ctx);
     if (url.pathname === '/webhook/meta') {
       if (req.method === 'GET') return verifyChallenge(url, env);
       if (req.method === 'POST') return receiveWebhook(req, env, ctx);
@@ -109,6 +127,8 @@ export default {
         Promise.resolve().then(() => syncConversionHours(env.DB, metaFor(env))).catch(() => null),
       ]).then(() => recreditDates(env.DB, [bkkDate(1), bkkDate(2), bkkDate(3)]).catch(() => null))
         .then(() => dailyDigest(env).catch((err) => console.error('digest', err)))));
+    } else if (event.cron === REMIND_CRON) {
+      ctx.waitUntil(uploadReminder(env).catch((err) => console.error('reminder', err)));
     } else if (event.cron === RULES_CRON) {
       let meta: MetaLike;
       try {
@@ -119,7 +139,14 @@ export default {
         ctx.waitUntil(insertRun(env.DB, { run_at, trigger: 'schedule', dry_run: true, summary: `ผิดพลาด: ${err.message}`, report: { run_at, dry_run: true, entities_evaluated: 0, decisions: [], totals: { daily_budget_before: 0, daily_budget_after: 0 }, errors: [err.message], notes: [] } }));
         return;
       }
-      ctx.waitUntil(runAutomation(env, meta, { trigger: 'schedule' }));
+      // Monday 08:00 Bangkok: after the run, ask whether the shop-wide daily cap may grow (goal.ts).
+      // Monday and Thursday 08:00: น้องจิบิ's new-post ideas for Max (postIdeas.ts).
+      const day = new Date(Date.now() + 7 * 3_600_000).getUTCDay(), morning = new Date().getUTCHours() < 6;
+      ctx.waitUntil(runAutomation(env, meta, { trigger: 'schedule' })
+        .then(() => (morning && day === 1 ? scaleCheck(env).catch((err) => console.error('scale', err)) : null))
+        .then(() => (morning && (day === 1 || day === 4) ? sendPostIdeas(env).catch((err) => console.error('ideas', err)) : null))
+        // 20:00: how today is doing against the goal's daily pace.
+        .then(() => (!morning ? eveningPace(env).catch((err) => console.error('pace', err)) : null)));
     }
   },
 } satisfies ExportedHandler<Env>;
@@ -179,7 +206,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
 
   if (method === 'GET' && path === '/api/overview') {
     const w = url.searchParams.get('window') as Window;
-    return json(await overview(env, DASHBOARD_WINDOWS.includes(w) ? w : 'last_7d', url.searchParams.get('fresh') === '1'));
+    return json(await overview(env, parseView(w), url.searchParams.get('fresh') === '1'));
   }
 
   // ---- sections ----
@@ -396,6 +423,46 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     return json({ date, credits: credits[date] ?? null });
   }
 
+  // ---- Discord bot: a test question with buttons ----
+  if (path === '/api/goal' && method === 'GET') return json(await loadGoal(env));
+  // A note from the owners to the deciders, posted by the bot (e.g. the plan summary for Max).
+  if (path === '/api/discord/announce' && method === 'POST') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const text = String((await body())?.text ?? '').trim();
+    if (!text || text.length > 2000) throw new BadRequest('ข้อความต้องมี 1–2000 ตัวอักษร');
+    if (!(await postToDeciders(env, (mention) => text.replaceAll('{mention}', mention || 'ทีม')))) throw new BadRequest('ส่งเข้า Discord ไม่สำเร็จ');
+    await audit(env.DB, user, 'discord.announce', 'discord', { chars: text.length });
+    return json({ ok: true });
+  }
+  if (path === '/api/post-ideas' && method === 'GET') return json(await buildPostIdeas(env));
+  if (path === '/api/post-ideas/send' && method === 'POST') {
+    const r = await sendPostIdeas(env);
+    if (!r.sent) throw new BadRequest('ส่งเข้า Discord ไม่สำเร็จ — เช็กการตั้งค่าบอท');
+    return json(r);
+  }
+  if (path === '/api/goal/scale-check' && method === 'POST') {
+    const r = await scaleCheck(env);
+    await audit(env.DB, user, 'goal.scale_check', 'shop', r);
+    return json(r);
+  }
+
+  if (path === '/api/discord/test' && method === 'POST') {
+    if (!approvalsEnabled(env)) throw new BadRequest('ยังตั้งค่าบอท Discord ไม่ครบ (DISCORD_BOT_TOKEN / DISCORD_APP_PUBLIC_KEY / DISCORD_CHANNEL_ID)');
+    if (url.searchParams.get('kind') === 'upload') {
+      // The 10:00 reminder, sent now for yesterday whether or not the file is in (pressing "uploaded" still checks).
+      if (!(await postUploadReminder(env, bkkDate(1), thaiDay(bkkDate(1))))) throw new BadRequest('ส่งเข้า Discord ไม่สำเร็จ');
+      await audit(env.DB, user, 'p365.reminder_test', bkkDate(1), {});
+      return json({ ok: true });
+    }
+    const p = { id: crypto.randomUUID(), created_at: new Date().toISOString(), kind: 'test', entity_id: 'test', entity_name: 'ข้อความทดสอบ (ไม่แตะแอดจริง)', rule_id: 'test',
+      plan: `ทดสอบปุ่มโดย ${user}`, detail: '{}', status: 'pending', decided_by: null, decided_at: null, message_id: null } as unknown as Proposal;
+    await saveProposals(env.DB, [p]);
+    const id = await postProposal(env, p);
+    if (!id) throw new BadRequest('ส่งเข้า Discord ไม่สำเร็จ — เช็กว่าบอทมีสิทธิ์ View Channel + Send Messages ในห้องนั้น และ token ถูกต้อง');
+    await env.DB.prepare('UPDATE proposals SET message_id = ? WHERE id = ?').bind(id, p.id).run();
+    return json({ ok: true });
+  }
+
   // ---- Messenger webhook: who came from which ad ----
   if (path === '/api/webhook' && method === 'GET') return json(await webhookStatus(env, `${url.origin}/webhook/meta`));
   if (path === '/api/webhook/setup' && method === 'POST') {
@@ -474,6 +541,131 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (method === 'GET' && (m = path.match(/^\/api\/campaigns\/(\d+)\/history$/))) {
     const adsets = await metaData(env).then(({ data }) => data.entities.filter((e) => e.level === 'adset' && e.campaign_id === m![1]).map((e) => e.id)).catch(() => []);
     return json(await campaignHistory(env.DB, m[1], adsets));
+  }
+
+  // ---- product catalog (/catalog) ----
+  // The page syncs tab by tab: list tabs → fetch each CSV through here → send back only the changed rows.
+  if (method === 'GET' && path === '/api/catalog') return json(await catalogMeta(env.DB, (await loadSettings(env.DB)).sheet_id));
+  if (method === 'PUT' && path === '/api/catalog/sheet') {
+    const id = parseSheetId((await body())?.sheet);
+    await saveCatalogSheetId(env.DB, id);
+    await audit(env.DB, user, 'catalog.sheet', id.slice(0, 6) + '…', {});
+    return json({ ok: true });
+  }
+  if (method === 'GET' && path === '/api/catalog/rows') {
+    const tab = url.searchParams.get('tab') ?? '';
+    if (!tab) throw new BadRequest('ไม่มีชื่อแท็บ');
+    const page = await catalogRows(env.DB, tab, url.searchParams.get('after') ?? '', Number(url.searchParams.get('limit') ?? 0) || undefined);
+    // `v` = catalog_version: the browser keeps the page until the next sync changes the version.
+    const cache = url.searchParams.get('v') ? 'private, max-age=604800, immutable' : 'no-store';
+    return new Response(JSON.stringify(page), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': cache } });
+  }
+  if (method === 'GET' && path === '/api/catalog/sheet') {
+    const settings = await loadSettings(env.DB);
+    const sheet = await catalogSheetId(env.DB, settings.sheet_id);
+    if (!sheet) throw new BadRequest('ยังไม่ได้ใส่ลิงก์ Google Sheet SKU+Price ของแคตตาล็อก');
+    return json({ tabs: await discoverTabs(sheet, settings.sheet_tabs) });
+  }
+  if (method === 'GET' && path === '/api/catalog/sheet/csv') {
+    const sheet = await catalogSheetId(env.DB, (await loadSettings(env.DB)).sheet_id);
+    if (!sheet) throw new BadRequest('ยังไม่ได้ใส่ลิงก์ Google Sheet SKU+Price ของแคตตาล็อก');
+    return sheetCsv(sheet, url.searchParams.get('gid') ?? '');
+  }
+  if (method === 'POST' && path === '/api/catalog/sync') {
+    const s = validateSync(await body());
+    const result = await applySync(env.DB, s, user);
+    if (s.done) await audit(env.DB, user, 'catalog.sync', s.tab, { skus: s.done.skus });
+    return json(result);
+  }
+  // Product pictures: multipart upload (thumb + full, resized in the browser) or a link; key = tab|spu.
+  if (method === 'GET' && path === '/api/catalog/image') {
+    return imageResponse(env.DB, url.searchParams.get('key') ?? '', url.searchParams.get('size') === 'full' ? 'full' : 'thumb');
+  }
+  if (method === 'GET' && path === '/api/catalog/image-proxy') return proxyImage(url.searchParams.get('url') ?? '');
+  if (method === 'POST' && path === '/api/catalog/image') {
+    const isForm = (req.headers.get('Content-Type') ?? '').includes('multipart/form-data');
+    const image = isForm
+      ? await saveUploadedImage(env.DB, await req.formData().catch(() => { throw new BadRequest('อ่านไฟล์ไม่ได้'); }), user)
+      : await saveImageLink(env.DB, await body(), user);
+    await audit(env.DB, user, 'catalog.image', image.key, { uploaded: image.uploaded, bytes: image.bytes, url: image.url });
+    return json({ image });
+  }
+  if (method === 'DELETE' && path === '/api/catalog/image') {
+    const { key } = imageKey(url.searchParams.get('tab'), url.searchParams.get('spu'));
+    if (!(await deleteImage(env.DB, key))) return json({ error: 'ไม่พบรูปที่เพิ่มไว้' }, 404);
+    await audit(env.DB, user, 'catalog.image.delete', key, {});
+    return json({ ok: true });
+  }
+  if (method === 'PUT' && path === '/api/catalog/label') {
+    const saved = await saveLabels(env.DB, await body(), user);
+    await audit(env.DB, user, 'catalog.label', saved.map((s) => `${s.key}=${s.label}`).join(',') || 'clear', {});
+    return json({ labels: saved });
+  }
+  if (method === 'PUT' && path === '/api/catalog/price') {
+    const saved = await savePrices(env.DB, await body(), user);
+    await audit(env.DB, user, 'catalog.price', saved.map((s) => `${s.key}=${s.price}`).join(',') || 'clear', {});
+    return json({ prices: saved });
+  }
+  if (method === 'PUT' && path === '/api/catalog/supplier') {
+    const saved = await saveSuppliers(env.DB, await body(), user);
+    await audit(env.DB, user, 'catalog.supplier', saved.map((s) => s.key).join(',') || 'clear', { shops: [...new Set(saved.map((s) => s.shop))] });
+    return json({ suppliers: saved });
+  }
+
+  // ---- units sold per day (/catalog/sales) ----
+  if (method === 'GET' && path === '/api/sales') {
+    const { from, to } = parseRange(url.searchParams.get('from'), url.searchParams.get('to'));
+    return json(await salesData(env.DB, from, to));
+  }
+
+  // ---- order sheets (/catalog/orders) ----
+  if (method === 'GET' && path === '/api/purchase') return json({ uploads: await listPurchases(env.DB) });
+  if (method === 'GET' && path === '/api/purchase/lines') return json({ lines: await purchaseLines(env.DB, url.searchParams.get('id') ?? '') });
+  if (method === 'PUT' && path === '/api/purchase') {
+    const upload = await savePurchase(env.DB, validatePurchase(await body()), user);
+    await audit(env.DB, user, 'purchase.save', upload.id, { pieces: upload.pieces, review: upload.review, file: upload.file });
+    return json({ upload });
+  }
+  if (method === 'PUT' && path === '/api/purchase/missing') {
+    const m = validateMissing(await body());
+    const result = await setMissing(env.DB, m);
+    await audit(env.DB, user, 'purchase.missing', m.id, { items: m.items.slice(0, 50), total: result.missing });
+    return json(result);
+  }
+  if (method === 'GET' && path === '/api/purchase/ledger') {
+    const id = url.searchParams.get('id') ?? undefined;
+    const days = Math.min(Math.max(Number(url.searchParams.get('days') ?? 60) || 60, 1), 366);
+    const since = new Date(Date.now() + 7 * 3600_000 - days * 86400_000).toISOString().slice(0, 10);
+    return json({ since, rows: await ledger(env.DB, since, id) });
+  }
+  if (method === 'PUT' && path === '/api/purchase/payments') {
+    const p = validatePayments(await body());
+    await savePayments(env.DB, p, user);
+    await audit(env.DB, user, 'purchase.payment', p.id, { items: p.items });
+    return json({ ok: true });
+  }
+  if (method === 'DELETE' && path === '/api/purchase') {
+    const id = url.searchParams.get('id') ?? '';
+    if (!(await deletePurchase(env.DB, id))) return json({ error: 'ไม่พบใบสั่งนี้' }, 404);
+    await audit(env.DB, user, 'purchase.delete', id, {});
+    return json({ ok: true });
+  }
+  if (method === 'POST' && path === '/api/catalog/web') {
+    const rows = await createWebSkus(env.DB, await body(), user);
+    await audit(env.DB, user, 'catalog.web.create', rows.map((r) => r.sku).join(','), { tab: rows[0]?.tab, count: rows.length });
+    return json({ rows });
+  }
+  if ((method === 'PUT' || method === 'DELETE') && path === '/api/catalog/web') {
+    // SKU in the query: they may contain "/".
+    const sku = url.searchParams.get('sku') ?? '';
+    if (method === 'DELETE') {
+      if (!(await deleteWebSku(env.DB, sku))) return json({ error: 'ไม่พบ SKU นี้' }, 404);
+      await audit(env.DB, user, 'catalog.web.delete', sku, {});
+      return json({ ok: true });
+    }
+    const row = await updateWebSku(env.DB, sku, await body());
+    await audit(env.DB, user, 'catalog.web.update', sku, row);
+    return json({ row });
   }
 
   // ---- costs ----
@@ -562,14 +754,20 @@ async function withMetrics(data: MetaData, calls: (readonly [Level, Window])[]):
 
 async function overview(env: Env, window: Window, fresh: boolean) {
   const [{ meta, data }, sections, stages, campaignSettings, costs, settings, runs] = await Promise.all([
-    metaData(env, fresh), loadSections(env.DB), loadStages(env.DB), loadCampaignSettings(env.DB), loadCosts(env.DB), loadSettings(env.DB), listRuns(env.DB, 1),
+    metaData(env, fresh), loadSections(env.DB), loadStages(env.DB), loadCampaignSettings(env.DB), loadCosts(env.DB), loadSettings(env.DB), lastRun(env.DB),
   ]);
-  const ccRaw = (await loadCampaignCosts(env.DB)).costs;
-  const campaignCosts = new CampaignCostIndex(ccRaw);
   const windows = [...new Set<Window>([window, ECONOMICS_WINDOW])];
-  const entities = await withMetrics(data, [...windows.map((w) => ['campaign', w] as const), ['adset', window] as const]);
-  // Order-by-order costing from stored hourly purchases (today's come live).
-  const tx = await txContext(env, data, window);
+  // Meta insights, stored hourly purchases and the real Page365 orders don't depend on each other: fetch together.
+  const actualDates = window === 'today' ? [] : windowDates(window);
+  const [ccRaw, entities, tx, uploads, actualOrders] = await Promise.all([
+    loadCampaignCosts(env.DB).then((r) => r.costs),
+    withMetrics(data, [...windows.map((w) => ['campaign', w] as const), ['adset', window] as const]),
+    // Order-by-order costing from stored hourly purchases (today's come live).
+    txContext(env, data, window),
+    loadUploads(env.DB, actualDates),
+    loadOrders(env.DB, actualDates),
+  ]);
+  const campaignCosts = new CampaignCostIndex(ccRaw);
   const tiersOf = makeTierResolver({ entities, sections, campaignSettings, costs, cod: codOf(settings), campaignCosts: ccRaw });
   const snapshot = meta instanceof MockMeta ? await meta.snapshotInfo() : null;
   const sectionOf = sectionMap(entities, sections, campaignSettings);
@@ -637,17 +835,23 @@ async function overview(env: Env, window: Window, fresh: boolean) {
   });
 
   // Real orders (Page365 uploads) for the days in this window: the KPI card prefers these over the Meta estimate.
-  const actualDates = window === 'today' ? [] : windowDates(window);
   let actual: null | { dates: number; covered: number; revenue: number; orders: number; units: number; cost: number; fees: number; gross: number; ads: number; net: number; organic_revenue: number; organic_orders: number } = null;
   if (actualDates.length) {
-    const [uploads, orders] = await Promise.all([loadUploads(env.DB, actualDates), loadOrders(env.DB, actualDates)]);
     const covered = actualDates.filter((d) => uploads.has(d));
     if (covered.length) {
-      const os = orders.filter((o) => covered.includes(o.date));
+      const os = actualOrders.filter((o) => covered.includes(o.date));
       const sum = (f: (o: typeof os[number]) => number) => os.reduce((n, o) => n + f(o), 0);
       const revenue = sum((o) => o.total), cost = sum((o) => o.cost ?? 0), fees = sum((o) => orderFees(o, settings.order_fees));
-      const daily = await data.dailyAll(window).catch(() => [] as Awaited<ReturnType<typeof data.dailyAll>>);
-      const ads = daily.length ? daily.filter((d) => covered.includes(d.date)).reduce((n, d) => n + d.spend, 0) : null;
+      // Every day uploaded: the window's campaign spend is the ad cost (no extra Meta call). Otherwise only the uploaded days' spend.
+      let ads: number | null;
+      if (covered.length === actualDates.length) {
+        ads = entities.filter((e) => e.level === 'campaign').reduce((n, e) => n + (e.metrics[window]?.spend ?? 0), 0);
+      } else {
+        // Daily spend only for the span of uploaded days, not the whole window (a long window is many Meta pages).
+        const span = `range:${covered[0]}:${covered[covered.length - 1]}` as Window;
+        const daily = await data.dailyAll(span).catch(() => [] as Awaited<ReturnType<typeof data.dailyAll>>);
+        ads = daily.length ? daily.filter((d) => covered.includes(d.date)).reduce((n, d) => n + d.spend, 0) : null;
+      }
       const gross = revenue - cost - fees;
       actual = {
         dates: actualDates.length, covered: covered.length, revenue, orders: os.length, units: sum((o) => o.units), cost, fees, gross,
@@ -895,7 +1099,7 @@ async function preview(env: Env) {
   const [{ data }, settings, state] = await Promise.all([metaData(env), loadSettings(env.DB), loadState(env.DB)]);
   const entities: Entity[] = data.entities.map((e) => ({ ...e, metrics: {} }));
   const now = new Date();
-  const { plan } = await planRun(env.DB, entities, (level, w) => data.insights(level, w), state, now);
+  const { plan } = await planRun(env.DB, entities, (level, w) => data.insights(level, w), state, now, (w) => data.dailyAll(w));
   capChanges(plan);
   const noop = { setStatus: async () => {}, setDailyBudget: async () => {} };
   await applyDecisions(plan.decisions, entities, noop, settings.guardrails, { last_action: { ...state.last_action } }, { dryRun: true, now });
@@ -936,9 +1140,123 @@ function finite<T extends object | undefined>(m: T): T {
   return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, typeof v === 'number' && !Number.isFinite(v) ? null : v])) as T;
 }
 
-/** 07:30 Discord note: yesterday's real numbers (Page365) when the file is in, otherwise a reminder to upload. */
+/** 07:30 Discord note: yesterday's real numbers (Page365) when the file is in; the reminder waits until 10:00. */
 async function dailyDigest(env: Env): Promise<void> {
-  return salesDigest(env, bkkDate(1), true);
+  await salesDigest(env, bkkDate(1));
+  if (!env.DISCORD_WEBHOOK_URL) return;
+  const g = await loadGoal(env).catch(() => null);
+  if (g) await pushDiscord(goalText(g), env.DISCORD_WEBHOOK_URL);
+}
+
+/** Month-to-date real net vs the monthly goal, the MER the goal needs, and the last 7 days' real MER. */
+async function loadGoal(env: Env): Promise<GoalStatus> {
+  const yesterday = bkkDate(1);
+  const { month, daysInMonth, dates } = monthDates(yesterday);
+  const last7 = Array.from({ length: 7 }, (_, i) => bkkDate(i + 1));
+  const all = [...new Set([...dates, ...last7])].sort();
+  const [settings, uploads, orders] = await Promise.all([loadSettings(env.DB), loadUploads(env.DB, all), loadOrders(env.DB, all)]);
+  // Spend per day from one Meta call over the whole span (cached; at most 31 days).
+  const rows = uploads.size ? await (await metaData(env)).data.dailyAll(`range:${all[0]}:${yesterday}` as Window) : [];
+  const spend = new Map<string, number>();
+  for (const r of rows) spend.set(r.date, (spend.get(r.date) ?? 0) + r.spend);
+  const byDate = new Map<string, typeof orders>();
+  for (const o of orders) byDate.set(o.date, [...(byDate.get(o.date) ?? []), o]);
+  const net = (d: string): DayNet => dayNet(d, byDate.get(d) ?? [], settings.order_fees, spend.get(d) ?? 0);
+  return goalStatus(month, daysInMonth, dates, dates.filter((d) => uploads.has(d)).map(net), last7.filter((d) => uploads.has(d)).map(net), settings.goal);
+}
+
+function goalText(g: GoalStatus): string {
+  const b = (x: number) => Math.round(x).toLocaleString('th-TH');
+  const pct = g.goal.monthly_net ? Math.round((g.net / g.goal.monthly_net) * 100) : 0;
+  const monthTh = new Date(`${g.month}-01T00:00:00+07:00`).toLocaleDateString('th-TH', { month: 'long', timeZone: 'Asia/Bangkok' });
+  return [
+    `🎯 **เป้ากำไร${monthTh} ${b(g.goal.monthly_net)}** · ได้แล้ว **${b(g.net)}** (${pct}%) จาก ${g.days.length} วันที่มีไฟล์${g.missing.length ? ` · ขาดไฟล์ ${g.missing.length} วัน` : ''}`,
+    g.avg_net === null ? '' : `เฉลี่ยวันละ ${b(g.avg_net)} → คาดสิ้นเดือน **${b(g.projected ?? 0)}** · ต้องได้วันละ **${b(g.needed_per_day)}** ถึงจะทัน`,
+    `MER จริง 7 วัน ${g.mer_7d === null ? '– (ไฟล์ไม่ครบ)' : `**${g.mer_7d.toFixed(2)}**`} (เป้า ≥ ${g.goal.scale_mer})${g.target_revenue_per_day ? ` · ต้องขายวันละ ~${b(g.target_revenue_per_day)} ที่ MER นี้` : ''}`,
+  ].filter(Boolean).join('\n');
+}
+
+/** Product families from the last 14 days of real orders, with last-7-day spend and real revenue per campaign. */
+async function buildPostIdeas(env: Env) {
+  const days14 = Array.from({ length: 14 }, (_, i) => bkkDate(i + 1)), days7 = days14.slice(0, 7);
+  const [settings, orders, { data }] = await Promise.all([loadSettings(env.DB), loadOrders(env.DB, days14), metaData(env)]);
+  const ins = await data.insights('campaign', 'last_7d');
+  const campaigns = data.entities.filter((e) => e.level === 'campaign').map((e) => ({ id: e.id, name: e.name, spend: ins.get(e.id)?.spend ?? 0 })).filter((c) => c.spend > 0);
+  const uploaded = new Set(orders.map((o) => o.date)).size;
+  const revenue = orders.reduce((t, o) => t + o.total, 0);
+  const gross = orders.reduce((t, o) => t + o.total - (o.cost ?? 0) - orderFees(o, settings.order_fees), 0);
+  const breakeven = revenue > 0 && gross > 0 ? revenue / gross : 2.8;
+  const stats = familyStats(orders, settings.order_fees, campaigns, new Set(days7));
+  return { days: uploaded, breakeven, ideas: postIdeas(stats, breakeven, uploaded), families: stats.slice(0, 20) };
+}
+
+async function sendPostIdeas(env: Env): Promise<{ sent: boolean; ideas: number }> {
+  const r = await buildPostIdeas(env);
+  if (!r.days) return { sent: false, ideas: 0 };
+  const sent = await postToDeciders(env, (mention) => postIdeasText(r.ideas, mention, r.days));
+  return { sent, ideas: r.ideas.length };
+}
+
+/**
+ * Today so far against the goal's daily pace. Today has no Page365 file yet, so revenue is Meta's tagged value
+ * scaled by how real revenue compared to it over the last 7 uploaded days; net uses the month's gross margin.
+ */
+async function eveningPace(env: Env): Promise<void> {
+  if (!env.DISCORD_WEBHOOK_URL) return;
+  const g = await loadGoal(env);
+  if (g.gross_margin === null) return;
+  const { data } = await metaData(env);
+  const [today, rows] = await Promise.all([data.insights('campaign', 'today'), data.dailyAll(`range:${bkkDate(7)}:${bkkDate(1)}` as Window)]);
+  const spend = [...today.values()].reduce((t, m) => t + m.spend, 0);
+  const tagged = [...today.values()].reduce((t, m) => t + m.purchase_value, 0);
+  const real7 = g.days.filter((d) => d.date >= bkkDate(7));
+  const metaOn = new Set(real7.map((d) => d.date));
+  const meta7 = rows.filter((r) => metaOn.has(r.date)).reduce((t, r) => t + r.purchase_value, 0);
+  const ratio = meta7 > 0 ? real7.reduce((t, d) => t + d.revenue, 0) / meta7 : 1;
+  const revenue = tagged * ratio, net = revenue * g.gross_margin - spend;
+  const need = g.needed_per_day, needRevenue = (need + spend) / g.gross_margin;
+  const b = (x: number) => Math.round(x).toLocaleString('th-TH');
+  await pushDiscord([
+    `🎯 **วันนี้ถึง 20:00 เทียบเป้า** (ประมาณจากยอดแท็ก Meta × ${ratio.toFixed(2)} ตามของจริง 7 วัน)`,
+    `ยอดขาย ~${b(revenue)} · ค่าแอด ${b(spend)} · กำไรสุทธิ ~**${b(net)}** · เป้าวันนี้ **${b(need)}** → ${net >= need ? `✅ เกินเป้า ${b(net - need)}` : `⚠️ ยังขาด ${b(need - net)} — ต้องขายรวมทั้งวัน ~${b(needRevenue)} (ชวนลูกค้าเพิ่มเป็นโปร 3 ตัวช่วยได้มากที่สุดค่ะ)`}`,
+  ].join('\n'), env.DISCORD_WEBHOOK_URL);
+}
+
+/**
+ * Weekly: real 7-day MER ≥ the goal's MER → ask in Discord to raise the shop-wide daily cap by goal.scale_pct;
+ * below it → a note only. Nothing changes until someone presses the button.
+ */
+async function scaleCheck(env: Env): Promise<{ asked: boolean; reason: string }> {
+  const [g, settings] = await Promise.all([loadGoal(env), loadSettings(env.DB)]);
+  const cap = settings.guardrails.max_total_daily_budget;
+  const say = async (reason: string, asked = false) => {
+    if (!asked && env.DISCORD_WEBHOOK_URL) await pushDiscord(`📈 **เช็กขยายเพดานงบประจำสัปดาห์** — ${reason}`, env.DISCORD_WEBHOOK_URL).catch(() => false);
+    return { asked, reason };
+  };
+  if (g.mer_7d === null) return say(`ไฟล์ Page365 7 วันล่าสุดมีแค่ ${g.mer_7d_days} วัน (ต้อง ≥ 6) — ยังไม่ขยาย เพดานคง ${cap.toLocaleString('th-TH')}`);
+  if (g.mer_7d < g.goal.scale_mer) return say(`MER จริง 7 วัน ${g.mer_7d.toFixed(2)} ต่ำกว่าเกณฑ์ ${g.goal.scale_mer} — ยังไม่ขยาย เพดานคง ${cap.toLocaleString('th-TH')} · ให้กฎคุมความคุ้มก่อน`);
+  if (!approvalsEnabled(env)) return say(`MER จริง 7 วัน ${g.mer_7d.toFixed(2)} ผ่านเกณฑ์ แต่ยังไม่ได้ตั้งบอท Discord — ขยายเองในหน้าตั้งค่า`);
+  const now = new Date().toISOString();
+  await expireOld(env, now).catch(() => null);
+  if ((await recentlyAsked(env.DB, new Date(Date.now() - 3 * 86_400_000).toISOString())).has('cap-up:shop')) return { asked: false, reason: 'ถามไปแล้ว รอคำตอบ' };
+  const net7 = g.days.filter((d) => d.date >= bkkDate(7)).reduce((t, d) => t + d.net, 0);
+  const p = { id: crypto.randomUUID(), created_at: now, kind: 'cap', entity_id: 'shop', entity_name: 'เพดานงบรวมต่อวัน', rule_id: 'cap-up',
+    plan: `MER 7 วัน ${g.mer_7d.toFixed(2)} ≥ ${g.goal.scale_mer}`, detail: JSON.stringify({ from: cap, to: nextCap(cap, g.goal.scale_pct), pct: g.goal.scale_pct, mer: g.mer_7d, need: g.goal.scale_mer, net7 }),
+    status: 'pending', decided_by: null, decided_at: null, message_id: null } as Proposal;
+  await saveProposals(env.DB, [p]);
+  const id = await postProposal(env, p);
+  if (id) await env.DB.prepare('UPDATE proposals SET message_id = ? WHERE id = ?').bind(id, p.id).run();
+  return { asked: !!id, reason: `MER จริง 7 วัน ${g.mer_7d.toFixed(2)} ผ่านเกณฑ์ — ถามใน Discord แล้ว (${cap} → ${nextCap(cap, g.goal.scale_pct)})` };
+}
+
+const thaiDay = (date: string) => new Date(`${date}T00:00:00+07:00`).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' });
+
+/** 10:00: yesterday's file still missing → tag the uploaders with buttons (bot), else a plain webhook note. */
+async function uploadReminder(env: Env): Promise<void> {
+  const date = bkkDate(1);
+  if ((await loadUploads(env.DB, [date])).has(date)) return;
+  if (approvalsEnabled(env) && await postUploadReminder(env, date, thaiDay(date))) return;
+  if (env.DISCORD_WEBHOOK_URL) await pushDiscord(`📂 **${thaiDay(date)}** ยังไม่มีไฟล์ Page365 — รบกวน export ของเมื่อวานแล้วอัปโหลดที่หน้ายอดขายรายวันด้วยค่ะ`, env.DISCORD_WEBHOOK_URL);
 }
 
 /** One day's real numbers (Page365) to Discord; also sent the moment a file is uploaded. */
@@ -969,6 +1287,151 @@ async function salesDigest(env: Env, date: string, remindIfMissing = false): Pro
     `ไม่ใช่แอด ${organic.length} ออเดอร์ ${b(n((o) => (o.match === 'none' ? o.total : 0)))} (${orders.length ? Math.round((organic.length / orders.length) * 100) : 0}%) · จับคู่แอดได้ ${orders.length - organic.length}/${orders.length}`,
   ];
   await pushDiscord(lines.join('\n'), env.DISCORD_WEBHOOK_URL);
+}
+
+/**
+ * A preset window, or a custom range "range:YYYY-MM-DD:YYYY-MM-DD" (Bangkok dates, like Ads Manager's picker):
+ * at most 31 days (longer ones made the free-plan Worker time out), not in the future. Anything else falls back to 7 days.
+ */
+function parseView(w: string | null): Window {
+  if (w && DASHBOARD_WINDOWS.includes(w as Window)) return w as Window;
+  const m = w ? /^range:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/.exec(w) : null;
+  if (m) {
+    const [since, until] = m[1] <= m[2] ? [m[1], m[2]] : [m[2], m[1]];
+    const days = (Date.parse(until) - Date.parse(since)) / 86_400_000;
+    if (Number.isFinite(days) && days <= 30 && until <= bkkDate(0)) return `range:${since}:${until}` as Window;
+  }
+  return 'last_7d';
+}
+
+/**
+ * Copies a winning campaign: checks the shop-wide cap and the ad count first, copies everything paused, sets the
+ * copy's budget, then switches it on and puts it in the "testing" stage. Reports back by editing the question.
+ */
+async function copyWinner(env: Env, p: Proposal, d: { new_budget: number }, who: string): Promise<void> {
+  const done = async (status: string, content: string) => {
+    await env.DB.prepare('UPDATE proposals SET status = ? WHERE id = ?').bind(status, p.id).run();
+    if (p.message_id) await editMessage(env, p.message_id, content);
+  };
+  try {
+    const meta = metaFor(env);
+    const [settings, entities, ads] = await Promise.all([loadSettings(env.DB), meta.listEntities(), meta.adCount(p.entity_id)]);
+    const total = sumBudget(entities), cap = settings.guardrails.max_total_daily_budget;
+    if (total + d.new_budget > cap) return done('failed', `❌ คัดลอก "${p.entity_name}" ไม่ได้ค่ะ — งบรวมตอนนี้ ${total.toLocaleString('th-TH')} + ${d.new_budget} จะเกินเพดาน ${cap.toLocaleString('th-TH')} (ขยายเพดานก่อน หรือรอกฎลดตัวอื่น)`);
+    if (ads > 3) return done('failed', `❌ คัดลอก "${p.entity_name}" อัตโนมัติไม่ได้ค่ะ — มีโฆษณา ${ads} ชิ้น (Meta คัดลอกพร้อมกันได้ไม่เกิน 3) รบกวนคัดลอกใน Ads Manager แล้วตั้งงบ ${d.new_budget} นะคะ`);
+    const copy = await meta.copyCampaign(p.entity_id, ' (คัดลอก)');
+    await meta.setDailyBudget(copy.id, d.new_budget);
+    await meta.setStatus(copy.id, 'ACTIVE');
+    for (const id of copy.children) await meta.setStatus(id, 'ACTIVE');
+    const at = new Date().toISOString();
+    await applyMoves(env.DB, [{ campaign_id: copy.id, name: `${p.entity_name} (คัดลอก)`, from: null, to: 'testing' }], at);
+    await audit(env.DB, `discord:${who}`, 'campaign.copy', p.entity_id, { copy: copy.id, budget: d.new_budget, children: copy.children.length });
+    await done('approved', `🧬 **คัดลอกแล้วค่ะ** "${p.entity_name}" → แคมเปญใหม่ "${p.entity_name} (คัดลอก)" งบ **${d.new_budget}/วัน** เปิดแล้ว อยู่กลุ่มทดสอบ — ${who} อนุมัติ ขอบคุณค่ะ 🙏`);
+  } catch (err: any) {
+    await done('failed', `❌ คัดลอก "${p.entity_name}" ไม่สำเร็จค่ะ: ${err?.message ?? err} — ถ้ามีแคมเปญ "(คัดลอก)" ค้างอยู่ใน Ads Manager (หยุดอยู่) ลบหรือเปิดเองได้เลยค่ะ`);
+  }
+}
+
+/** The reminder's buttons: "uploaded" is checked against the uploads table; "not yet" keeps the buttons. */
+async function uploadButton(env: Env, verb: string, date: string, who: string): Promise<Response> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ type: 4, data: { content: 'ไม่รู้จักวันที่นี้ค่ะ', flags: 64 } });
+  const thai = thaiDay(date);
+  const up = await loadUploads(env.DB, [date]);
+  await audit(env.DB, `discord:${who}`, `p365.${verb === 'p365later' ? 'later' : 'done'}`, date, { uploaded: up.has(date) }).catch(() => null);
+  if (verb === 'p365later') {
+    const ids = idList(env.DISCORD_UPLOADER_IDS);
+    return json({ type: 7, data: uploadReminderMessage(date, thai, ids.map((id) => `<@${id}>`).join(' '), `⏳ ${who} รับทราบแล้ว จะอัปโหลดให้เร็วที่สุดค่ะ (${new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })})`) });
+  }
+  if (!up.has(date)) return json({ type: 4, data: { content: `น้องยังไม่เจอไฟล์ของ **${thai}** ในระบบเลยค่ะ 🙏 อัปโหลดที่หน้ายอดขายรายวัน (กดยืนยันให้เสร็จ) แล้วค่อยกดใหม่นะคะ`, flags: 64 } });
+  const n = (await loadOrders(env.DB, [date])).length;
+  return json({ type: 7, data: { content: `✅ **ไฟล์ Page365 ของ ${thai} เข้าระบบแล้วค่ะ** (${n} ออเดอร์) — ${who} ยืนยัน ขอบคุณมากค่ะ 🙏 สรุปยอดของจริงอยู่ในข้อความถัดไปนะคะ`, components: [] } });
+}
+
+/**
+ * A button pressed in Discord. Ping → pong (Discord checks the URL with it); a button → do what it says, reply
+ * by editing the question so everyone sees who decided what. Signed with the app's Ed25519 key.
+ */
+async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const body = await req.text();
+  if (!env.DISCORD_APP_PUBLIC_KEY || !(await verifyDiscord(req, body, env.DISCORD_APP_PUBLIC_KEY))) return new Response('bad signature', { status: 401 });
+  const i = JSON.parse(body);
+  if (i.type === 1) return json({ type: 1 });
+  if (i.type !== 3) return json({ type: 4, data: { content: 'ยังไม่รองรับคำสั่งนี้', flags: 64 } });
+  // The bot works in one channel only: a press from anywhere else is refused (only the presser sees the reply).
+  if (env.DISCORD_CHANNEL_ID && i.channel_id !== env.DISCORD_CHANNEL_ID) return json({ type: 4, data: { content: 'บอทนี้ใช้ได้เฉพาะห้องรายงานแอด', flags: 64 } });
+  const who = i.member?.user?.global_name || i.member?.user?.username || i.user?.username || 'ไม่ทราบชื่อ';
+  // Only the listed people may decide (empty list = anyone in the channel); the refusal shows the presser their ID.
+  const userId = String(i.member?.user?.id ?? i.user?.id ?? '');
+  const approvers = idList(env.DISCORD_APPROVER_IDS);
+  const [verb0, arg0] = String(i.data?.custom_id ?? '').split(':');
+  if (verb0 === 'p365done' || verb0 === 'p365later') {
+    const allowed = [...approvers, ...idList(env.DISCORD_UPLOADER_IDS)];
+    if (allowed.length && !allowed.includes(userId)) return json({ type: 4, data: { content: `ปุ่มนี้สำหรับคนอัปโหลดไฟล์ Page365 ค่ะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
+    return uploadButton(env, verb0, arg0 ?? '', who);
+  }
+  if (approvers.length && !approvers.includes(userId)) return json({ type: 4, data: { content: `ขอโทษค่ะ ปุ่มนี้ให้กดได้เฉพาะคุณเบ้นกับคุณแม็กซ์นะคะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
+  const [verb, id] = String(i.data?.custom_id ?? '').split(':');
+  const p = await env.DB.prepare('SELECT * FROM proposals WHERE id = ?').bind(id ?? '').first<Proposal>();
+  const reply = (content: string) => json({ type: 7, data: { content, components: [] } });
+  if (!p) return reply('ไม่พบคำถามนี้แล้ว');
+  if (p.status !== 'pending') return reply(`ตัดสินไปแล้ว (${p.status}) โดย ${p.decided_by ?? '-'}`);
+  const at = new Date().toISOString();
+  const d = JSON.parse(p.detail || '{}');
+  const mark = (status: string) => env.DB.prepare('UPDATE proposals SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = \'pending\'').bind(status, who, at, p.id).run();
+  try {
+    if (verb === 'approve' && p.kind === 'dup') {
+      // Copying takes longer than Discord's 3-second reply window: claim it, answer now, finish in the background
+      // and edit the question with the result.
+      const claimed = await env.DB.prepare(`UPDATE proposals SET status = 'working', decided_by = ?, decided_at = ? WHERE id = ? AND status = 'pending'`).bind(who, at, p.id).run();
+      if (!claimed.meta.changes) return reply('มีคนกดไปแล้วค่ะ');
+      ctx.waitUntil(copyWinner(env, p, d, who).catch(() => null));
+      return reply(`⏳ **น้องกำลังคัดลอก** "${p.entity_name}" ค่ะ — ${who} อนุมัติ · เสร็จแล้วข้อความนี้จะเปลี่ยนนะคะ`);
+    }
+    if (verb === 'approve' && p.kind === 'cap') {
+      const settings = await loadSettings(env.DB);
+      if (settings.guardrails.max_total_daily_budget !== d.from) {
+        await mark('expired');
+        return reply(`เพดานงบเปลี่ยนไปแล้ว (ตอนนี้ ${settings.guardrails.max_total_daily_budget}) — คำถามนี้ไม่ใช้แล้วค่ะ`);
+      }
+      const next = { ...settings, guardrails: { ...settings.guardrails, max_total_daily_budget: d.to } };
+      await saveSettings(env.DB, next);
+      await mark('approved');
+      await audit(env.DB, `discord:${who}`, 'settings.update', 'settings', { before: settings, after: next });
+      return reply(`📈 **ขยายเพดานงบแล้วค่ะ** ${Number(d.from).toLocaleString('th-TH')} → **${Number(d.to).toLocaleString('th-TH')}** บาท/วัน — ${who} อนุมัติ ขอบคุณค่ะ 🙏 กฎจะค่อยๆ เพิ่มงบตัวที่ทำกำไรรอบละไม่เกิน 20% นะคะ`);
+    }
+    if ((p.kind as string) === 'test') {
+      await mark(verb === 'approve' ? 'approved' : 'rejected');
+      return reply(`✅ **น้องจิบิได้รับแล้วค่ะ** — ${who} กด "${verb === 'approve' ? 'อนุมัติ' : verb === 'reject' ? 'ไม่' : 'ย้ายไปทดสอบ'}" · บอทพร้อมใช้งาน (ข้อความนี้เป็นการทดสอบ ไม่ได้แตะแอดจริง)`);
+    }
+    if (verb === 'approve' && p.kind === 'pause') {
+      await metaFor(env).setStatus(p.entity_id, 'PAUSED');
+      await patchCachedEntity(env.DB, p.entity_id, { status: 'PAUSED' }).catch(() => null);
+      await mark('approved');
+      await audit(env.DB, `discord:${who}`, 'entity.status', p.entity_id, { status: 'PAUSED', rule: p.rule_id, name: p.entity_name });
+      return reply(`⏸ **หยุดแล้วค่ะ** "${p.entity_name}" — ${who} อนุมัติ ขอบคุณค่ะ 🙏\nเหตุผล: \`${p.rule_id}\` ${p.plan}`);
+    }
+    if (verb === 'approve' && p.kind === 'move') {
+      await applyMoves(env.DB, [{ campaign_id: p.entity_id, name: p.entity_name, from: d.move_from ?? null, to: d.move_to }], at);
+      await mark('approved');
+      return reply(`↘ **ย้ายแล้วค่ะ** "${p.entity_name}" → ${d.move_to} — ${who} อนุมัติ ขอบคุณค่ะ 🙏`);
+    }
+    if (verb === 'totesting') {
+      await applyMoves(env.DB, [{ campaign_id: p.entity_id, name: p.entity_name, from: d.move_from ?? null, to: 'testing' }], at);
+      await mark('rejected');
+      await audit(env.DB, `discord:${who}`, 'proposal.totesting', p.entity_id, { rule: p.rule_id });
+      return reply(`🔵 **รับทราบค่ะ ไม่หยุด — ย้ายไปกลุ่มทดสอบแล้ว** "${p.entity_name}" — ${who} ตัดสิน · กฎกลุ่มทดสอบจะดูแลงบต่อนะคะ`);
+    }
+    if (verb === 'reject') {
+      await mark('rejected');
+      await audit(env.DB, `discord:${who}`, 'proposal.reject', p.entity_id, { rule: p.rule_id, kind: p.kind });
+      if (p.kind === 'cap') return reply(`✋ **รับทราบค่ะ ยังไม่ขยายเพดานงบ** (คง ${Number(d.from).toLocaleString('th-TH')}) — ${who} ตัดสิน · สัปดาห์หน้าน้องจะเช็กใหม่นะคะ`);
+      return reply(`✋ **รับทราบค่ะ ยังไม่${p.kind === 'pause' ? 'หยุด' : 'ย้าย'}** "${p.entity_name}" — ${who} ตัดสิน · น้องจะไม่ถามเรื่องนี้ซ้ำ 3 วันนะคะ`);
+    }
+  } catch (err: any) {
+    await mark('failed');
+    return reply(`❌ ทำไม่สำเร็จ: ${err?.message ?? err} — ลองทำเองใน Ads Manager`);
+  }
+  return reply('ไม่รู้จักปุ่มนี้');
 }
 
 /** After a user change: push the email list to Cloudflare Access when the token is set; a failure is reported, not fatal. */

@@ -65,6 +65,12 @@ export async function applyDecisions(
   return { totalAfter: Math.round(projectedTotal), errors };
 }
 
+/** Daily budget actually being spent: active campaigns, plus active ad sets of active campaigns (paused ones don't count). */
 export function sumBudget(entities: Entity[]): number {
-  return Math.round(entities.reduce((s, e) => s + (e.daily_budget ?? 0), 0));
+  const activeCampaigns = new Set(entities.filter((e) => e.level === 'campaign' && e.status === 'ACTIVE').map((e) => e.id));
+  return Math.round(entities.reduce((s, e) => {
+    if (e.status !== 'ACTIVE') return s;
+    if (e.level === 'adset' && !activeCampaigns.has(e.campaign_id)) return s;
+    return s + (e.daily_budget ?? 0);
+  }, 0));
 }

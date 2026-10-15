@@ -1,5 +1,6 @@
 // D1 access. JSON columns are parsed here so the rest of the worker only sees typed objects.
 
+import { DEFAULT_GOAL, type Goal } from './goal.ts';
 import type { Guardrails, State } from '../../ads-engine/src/types.ts';
 import { nameKey, type CampaignCost } from './campaignCosts.ts';
 import { WEB_TAB, type CampaignMode, type CampaignSetting, type Cod, type CostRow, type Section, type Stage, type WebRule } from './model.ts';
@@ -20,6 +21,8 @@ export interface Settings {
   cost_editors: string[];
   /** Per-order costs the team deducts from each real order (Page365): COD fee % (COD orders only), loss %, shipping, VAT %, packaging */
   order_fees: OrderFees;
+  /** Monthly net-profit goal and the MER the weekly cap raise needs (see goal.ts) */
+  goal: Goal;
 }
 
 /** vat_base: total = what the customer paid · goods = minus the shipping collected (COD 50) · after_ship = minus our shipping cost (`ship`) */
@@ -66,6 +69,7 @@ export async function loadSettings(db: D1Database): Promise<Settings> {
     ads_cost_tab: kv.get('ads_cost_tab') ?? 'รวมต้นทุน ที่เปิด ADS ',
     cost_editors: JSON.parse(kv.get('cost_editors') ?? '[]'),
     order_fees: { ...DEFAULT_ORDER_FEES, ...JSON.parse(kv.get('order_fees') ?? '{}') },
+    goal: { ...DEFAULT_GOAL, ...JSON.parse(kv.get('goal') ?? '{}') },
   };
 }
 
@@ -83,6 +87,7 @@ export async function saveSettings(db: D1Database, s: Settings): Promise<void> {
     put.bind('ads_cost_tab', s.ads_cost_tab),
     put.bind('cost_editors', JSON.stringify(s.cost_editors)),
     put.bind('order_fees', JSON.stringify(s.order_fees)),
+    put.bind('goal', JSON.stringify(s.goal)),
   ]);
 }
 
@@ -224,6 +229,12 @@ export async function saveState(db: D1Database, state: State): Promise<void> {
 export async function insertRun(db: D1Database, run: { run_at: string; trigger: string; dry_run: boolean; summary: string; report: unknown }): Promise<void> {
   await db.prepare('INSERT INTO runs (run_at, trigger, dry_run, summary, report) VALUES (?, ?, ?, ?, ?)')
     .bind(run.run_at, run.trigger, run.dry_run ? 1 : 0, run.summary, JSON.stringify(run.report)).run();
+}
+
+/** The latest run without its (large) report: the overview only shows when and what. */
+export async function lastRun(db: D1Database) {
+  const r = await db.prepare('SELECT run_at, summary, dry_run FROM runs ORDER BY id DESC LIMIT 1').first<{ run_at: string; summary: string; dry_run: number }>();
+  return r ? [{ run_at: r.run_at, summary: r.summary, dry_run: r.dry_run === 1 }] : [];
 }
 
 export async function listRuns(db: D1Database, limit = 30) {
