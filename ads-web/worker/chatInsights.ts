@@ -8,6 +8,8 @@
 
 export interface AIEnv {
   ANTHROPIC_API_KEY?: string;
+  /** Only for keys not scoped to a workspace: the workspace to bill (Console → Workspaces) */
+  ANTHROPIC_WORKSPACE_ID?: string;
   /** Model id; default claude-haiku-5-5 (cheapest that reads Thai well) */
   CHAT_AI_MODEL?: string;
 }
@@ -21,7 +23,7 @@ export async function askAI(env: AIEnv, system: string, user: string, maxTokens 
   const model = env.CHAT_AI_MODEL || 'claude-haiku-5-5';
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', ...(env.ANTHROPIC_WORKSPACE_ID ? { 'anthropic-workspace-id': env.ANTHROPIC_WORKSPACE_ID } : {}) },
     body: JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }] }),
   });
   const body: any = await res.json().catch(() => ({}));
