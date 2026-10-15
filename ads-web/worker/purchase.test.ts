@@ -96,7 +96,13 @@ test('history validation', () => {
   assert.equal(ok.lines.reduce((n, l) => n + l.qty, 0), 16);
   assert.throws(() => validatePurchase({ date: '13/10', round: 1, lines }), /วันที่/);
   assert.throws(() => validatePurchase({ date: '2026-10-13', round: 0, lines }), /รอบ/);
-  assert.throws(() => validatePurchase({ date: '2026-10-13', round: 1, lines: [...lines, lines[0]] }), /ซ้ำ/);
+  const doubled = validatePurchase({ date: '2026-10-13', round: 1, lines: [...lines, lines[0]] });
+  assert.equal(doubled.lines.length, lines.length, 'a repeated row is merged, not refused');
+  assert.equal(doubled.lines[0].qty, lines[0].qty * 2);
+  // the same unknown SKU with and without an invisible character is one row (the 400 seen on 2026-10-15 tests)
+  const zw = buildLines(readOrderItems([{ SKU: 'NEW-BB-BL-30', 'จำนวน': '1', 'หมายเลขคำสั่งซื้อ': 'Z1' }, { SKU: 'NEW-BB-BL-30\u200b', 'จำนวน': '2', 'หมายเลขคำสั่งซื้อ': 'Z2' }]), makeLookup(CATALOG, new Map()));
+  assert.deepEqual(zw.map((l) => [l.sku, l.qty, l.orders]), [['NEW-BB-BL-30', 3, ['Z1', 'Z2']]]);
+  assert.ok(validatePurchase({ date: '2026-10-13', round: 1, lines: zw }));
   assert.throws(() => validatePurchase({ date: '2026-10-13', round: 1, lines: [{ ...lines[0], kind: 'x' }] }), /ไม่ครบ/);
 });
 
@@ -382,4 +388,11 @@ test('a Lazada SKU moved out of ตรวจสอบ is named by what the custo
   // our own SKU format keeps naming by SKU
   const [ours] = buildLines(readOrderItems([{ SKU: '2004-BB-BI-38', 'ชื่อตัวเลือก': '200/4, 38', 'จำนวน': '1' }]), makeLookup(CATALOG, new Map()));
   assert.equal(applyMoves([ours], new Map([[ours.sku, 'J.BIG']]), new Set())[0].label, '2004-BB-BI');
+});
+
+test('order search terms: pasted lists split on spaces, commas and new lines; 4+ characters', async () => {
+  const { orderTerms } = await import('./purchase.ts');
+  assert.deepEqual(orderTerms('586598299988231915\n261015N4H9UD8D, 1123544675508045  abc 5865'), ['586598299988231915', '261015N4H9UD8D', '1123544675508045', '5865']);
+  assert.deepEqual(orderTerms(' '), []);
+  assert.equal(orderTerms(Array.from({ length: 50 }, (_, i) => `order${i}`).join(' ')).length, 30, 'at most 30 at a time');
 });

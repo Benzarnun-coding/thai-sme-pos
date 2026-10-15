@@ -26,14 +26,16 @@ import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetito
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
 import { parseRange, salesData } from './sales.ts';
-import { deletePurchase, ledger, listPurchases, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
-import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
+import { deletePurchase, findOrders, ledger, listPurchases, orderTerms, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
+import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveAlias, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
+import { chatSummary, purgeChats } from './chatLog.ts';
 import { familyStats, postIdeas, postIdeasText } from './postIdeas.ts';
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
 import { approvalsEnabled, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
-import { checkNotes, loadNotes, noteDays } from './orderNotes.ts';
+import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
+import { applyFill, planFill, sessionStatus, P365Error } from './p365fill.ts';
 import { receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
@@ -56,6 +58,9 @@ export interface Env {
   DISCORD_APPROVER_IDS?: string;
   /** Discord user IDs who upload Page365 (มอส); tagged at 10:00 if the file is missing, may press the upload buttons */
   DISCORD_UPLOADER_IDS?: string;
+  /** Page365 login the Worker uses to fill drafts (secret; see worker/p365fill.ts) and the shop's page id */
+  P365_COOKIE?: string;
+  P365_PAGE_ID?: string;
   /** Messenger webhook (see worker/webhook.ts): app id is a var, the other two are secrets */
   META_APP_ID?: string;
   META_APP_SECRET?: string;
@@ -121,6 +126,7 @@ export default {
 
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     if (event.cron === COSTS_CRON) {
+      ctx.waitUntil(purgeChats(env.DB).catch((err) => console.error('chat purge', err)));
       ctx.waitUntil(loadSettings(env.DB).then((s) => Promise.all([
         s.sheet_id ? syncCosts(env.DB, s) : [],
         s.ads_cost_sheet_id ? syncCampaignCosts(env.DB, s) : null,
@@ -416,6 +422,29 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     return json({ date, fees: settings.order_fees, orders: orders.map(({ name_hash: _h, ...o }) => ({ ...o, fees: orderFees(o, settings.order_fees) })) });
   }
   // Admins' order notes in the chat vs what Page365 holds (phase 0 of filling Page365 orders automatically).
+  // Phase 1: put a note's items into the customer's Page365 draft (a person presses the button; the draft stays a draft).
+  if (path === '/api/p365/session' && method === 'GET') return json(await sessionStatus(env));
+  if (path === '/api/order-notes/plan' && method === 'GET') {
+    const note = await loadNote(env.DB, url.searchParams.get('mid') ?? '');
+    if (!note) throw new BadRequest('ไม่พบบรรทัดสรุปนี้');
+    try { return json(await planFill(env, note)); } catch (err) { if (err instanceof P365Error) throw new BadRequest(err.message); throw err; }
+  }
+  if (path === '/api/order-notes/fill' && method === 'POST') {
+    const note = await loadNote(env.DB, String((await body())?.mid ?? ''));
+    if (!note) throw new BadRequest('ไม่พบบรรทัดสรุปนี้');
+    if (note.filled_at) throw new BadRequest(`ใส่ไปแล้วโดย ${note.filled_by} (#${note.fill_order_no})`);
+    try {
+      const r = await applyFill(env, note);
+      await markFill(env.DB, note.mid, { by: user, order_no: r.order.no, error: null });
+      await audit(env.DB, user, 'p365.fill', String(r.order.no), { mid: note.mid, lines: r.plan.lines.map((l) => `${l.sku}×${l.qty}`), total: r.order.total });
+      return json({ ok: true, order_no: r.order.no, total: r.order.total });
+    } catch (err: any) {
+      const msg = err?.message ?? String(err);
+      await markFill(env.DB, note.mid, { by: user, order_no: null, error: msg });
+      await audit(env.DB, user, 'p365.fill_failed', note.mid, { error: msg });
+      throw new BadRequest(msg);
+    }
+  }
   if (path === '/api/order-notes/days' && method === 'GET') return json({ days: await noteDays(env.DB, 14) });
   if (path === '/api/order-notes' && method === 'GET') {
     const date = url.searchParams.get('date') ?? '';
@@ -423,9 +452,10 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const around = [-1, 0, 1].map((d) => new Date(Date.parse(`${date}T00:00:00Z`) + d * 86_400_000).toISOString().slice(0, 10));
     const [notes, orders, uploads] = await Promise.all([loadNotes(env.DB, date), loadOrders(env.DB, around), loadUploads(env.DB, [date])]);
     const checks = checkNotes(notes, orders);
+    const cat = await catalogFor(env.DB, checks.flatMap((c) => c.items.map((i) => i.code)));
     const linked = new Set(checks.map((c) => c.order_no).filter(Boolean));
     return json({ date, uploaded: uploads.has(date), orders: orders.filter((o) => o.date === date).length,
-      orders_without_note: orders.filter((o) => o.date === date && !linked.has(o.order_no)).length, notes: checks });
+      orders_without_note: orders.filter((o) => o.date === date && !linked.has(o.order_no)).length, notes: withCatalog(checks, cat) });
   }
   if (path === '/api/p365/recredit' && method === 'POST') {
     const input = await body();
@@ -478,6 +508,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
 
   // ---- Messenger webhook: who came from which ad ----
   if (path === '/api/webhook' && method === 'GET') return json(await webhookStatus(env, `${url.origin}/webhook/meta`));
+  if (path === '/api/chats/summary' && method === 'GET') return json(await chatSummary(env.DB, Math.min(30, Math.max(1, Number(url.searchParams.get('days') ?? 7)))));
   if (path === '/api/webhook/setup' && method === 'POST') {
     const r = await setupWebhook(env, `${url.origin}/webhook/meta`).catch((err) => { throw new BadRequest(err.message); });
     await audit(env.DB, user, 'webhook.setup', 'meta', r);
@@ -609,6 +640,12 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     await audit(env.DB, user, 'catalog.image.delete', key, {});
     return json({ ok: true });
   }
+  if (method === 'PUT' && path === '/api/catalog/alias') {
+    const input = await body();
+    const saved = await saveAlias(env.DB, input, user);
+    await audit(env.DB, user, saved ? 'catalog.alias' : 'catalog.alias.delete', String(input?.alias ?? ''), saved ?? {});
+    return json({ alias: saved });
+  }
   if (method === 'PUT' && path === '/api/catalog/label') {
     const saved = await saveLabels(env.DB, await body(), user);
     await audit(env.DB, user, 'catalog.label', saved.map((s) => `${s.key}=${s.label}`).join(',') || 'clear', {});
@@ -644,6 +681,10 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const result = await setMissing(env.DB, m);
     await audit(env.DB, user, 'purchase.missing', m.id, { items: m.items.slice(0, 50), total: result.missing });
     return json(result);
+  }
+  if (method === 'GET' && path === '/api/purchase/find') {
+    const terms = orderTerms(url.searchParams.get('q') ?? '');
+    return json({ terms, rows: await findOrders(env.DB, terms) });
   }
   if (method === 'GET' && path === '/api/purchase/ledger') {
     const id = url.searchParams.get('id') ?? undefined;

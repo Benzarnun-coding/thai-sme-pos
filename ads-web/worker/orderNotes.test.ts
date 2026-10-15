@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { checkNotes, parseOrderNote } from './orderNotes.ts';
+import { checkNotes, parseOrderNote, pickCatalog, withCatalog } from './orderNotes.ts';
 import type { StoredOrder } from './p365.ts';
 import { extractOrderNotes } from './webhook.ts';
 
@@ -79,4 +79,12 @@ test('notes are paired with their Page365 order and compared', () => {
   ]);
   assert.deepEqual(checks[1].missing, ['NI91 30 ×1']);
   assert.deepEqual(checks[1].extra, ['5011 30 ×1']);
+});
+
+test('each line is matched to a catalog product by code and size, the PK warehouse first', () => {
+  const hit = (tab: string, sku: string) => ({ tab, sku, name: '', color: '', price: null, image: '' });
+  const cat = new Map([['NI9-3|32', [hit('PK', 'Ni93-PK-BR-32')]], ['501/1|38', [hit('BB', '5011-BB-MD-38'), hit('PK', '5011-PK-MD-38')]]]);
+  const [n] = withCatalog([{ items: parseOrderNote('ni9-3 32\n501/1 38\nD99 30\ncod 600')!.items }], cat);
+  assert.deepEqual(n.items.map((i) => i.catalog && [i.catalog.sku, i.catalog.others]), [['Ni93-PK-BR-32', []], ['5011-PK-MD-38', ['BB']], null]);
+  assert.equal(pickCatalog([]), null);
 });

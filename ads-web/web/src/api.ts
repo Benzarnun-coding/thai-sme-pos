@@ -262,9 +262,16 @@ export interface WebhookStatus {
   echoes_missing: boolean;
   error: string | null;
 }
+export interface FillPlan {
+  order: { id: number; no: number; stage: string } | null;
+  lines: { code: string; size: string; qty: number; product_id: number | null; variant_id: number | null; sku: string | null; price: number | null; available: number | null }[];
+  payment: 'cod' | 'transfer' | null; subtotal: number; shipping: number; discount: number; total: number | null; problems: string[]; said: string[];
+}
 export interface NoteCheck {
+  mid: string;
+  fill: { at: string | null; by: string | null; order_no: number | null; error: string | null };
   at: string; text: string;
-  items: { code: string; prefix: string; size: string; qty: number }[];
+  items: { code: string; prefix: string; size: string; qty: number; catalog: { tab: string; sku: string; name: string; color: string; price: number | null; image: string; others: string[] } | null; sizes: string[] }[];
   unknown: string[]; payment: 'cod' | 'transfer' | null; total: number | null;
   order_no: string | null; order_total: number | null; order_items: { sku: string; qty: number }[];
   linked_by: 'customer' | 'total' | null;
@@ -298,8 +305,9 @@ export interface CatalogTab { tab: string; gid: string; sort: number; skus: numb
 export interface CatalogImage { key: string; tab: string; spu: string; url: string | null; uploaded: boolean; bytes: number; updated_by: string; updated_at: string }
 export interface CatalogSupplier { key: string; tab: string; spu: string; shop: string; updated_by: string; updated_at: string }
 export interface CatalogPrice { key: string; tab: string; spu: string; price: number; updated_by: string; updated_at: string }
+export interface CatalogAlias { alias: string; sku: string; created_by: string; created_at: string }
 export interface CatalogLabel { key: string; tab: string; spu: string; label: string; updated_by: string; updated_at: string }
-export interface CatalogMeta { version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; prices: CatalogPrice[]; labels: CatalogLabel[]; sheet_configured: boolean }
+export interface CatalogMeta { version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; prices: CatalogPrice[]; labels: CatalogLabel[]; aliases: CatalogAlias[]; sheet_configured: boolean }
 export type PurchaseKind = 'supplier' | 'warehouse' | 'unassigned' | 'review';
 export interface SalesData {
   from: string; to: string;
@@ -310,6 +318,7 @@ export interface SalesData {
   bigsellerDays: string[];
   page365Days: string[];
 }
+export interface FoundOrder { upload_id: string; date: string; round: number; grp: string; kind: string; label: string; size: string; qty: number; sku: string; order_no: string; store: string | null; term: string }
 export interface LedgerRow { upload_id: string; date: string; round: number; grp: string; kind: string; due: number; unpriced: number; paid: number | null; done: boolean; note: string; updated_by: string | null; updated_at: string | null }
 export interface PurchaseUpload { id: string; date: string; round: number; file: string; pieces: number; review: number; missing: number; groups: { name: string; kind: PurchaseKind; pieces: number }[]; saved_by: string; saved_at: string }
 export interface SavedPurchaseLine { grp: string; kind: PurchaseKind; sku: string; tab: string; label: string; size: string; qty: number; note: string; orders: string[]; missing: number; stores: Record<string, string>; price: number | null; price_source: string }
@@ -333,6 +342,7 @@ export const api = {
   },
   linkCatalogImage: (tab: string, spu: string, url: string) => call<{ image: CatalogImage }>('POST', '/api/catalog/image', { tab, spu, url }),
   deleteCatalogImage: (tab: string, spu: string) => call<{ ok: true }>('DELETE', `/api/catalog/image?tab=${encodeURIComponent(tab)}&spu=${encodeURIComponent(spu)}`),
+  setAlias: (alias: string, sku: string) => call<{ alias: CatalogAlias | null }>('PUT', '/api/catalog/alias', { alias, sku }),
   setLabels: (items: { tab: string; spu: string; label: string }[]) => call<{ labels: CatalogLabel[] }>('PUT', '/api/catalog/label', { items }),
   setPrices: (items: { tab: string; spu: string; price: number | null }[]) => call<{ prices: CatalogPrice[] }>('PUT', '/api/catalog/price', { items }),
   setSuppliers: (items: { tab: string; spu: string; shop: string }[]) => call<{ suppliers: CatalogSupplier[] }>('PUT', '/api/catalog/supplier', { items }),
@@ -341,6 +351,7 @@ export const api = {
   savePurchase: (p: { date: string; round: number; file: string; lines: unknown[]; items?: unknown[] }) => call<{ upload: PurchaseUpload }>('PUT', '/api/purchase', p),
   setMissing: (id: string, items: { grp: string; sku: string; missing: number }[]) => call<{ missing: number }>('PUT', '/api/purchase/missing', { id, items }),
   sales: (from: string, to: string) => call<SalesData>('GET', `/api/sales?from=${from}&to=${to}`),
+  findOrders: (q: string) => call<{ terms: string[]; rows: FoundOrder[] }>('GET', `/api/purchase/find?q=${encodeURIComponent(q)}`),
   ledger: (days = 60) => call<{ since: string; rows: LedgerRow[] }>('GET', `/api/purchase/ledger?days=${days}`),
   savePayments: (id: string, items: { grp: string; paid: number | null; done: boolean; note: string }[]) => call<{ ok: true }>('PUT', '/api/purchase/payments', { id, items }),
   deletePurchase: (id: string) => call<{ ok: true }>('DELETE', `/api/purchase?id=${encodeURIComponent(id)}`),
@@ -394,6 +405,9 @@ export const api = {
   syncAccess: () => call<{ emails: string[] }>('POST', '/api/users/access-sync'),
   webhook: () => call<WebhookStatus>('GET', '/api/webhook'),
   orderNoteDays: () => call<{ days: { date: string; notes: number }[] }>('GET', '/api/order-notes/days'),
+  p365Session: () => call<{ ok: boolean; error: string | null }>('GET', '/api/p365/session'),
+  fillPlan: (mid: string) => call<FillPlan>('GET', `/api/order-notes/plan?mid=${encodeURIComponent(mid)}`),
+  fillNote: (mid: string) => call<{ ok: true; order_no: number; total: number }>('POST', '/api/order-notes/fill', { mid }),
   orderNotes: (date: string) => call<{ date: string; uploaded: boolean; orders: number; orders_without_note: number; notes: NoteCheck[] }>('GET', `/api/order-notes?date=${date}`),
   sendPostIdeas: () => call<{ sent: boolean; ideas: number }>('POST', '/api/post-ideas/send'),
   goal: () => call<GoalStatus>('GET', '/api/goal'),

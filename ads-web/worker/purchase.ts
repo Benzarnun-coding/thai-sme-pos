@@ -33,7 +33,7 @@ export function validatePurchase(input: any): { date: string; round: number; fil
   const raw: unknown[] = Array.isArray(input?.lines) ? input.lines : [];
   if (!raw.length) throw new BadRequest('ไม่มีรายการ');
   if (raw.length > MAX_LINES) throw new BadRequest(`รายการเกิน ${MAX_LINES}`);
-  const seen = new Set<string>();
+  const seen = new Map<string, SavedLine>();
   const lines = raw.map((x: any) => {
     const l: SavedLine = {
       grp: cleanText(x?.group, 80), kind: String(x?.kind ?? ''), sku: cleanText(x?.sku, 200), tab: cleanText(x?.tab, 40),
@@ -49,10 +49,16 @@ export function validatePurchase(input: any): { date: string; round: number; fil
       for (const o of l.orders) { const v = cleanText(x.stores[o], 80); if (v) l.stores[o] = v; }
     }
     if (!l.grp || !l.sku || !KINDS.has(l.kind) || !(l.qty > 0 && l.qty < 100_000)) throw new BadRequest(`รายการไม่ครบ: ${l.sku || '(ไม่มี SKU)'}`);
-    const k = `${l.grp}\u0000${l.sku}`;
-    if (seen.has(k)) throw new BadRequest(`รายการซ้ำ: ${l.grp} ${l.sku}`);
-    seen.add(k);
     return l;
+  }).filter((l) => {
+    // Two rows that become the same after cleaning (e.g. a SKU with and without an invisible character) are one.
+    const k = `${l.grp}\u0000${l.sku}`;
+    const prev = seen.get(k);
+    if (!prev) { seen.set(k, l); return true; }
+    prev.qty += l.qty;
+    for (const o of l.orders) if (!prev.orders.includes(o)) prev.orders.push(o);
+    Object.assign(prev.stores, l.stores);
+    return false;
   });
   // Per-order rows (only when saved from a file): duplicates of order + SKU are added up.
   let items: SavedItem[] | null = null;
@@ -241,4 +247,26 @@ export async function ledger(db: D1Database, since: string, id?: string): Promis
     rows.set(k, { ...row, paid: p.paid, done: !!p.done, note: p.note ?? '', updated_by: p.updated_by, updated_at: p.updated_at });
   }
   return [...rows.values()].sort((a, b) => b.date.localeCompare(a.date) || b.round - a.round || a.grp.localeCompare(b.grp));
+}
+
+// ---- find order numbers in saved rounds ----
+
+export interface FoundOrder { upload_id: string; date: string; round: number; grp: string; kind: string; label: string; size: string; qty: number; sku: string; order_no: string; store: string | null; term: string }
+
+/** Order numbers (or parts of them, 4+ characters) from a pasted list: spaces, commas, new lines. */
+export function orderTerms(q: string): string[] {
+  return [...new Set(String(q ?? '').split(/[\s,;]+/).map((t) => t.trim()).filter((t) => t.length >= 4))].slice(0, 30);
+}
+
+/** Every saved line whose order numbers contain one of the terms, newest round first (≤ 300 rows). */
+export async function findOrders(db: D1Database, terms: string[]): Promise<FoundOrder[]> {
+  if (!terms.length) return [];
+  const results = await db.batch(terms.map((t) => db.prepare(
+    `SELECT u.id AS upload_id, u.date, u.round, l.grp, l.kind, l.label, l.size, l.qty, l.sku, j.value AS order_no,
+            json_extract(l.stores, '$."' || j.value || '"') AS store, ?1 AS term
+     FROM purchase_lines l JOIN purchase_uploads u ON u.id = l.upload_id, json_each(l.orders) j
+     WHERE instr(j.value, ?1) > 0
+     ORDER BY u.date DESC, u.round DESC LIMIT 300`,
+  ).bind(t)));
+  return results.flatMap((r) => r.results as FoundOrder[]).sort((a, b) => b.date.localeCompare(a.date) || b.round - a.round).slice(0, 300);
 }

@@ -75,8 +75,10 @@ export function skuPrefix(code: string): string {
 
 export type Verdict = 'same' | 'diff_items' | 'diff_total' | 'unparsed' | 'no_order';
 
-export interface StoredNote { mid: string; psid: string; at: string; text: string; name_hash: string | null }
+export interface StoredNote { mid: string; psid: string; at: string; text: string; name_hash: string | null; filled_at?: string | null; filled_by?: string | null; fill_order_no?: number | null; fill_error?: string | null }
 export interface NoteCheck {
+  mid: string;
+  fill: { at: string | null; by: string | null; order_no: number | null; error: string | null };
   at: string;
   text: string;
   items: NoteItem[];
@@ -134,6 +136,7 @@ export function checkNotes(notes: StoredNote[], orders: StoredOrder[]): NoteChec
     const hit = pick.get(n.mid);
     const o = hit?.o;
     const base: NoteCheck = {
+      mid: n.mid, fill: { at: n.filled_at ?? null, by: n.filled_by ?? null, order_no: n.fill_order_no ?? null, error: n.fill_error ?? null },
       at: n.at, text: n.text, items: p?.items ?? [], unknown: p?.unknown ?? [], payment: p?.payment ?? null, total: p?.total ?? null,
       order_no: o?.order_no ?? null, order_total: o?.total ?? null, order_items: (o?.items ?? []).map((i) => ({ sku: i.sku, qty: i.qty })),
       linked_by: hit?.by ?? null, verdict: 'no_order', missing: [], extra: [],
@@ -148,6 +151,55 @@ export function checkNotes(notes: StoredNote[], orders: StoredOrder[]): NoteChec
     base.verdict = base.missing.length || base.extra.length ? 'diff_items' : p!.total !== o.total ? 'diff_total' : 'same';
     return base;
   });
+}
+
+// ---- which catalog product each line is ----
+
+export interface CatalogHit { tab: string; sku: string; name: string; color: string; price: number | null; image: string }
+export interface CatalogPick extends CatalogHit { others: string[] }
+
+const catKey = (code: string, size: string) => `${code.toUpperCase()}|${size.toUpperCase()}`;
+
+/** Catalog rows (sheet + added on the page) for these product codes, keyed "CODE|SIZE". */
+export async function catalogFor(db: D1Database, codes: string[]): Promise<Map<string, CatalogHit[]>> {
+  const out = new Map<string, CatalogHit[]>();
+  const list = [...new Set(codes.map((c) => c.toUpperCase()))];
+  if (!list.length) return out;
+  const sql = (t: string) => `SELECT tab, sku, code, size, name, color, price, image FROM ${t} WHERE code COLLATE NOCASE IN (SELECT value FROM json_each(?))`;
+  const [sheet, web] = await db.batch<CatalogHit & { code: string; size: string }>([db.prepare(sql('catalog')).bind(JSON.stringify(list)), db.prepare(sql('catalog_web')).bind(JSON.stringify(list))]);
+  for (const r of [...web.results, ...sheet.results]) {
+    const k = catKey(r.code, r.size);
+    const hits = out.get(k) ?? out.set(k, []).get(k)!;
+    if (!hits.some((h) => h.sku.toUpperCase() === r.sku.toUpperCase())) hits.push({ tab: r.tab, sku: r.sku, name: r.name, color: r.color, price: r.price, image: r.image });
+  }
+  return out;
+}
+
+/** The catalog product for one line: the PK warehouse first (the shop's own stock), the other warehouses listed. */
+export function pickCatalog(hits: CatalogHit[] | undefined): CatalogPick | null {
+  if (!hits?.length) return null;
+  const best = hits.find((h) => h.tab === 'PK') ?? hits[0];
+  return { ...best, others: hits.filter((h) => h !== best).map((h) => h.tab) };
+}
+
+/** Sizes the catalog has for each code, in size order (shown when a note asks for a size that isn't made). */
+function sizesByCode(cat: Map<string, CatalogHit[]>): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const k of cat.keys()) {
+    const [code, size] = k.split('|');
+    (out.get(code) ?? out.set(code, []).get(code)!).push(size);
+  }
+  for (const v of out.values()) v.sort((a, b) => (Number(a) || 0) - (Number(b) || 0) || a.localeCompare(b));
+  return out;
+}
+
+/** Each line with its catalog product, or — when the size isn't in the catalog — the sizes that model does come in. */
+export function withCatalog<T extends { items: NoteItem[] }>(checks: T[], cat: Map<string, CatalogHit[]>): (Omit<T, 'items'> & { items: (NoteItem & { catalog: CatalogPick | null; sizes: string[] })[] })[] {
+  const sizes = sizesByCode(cat);
+  return checks.map((c) => ({ ...c, items: c.items.map((i) => {
+    const catalog = pickCatalog(cat.get(catKey(i.code, i.size)));
+    return { ...i, catalog, sizes: catalog ? [] : sizes.get(i.code.toUpperCase()) ?? [] };
+  }) }));
 }
 
 // ---- storage ----
@@ -169,6 +221,15 @@ export async function noteDays(db: D1Database, days: number): Promise<{ date: st
 export async function loadNotes(db: D1Database, date: string): Promise<StoredNote[]> {
   const from = new Date(`${date}T00:00:00+07:00`).toISOString();
   const to = new Date(Date.parse(`${date}T00:00:00+07:00`) + 86_400_000).toISOString();
-  const { results } = await db.prepare('SELECT mid, psid, at, text, name_hash FROM order_notes WHERE at >= ? AND at < ? ORDER BY at').bind(from, to).all<StoredNote>();
+  const { results } = await db.prepare('SELECT mid, psid, at, text, name_hash, filled_at, filled_by, fill_order_no, fill_error FROM order_notes WHERE at >= ? AND at < ? ORDER BY at').bind(from, to).all<StoredNote>();
   return results;
+}
+
+export async function loadNote(db: D1Database, mid: string): Promise<StoredNote | null> {
+  return db.prepare('SELECT * FROM order_notes WHERE mid = ?').bind(mid).first<StoredNote>();
+}
+
+export async function markFill(db: D1Database, mid: string, r: { by: string; order_no: number | null; error: string | null }): Promise<void> {
+  await db.prepare('UPDATE order_notes SET filled_at = ?, filled_by = ?, fill_order_no = ?, fill_error = ? WHERE mid = ?')
+    .bind(r.error ? null : new Date().toISOString(), r.by, r.order_no, r.error, mid).run();
 }

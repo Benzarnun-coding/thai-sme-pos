@@ -4,11 +4,12 @@
 // Who supplies a product can be changed right here; it is saved for that product and used every day after.
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { api, type LedgerRow, type PurchaseUpload, type SavedPurchaseLine } from './api.ts';
+import { api, type CatalogAlias, type FoundOrder, type LedgerRow, type PurchaseUpload, type SavedPurchaseLine } from './api.ts';
+import { SkuMatch } from './SkuMatch.tsx';
 import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from './catalog.ts';
 import { num } from './fmt.ts';
 import {
-  applyMoves, buildLines, dateFromFileName, saleItems, orderColumns, orderText, paymentWorkbook, PRICE_SOURCE_LABEL, supplierTotals, withPrices, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
+  applyMoves, buildLines, dateFromFileName, optionParts, saleItems, orderColumns, orderText, paymentWorkbook, PRICE_SOURCE_LABEL, supplierTotals, withPrices, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
   orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
 } from './purchase.ts';
 import { orderPictureSheets, pictureSheets } from './pictureSheet.ts';
@@ -40,7 +41,7 @@ function fromSaved(l: SavedPurchaseLine): PurchaseLine {
 export function OrdersApp() {
   useEffect(() => { document.title = 'ใบสั่งสินค้า'; }, []);
   const { toast, confirm } = useUi();
-  const { meta, setMeta, rows, loading, error, canEdit, role, supplierMap, imageMap, priceMap, labelMap } = useCatalog();
+  const { meta, setMeta, rows, loading, error, canEdit, role, supplierMap, imageMap, priceMap, labelMap, aliasMap } = useCatalog();
   const [data, setData] = useState<Loaded | null>(null);
   const [history, setHistory] = useState<PurchaseUpload[]>([]);
   const [viewing, setViewing] = useState<FromHistory | null>(null);
@@ -51,6 +52,8 @@ export function OrdersApp() {
   const [printing, setPrinting] = useState<PurchaseGroup[] | null>(null);
   const [savedSig, setSavedSig] = useState('');
   const [pictures, setPictures] = useState<PurchaseGroup | null>(null);
+  // Rows found by the order-number search: `${group}\u0000${sku}`, highlighted and scrolled to.
+  const [found, setFound] = useState<Set<string>>(new Set());
   // ตรวจสอบ rows moved by hand this round: Bigseller SKU (or "?name · option") → supplier/warehouse
   const [moves, setMoves] = useState<Map<string, string>>(new Map());
   // Out of stock, as ticked on the page after the supplier answered: lineKey → pieces. Saved to D1 on every tick.
@@ -65,7 +68,7 @@ export function OrdersApp() {
 
   // Sheet rows + SKUs added on the page, so a SKU added this morning already lands on the right sheet.
   const allRows = useMemo<CatalogRow[]>(() => [...rows, ...(meta?.web ?? []).map((w) => webToRow(w, 0))], [rows, meta?.web]);
-  const lookup = useMemo(() => makeLookup(allRows, supplierMap, priceMap, labelMap), [allRows, supplierMap, priceMap, labelMap]);
+  const lookup = useMemo(() => makeLookup(allRows, supplierMap, priceMap, labelMap, aliasMap), [allRows, supplierMap, priceMap, labelMap, aliasMap]);
   // Photo, code and colour per SKU for picture sheets: a picture added on the page, else column J of any size.
   const productInfo = useMemo(() => {
     const firstImage = new Map<string, string>();
@@ -365,13 +368,23 @@ export function OrdersApp() {
         )}
       </section>
 
+      <OrderSearch
+        lines={shown ? lines : []} history={history} currentId={viewing ? viewing.upload.id : `${date}#${round}`}
+        onGo={(hits) => {
+          setFound(new Set(hits.map((l) => `${l.group}\u0000${l.sku}`)));
+          setOpen((o) => new Set([...o, ...hits.map((l) => l.group)]));
+          setTimeout(() => document.getElementById(rowId(hits[0].group, hits[0].sku))?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
+        }}
+        onOpenRound={(u) => openHistory(u)}
+      />
+
       {shown && (
         <>
           <div className="kpis po-kpis">
             <div className="kpi"><span>ชิ้นทั้งหมด</span><b>{num(pieces)}</b>{data && <small>{num(new Set(data.items.map((i) => i.order).filter(Boolean)).size)} ออเดอร์</small>}</div>
             <div className="kpi"><span>ร้านค้า</span><b>{num(groups.filter((g) => g.kind === 'supplier').length)}</b></div>
             <div className="kpi"><span>โกดัง</span><b>{num(groups.filter((g) => g.kind === 'warehouse').length)}</b></div>
-            <div className="kpi"><span>ต้องตรวจสอบ</span><b className={review || groups.some((g) => g.kind === 'unassigned') ? 'bad' : 'good'}>{num((review?.pieces ?? 0) + groups.filter((g) => g.kind === 'unassigned').reduce((n, g) => n + g.pieces, 0))}</b><small>ไม่มี SKU / ยังไม่ระบุร้าน</small></div>
+            <div className="kpi"><span>ต้องตรวจสอบ</span><b className={review || groups.some((g) => g.kind === 'unassigned') ? 'bad' : 'good'}>{num((review?.pieces ?? 0) + groups.filter((g) => g.kind === 'unassigned').reduce((n, g) => n + g.pieces, 0))}</b><small>ไม่มี SKU / ยังไม่ระบุร้าน · <a href="/catalog/todo">งานค้างทั้งหมด</a></small></div>
           </div>
 
           <section className="card po-actions">
@@ -427,10 +440,11 @@ export function OrdersApp() {
 
           {groups.map((g) => (
             <GroupCard
-              key={g.name} group={g} open={open.has(g.name)} onToggle={() => toggle(g.name)}
+              key={g.name} group={g} open={open.has(g.name)} onToggle={() => toggle(g.name)} found={found}
               missing={missing} onMissing={canEdit ? setLineMissing : null} onPrice={canEdit ? setPrice : null}
               onLabel={(l) => (l.tab && !l.sku.startsWith('?') ? (canEdit ? setLabel : null) : (!viewing || canEdit ? setLabel : null))}
               canRemember={canEdit} movable={!viewing || canEdit} targets={targets} onMove={moveLine}
+              matchRows={allRows} onMatched={canEdit ? (a) => setMeta((m) => (m ? { ...m, aliases: [a, ...m.aliases.filter((x) => x.alias !== a.alias)] } : m)) : null}
               onSupplier={setSupplier} onExcel={() => exportExcel(g)} onPrint={() => print(g)} busy={!!busy}
               onPictures={() => { save(); setPictures(g); }}
             />
@@ -482,11 +496,12 @@ export function OrdersApp() {
 
 // ---- one supplier / warehouse ----
 
-function GroupCard({ group: g, open, onToggle, missing, onMissing, onPrice, onLabel, canRemember, movable, targets, onMove, onSupplier, onExcel, onPrint, onPictures, busy }: {
-  group: PurchaseGroup; open: boolean; onToggle: () => void; missing: Map<string, number>; onMissing: ((l: PurchaseLine, n: number) => Promise<void>) | null;
+function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPrice, onLabel, canRemember, movable, targets, onMove, matchRows, onMatched, onSupplier, onExcel, onPrint, onPictures, busy }: {
+  group: PurchaseGroup; open: boolean; onToggle: () => void; found: Set<string>; missing: Map<string, number>; onMissing: ((l: PurchaseLine, n: number) => Promise<void>) | null;
   onPrice: ((l: PurchaseLine, price: number | null) => Promise<void>) | null;
   onLabel: (l: PurchaseLine) => ((l: PurchaseLine, text: string) => Promise<void>) | null;
   canRemember: boolean; movable: boolean; targets: string[]; onMove: (sku: string, to: string) => void;
+  matchRows: CatalogRow[]; onMatched: ((a: CatalogAlias) => void) | null;
   onSupplier: (items: { tab: string; spu: string }[], shop: string) => Promise<void>; onExcel: () => void; onPrint: () => void; onPictures: () => void; busy: boolean;
 }) {
   const rowsOnSheet = sheetRows(g).length;
@@ -563,7 +578,7 @@ function GroupCard({ group: g, open, onToggle, missing, onMissing, onPrice, onLa
                   const product = `${l.tab}|${spuOf(l.sku)}`;
                   const firstOfProduct = g.lines.findIndex((x) => `${x.tab}|${spuOf(x.sku)}` === product) === i;
                   return (
-                    <tr key={l.sku} className={`${firstOfProduct && i > 0 ? 'group-start' : ''} ${missing.get(lineKey(l)) ? 'po-missing' : ''}`}>
+                    <tr key={l.sku} id={rowId(g.name, l.sku)} className={`${firstOfProduct && i > 0 ? 'group-start' : ''} ${missing.get(lineKey(l)) ? 'po-missing' : ''} ${found.has(`${g.name}\u0000${l.sku}`) ? 'po-found' : ''}`}>
                       <td><LabelCell line={l} strong={!!firstOfProduct || g.kind === 'review'} onSave={onLabel(l) ? (text) => onLabel(l)!(l, text) : null} /></td>
                       <td>{l.size || '—'}</td>
                       <td className="num"><b>{num(l.qty)}</b></td>
@@ -587,6 +602,10 @@ function GroupCard({ group: g, open, onToggle, missing, onMissing, onPrice, onLa
                           <div className="po-move">
                             <ShopInput placeholder="เลือกหรือพิมพ์" action="ย้าย" remember={canRemember && g.kind !== 'review'} onSubmit={(to, remember) => move(l, to, remember)} />
                             {l.moved && <button className="link small" onClick={() => onMove(l.sku, '')}>ย้อนกลับไป {l.from}</button>}
+                            {g.kind === 'review' && !l.sku.startsWith('?') && onMatched && (
+                              <SkuMatch alias={l.sku} rows={matchRows} onMatched={onMatched}
+                                initialQuery={(() => { const o = optionParts(l.note.split(' · ').slice(1).join(' · ')); return `${o.model} ${o.size}`.trim(); })()} />
+                            )}
                             {g.kind === 'review' && !l.sku.startsWith('?') && <a className="small" href={`/catalog?q=${encodeURIComponent(l.sku)}&add=1`} target="_blank" rel="noreferrer">+ เพิ่มในแคตตาล็อก</a>}
                           </div>
                         </td>
@@ -846,6 +865,103 @@ function LedgerCard({ rows, history, onOpen }: { rows: LedgerRow[]; history: Pur
 }
 
 /** Order numbers of a line with the store each came from: the first two, the rest behind "+N". */
+/** DOM id of a row, for jumping to it from the order search. */
+function rowId(group: string, sku: string): string {
+  return `po-row-${encodeURIComponent(`${group}|${sku}`).replace(/%/g, '_')}`;
+}
+
+/**
+ * Find order numbers (one or many, pasted; 4+ characters of one is enough): where they are in the round on screen —
+ * jump to the row — and in which saved rounds, to open one.
+ */
+function OrderSearch({ lines, history, currentId, onGo, onOpenRound }: {
+  lines: PurchaseLine[]; history: PurchaseUpload[]; currentId: string;
+  onGo: (hits: PurchaseLine[]) => void; onOpenRound: (u: PurchaseUpload) => void;
+}) {
+  const { toast } = useUi();
+  const [q, setQ] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ terms: string[]; here: { term: string; order: string; line: PurchaseLine }[]; saved: FoundOrder[] } | null>(null);
+  async function run() {
+    const terms = [...new Set(q.split(/[\s,;]+/).map((t) => t.trim()).filter((t) => t.length >= 4))].slice(0, 30);
+    if (!terms.length) { toast('พิมพ์เลขคำสั่งซื้ออย่างน้อย 4 ตัว', 'bad'); return; }
+    const here: { term: string; order: string; line: PurchaseLine }[] = [];
+    for (const l of lines) for (const o of l.orders ?? []) for (const t of terms) if (o.includes(t)) here.push({ term: t, order: o, line: l });
+    setBusy(true);
+    try {
+      const { rows } = await api.findOrders(terms.join(' '));
+      setResult({ terms, here, saved: rows.filter((r) => r.upload_id !== currentId || !lines.length) });
+      if (here.length) onGo(here.map((h) => h.line));
+    } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
+  }
+  const missingTerms = result ? result.terms.filter((t) => !result.here.some((h) => h.term === t) && !result.saved.some((r) => r.term === t)) : [];
+  return (
+    <section className="card po-search">
+      <div className="po-search-bar">
+        <label className="search">
+          <span className="ico"><Icon name="search" size={16} /></span>
+          <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') run(); }}
+            onPaste={(e) => {
+              // A pasted column (Excel, the copy buttons) has one number per line; a one-line box would glue them.
+              const text = e.clipboardData.getData('text');
+              if (!/[\r\n]/.test(text)) return;
+              e.preventDefault();
+              setQ((v) => `${v.trim()} ${text.replace(/\s+/g, ' ')}`.trim());
+            }}
+            placeholder="ค้นหาเลขคำสั่งซื้อ · วางได้หลายเลข (เว้นวรรค/ขึ้นบรรทัด) · พิมพ์บางส่วน 4 ตัวขึ้นไปก็ได้" aria-label="ค้นหาเลขคำสั่งซื้อ" />
+          {q && <button className="icon-btn" onClick={() => { setQ(''); setResult(null); }} aria-label="ล้าง"><Icon name="x" size={16} /></button>}
+        </label>
+        <button className="primary" onClick={run} disabled={busy}>{busy ? 'กำลังค้นหา…' : 'ค้นหา'}</button>
+      </div>
+      {result && (
+        <div className="po-search-results">
+          {result.here.length > 0 && (
+            <>
+              <h3>ในรอบนี้ ({num(result.here.length)})</h3>
+              <table className="data-table">
+                <tbody>
+                  {result.here.map((h, i) => (
+                    <tr key={i}>
+                      <td><code>{h.order}</code>{h.line.stores?.[h.order] && <div className="po-store">{h.line.stores[h.order]}</div>}</td>
+                      <td><b>{h.line.group}</b></td>
+                      <td>{h.line.label} · {h.line.size || '—'}</td>
+                      <td className="num">{num(h.line.qty)} ชิ้น</td>
+                      <td><button className="link small" onClick={() => onGo([h.line])}>ไปที่แถว</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+          {result.saved.length > 0 && (
+            <>
+              <h3>ในใบสั่งที่บันทึกไว้ ({num(result.saved.length)})</h3>
+              <table className="data-table">
+                <tbody>
+                  {result.saved.map((r, i) => {
+                    const u = history.find((h) => h.id === r.upload_id);
+                    return (
+                      <tr key={i}>
+                        <td><code>{r.order_no}</code>{r.store && <div className="po-store">{r.store}</div>}</td>
+                        <td>{thaiShortDate(r.date)} รอบ {r.round}</td>
+                        <td><b>{r.grp}</b></td>
+                        <td>{r.label} · {r.size || '—'}</td>
+                        <td className="num">{num(r.qty)} ชิ้น</td>
+                        <td>{u && <button className="link small" onClick={() => onOpenRound(u)}>เปิดรอบ</button>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </>
+          )}
+          {missingTerms.length > 0 && <p className="small warn">ไม่พบ: {missingTerms.join(', ')}</p>}
+        </div>
+      )}
+    </section>
+  );
+}
+
 /** Order numbers of lines, each once, in the order they appear (the ones the file had; none are made up). */
 function orderNumbersOf(lines: PurchaseLine[]): string[] {
   const seen = new Set<string>();

@@ -7,7 +7,7 @@
 //   4. other tabs → the warehouse itself (PK, CM, CN …)
 // Rows whose SKU is missing or not in the catalog go to "ตรวจสอบ". Shared by the page and the tests.
 
-import { COLOR_NAMES, compareSize, SHOP_STATUSES, skuKey, spuOf, type CatalogRow } from './catalog.ts';
+import { cleanSku, COLOR_NAMES, compareSize, SHOP_STATUSES, skuKey, spuOf, type CatalogRow } from './catalog.ts';
 import { buildXlsx, S, type Cell, type Sheet } from './xlsxWrite.ts';
 
 export type GroupKind = 'supplier' | 'warehouse' | 'unassigned' | 'review';
@@ -159,12 +159,17 @@ export interface Lookup {
   labels: Map<string, string>;
 }
 
-export function makeLookup(rows: CatalogRow[], suppliers: Map<string, string>, prices: Map<string, number> = new Map(), labels: Map<string, string> = new Map()): Lookup {
+export function makeLookup(rows: CatalogRow[], suppliers: Map<string, string>, prices: Map<string, number> = new Map(), labels: Map<string, string> = new Map(), aliases: Map<string, string> = new Map()): Lookup {
   const map = new Map<string, CatalogRow>();
   const supplierTabs = new Set(SUPPLIER_TABS);
   for (const r of rows) {
     const k = skuKey(r.sku);
     if (!map.has(k)) map.set(k, r);
+  }
+  // Another system's SKU matched to ours reads as ours (a SKU really in the catalog always wins).
+  for (const [alias, sku] of aliases) {
+    const r = map.get(skuKey(sku));
+    if (r && !map.has(alias)) map.set(alias, r);
   }
   return { rows: map, suppliers, supplierTabs, prices, labels };
 }
@@ -246,10 +251,12 @@ export function buildLines(items: OrderItem[], lookup: Lookup): PurchaseLine[] {
     const r = it.sku ? lookup.rows.get(skuKey(it.sku)) : undefined;
     let line: PurchaseLine;
     if (!r) {
+      // Invisible characters removed, so "5012-PK-NV-30" and "5012-PK-NV-30\u200b" are one row (as the server sees them)
+      const sku = cleanSku(it.sku);
       const what = it.option || it.name.slice(0, 60);
       line = {
-        group: REVIEW, kind: 'review', sku: it.sku || `?${it.name.slice(0, 60)} · ${it.option}`, tab: '', product: '',
-        label: it.sku || '(ไม่มี SKU)', size: (it.sku ? sizeFromSku(it.sku) : '') || optionParts(it.option).size, qty: 0,
+        group: REVIEW, kind: 'review', sku: sku || `?${it.name.slice(0, 60)} · ${it.option}`, tab: '', product: '',
+        label: sku || '(ไม่มี SKU)', size: (sku ? sizeFromSku(sku) : '') || optionParts(it.option).size, qty: 0,
         note: `${it.sku ? 'SKU ไม่มีในแคตตาล็อก' : 'ไม่มี SKU ใน Bigseller'} · ${what}`, orders: [],
       };
     } else {
@@ -558,4 +565,29 @@ export function saleItems(items: OrderItem[], lookup: Lookup, roundKey: string):
       store: storeLabel(it.store, it.carrier),
     };
   });
+}
+
+// ---- matching another system's SKU to ours ----
+
+/**
+ * Catalog SKUs for a search like "101/1 ดำ 32" or a marketplace product name ("กางเกงยีนส์ 501/1 มิดไนท์ 30"):
+ * rows matching every word first, then by matched words (code / SKU and size count more); a size alone is no match.
+ */
+export function suggestSkus(rows: CatalogRow[], query: string, limit = 8): CatalogRow[] {
+  const words = [...new Set(query.toLowerCase().replace(/[(),]/g, ' ').split(/\s+/).filter(Boolean))];
+  if (!words.length) return [];
+  const out: { r: CatalogRow; score: number; all: boolean }[] = [];
+  for (const r of rows) {
+    const color = COLOR_NAMES[r.color.toUpperCase()] ?? '';
+    const hay = `${r.sku} ${r.code} ${r.name} ${r.color} ${color}`.toLowerCase();
+    let score = 0, hits = 0, misses = 0;
+    for (const w of words) {
+      if (r.size.toLowerCase() === w) { score += 3; continue; }
+      if (!hay.includes(w)) { misses++; continue; }
+      hits++;
+      score += r.code.toLowerCase() === w || r.sku.toLowerCase() === w ? 4 : 1;
+    }
+    if (hits) out.push({ r, score, all: !misses });
+  }
+  return out.sort((a, b) => Number(b.all) - Number(a.all) || b.score - a.score || a.r.sku.localeCompare(b.r.sku)).slice(0, limit).map((x) => x.r);
 }
