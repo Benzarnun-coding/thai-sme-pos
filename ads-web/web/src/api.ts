@@ -424,6 +424,7 @@ export const api = {
   removeUser: (email: string) => call<{ ok: true; sync: { ok: boolean; error?: string } | null }>('DELETE', `/api/users/${encodeURIComponent(email)}`),
   syncAccess: () => call<{ emails: string[] }>('POST', '/api/users/access-sync'),
   webhook: () => call<WebhookStatus>('GET', '/api/webhook'),
+  orderNoteMisses: () => call<{ misses: { mid: string; at: string; text: string; alerted_at: string | null; resolved_at: string | null }[] }>('GET', '/api/order-notes/misses'),
   orderNoteDays: () => call<{ days: { date: string; notes: number }[] }>('GET', '/api/order-notes/days'),
   p365Session: () => call<{ ok: boolean; error: string | null }>('GET', '/api/p365/session'),
   fillPlan: (mid: string) => call<FillPlan>('GET', `/api/order-notes/plan?mid=${encodeURIComponent(mid)}`),

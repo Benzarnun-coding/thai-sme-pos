@@ -5,7 +5,7 @@
 // Page365 and presses "ส่งบิล". Switch: meta_capi key auto_fill (on/off), on the settings page.
 
 import { postToDeciders, type DiscordEnv } from './discord.ts';
-import { markFill, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
+import { looksLikeNote, markFill, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { sendNotePurchase } from './notePurchases.ts';
 import { applyFill, call, findDraft, P365Error, planFill, type FillEnv, type P365Order } from './p365fill.ts';
 
@@ -189,7 +189,11 @@ export async function sweepNotes(env: AutoEnv, opts: { force?: boolean } = {}): 
       WHERE c.from_page = 1 AND c.at >= ? AND c.text IS NOT NULL AND o.mid IS NULL`,
   ).bind(from).all<{ mid: string; psid: string; at: string; text: string }>();
   const rescued: StoredNote[] = shopLines.filter((m) => parseOrderNote(m.text)).map((m) => ({ mid: m.mid, psid: m.psid, at: m.at, text: m.text.trim(), name_hash: null }));
+  // The same lines that still aren't read but look like notes: kept and told (once), so the format gets learnt.
+  await recordMisses(env, shopLines.filter((m) => looksLikeNote(m.text)).map((m) => ({ mid: m.mid, psid: m.psid, at: m.at, text: m.text.trim(), name_hash: null })));
   if (rescued.length) {
+    // A miss the parser reads now (after a fix) is marked learnt.
+    await env.DB.prepare(`UPDATE note_misses SET resolved_at = ? WHERE resolved_at IS NULL AND mid IN (SELECT value FROM json_each(?))`).bind(new Date().toISOString(), JSON.stringify(rescued.map((n) => n.mid))).run().catch(() => null);
     await saveNotes(env.DB, rescued);
     for (const n of rescued) await sendNotePurchase(env as any, n).catch((err) => console.error('note purchase', err));
   }
@@ -216,6 +220,11 @@ export async function tell(env: AutoEnv, note: StoredNote, draft: P365Order | nu
     `แอดมินสรุป: \`${note.text.replace(/\s+/g, ' ')}\``,
     ...reasons.slice(0, 6).map((r) => `• ${r}`),
   ].join('\n').slice(0, 2000);
+  await postOrderChannel(env, body);
+}
+
+/** The problem channel (#ออเดอร์มีปัญหา), tagging the person in charge; the ads channel via the bot if not set. */
+async function postOrderChannel(env: AutoEnv, body: (mention: string) => string): Promise<void> {
   if (env.DISCORD_ORDER_WEBHOOK_URL) {
     const ids = (env.DISCORD_ORDER_OWNER_IDS || env.DISCORD_DECIDER_IDS || '').split(',').map((x) => x.trim()).filter(Boolean);
     const r = await fetch(env.DISCORD_ORDER_WEBHOOK_URL, {
@@ -241,4 +250,39 @@ export async function cronSweep(env: AutoEnv): Promise<void> {
   if (hour >= 10 && hour < 23 && last?.at && Date.now() - Date.parse(last.at) > 3 * 3_600_000) {
     await tell(env, { mid: '', psid: '', at: new Date().toISOString(), text: '-', name_hash: null }, null, 'ทุกบิล', [`ไม่มีแชทเข้ามาที่ระบบเลยตั้งแต่ ${bkk(last.at)} น. — webhook ของ Meta อาจหลุด สรุปที่พิมพ์ช่วงนี้ระบบยังไม่เห็น เปิดร่างเองไปก่อน แล้วแจ้งเบนซ์`]);
   }
+}
+
+/**
+ * Shop messages that look like an order note but can't be read (Benz 15 Oct): stored in `note_misses` and told
+ * to the problem channel once each, so a person opens the bill by hand and the format is added to the parser.
+ */
+export async function recordMisses(env: AutoEnv, misses: StoredNote[]): Promise<number> {
+  if (!misses.length) return 0;
+  const { results: known } = await env.DB.prepare('SELECT mid FROM note_misses WHERE mid IN (SELECT value FROM json_each(?))').bind(JSON.stringify(misses.map((m) => m.mid))).all<{ mid: string }>();
+  const seen = new Set(known.map((k) => k.mid));
+  const fresh = misses.filter((m) => !seen.has(m.mid));
+  if (!fresh.length) return 0;
+  const now = new Date().toISOString();
+  await env.DB.prepare(`INSERT OR IGNORE INTO note_misses (mid, psid, at, text, alerted_at)
+    SELECT value->>'mid', value->>'psid', value->>'at', value->>'text', ? FROM json_each(?)`).bind(now, JSON.stringify(fresh)).run();
+  for (const m of fresh.slice(0, 3)) {
+    const who = await customerFor(env, m.psid, 2).catch(() => null);
+    await postOrderChannel(env, (mention) => [
+      `❓ ข้อความนี้เหมือนสรุปออเดอร์ แต่ระบบอ่านไม่ออก ${mention}`.trim(),
+      `ลูกค้า: **${who?.name || 'ไม่ทราบชื่อ'}** · พิมพ์ตอน ${bkk(m.at)} น.`,
+      `ข้อความ: \`${m.text.replace(/\s+/g, ' ').slice(0, 200)}\``,
+      '• ระบบยังไม่เปิดร่าง/ไม่ส่งยอดให้ Meta — เปิดบิลเองไปก่อน',
+      '• ส่งรูปแบบนี้ให้เบนซ์/Claude เพิ่มเข้าระบบ (ดูได้ที่แท็บ Log ออเดอร์แชท → "สรุปที่อ่านไม่ออก")',
+    ].join('\n').slice(0, 2000)).catch((err) => console.error('miss post', err));
+  }
+  return fresh.length;
+}
+
+export interface NoteMiss { mid: string; at: string; text: string; alerted_at: string | null; resolved_at: string | null }
+
+/** The last `days` days of misses, newest first (Log tab). */
+export async function loadMisses(db: D1Database, days = 14): Promise<NoteMiss[]> {
+  const from = new Date(Date.now() - days * 86_400_000).toISOString();
+  const { results } = await db.prepare('SELECT mid, at, text, alerted_at, resolved_at FROM note_misses WHERE at >= ? ORDER BY at DESC LIMIT 100').bind(from).all<NoteMiss>();
+  return results;
 }

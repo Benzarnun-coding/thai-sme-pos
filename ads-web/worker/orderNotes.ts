@@ -67,6 +67,22 @@ export function parseOrderNote(text: string | null | undefined): ParsedNote | nu
   return { items, payment: /cod|ปลายทาง/i.test(pay[1]) ? 'cod' : 'transfer', total: Number(pay[2]), unknown };
 }
 
+/**
+ * A shop message that looks like an order note but isn't read: payment + total, something code-like, short, and
+ * nothing that could be customer details (phone, postcode, @). Those go to a person and into `note_misses`, so the
+ * parser can learn the format (worker/noteFormats.test.ts).
+ */
+export function looksLikeNote(text: string | null | undefined): boolean {
+  const t = (text ?? '').trim();
+  if (!t || t.length > 150 || parseOrderNote(t)) return false;
+  const pay = /(?:cod|โอน|ปลายทาง)\s*\d{2,5}/i;
+  if (!pay.test(t)) return false;
+  const rest = t.replace(new RegExp(pay.source, 'gi'), ' ');
+  // Customer details are never posted: a phone/postcode, an e-mail, address words, a name after คุณ.
+  if (/\d{5,}|@|บ้านเลขที่|หมู่|ม\.\s*\d|ตำบล|ต\.|อำเภอ|อ\.|จังหวัด|จ\.|ถนน|ถ\.|ซอย|ซ\.|แขวง|เขต|คุณ/.test(rest)) return false;
+  return /(?:^|[\s,(])(?:[a-z]{0,4}\d{1,3}(?:[/-][a-z0-9]+)+|[a-z]{1,4}\d{1,3}|\d{3})(?=$|[\s,)])/im.test(rest);
+}
+
 /** "501/1/2/3 32" · "801/3 36 3" · "D01 D02 34" · "200 200/2 30": codes, then a size, then an optional quantity. */
 function parseLine(line: string): NoteItem[] | null {
   const tok = line.split(/[\s,]+/).filter(Boolean);

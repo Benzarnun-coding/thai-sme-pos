@@ -40,7 +40,7 @@ import { approvalsEnabled, editMessage, expireOld, idList, postToDeciders, recen
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
-import { autoFillNote, autoFillOn, cronSweep, customerFor, setAutoFill, sweepNotes, tell } from './autoFill.ts';
+import { autoFillNote, autoFillOn, cronSweep, customerFor, loadMisses, setAutoFill, sweepNotes, tell } from './autoFill.ts';
 import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './metaPurchases.ts';
 import { captureSource, planNotePurchases } from './notePurchases.ts';
 import { dayOrders, reconcile } from './orderDay.ts';
@@ -503,6 +503,8 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const who = draft ? null : await customerFor(env, note.psid);
     return json({ draft: draft ? { no: draft.no, items: draft.items.length } : null, customer: who ? { conversation_id: who.conversation_id, customer_id: who.customer_id, has_name: !!who.name } : null });
   }
+  // Notes the parser couldn't read (problem channel told; resolved once the format is learnt).
+  if (path === '/api/order-notes/misses' && method === 'GET') return json({ misses: await loadMisses(env.DB) });
   // The sweep by hand (owner/admin): picks up missed notes and runs the oldest waiting one.
   if (path === '/api/order-notes/sweep' && method === 'POST') return json({ result: await sweepNotes(env, { force: true }) });
   if (path === '/api/order-notes/auto-run' && method === 'POST') {

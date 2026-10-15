@@ -56,3 +56,13 @@ test('every format the admins have typed is read', () => {
 test('customer details and chat are never read as notes', () => {
   for (const text of NOT_NOTES) assert.equal(parseOrderNote(text), null, JSON.stringify(text));
 });
+
+test('a message that looks like a note but is not read is flagged; chat and read notes are not', async () => {
+  const { looksLikeNote } = await import('./orderNotes.ts');
+  assert.equal(looksLikeNote('โอน349 ธนชาต 301/1 ไซส์34 สองตัว'), true);
+  assert.equal(looksLikeNote('cod 249 501/1 เอวสามสอง'), true);
+  for (const [text] of NOTE_FORMATS) assert.equal(looksLikeNote(text), false, 'already read');
+  for (const text of NOT_NOTES) assert.equal(looksLikeNote(text), false, JSON.stringify(text));
+  assert.equal(looksLikeNote('โปรตอนนี้ 1 ตัว 369 บาท 3 ตัว 799 บาท เก็บเงินปลายทางได้ค่ะ'), false, 'bot prose');
+  assert.equal(looksLikeNote('cod 249 คุณสมชาย 0812345678'), false, 'a phone number');
+});
