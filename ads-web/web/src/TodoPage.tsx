@@ -9,6 +9,7 @@ import { SHOP_STATUSES, skuKey, spuOf, webToRow, type CatalogRow } from './catal
 import { num } from './fmt.ts';
 import { groupOf, labelFor, makeLookup, priceOf, SUPPLIER_TABS } from './purchase.ts';
 import { saleRows } from './sales.ts';
+import { HomeLogo, SiteNav } from './SiteNav.tsx';
 import { SkuMatch } from './SkuMatch.tsx';
 import { Icon, useUi } from './ui.tsx';
 import { useCatalog } from './useCatalog.ts';
@@ -108,18 +109,14 @@ export function TodoApp() {
 
   return (
     <div className="app todo">
+      <SiteNav current="/catalog/todo" />
       <header className="top">
         <div className="brand">
-          <span className="logo" aria-hidden="true">✓</span>
+          <HomeLogo text="✓" />
           <div>
             <h1>งานค้าง</h1>
             <p className="muted small clip">{loading || !data ? 'กำลังโหลด…' : `${num(total)} รายการ · จากสินค้าที่ขาย ${num(soldPieces)} ตัวใน ${days} วัน · เรียงจากขายมากสุด`}</p>
           </div>
-        </div>
-        <div className="row-actions">
-          <a className="button" href="/catalog">แคตตาล็อก</a>
-          <a className="button" href="/catalog/orders">สั่งของ</a>
-          <a className="button" href="/catalog/sales">ยอดขาย</a>
         </div>
       </header>
 

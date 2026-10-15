@@ -267,7 +267,7 @@ export interface FillPlan {
   order: { id: number; no: number; stage: string } | null;
   lines: { code: string; size: string; qty: number; product_id: number | null; variant_id: number | null; sku: string | null; price: number | null; available: number | null }[];
   payment: 'cod' | 'transfer' | null; subtotal: number; shipping: number; discount: number; total: number | null; problems: string[]; said: string[];
-  chat_total: number | null; bill_name: string | null; address: PlanAddress | null; warnings: string[];
+  chat_total: number | null; bill_name: string | null; address: PlanAddress | null; warnings: string[]; notes?: string[];
 }
 export interface PlanAddress { name: string; phone: string; street: string; subdistrict: string; district: string; province: string; postal_code: string; from_image: boolean; source: 'page365' | 'chat' }
 export interface NoteCheck {

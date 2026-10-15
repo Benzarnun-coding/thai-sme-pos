@@ -49,8 +49,8 @@ export function MetaPurchasesCard() {
     <section className="card">
       <h2>ส่งยอดขายให้ Meta (แทนการติ๊กในกล่องแชท)</h2>
       <p className="muted small">
-        บิล Page365 ที่ขายแล้ว — ปลายทาง: ส่งบิลแล้ว · โอน: ได้เงินแล้ว — ส่งเป็น Purchase ให้แอดตัวที่ลูกค้าทักเข้ามา (Conversions API for Business Messaging) ·
-        ยอด = ยอดบิล · เวลา = ตอนเปิดบิล · เลขบิลกันนับซ้ำ · เช็กทุก 10 นาที ไม่ต้องเปิดคอม · ไม่ส่งชื่อ/เบอร์/ที่อยู่
+        ส่ง Purchase ให้แอดตัวที่ลูกค้าทักเข้ามา (Conversions API for Business Messaging) แทนการกด Create order ในแชท · ไม่ส่งชื่อ/เบอร์/ที่อยู่ ·
+        ส่งตอน: <b>แอดมินพิมพ์สรุป</b> (แนะนำ — ยอดเข้าวันที่ลูกค้าตกลง, ยอด = ยอดในบรรทัดสรุป, ลูกค้าเดิมใน 2 ชม. ไม่นับซ้ำ) หรือ <b>ส่งบิลใน Page365</b> (ปลายทาง: ส่งบิลแล้ว · โอน: ได้เงินแล้ว)
       </p>
       {!cfg ? <div className="skeleton" style={{ height: 60 }} /> : (
         <>
@@ -66,6 +66,7 @@ export function MetaPurchasesCard() {
             {cfg.mode !== 'off' && <button className="ghost" disabled={!!busy} onClick={() => save('off')}>ปิด</button>}
             {cfg.mode !== 'off' && <button className="ghost" disabled={!!busy} onClick={() => run(false)}>{busy === 'sync' ? 'กำลังส่ง…' : 'ส่งตอนนี้'}</button>}
           </div>
+          <NoteSource />
           {dry && (
             <div className="small" style={{ marginTop: 8 }}>
               {dry.error && <div className="bad">{dry.error}</div>}
@@ -74,9 +75,67 @@ export function MetaPurchasesCard() {
               {dry.skipped.map((s) => <div key={s.no} className="warn">ข้าม #{s.no} — {s.why}</div>)}
             </div>
           )}
+          <AdjustmentDays />
           {rows.some((r) => r.status === 'error') && <p className="small bad">มีบิลที่ส่งไม่สำเร็จ: {rows.filter((r) => r.status === 'error').slice(0, 3).map((r) => `#${r.order_no} ${r.detail ?? ''}`).join(' · ')}</p>}
         </>
       )}
     </section>
+  );
+}
+
+/** Days whose Meta purchases we correct (e.g. the duplicates sent by mistake on 15 Oct), with a remove button. */
+function AdjustmentDays() {
+  const { toast } = useUi();
+  const [days, setDays] = useState<{ date: string; reason: string; purchases: number; value: number; campaigns: number; unknown: number }[]>([]);
+  const load = () => call<{ days: typeof days }>('GET', '/api/meta/adjustments').then((r) => setDays(r.days)).catch(() => {});
+  useEffect(() => { load(); }, []);
+  const [locked, setLocked] = useState<string[]>([]);
+  useEffect(() => { call<{ days: string[] }>('GET', '/api/meta/lock-hours').then((r) => setLocked(r.days)).catch(() => {}); }, []);
+  if (!days.length && !locked.length) return null;
+  return (
+    <div className="small" style={{ marginTop: 10 }}>
+      {locked.length > 0 && <div><b>ล็อกยอดรายชั่วโมงไว้ ไม่ดึงจาก Meta ซ้ำ:</b> {locked.join(', ')}</div>}
+      <b>แก้ยอด Meta รายวัน</b> <span className="muted">— หักออกจากยอดรายชั่วโมงของ Meta ก่อนใช้จับคู่ออเดอร์/คิดต้นทุน (Meta ลบ event ไม่ได้)</span>
+      {days.map((d) => (
+        <div key={d.date + d.reason} className="row gap" style={{ justifyContent: 'space-between' }}>
+          <span>{d.date} · {d.reason} · −{d.purchases} ออเดอร์ · −{baht(d.value)} · {d.campaigns} แคมเปญ{d.unknown ? ` · ไม่ทราบแอด ${d.unknown}` : ''}</span>
+          <button className="ghost small" onClick={async () => {
+            try { await call('DELETE', `/api/meta/adjustments?date=${d.date}`); toast(`เลิกแก้ ${d.date} แล้ว`, 'ok'); load(); } catch (e: any) { toast(e.message, 'bad'); }
+          }}>เลิกแก้วันนี้</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** When a sale is sent (at the admin's note / at the bill), and what today's notes would send — nothing is sent from here. */
+function NoteSource() {
+  const { toast } = useUi();
+  const [source, setSource] = useState<'note' | 'bill' | null>(null);
+  const [rows, setRows] = useState<{ mid: string; at: string; value: number; send: boolean; why: string | null; text?: string; status: string | null }[] | null>(null);
+  useEffect(() => { call<{ source: 'note' | 'bill' }>('GET', '/api/meta/purchases/source').then((r) => setSource(r.source)).catch(() => {}); }, []);
+  if (!source) return null;
+  return (
+    <div className="small" style={{ marginTop: 8 }}>
+      <div className="row gap wrap">
+        <span>ส่งตอน:</span>
+        {(['note', 'bill'] as const).map((v) => (
+          <button key={v} className={source === v ? '' : 'ghost'} onClick={async () => {
+            try { const r = await call<{ source: 'note' | 'bill' }>('PUT', '/api/meta/purchases/source', { source: v }); setSource(r.source); toast('บันทึกแล้ว', 'ok'); } catch (e: any) { toast(e.message, 'bad'); }
+          }}>{v === 'note' ? 'แอดมินพิมพ์สรุป' : 'ส่งบิลใน Page365'}</button>
+        ))}
+        {source === 'note' && <button className="ghost" onClick={() => call<{ rows: NonNullable<typeof rows> }>('GET', '/api/meta/purchases/note-preview').then((r) => setRows(r.rows)).catch((e) => toast(e.message, 'bad'))}>ดูว่าวันนี้จะส่งอะไร (ไม่ส่งจริง)</button>}
+      </div>
+      {rows && (
+        <div style={{ marginTop: 6 }}>
+          <div>วันนี้ {rows.filter((r) => r.send).length} ยอด · {baht(rows.filter((r) => r.send).reduce((t, r) => t + r.value, 0))}{rows.some((r) => r.status === 'sent') && ` · ส่งแล้ว ${rows.filter((r) => r.status === 'sent').length}`}</div>
+          {rows.map((r) => (
+            <div key={r.mid} className={r.send ? 'muted' : 'warn'}>
+              {new Date(r.at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })} · {baht(r.value)} · “{r.text}”{r.why ? ` — ไม่ส่ง: ${r.why}` : ''}{r.status ? ` · ${r.status}` : ''}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

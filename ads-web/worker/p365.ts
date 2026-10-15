@@ -4,6 +4,7 @@
 // purchases per campaign per hour must add up to the orders created in that hour).
 
 import { bkkDate } from './conversionStore.ts';
+import { loadAdjustments, subtractAdjustments } from './metaAdjust.ts';
 import type { OrderFees } from './db.ts';
 
 /** What the team deducts from one order besides product cost: COD fee (COD orders only), loss, shipping, VAT, packaging. */
@@ -270,10 +271,13 @@ export async function recreditDates(db: D1Database, dates: string[]): Promise<Re
     db.prepare('SELECT date, campaign_id, hour, purchases, value FROM conversion_hours WHERE date IN (SELECT value FROM json_each(?))').bind(JSON.stringify(dates)).all<HourBudget & { date: string }>().then((r) => r.results),
     db.prepare(`SELECT name_hash, campaign_id, at FROM ad_referrals WHERE name_hash IS NOT NULL AND at >= ?`).bind(new Date(Date.parse(`${dates.slice().sort()[0]}T00:00:00+07:00`) - 14 * 86_400_000).toISOString()).all<ReferralLink>().then((r) => r.results),
   ]);
+  // Known-wrong Meta purchases (metaAdjust.ts) don't count as orders to credit.
+  const adj = await loadAdjustments(db, dates);
+  const fixed = subtractAdjustments(hours, adj, 'value');
   for (const d of dates) {
     const os = orders.filter((o) => o.date === d);
     if (!os.length) continue;
-    out[d] = creditOrders(os, hours.filter((h) => h.date === d), refs);
+    out[d] = creditOrders(os, fixed.filter((h) => h.date === d), refs);
   }
   await updateCredits(db, orders);
   return out;

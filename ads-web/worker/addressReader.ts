@@ -28,7 +28,8 @@ const SYSTEM = `You read a Thai online shop's Messenger chat and pull out the sh
 The customer may type it or send a photo of it. The first photo in a chat is usually the ad they clicked — ignore photos of clothes.
 If the customer gave more than one address, use the latest one and say so in "doubt". Copy names and place names exactly as written;
 fix only obvious typing errors in place names. Never invent a postcode or phone number — leave it empty if it isn't there.
-A missing postcode is fine (it is looked up from the subdistrict afterwards): don't mention it in "doubt".`;
+A missing postcode is fine (it is looked up from the subdistrict afterwards): don't mention it in "doubt".
+If the customer later corrected part of it (a name, a house number), use the correction — that is settled, not a doubt.`;
 
 /** The chat as Claude sees it: the last 40 messages as text, plus the customer's last 3 photos after the first message. */
 export function chatInput(messages: ChatMessage[]): Anthropic.ContentBlockParam[] {
@@ -41,6 +42,29 @@ export function chatInput(messages: ChatMessage[]): Anthropic.ContentBlockParam[
     { type: 'text', text: `แชท (เก่า → ใหม่):\n${lines.join('\n')}\n\nรูปที่ลูกค้าส่ง: ${photos.length} รูป (แนบด้านล่าง ถ้ามี)` },
     ...photos.map((url): Anthropic.ContentBlockParam => ({ type: 'image', source: { type: 'url', url } })),
   ];
+}
+
+/**
+ * The same, with the photos downloaded here and sent inline: the shop's key refuses image URLs (403 "Request not
+ * allowed", 15 Oct). Photos that fail or are over ~4 MB are left out (the text is still read).
+ */
+export async function chatInputInline(messages: ChatMessage[]): Promise<Anthropic.ContentBlockParam[]> {
+  const blocks = chatInput(messages);
+  const out: Anthropic.ContentBlockParam[] = [];
+  for (const b of blocks) {
+    if (b.type !== 'image' || b.source.type !== 'url') { out.push(b); continue; }
+    try {
+      const r = await fetch(b.source.url);
+      const type = (r.headers.get('content-type') ?? '').split(';')[0];
+      if (!r.ok || !['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(type)) continue;
+      const buf = new Uint8Array(await r.arrayBuffer());
+      if (buf.length > 4_000_000) continue;
+      let bin = '';
+      for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+      out.push({ type: 'image', source: { type: 'base64', media_type: type as 'image/jpeg', data: btoa(bin) } });
+    } catch { /* leave the photo out */ }
+  }
+  return out;
 }
 
 /** Shapes the result for Page365 and rejects what can't be right (bad postcode/phone → treated as doubtful). */
@@ -74,12 +98,19 @@ export function addressLine(a: Pick<ReadAddress, 'street' | 'subdistrict' | 'dis
 export async function readAddress(apiKey: string, messages: ChatMessage[], model = 'claude-opus-5-5', workspaceId?: string): Promise<ReturnType<typeof cleanAddress>> {
   // The shop's key is an org key: it must name the workspace (var ANTHROPIC_WORKSPACE_ID, shared with chatInsights.ts).
   const client = new Anthropic({ apiKey, defaultHeaders: workspaceId ? { 'anthropic-workspace-id': workspaceId } : undefined });
-  const res = await client.messages.parse({
+  // A 403 "Request not allowed" came and went within minutes on 15 Oct (same key, same request): one retry.
+  const ask = () => client.messages.parse({
     model,
     max_tokens: 4000,
     output_config: { effort: 'low', format: zodOutputFormat(AddressSchema) },
     system: SYSTEM,
-    messages: [{ role: 'user', content: chatInput(messages) }],
+    messages: [{ role: 'user', content }],
+  });
+  const content = await chatInputInline(messages);
+  const res = await ask().catch(async (err) => {
+    if (err?.status !== 403) throw err;
+    await new Promise((r) => setTimeout(r, 1500));
+    return ask();
   });
   if (res.stop_reason === 'refusal' || !res.parsed_output) {
     return cleanAddress({ found: false, name: '', phone: '', street: '', subdistrict: '', district: '', province: '', postal_code: '', from_image: false, doubt: 'อ่านที่อยู่ไม่สำเร็จ' });

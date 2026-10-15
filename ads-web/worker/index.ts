@@ -21,7 +21,7 @@ import { buildIdeas } from './ideas.ts';
 import { explainActual, explainDay, explainOrders } from './salesReport.ts';
 import { campaignDay } from './transactions.ts';
 import { makeTierResolver } from './costing.ts';
-import { bkkDate, loadConversionHours, saveConversionDay, syncConversionHours, txCosting, windowDates } from './conversionStore.ts';
+import { bkkDate, loadConversionHours, lockedHourDays, saveConversionDay, syncConversionHours, txCosting, windowDates } from './conversionStore.ts';
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
@@ -40,8 +40,11 @@ import { approvalsEnabled, editMessage, expireOld, idList, postToDeciders, recen
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
-import { autoFillNote, autoFillOn, customerFor, setAutoFill } from './autoFill.ts';
-import { loadCapi, recentPurchases, saveCapi, syncPurchases } from './metaPurchases.ts';
+import { autoFillNote, autoFillOn, customerFor, setAutoFill, tell } from './autoFill.ts';
+import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './metaPurchases.ts';
+import { captureSource, planNotePurchases } from './notePurchases.ts';
+import { dayOrders, reconcile } from './orderDay.ts';
+import { adjustmentDays, seedFromSent } from './metaAdjust.ts';
 import { pageOf, receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
@@ -81,6 +84,7 @@ export interface Env {
   /** Page365 login the Worker uses to fill drafts (secret; see worker/p365fill.ts) and the shop's page id */
   P365_COOKIE?: string;
   P365_PAGE_ID?: string;
+  DISCORD_ORDER_WEBHOOK_URL?: string;
   /** model that reads shipping addresses out of the chat (worker/addressReader.ts; key: ANTHROPIC_API_KEY below) */
   ADDRESS_MODEL?: string;
   /** Messenger webhook (see worker/webhook.ts): app id is a var, the other two are secrets */
@@ -481,6 +485,13 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     await audit(env.DB, user, 'p365.auto_fill', on ? 'on' : 'off', {});
     return json({ on });
   }
+  // A sample "needs a person" message into the order-problems channel, so the team sees what it looks like.
+  if (path === '/api/order-notes/test-discord' && method === 'POST') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    await tell(env, { mid: 'test', psid: '', at: new Date().toISOString(), text: '501/1 31\ncod 249', name_hash: null }, null, 'ข้อความทดสอบ (ไม่ใช่ลูกค้าจริง)', ['ตัวอย่าง: 501/1 ไม่มีไซส์ 31 — รุ่นนี้มี 28, 29, 30, 32, 34, 36 · ต้องถามลูกค้าใหม่']);
+    await audit(env.DB, user, 'p365.test_discord', 'order-problems', {});
+    return json({ ok: true, channel: env.DISCORD_ORDER_WEBHOOK_URL ? 'ห้องออเดอร์มีปัญหา' : 'ห้องรายงานแอด (ยังไม่ได้ตั้งห้องใหม่)' });
+  }
   if (path === '/api/order-notes/draft-check' && method === 'GET') {
     const note = await loadNote(env.DB, url.searchParams.get('mid') ?? '');
     if (!note) throw new BadRequest('ไม่พบบรรทัดสรุปนี้');
@@ -495,6 +506,38 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const r = await autoFillNote(env, note, { force: true });
     await audit(env.DB, user, 'p365.auto_run', note.mid, r);
     return json(r);
+  }
+  // Which Claude models the shop's key/workspace accepts (tiny request each) — for the address reader's model choice.
+  if (path === '/api/ai-check' && method === 'GET') {
+    const models = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
+    const out: Record<string, string> = {};
+    for (const model of models) {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': env.ANTHROPIC_API_KEY ?? '', 'anthropic-version': '2023-06-01', 'content-type': 'application/json', ...((env as any).ANTHROPIC_WORKSPACE_ID ? { 'anthropic-workspace-id': (env as any).ANTHROPIC_WORKSPACE_ID } : {}) },
+        body: JSON.stringify({ model, max_tokens: 16, messages: [{ role: 'user', content: 'ok' }] }),
+      });
+      out[model] = `${r.status} ${(await r.text()).slice(0, 160)}`;
+    }
+    return json({ colo: (req as any).cf?.colo ?? null, out });
+  }
+  // The day's sales for Max (Log tab): customer, bill and stage live from Page365, totals.
+  if (path === '/api/order-notes/sales' && method === 'GET') {
+    const date = url.searchParams.get('date') ?? bkkDate(0);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
+    const notes = await loadNotes(env.DB, date);
+    const day = await dayOrders(env, notes);
+    // Once the day's file is uploaded: which notes became bills, which didn't, which bills have no note.
+    const uploads = await loadUploads(env.DB, [date]);
+    let recon = null;
+    if (uploads.has(date)) {
+      const around = [-1, 0, 1].map((d) => new Date(Date.parse(`${date}T00:00:00Z`) + d * 86_400_000).toISOString().slice(0, 10));
+      const orders = await loadOrders(env.DB, around);
+      const links = new Map(checkNotes(notes, orders).filter((c) => c.order_no).map((c) => [c.mid, String(c.order_no)]));
+      for (const n of notes) if (n.fill_order_no) links.set(n.mid, String(n.fill_order_no)); // the bill the system filled wins
+      recon = reconcile(day.rows, links, orders.filter((o) => o.date === date).map((o) => ({ order_no: o.order_no, total: o.total, created_at: o.created_at })));
+    }
+    return json({ date, ...day, recon });
   }
   if (path === '/api/order-notes/days' && method === 'GET') return json({ days: await noteDays(env.DB, 14) });
   if (path === '/api/order-notes' && method === 'GET') {
@@ -569,6 +612,79 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const cfg = await saveCapi(env.DB, await body()).catch((err) => { throw new BadRequest(err.message); });
     await audit(env.DB, user, 'meta.capi.config', cfg.mode, { dataset_id: cfg.dataset_id, live_from: cfg.live_from });
     return json(cfg);
+  }
+  // Per-day corrections to Meta's purchases (metaAdjust.ts): list, add from purchases we sent by mistake, remove a day.
+  if (path === '/api/meta/adjustments' && method === 'GET') return json({ days: await adjustmentDays(env.DB) });
+  if (path === '/api/meta/adjustments/from-sent' && method === 'POST') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const input = await body();
+    const from = String(input?.from ?? ''), to = String(input?.to ?? '');
+    if (!Date.parse(from) || !Date.parse(to)) throw new BadRequest('ต้องมีช่วงเวลาที่ส่ง (from, to)');
+    const r = await seedFromSent(env.DB, from, to, String(input?.reason ?? 'ส่งซ้ำโดยระบบ').slice(0, 100), user);
+    const dates = (await adjustmentDays(env.DB)).map((d) => d.date);
+    const credits = await recreditDates(env.DB, [...new Set(dates)]);
+    await audit(env.DB, user, 'meta.adjust.seed', `${from}..${to}`, { ...r, credits });
+    return json({ ...r, recredited: Object.keys(credits) });
+  }
+  // Lock / unlock a day's stored hourly purchases against re-fetching (when they were stored before Meta's numbers went wrong).
+  if (path === '/api/meta/lock-hours' && method === 'GET') return json({ days: [...await lockedHourDays(env.DB)].sort() });
+  if (path === '/api/meta/lock-hours' && method === 'PUT') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const input = await body();
+    const date = String(input?.date ?? '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
+    if (input?.locked === false) await env.DB.prepare('DELETE FROM meta_capi WHERE key = ?').bind(`lock_hours:${date}`).run();
+    else await env.DB.prepare('INSERT OR REPLACE INTO meta_capi (key, value) VALUES (?, ?)').bind(`lock_hours:${date}`, String(input?.reason ?? '').slice(0, 100) || user).run();
+    await audit(env.DB, user, 'meta.lock_hours', date, { locked: input?.locked !== false });
+    return json({ days: [...await lockedHourDays(env.DB)].sort() });
+  }
+  if (path === '/api/meta/adjustments' && method === 'DELETE') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const date = url.searchParams.get('date') ?? '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
+    await env.DB.prepare('DELETE FROM meta_adjustments WHERE date = ?').bind(date).run();
+    const credits = await recreditDates(env.DB, [date]);
+    await audit(env.DB, user, 'meta.adjust.delete', date, credits);
+    return json({ ok: true });
+  }
+  // One bill, sent for real now (a person asked for it, e.g. the first bill of the new flow); refuses bills not sold yet or already sent.
+  if (path === '/api/meta/purchases/send-one' && method === 'POST') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const no = Number((await body())?.order_no);
+    if (!Number.isInteger(no)) throw new BadRequest('เลขบิลไม่ถูกต้อง');
+    const r = await sendOne(env, no).catch((err) => { throw new BadRequest(err.message); });
+    await audit(env.DB, user, 'meta.capi.send_one', String(no), r);
+    return json(r);
+  }
+  // Does a Purchase we send reach the ads? Meta's hourly purchases for a day now vs what we stored earlier (read-only).
+  if (path === '/api/meta/compare-day' && method === 'GET') {
+    const date = url.searchParams.get('date') ?? '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
+    const now = await metaFor(env).hourlyConversions(date);
+    const { results: stored } = await env.DB.prepare('SELECT campaign_id, SUM(purchases) purchases, SUM(value) value FROM conversion_hours WHERE date = ? GROUP BY campaign_id').bind(date).all<{ campaign_id: string; purchases: number; value: number }>();
+    const fetched = await env.DB.prepare('SELECT fetched_at FROM conversion_days WHERE date = ?').bind(date).first<{ fetched_at: string }>();
+    const sum = (xs: { purchases: number }[]) => xs.reduce((t, x) => t + Number(x.purchases), 0);
+    const val = (xs: { value?: number; purchase_value?: number }[]) => xs.reduce((t, x) => t + Number(x.value ?? x.purchase_value ?? 0), 0);
+    return json({ date, stored_at: fetched?.fetched_at ?? null, stored: { purchases: sum(stored), value: val(stored) }, meta_now: { purchases: sum(now), value: val(now as any) } });
+  }
+  // When a sale is sent: at the admin's note (default) or when the bill is sent. Preview = today's notes, nothing sent.
+  if (path === '/api/meta/purchases/source' && method === 'GET') return json({ source: await captureSource(env.DB) });
+  if (path === '/api/meta/purchases/source' && method === 'PUT') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const source = (await body())?.source === 'bill' ? 'bill' : 'note';
+    await env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('source', ?)").bind(source).run();
+    await audit(env.DB, user, 'meta.capi.source', source, {});
+    return json({ source });
+  }
+  if (path === '/api/meta/purchases/note-preview' && method === 'GET') {
+    const date = url.searchParams.get('date') ?? bkkDate(0);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
+    const notes = await loadNotes(env.DB, date);
+    const plan = await planNotePurchases(env.DB, notes);
+    const sent = await env.DB.prepare("SELECT mid, status, detail FROM note_purchases WHERE at >= ? AND at < ?").bind(new Date(`${date}T00:00:00+07:00`).toISOString(), new Date(Date.parse(`${date}T00:00:00+07:00`) + 86_400_000).toISOString()).all<{ mid: string; status: string; detail: string | null }>();
+    const st = new Map(sent.results.map((r) => [r.mid, r]));
+    const text = new Map(notes.map((n) => [n.mid, n.text.replace(/\s+/g, ' ')]));
+    return json({ date, source: await captureSource(env.DB), rows: plan.map((p) => ({ ...p, text: text.get(p.mid), status: st.get(p.mid)?.status ?? null, detail: st.get(p.mid)?.detail ?? null })) });
   }
   if (path === '/api/meta/purchases/sync' && method === 'POST') {
     const dry = url.searchParams.get('dry') === '1';

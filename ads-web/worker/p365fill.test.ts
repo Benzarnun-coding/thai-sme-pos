@@ -125,3 +125,22 @@ test('a draft passed in is used as is (the auto path looks it up once)', async (
   assert.equal(plan.order, null);
   assert.ok(!calls.some((c) => c.startsWith('GET orders.json')), 'no draft search');
 });
+
+test('"E200" is read as model 200 when Page365 has no E200', async () => {
+  fakePage365();
+  const plan = await planFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: 'cod249\nE501/1 30' });
+  assert.deepEqual(plan.problems, []);
+  assert.deepEqual(plan.notes, ['อ่าน E501/1 เป็น 501/1']);
+});
+
+test('a repeat customer: the earlier order\'s total is not this order\'s price', () => {
+  const msgs = [
+    { own: true, message: 'ยอดรวม 398 บาท ปลายทาง', created_at: '2026-10-15T01:50:00Z' },
+    { own: true, message: 'Ni9-1-2 32\ncod 398', created_at: '2026-10-15T01:55:00Z' },
+    { own: true, message: 'รับทราบค่ะ ตัวนี้ 199 ส่งฟรีนะคะ', created_at: '2026-10-15T09:05:00Z' },
+    { own: true, message: '301/1 32 1\nCod 199', created_at: '2026-10-15T09:09:53Z' },
+  ];
+  assert.equal(chatTotal(msgs, '2026-10-15T09:09:53Z'), null, 'no "ยอด" since the last order: nothing to compare');
+  assert.equal(chatTotal([...msgs.slice(0, 2), { own: true, message: 'ยอดรวม 199 บาท', created_at: '2026-10-15T09:06:00Z' }, msgs[3]], '2026-10-15T09:09:53Z'), 199);
+  assert.equal(chatTotal([{ own: true, message: 'ยอดรวม 398', created_at: '2026-10-12T01:00:00Z' }], '2026-10-15T09:09:53Z'), null, 'older than 2 days');
+});

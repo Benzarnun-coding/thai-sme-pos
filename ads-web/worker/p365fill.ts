@@ -104,11 +104,20 @@ export function sizeLines(messages: { own?: boolean; message?: string | null }[]
 
 /** The amount the chat agreed on: the last "ยอด/รวม … N" the shop wrote (Meta AI or an admin), not counting the order note. */
 export function chatTotal(messages: ChatMessage[], until?: string): number | null {
+  // Only this order's talk: after the shop's previous order note for this customer (a repeat customer's old
+  // "ยอดรวม 398" is not today's price, 15 Oct), at most 2 days back, and up to 10 minutes after the note.
   let last: number | null = null;
   const end = until ? Date.parse(until) + 10 * 60_000 : Infinity;
+  const start = until ? Date.parse(until) - 2 * 86_400_000 : -Infinity;
+  const noteAt = until ? Date.parse(until) : Infinity;
   for (const m of messages) {
-    if (m.created_at && Date.parse(m.created_at) > end) continue;
-    if (!m.own || m.auto || !m.message || parseOrderNote(m.message)) continue;
+    const t = m.created_at ? Date.parse(m.created_at) : NaN;
+    if (!Number.isNaN(t) && (t > end || t < start)) continue;
+    if (m.own && m.message && parseOrderNote(m.message)) {
+      if (Number.isNaN(t) || t < noteAt - 60_000) last = null; // an earlier order closed: start over
+      continue;
+    }
+    if (!m.own || m.auto || !m.message) continue;
     for (const x of m.message.replace(/[*,]/g, '').matchAll(/(?:ยอดรวม|ยอดชำระ|ยอดโอน|รวมทั้งหมด|รวม|ยอด)[^\d\n]{0,25}(\d{3,5})(?!\d)/g)) {
       // Five-digit amounts are other things ("ยอดสั่งเกิน 15000", a postcode after รวม…), not a bill of jeans.
       if (Number(x[1]) < 10000) last = Number(x[1]);
@@ -144,6 +153,8 @@ export interface FillPlan {
   address: PlanAddress | null;
   /** stop everything */
   problems: string[];
+  /** how the note was read where it wasn't literal ("อ่าน E200 เป็น 200") */
+  notes?: string[];
   /** fine for one bill after a look, but not for "fill all" */
   warnings: string[];
   /** the customer's own messages about size, when a line's size isn't made */
@@ -182,8 +193,15 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   const cache = new Map<string, { productId: number; variants: Variant[] } | null>();
   const lines: PlanLine[] = [];
   let missingSize = false;
+  const notes: string[] = [];
   for (const it of parsed.items) {
-    const found = await findVariant(env, it, cache);
+    // "E200" when Page365's model is "200": a stray letter before a numeric code — tried without it, and said so.
+    let found = await findVariant(env, it, cache);
+    const bare = it.code.replace(/^[A-Z](?=\d+(?:[/-]\d+)*$)/i, '');
+    if (!found && bare !== it.code) {
+      found = await findVariant(env, { ...it, code: bare }, cache);
+      if (found) notes.push(`อ่าน ${it.code} เป็น ${bare}`);
+    }
     const hit = found?.variant ? { productId: found.productId, variant: found.variant } : null;
     if (!found) problems.push(`ไม่พบรุ่น ${it.code} ใน Page365`);
     else if (!hit) { problems.push(`${it.code} ไม่มีไซส์ ${it.size} — รุ่นนี้มี ${found.sizes.join(', ')} · ต้องถามลูกค้าใหม่`); missingSize = true; }
@@ -210,7 +228,7 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   // The price agreed in the chat wins: a note whose total differs (other than by the COD fee) is not filled.
   const chat_total = chatTotal(chat, note.at);
   if (total != null && chat_total != null && chat_total !== total && chat_total + shipping !== total) problems.push(`ในแชทตกลงยอด ${chat_total} แต่สรุปไว้ ${total} — เช็กกับลูกค้า/แอดมิน`);
-  else if (total != null && chat_total == null && chat.length) warnings.push('ไม่เจอยอดที่ตกลงในแชท — เช็กราคาเอง');
+  // No total written in the chat is fine: the admin's note is the trigger and its total is the price (Benz 15 Oct).
 
   // Address: Page365's own when complete, else read from the chat (typed or a photo).
   let address: PlanAddress | null = draft ? draftAddress(draft) : null;
@@ -224,7 +242,7 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
     }
   }
   const bill_name = draft ? billName(draft.no, lines[0]?.sku ?? null, address?.name || draft.customer_name || '') : null;
-  return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, subtotal, shipping, discount: Math.max(0, discount), total, chat_total, bill_name, address, problems, warnings, said };
+  return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, subtotal, shipping, discount: Math.max(0, discount), total, chat_total, bill_name, address, problems, warnings, said, notes };
 }
 
 /** A checked address from the screen (the admin may have corrected it), or null. */

@@ -40,10 +40,106 @@ export function OrderNotesPage() {
           </button>
         ))}
       </div>
+      <DaySales date={date} refresh={tick} />
       <SessionBanner />
       <AutoSwitch />
       <OrderNotesList date={date} dayLabel={date === todayBkk() ? 'วันนี้' : thaiDay(date)} refresh={tick} live={date === todayBkk()} />
     </>
+  );
+}
+
+type Stage = 'draft' | 'unpaid' | 'transferred' | 'paid' | 'shipped' | 'expired' | 'voided' | 'none';
+const STAGE_LABEL: Record<Stage, string> = { draft: 'ร่าง', unpaid: 'ส่งบิลแล้ว รอชำระ', transferred: 'โอนแล้ว', paid: 'เตรียมส่ง', shipped: 'ส่งแล้ว', expired: 'หมดอายุ', voided: 'ยกเลิก', none: 'ยังไม่มีบิล' };
+const STAGE_TONE: Record<Stage, string> = { draft: 'warn', unpaid: '', transferred: 'on', paid: 'on', shipped: 'on', expired: 'bad', voided: 'bad', none: 'bad' };
+interface DayRow { mid: string; at: string; text: string; customer: string | null; items: { code: string; size: string; qty: number }[]; pieces: number; total: number; payment: 'cod' | 'transfer' | null; bill: { id: number; no: number; stage: Stage; total: number } | null; meta: string | null; repeat: boolean }
+interface Recon {
+  log: number; file: number; matched: number; sales_log: number; sales_file: number;
+  log_only: { mid: string; at: string; customer: string | null; text: string; total: number }[];
+  file_only: { order_no: string; total: number; created_at: string }[];
+  diff: { order_no: string; note_total: number; bill_total: number; customer: string | null }[];
+}
+interface DaySummary { orders: number; sales: number; pieces: number; cod: number; transfer: number; avg: number; by_stage: Record<string, { orders: number; sales: number }>; meta_sent: number }
+
+/** Notes vs the uploaded Page365 file: what matched, notes without a bill, bills without a note, amounts that differ. */
+function ReconLine({ r }: { r: Recon }) {
+  const ok = !r.log_only.length && !r.file_only.length && !r.diff.length;
+  return (
+    <div className="small" style={{ margin: '6px 0' }}>
+      <b>เทียบกับไฟล์ Page365:</b> สรุป {num(r.log)} · ไฟล์ {num(r.file)} · ตรงกัน {num(r.matched)}
+      {' '}· ยอดสรุป {baht(r.sales_log)} · ยอดบิล {baht(r.sales_file)}{ok && <span className="good"> · ตรงทั้งหมด</span>}
+      {r.log_only.length > 0 && (
+        <details><summary className="warn">มีสรุปแต่ไม่มีบิลในไฟล์ {num(r.log_only.length)} (ยกเลิก / ไม่ได้เปิดบิล / เปิดบิลวันอื่น)</summary>
+          {r.log_only.map((x) => <div key={x.mid}>{time(x.at)} · {x.customer ?? '–'} · {baht(x.total)} · “{x.text}”</div>)}
+        </details>
+      )}
+      {r.file_only.length > 0 && (
+        <details><summary className="warn">มีบิลแต่ไม่มีสรุป {num(r.file_only.length)} (แอดมินไม่ได้พิมพ์สรุป หรือระบบอ่านไม่ออก)</summary>
+          {r.file_only.map((x) => <div key={x.order_no}>#{x.order_no} · {time(x.created_at)} · {baht(x.total)}</div>)}
+        </details>
+      )}
+      {r.diff.length > 0 && (
+        <details><summary className="warn">ยอดต่าง {num(r.diff.length)}</summary>
+          {r.diff.map((x) => <div key={x.order_no}>#{x.order_no} · {x.customer ?? '–'} · สรุป {baht(x.note_total)} · บิล {baht(x.bill_total)}</div>)}
+        </details>
+      )}
+    </div>
+  );
+}
+
+/** The day's sales for Max: totals, then one row per order (customer, items, amount, Page365 bill + stage, Meta). */
+function DaySales({ date, refresh }: { date: string; refresh: number }) {
+  const [res, setRes] = useState<{ rows: DayRow[]; summary: DaySummary; page365: boolean; error: string | null; recon: Recon | null } | null>(null);
+  const [filter, setFilter] = useState<Stage | 'all'>('all');
+  useEffect(() => { setRes(null); }, [date]);
+  useEffect(() => { fetch(`/api/order-notes/sales?date=${date}`).then((r) => r.json()).then(setRes).catch(() => {}); }, [date, refresh]);
+  if (!res) return <section className="card"><div className="skeleton" style={{ height: 90 }} /></section>;
+  const s = res.summary;
+  const rows = res.rows.filter((r) => !r.repeat).reverse().filter((r) => filter === 'all' || (r.bill?.stage ?? 'none') === filter);
+  const stages = Object.keys(s.by_stage) as Stage[];
+  const pageUrl = (id: number) => `https://app.page365.net/115748303500549/orders/${id}`;
+  return (
+    <section className="card table-card">
+      <div className="table-card-head">
+        <div style={{ width: '100%' }}>
+          <h2>ยอดขายตามที่แอดมินสรุป</h2>
+          <div className="grid2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))' }}>
+            <div><div className="small muted">ออเดอร์</div><b style={{ fontSize: 22 }}>{num(s.orders)}</b></div>
+            <div><div className="small muted">ยอดขาย</div><b style={{ fontSize: 22 }}>{baht(s.sales)}</b></div>
+            <div><div className="small muted">ชิ้น</div><b style={{ fontSize: 22 }}>{num(s.pieces)}</b></div>
+            <div><div className="small muted">เฉลี่ย/ออเดอร์</div><b style={{ fontSize: 22 }}>{baht(s.avg)}</b></div>
+            <div><div className="small muted">ปลายทาง / โอน</div><b>{num(s.cod)} / {num(s.transfer)}</b></div>
+            <div><div className="small muted">ส่งยอดให้ Meta แล้ว</div><b>{num(s.meta_sent)}</b></div>
+          </div>
+          <p className="muted small">ยอด = ยอดในบรรทัดสรุปของแอดมิน (ลูกค้าคนเดิมใน 2 ชม. นับครั้งเดียว) · ชื่อลูกค้าและสถานะบิลดึงสดจาก Page365{res.error ? ` — ดึงไม่ได้: ${res.error}` : ''} · กำไรจริงดูที่หน้ายอดขายรายวันหลังอัปโหลดไฟล์</p>
+          {res.recon ? <ReconLine r={res.recon} /> : <p className="small muted">ยังไม่ได้อัปโหลดไฟล์ Page365 ของวันนี้ — อัปโหลดแล้วจะขึ้นการเทียบกับบิลจริง</p>}
+          <div className="segmented" style={{ flexWrap: 'wrap', marginTop: 6 }}>
+            <button className={filter === 'all' ? 'on' : ''} onClick={() => setFilter('all')}>ทั้งหมด {num(s.orders)}</button>
+            {stages.map((k) => (
+              <button key={k} className={filter === k ? 'on' : ''} onClick={() => setFilter(k)}>{STAGE_LABEL[k] ?? k} {num(s.by_stage[k].orders)} · {baht(s.by_stage[k].sales)}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+      {rows.length === 0 ? <p className="muted small" style={{ padding: '0 18px 12px' }}>ไม่มีออเดอร์</p> : (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead><tr><th>เวลา</th><th>ลูกค้า</th><th>สินค้า</th><th className="num">ยอด</th><th>บิล</th><th>Meta</th></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.mid}>
+                  <td className="small">{time(r.at)}</td>
+                  <td>{r.customer ?? <span className="muted">–</span>}</td>
+                  <td className="small">{r.items.length ? r.items.map((i) => `${i.code} ${i.size}${i.qty > 1 ? ` ×${i.qty}` : ''}`).join(', ') : <span className="muted">{r.text}</span>}</td>
+                  <td className="num"><b>{baht(r.total)}</b><div className="small muted">{r.payment === 'cod' ? 'ปลายทาง' : r.payment === 'transfer' ? 'โอน' : ''}</div></td>
+                  <td className="small">{r.bill ? <><a href={pageUrl(r.bill.id)} target="_blank" rel="noreferrer">#{r.bill.no}</a> <span className={`tag ${STAGE_TONE[r.bill.stage] ?? ''}`}>{STAGE_LABEL[r.bill.stage] ?? r.bill.stage}</span></> : <span className="tag bad">{STAGE_LABEL.none}</span>}</td>
+                  <td className="small">{r.meta === 'sent' ? '✅' : r.meta === 'error' ? <span className="bad">ส่งไม่ได้</span> : <span className="muted">–</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -122,6 +218,7 @@ function FillModal({ note, onClose, onDone }: { note: NoteCheck; onClose: () => 
             สินค้า {baht(plan.subtotal)} + ค่าส่ง {baht(plan.shipping)} − ส่วนลดโปร {baht(plan.discount)} = <b>{plan.total != null ? baht(plan.total) : '–'}</b>
             {' '}({plan.payment === 'cod' ? 'ปลายทาง' : 'โอน'}){plan.chat_total != null && <span className="muted"> · ในแชทตกลง {baht(plan.chat_total)}</span>}
           </p>
+          {(plan.notes ?? []).length > 0 && <p className="small muted">{plan.notes!.join(' · ')}</p>}
           {plan.problems.length > 0 && <ul className="small bad">{plan.problems.map((p, i) => <li key={i}>{p}</li>)}</ul>}
           {plan.warnings.length > 0 && <ul className="small warn">{plan.warnings.map((p, i) => <li key={i}>{p}</li>)}</ul>}
           {plan.said.length > 0 && (
@@ -284,7 +381,7 @@ export function OrderNotesList({ date, dayLabel, refresh = 0, live = false }: { 
                       {n.fill.at ? <span className="good">ใส่แล้ว #{n.fill.order_no}<div className="muted">{n.fill.by} · {when(n.fill.at)}</div></span>
                         : <>
                           <button className="ghost small" onClick={() => setFilling(n)}>ใส่ใน Page365</button>
-                          {n.fill.error && <div className="bad" title={n.fill.error}>ครั้งก่อนไม่สำเร็จ</div>}
+                          {n.fill.error && <div className="bad">{n.fill.error.startsWith('ต้องให้คนดู') ? n.fill.error : `ครั้งก่อนไม่สำเร็จ: ${n.fill.error}`}{n.fill.order_no ? ` (บิล #${n.fill.order_no})` : ''}</div>}
                         </>}
                     </td>
                   </tr>

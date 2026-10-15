@@ -1,5 +1,6 @@
 // Stored hourly purchases (see migration 0008) and how pages cost a window with them.
 
+import { loadAdjustments, subtractAdjustments } from './metaAdjust.ts';
 import type { HourlyConversion } from '../../ads-engine/src/meta.ts';
 import type { Window } from '../../ads-engine/src/types.ts';
 import type { CostTier } from './campaignCosts.ts';
@@ -37,16 +38,24 @@ export async function saveConversionDay(db: D1Database, date: string, rows: Hour
   ]);
 }
 
+/** Days whose stored hourly purchases must not be re-fetched from Meta (meta_capi keys "lock_hours:<date>"). */
+export async function lockedHourDays(db: D1Database): Promise<Set<string>> {
+  const { results } = await db.prepare("SELECT key FROM meta_capi WHERE key LIKE 'lock_hours:%'").all<{ key: string }>().catch(() => ({ results: [] as { key: string }[] }));
+  return new Set(results.map((r) => r.key.slice('lock_hours:'.length)));
+}
+
 export type HourRow = { date: string; hour: string; purchases: number; purchase_value: number };
 
 /** Stored hours for the dates, per campaign, plus which of the dates are stored at all. */
 export async function loadConversionHours(db: D1Database, dates: string[]): Promise<{ byCampaign: Map<string, HourRow[]>; stored: Set<string> }> {
+  const adj = await loadAdjustments(db, dates);
   const [h, d] = await db.batch([
     db.prepare('SELECT * FROM conversion_hours WHERE date IN (SELECT value FROM json_each(?))').bind(JSON.stringify(dates)),
     db.prepare('SELECT date FROM conversion_days WHERE date IN (SELECT value FROM json_each(?))').bind(JSON.stringify(dates)),
   ]);
   const byCampaign = new Map<string, HourRow[]>();
-  for (const r of h.results as { date: string; campaign_id: string; hour: string; purchases: number; value: number }[]) {
+  // Known-wrong purchases (metaAdjust.ts) are taken out before the hours are used for costing.
+  for (const r of subtractAdjustments(h.results as { date: string; campaign_id: string; hour: string; purchases: number; value: number }[], adj, 'value')) {
     byCampaign.set(r.campaign_id, [...(byCampaign.get(r.campaign_id) ?? []), { date: r.date, hour: r.hour, purchases: r.purchases, purchase_value: r.value }]);
   }
   return { byCampaign, stored: new Set((d.results as { date: string }[]).map((r) => r.date)) };
@@ -61,7 +70,9 @@ export async function syncConversionHours(db: D1Database, meta: MetaLike, opts: 
   const wanted = Array.from({ length: keep }, (_, i) => bkkDate(i + 1));
   const { results } = await db.prepare('SELECT date FROM conversion_days WHERE date IN (SELECT value FROM json_each(?))').bind(JSON.stringify(wanted)).all<{ date: string }>();
   const have = new Set(results.map((r) => r.date));
-  const todo = [...new Set([...wanted.slice(0, recent), ...wanted.filter((d) => !have.has(d)).slice(0, backfill)])];
+  // Days locked on purpose keep the hours they have (e.g. 13–14 Oct 2026: stored before duplicate purchases reached Meta).
+  const locked = await lockedHourDays(db);
+  const todo = [...new Set([...wanted.slice(0, recent), ...wanted.filter((d) => !have.has(d)).slice(0, backfill)])].filter((d) => !(have.has(d) && locked.has(d)));
   const fetched: string[] = [], errors: string[] = [];
   for (const date of todo) {
     try { await saveConversionDay(db, date, await meta.hourlyConversions(date)); fetched.push(date); }

@@ -7,6 +7,7 @@
 
 import { autoFillNote } from './autoFill.ts';
 import { maybeSyncPurchases } from './metaPurchases.ts';
+import { sendNotePurchase } from './notePurchases.ts';
 import { parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { hashName } from './p365.ts';
 import { extractChats, saveChats } from './chatLog.ts';
@@ -67,6 +68,8 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
   // An order note: once stored, open/fill its Page365 draft (autoFill.ts; only when switched on). Those deliveries
   // skip the purchase sync so one invocation stays inside the free plan's outbound-request limit.
   ctx.waitUntil(store(env, rows, events, notes, echoes)
+    // The sale goes to Meta first (seconds after the note), then the draft is filled.
+    .then(() => Promise.all(notes.map((n) => sendNotePurchase(env as any, n).catch((err) => console.error('note purchase', err)))))
     .then(() => Promise.all(notes.map((n) => autoFillNote(env as any, n))))
     .catch((err) => console.error('webhook store', err)));
   // Webhook deliveries are the clock for sending Page365 purchases to Meta (at most every 10 minutes; off by default).

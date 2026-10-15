@@ -16,20 +16,39 @@ export interface ParsedNote { items: NoteItem[]; payment: 'cod' | 'transfer' | n
 const SIZE_WORD = /^(?:sz|size|w|เอว|ไซส์|ไซซ์)\.?/i;
 const SIZE = /^(?:sz|size|w|เอว|ไซส์|ไซซ์)?\.?(?:(2[4-9]|[34]\d|50)|xs|s|m|l|xl|xxl|[2-5]xl|f|free)$/i;
 const CODE = /^[a-z]{0,4}\d+[a-z0-9]*(?:[/-][a-z0-9]+)*$/i;
+// "sz34", "ไซส์ 34", "เอว34" alone on a line: the size for the list lines.
+const SIZE_ONLY = /^(?:sz|size|w|เอว|ไซส์|ไซซ์)\.?\s*((?:2[4-9]|[34]\d|50)|xs|s|m|l|xl|xxl|[2-5]xl)$/i;
+// "- สีเทา (16-10) 1 ตัว" / "• ดำ (501/3) 2 ตัว sz32": a colour word or two, the code in brackets, quantity, optional size.
+const LIST_LINE = /^[-•*·]?\s*[\u0E00-\u0E7Fa-z ]{0,30}\(\s*([a-z]{0,4}\d+[a-z0-9]*(?:[/-][a-z0-9]+)*)\s*\)\s*(?:(\d{1,2})\s*(?:ตัว|ชิ้น|ตว)?)?\s*(?:(?:sz|size|เอว|ไซส์)\.?\s*((?:2[4-9]|[34]\d|50)|xs|s|m|l|xl|xxl|[2-5]xl))?$/i;
 
 /** One message → its items, or null when it is not an order note (no payment + total, or other text in it). */
 export function parseOrderNote(text: string | null | undefined): ParsedNote | null {
   const t = (text ?? '').replace(/ /g, ' ').trim();
   if (!t || t.length > 400) return null;
   // Payment + total may be on its own line or at the end of the last item line.
-  const pay = t.match(/(?:^|\s)(cod|โอน|ปลายทาง)\s*(\d{2,5})\s*$/i);
+  // …or first, on its own line ("cod249\n501/3 34" — some admins write the total first).
+  const last = t.match(/(?:^|\s)(cod|โอน|ปลายทาง)\s*(\d{2,5})\s*$/i);
+  const first = last ? null : t.match(/^(cod|โอน|ปลายทาง)\s*(\d{2,5})\s*\n/i);
+  const pay = last ?? first;
   if (!pay) return null;
-  const body = t.slice(0, pay.index).trim();
+  const body = (last ? t.slice(0, last.index) : t.slice(first![0].length)).trim();
   const lines = body.split(/\n+/).map((l) => l.trim()).filter(Boolean);
   if (!lines.length) return null;
   const items: NoteItem[] = [];
   const unknown: string[] = [];
+  // List style (15 Oct): "- สีเทา (16-10) 1 ตัว" lines + a size line "sz34" for all of them.
+  const sizeLine = lines.map((l) => l.match(SIZE_ONLY)).find(Boolean);
+  const listSize = sizeLine ? sizeLine[1].toUpperCase() : null;
   for (const line of lines) {
+    if (SIZE_ONLY.test(line)) continue;
+    const li = line.match(LIST_LINE);
+    if (li) {
+      const size = (li[3] ?? listSize ?? '').toUpperCase();
+      if (!size) { unknown.push(line.replace(/[\u0E00-\u0E7F]+/g, '').trim()); continue; }
+      const qty = li[2] ? Number(li[2]) : 1;
+      items.push(...expandCode(li[1]).map((code) => ({ code, prefix: skuPrefix(code), size, qty })));
+      continue;
+    }
     // Thai letters or anything long → not an order note at all (keeps addresses and chat out of storage).
     if (line.length > 60 || /[฀-๿]/.test(line.replace(/เอว|ไซส์|ไซซ์/g, ''))) return null;
     const parsed = parseLine(line);
