@@ -26,9 +26,12 @@ export function parseOrderNote(text: string | null | undefined): ParsedNote | nu
   const t = (text ?? '').replace(/ /g, ' ').trim();
   if (!t || t.length > 400) return null;
   // Payment + total may be on its own line or at the end of the last item line.
-  const pay = t.match(/(?:^|\s)(cod|โอน|ปลายทาง)\s*(\d{2,5})\s*$/i);
+  // …or first, on its own line ("cod249\n501/3 34" — some admins write the total first).
+  const last = t.match(/(?:^|\s)(cod|โอน|ปลายทาง)\s*(\d{2,5})\s*$/i);
+  const first = last ? null : t.match(/^(cod|โอน|ปลายทาง)\s*(\d{2,5})\s*\n/i);
+  const pay = last ?? first;
   if (!pay) return null;
-  const body = t.slice(0, pay.index).trim();
+  const body = (last ? t.slice(0, last.index) : t.slice(first![0].length)).trim();
   const lines = body.split(/\n+/).map((l) => l.trim()).filter(Boolean);
   if (!lines.length) return null;
   const items: NoteItem[] = [];

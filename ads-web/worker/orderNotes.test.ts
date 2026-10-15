@@ -97,3 +97,9 @@ test('list style: "- สีเทา (16-10) 1 ตัว" lines with the size on
   assert.deepEqual(parseOrderNote('- เทา (16-10) 1 ตัว\ncod 299')?.unknown.length, 1, 'no size anywhere: kept, flagged');
   assert.equal(parseOrderNote('- คุณสมชาย บ้านเลขที่ 12 ม.3\ncod 299'), null, 'an address is still dropped');
 });
+
+test('payment and total first, on their own line (15 Oct)', () => {
+  assert.deepEqual(parseOrderNote('cod249\n501/3 34')?.items.map((i) => `${i.code} ${i.size}`), ['501/3 34']);
+  assert.equal(parseOrderNote('cod199\nE200 34')?.total, 199);
+  assert.equal(parseOrderNote('cod 249 ขอบคุณค่ะ'), null);
+});
