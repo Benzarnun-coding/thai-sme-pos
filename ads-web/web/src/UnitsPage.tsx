@@ -100,7 +100,7 @@ export function UnitsApp() {
         <div className="kpi">
           <span>ยอดขาย (บาท)</span>
           <b>{revenueKnown ? `฿${num(revenue)}` : '—'}</b>
-          <small>{channel && channel !== 'Facebook' ? 'ไฟล์ Bigseller ไม่มีราคาขาย' : 'เฉพาะ Facebook (Page365) · TikTok/Shopee: ไฟล์ Bigseller ไม่มีราคาขาย'}</small>
+          <small>{channel && channel !== 'Facebook' ? 'ไฟล์ Bigseller ไม่มีราคาขาย' : 'เฉพาะ Facebook (Page365) · TikTok/Shopee: ไฟล์ Bigseller ไม่มีราคาขาย'} · <a href="/catalog/profit">ยอดเงินและกำไรทุกช่องทาง</a></small>
         </div>
         <div className="kpi">
           <span>ต้นทุนของเรา</span>

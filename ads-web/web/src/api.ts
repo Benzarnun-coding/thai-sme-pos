@@ -1,4 +1,5 @@
 // Typed client for the Worker API. Types mirror worker/model.ts and ads-engine/src/types.ts (the UI never imports worker code).
+import type { MoneyMap, MpOrder, Platform } from './money.ts';
 import type { WebSku } from './catalog.ts';
 
 export type Level = 'campaign' | 'adset';
@@ -310,6 +311,18 @@ export interface CatalogPrice { key: string; tab: string; spu: string; price: nu
 export interface CatalogAlias { alias: string; sku: string; created_by: string; created_at: string }
 export interface CatalogLabel { key: string; tab: string; spu: string; label: string; updated_by: string; updated_at: string }
 export interface CatalogMeta { version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; prices: CatalogPrice[]; sell_prices: CatalogPrice[]; labels: CatalogLabel[]; aliases: CatalogAlias[]; sheet_configured: boolean }
+/** /catalog/profit: Page365 orders (with the shop's per-order fee), marketplace money, order-sheet items, Meta spend. */
+export interface ProfitData {
+  from: string; to: string;
+  page365: { order_no: string; date: string; total: number; fee: number; items: { sku: string; name: string; qty: number; price: number }[] }[];
+  marketplace: (MpOrder & { file: string })[];
+  sheetItems: { order_no: string; date: string; store: string; sku: string; qty: number }[];
+  spend: { date: string; spend: number }[] | null;
+  spendError: string | null;
+  page365Days: string[];
+  mpFiles: { file: string; orders: number; updated_by: string; updated_at: string }[];
+}
+export interface ImportMap { signature: string; map: MoneyMap; platform: Platform | 'auto'; updated_by: string; updated_at: string }
 export type PurchaseKind = 'supplier' | 'warehouse' | 'unassigned' | 'review';
 export interface SalesData {
   from: string; to: string;
@@ -353,6 +366,10 @@ export const api = {
   purchaseLines: (id: string) => call<{ lines: SavedPurchaseLine[] }>('GET', `/api/purchase/lines?id=${encodeURIComponent(id)}`),
   savePurchase: (p: { date: string; round: number; file: string; lines: unknown[]; items?: unknown[] }) => call<{ upload: PurchaseUpload }>('PUT', '/api/purchase', p),
   setMissing: (id: string, items: { grp: string; sku: string; missing: number }[]) => call<{ missing: number }>('PUT', '/api/purchase/missing', { id, items }),
+  profit: (from: string, to: string) => call<ProfitData>('GET', `/api/profit?from=${from}&to=${to}`),
+  importMaps: () => call<{ maps: ImportMap[] }>('GET', '/api/mp-import-maps'),
+  saveImportMap: (signature: string, map: MoneyMap, platform: Platform | 'auto') => call<{ ok: true }>('PUT', '/api/mp-import-map', { signature, map, platform }),
+  saveMpOrders: (file: string, orders: MpOrder[]) => call<{ saved: number }>('PUT', '/api/mp-orders', { file, orders }),
   sales: (from: string, to: string) => call<SalesData>('GET', `/api/sales?from=${from}&to=${to}`),
   findOrders: (q: string) => call<{ terms: string[]; rows: FoundOrder[] }>('GET', `/api/purchase/find?q=${encodeURIComponent(q)}`),
   ledger: (days = 60) => call<{ since: string; rows: LedgerRow[] }>('GET', `/api/purchase/ledger?days=${days}`),

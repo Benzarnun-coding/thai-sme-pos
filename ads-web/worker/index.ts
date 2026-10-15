@@ -26,6 +26,8 @@ import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetito
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
 import { parseRange, salesData } from './sales.ts';
+import { listImportMaps, profitData, saveImportMap, saveMpOrders, validateMpOrders } from './mpOrders.ts';
+import { opsFacts, opsText } from './opsDigest.ts';
 import { deletePurchase, findOrders, ledger, listPurchases, orderTerms, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveAlias, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
@@ -748,6 +750,29 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     return json(await salesData(env.DB, from, to));
   }
 
+  // ---- profit (/catalog/profit): marketplace money files + Page365 + Meta spend ----
+  if (method === 'GET' && path === '/api/profit') {
+    const { from, to } = parseRange(url.searchParams.get('from'), url.searchParams.get('to'));
+    const settings = await loadSettings(env.DB);
+    return json(await profitData(env.DB, from, to, settings.order_fees, () => dailySpend(env, from, to)));
+  }
+  if (method === 'GET' && path === '/api/ops-digest') {
+    const d = url.searchParams.get('date');
+    const facts = await opsFacts(env.DB, d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : bkkDate(1));
+    return json({ text: opsText(facts), facts });
+  }
+  if (method === 'GET' && path === '/api/mp-import-maps') return json({ maps: await listImportMaps(env.DB) });
+  if (method === 'PUT' && path === '/api/mp-import-map') {
+    await saveImportMap(env.DB, await body(), user);
+    return json({ ok: true });
+  }
+  if (method === 'PUT' && path === '/api/mp-orders') {
+    const { file, orders } = validateMpOrders(await body());
+    const saved = await saveMpOrders(env.DB, file, orders, user);
+    await audit(env.DB, user, 'mp_orders.upload', file, { orders: saved, platforms: [...new Set(orders.map((o) => o.platform))] });
+    return json({ saved });
+  }
+
   // ---- order sheets (/catalog/orders) ----
   if (method === 'GET' && path === '/api/purchase') return json({ uploads: await listPurchases(env.DB) });
   if (method === 'GET' && path === '/api/purchase/lines') return json({ lines: await purchaseLines(env.DB, url.searchParams.get('id') ?? '') });
@@ -1379,6 +1404,21 @@ async function dailyDigest(env: Env): Promise<void> {
   if (!env.DISCORD_WEBHOOK_URL) return;
   const g = await loadGoal(env).catch(() => null);
   if (g) await pushDiscord(goalText(g), env.DISCORD_WEBHOOK_URL);
+  // Back office: order sheets, units sold, marketplace money, owed to suppliers, unknown SKUs.
+  const ops = await opsFacts(env.DB, bkkDate(1)).catch((err) => { console.error('ops digest', err); return null; });
+  if (ops) await pushDiscord(opsText(ops), env.DISCORD_WEBHOOK_URL);
+}
+
+/** Meta spend per day (all campaigns) for a range; Meta takes at most 31 days per call, so longer ranges are split. */
+async function dailySpend(env: Env, from: string, to: string): Promise<{ date: string; spend: number }[]> {
+  const { data } = await metaData(env);
+  const spend = new Map<string, number>();
+  for (let start = from; start <= to;) {
+    const end = new Date(Math.min(Date.parse(to), Date.parse(start) + 30 * 86400_000)).toISOString().slice(0, 10);
+    for (const r of await data.dailyAll(`range:${start}:${end}` as Window)) spend.set(r.date, (spend.get(r.date) ?? 0) + r.spend);
+    start = new Date(Date.parse(end) + 86400_000).toISOString().slice(0, 10);
+  }
+  return [...spend].map(([date, s]) => ({ date, spend: Math.round(s * 100) / 100 })).sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /** Month-to-date real net vs the monthly goal, the MER the goal needs, and the last 7 days' real MER. */
