@@ -22,7 +22,7 @@ test('customer messages and page echoes become rows; reads and duplicates are sk
   const rows = extractChats([{
     messaging: [
       { sender: { id: 'u1' }, recipient: { id: 'page' }, timestamp: 1791900000000, message: { mid: 'm1', text: 'มีไซส์ 34 ไหม' } },
-      { sender: { id: 'page' }, recipient: { id: 'u1' }, timestamp: 1791900060000, message: { mid: 'm2', text: 'มีค่ะ', is_echo: true } },
+      { sender: { id: 'page' }, recipient: { id: 'u1' }, timestamp: 1791900060000, message: { mid: 'm2', text: 'มีค่ะ', is_echo: true, app_id: 263902037430900 } },
       { sender: { id: 'u1' }, recipient: { id: 'page' }, timestamp: 1791900000, message: { mid: 'm3', attachments: [{ type: 'image' }] } },
       { sender: { id: 'u1' }, recipient: { id: 'page' }, timestamp: 1791900000000 },
     ],
@@ -32,4 +32,5 @@ test('customer messages and page echoes become rows; reads and duplicates are sk
     ['m1', 'u1', 0, 'มีไซส์ 34 ไหม', null], ['m2', 'u1', 1, 'มีค่ะ', null], ['m3', 'u1', 0, null, 'image'],
   ]);
   assert.equal(rows[2].at, new Date(1791900000 * 1000).toISOString());
+  assert.deepEqual(rows.map((r) => r.sender_app), [null, '263902037430900', null]);
 });

@@ -7,10 +7,10 @@ export interface ChatEvent {
   sender?: { id: string };
   recipient?: { id: string };
   timestamp?: number;
-  message?: { is_echo?: boolean; mid?: string; text?: string; attachments?: { type?: string }[] };
+  message?: { is_echo?: boolean; mid?: string; text?: string; attachments?: { type?: string }[]; app_id?: number | string; metadata?: string };
 }
 
-export interface ChatRow { mid: string; psid: string; at: string; from_page: number; text: string | null; attachments: string | null }
+export interface ChatRow { mid: string; psid: string; at: string; from_page: number; text: string | null; attachments: string | null; sender_app: string | null }
 
 export const CHAT_KEEP_DAYS = 30;
 const MAX_TEXT = 1000;
@@ -54,7 +54,7 @@ export function extractChats(entries: { messaging?: ChatEvent[]; standby?: ChatE
       if (!text && !types.length) continue;
       seen.add(m.mid);
       const ts = ev.timestamp;
-      out.push({ mid: m.mid, psid, at: new Date(!ts ? Date.now() : ts < 1e11 ? ts * 1000 : ts).toISOString(), from_page: fromPage ? 1 : 0, text: text || null, attachments: types.length ? types.join(',') : null });
+      out.push({ mid: m.mid, psid, at: new Date(!ts ? Date.now() : ts < 1e11 ? ts * 1000 : ts).toISOString(), from_page: fromPage ? 1 : 0, text: text || null, attachments: types.length ? types.join(',') : null, sender_app: fromPage && m.app_id ? String(m.app_id) : null });
     }
   }
   return out;
@@ -63,8 +63,8 @@ export function extractChats(entries: { messaging?: ChatEvent[]; standby?: ChatE
 export async function saveChats(db: D1Database, rows: ChatRow[]): Promise<void> {
   if (!rows.length) return;
   await db.batch([
-    db.prepare(`INSERT OR IGNORE INTO chat_messages (mid, psid, at, from_page, text, attachments)
-      SELECT value->>'mid', value->>'psid', value->>'at', value->>'from_page', value->>'text', value->>'attachments' FROM json_each(?)`).bind(JSON.stringify(rows)),
+    db.prepare(`INSERT OR IGNORE INTO chat_messages (mid, psid, at, from_page, text, attachments, sender_app)
+      SELECT value->>'mid', value->>'psid', value->>'at', value->>'from_page', value->>'text', value->>'attachments', value->>'sender_app' FROM json_each(?)`).bind(JSON.stringify(rows)),
     db.prepare(`INSERT INTO webhook_status (key, value) VALUES ('chats_total', ?1) ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + ?1 AS TEXT)`).bind(String(rows.length)),
     db.prepare(`INSERT OR REPLACE INTO webhook_status (key, value) VALUES ('last_chat_at', ?)`).bind(new Date().toISOString()),
   ]);
