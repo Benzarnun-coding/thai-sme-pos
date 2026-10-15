@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { applyDecisions } from './apply.ts';
 import { clampBudget, evaluate, onCooldown } from './rules.ts';
 import type { Entity, Guardrails, Rule, Scope, State } from './types.ts';
 
@@ -65,4 +66,21 @@ test('clampBudget caps percent and respects min/max', () => {
   assert.equal(clampBudget(110, -20, g)?.next, 100);
   assert.equal(clampBudget(2900, 20, g)?.next, 3000);
   assert.equal(clampBudget(3000, 20, g), null);
+});
+
+test('over the total cap: cuts still go through, increases are refused', async () => {
+  const cutRule: Rule = { id: 'cut', level: 'adset', window: 'last_3d', metric: 'roas', op: '<', value: 1, action: { type: 'budget_pct', pct: -20 } };
+  const loser = adset({ id: 'lose', roas: 0.5, daily_budget: 3000 });
+  const winner = adset({ id: 'win', roas: 4, daily_budget: 2500 });
+  const other = adset({ id: 'other', roas: 2, daily_budget: 5500 }); // total 11,000 > cap 10,000
+  const campaign: Entity = { ...adset({}), level: 'campaign', id: 'c1', daily_budget: null }; // ad sets count under an active campaign
+  const entities = [campaign, loser, winner, other];
+  const decisions = evaluate([loser, winner, other], [cutRule, scaleRule], scope, { last_action: {} });
+  const set: Record<string, number> = {};
+  const meta = { setStatus: async () => {}, setDailyBudget: async (id: string, amount: number) => { set[id] = amount; } };
+  const r = await applyDecisions(decisions, entities, meta, g, { last_action: {} }, { dryRun: false, now: new Date('2026-10-15T01:00:00Z') });
+  assert.equal(set.lose, 2400);
+  assert.equal(set.win, undefined);
+  assert.match(decisions.find((d) => d.entity.id === 'win')!.skipped_reason ?? '', /max_total_daily_budget/);
+  assert.equal(r.totalAfter, 10400);
 });
