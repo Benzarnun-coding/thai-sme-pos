@@ -17,6 +17,8 @@ test('chat text keeps the conversation and drops contact details', () => {
   assert.equal(redactChat('ขอบคุณค่ะ พี่สอบถามมาได้เลย'), 'ขอบคุณค่ะ พี่สอบถามมาได้เลย');
   assert.equal(redactChat('ขอบคุณที่สั่งกับทางร้านนะคะ'), 'ขอบคุณที่สั่งกับทางร้านนะคะ');
   assert.equal(redactChat('สวัสดี Prayont! เราต้องการติดตามผล'), 'สวัสดี [ชื่อ]! เราต้องการติดตามผล');
+  assert.equal(redactChat('สวัสดี คมกริช! เราต้องการติดตามผล'), 'สวัสดี [ชื่อ]! เราต้องการติดตามผล');
+  assert.equal(redactChat('สวัสดีค่ะ สนใจแบบไหนคะ'), 'สวัสดีค่ะ สนใจแบบไหนคะ');
 });
 
 test('customer messages and page echoes become rows; reads and duplicates are skipped', () => {

@@ -32,6 +32,8 @@ export function redactChat(text: string): string {
   t = t.replace(/(?<!ขอบ)คุณ\s?(?!ค่ะ|ครับ|คะ|นะ|ลูกค้า|ภาพ|สมบัติ)[A-Za-z\u0E01-\u0E2E\u0E30-\u0E4E]{2,24}/g, 'คุณ[ชื่อ]');
   t = t.replace(/(พี่|น้อง|ลูกค้า)\s?[A-Za-z][A-Za-z.'-]{1,24}/g, '$1[ชื่อ]');
   t = t.replace(/(สวัสดี(?:ค่ะ|ครับ|คะ)?)\s?[A-Za-z][A-Za-z.'-]{1,24}/g, '$1 [ชื่อ]');
+  // Meta's follow-up template: "สวัสดี คมกริช! เราต้องการติดตามผล…" — any word between the greeting and "!".
+  t = t.replace(/สวัสดี\s+(?!ค่ะ|ครับ|คะ)[^\s!]{2,24}!/g, 'สวัสดี [ชื่อ]!');
   // Tracking / order codes with letters ("PAGE02576305CE") go before the phone pattern, which would eat their digits.
   t = t.replace(/(?<![A-Za-z0-9])[A-Za-z]{0,6}\d[A-Za-z0-9]{6,}(?![A-Za-z0-9])/g, (m) => (m.replace(/\D/g, '').length >= 7 ? '[ตัวเลข]' : m));
   t = t.replace(/(?<![A-Za-z0-9])(\+?66|0)[\s-]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4}(?!\d)/g, '[เบอร์]');
