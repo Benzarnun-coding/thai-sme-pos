@@ -21,7 +21,7 @@ import { buildIdeas } from './ideas.ts';
 import { explainActual, explainDay, explainOrders } from './salesReport.ts';
 import { campaignDay } from './transactions.ts';
 import { makeTierResolver } from './costing.ts';
-import { bkkDate, loadConversionHours, saveConversionDay, syncConversionHours, txCosting, windowDates } from './conversionStore.ts';
+import { bkkDate, loadConversionHours, lockedHourDays, saveConversionDay, syncConversionHours, txCosting, windowDates } from './conversionStore.ts';
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
@@ -42,6 +42,7 @@ import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCa
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
 import { autoFillNote, autoFillOn, customerFor, setAutoFill } from './autoFill.ts';
 import { loadCapi, recentPurchases, saveCapi, syncPurchases } from './metaPurchases.ts';
+import { adjustmentDays, seedFromSent } from './metaAdjust.ts';
 import { pageOf, receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
@@ -569,6 +570,40 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const cfg = await saveCapi(env.DB, await body()).catch((err) => { throw new BadRequest(err.message); });
     await audit(env.DB, user, 'meta.capi.config', cfg.mode, { dataset_id: cfg.dataset_id, live_from: cfg.live_from });
     return json(cfg);
+  }
+  // Per-day corrections to Meta's purchases (metaAdjust.ts): list, add from purchases we sent by mistake, remove a day.
+  if (path === '/api/meta/adjustments' && method === 'GET') return json({ days: await adjustmentDays(env.DB) });
+  if (path === '/api/meta/adjustments/from-sent' && method === 'POST') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const input = await body();
+    const from = String(input?.from ?? ''), to = String(input?.to ?? '');
+    if (!Date.parse(from) || !Date.parse(to)) throw new BadRequest('ต้องมีช่วงเวลาที่ส่ง (from, to)');
+    const r = await seedFromSent(env.DB, from, to, String(input?.reason ?? 'ส่งซ้ำโดยระบบ').slice(0, 100), user);
+    const dates = (await adjustmentDays(env.DB)).map((d) => d.date);
+    const credits = await recreditDates(env.DB, [...new Set(dates)]);
+    await audit(env.DB, user, 'meta.adjust.seed', `${from}..${to}`, { ...r, credits });
+    return json({ ...r, recredited: Object.keys(credits) });
+  }
+  // Lock / unlock a day's stored hourly purchases against re-fetching (when they were stored before Meta's numbers went wrong).
+  if (path === '/api/meta/lock-hours' && method === 'GET') return json({ days: [...await lockedHourDays(env.DB)].sort() });
+  if (path === '/api/meta/lock-hours' && method === 'PUT') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const input = await body();
+    const date = String(input?.date ?? '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
+    if (input?.locked === false) await env.DB.prepare('DELETE FROM meta_capi WHERE key = ?').bind(`lock_hours:${date}`).run();
+    else await env.DB.prepare('INSERT OR REPLACE INTO meta_capi (key, value) VALUES (?, ?)').bind(`lock_hours:${date}`, String(input?.reason ?? '').slice(0, 100) || user).run();
+    await audit(env.DB, user, 'meta.lock_hours', date, { locked: input?.locked !== false });
+    return json({ days: [...await lockedHourDays(env.DB)].sort() });
+  }
+  if (path === '/api/meta/adjustments' && method === 'DELETE') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const date = url.searchParams.get('date') ?? '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
+    await env.DB.prepare('DELETE FROM meta_adjustments WHERE date = ?').bind(date).run();
+    const credits = await recreditDates(env.DB, [date]);
+    await audit(env.DB, user, 'meta.adjust.delete', date, credits);
+    return json({ ok: true });
   }
   if (path === '/api/meta/purchases/sync' && method === 'POST') {
     const dry = url.searchParams.get('dry') === '1';

@@ -74,9 +74,35 @@ export function MetaPurchasesCard() {
               {dry.skipped.map((s) => <div key={s.no} className="warn">ข้าม #{s.no} — {s.why}</div>)}
             </div>
           )}
+          <AdjustmentDays />
           {rows.some((r) => r.status === 'error') && <p className="small bad">มีบิลที่ส่งไม่สำเร็จ: {rows.filter((r) => r.status === 'error').slice(0, 3).map((r) => `#${r.order_no} ${r.detail ?? ''}`).join(' · ')}</p>}
         </>
       )}
     </section>
+  );
+}
+
+/** Days whose Meta purchases we correct (e.g. the duplicates sent by mistake on 15 Oct), with a remove button. */
+function AdjustmentDays() {
+  const { toast } = useUi();
+  const [days, setDays] = useState<{ date: string; reason: string; purchases: number; value: number; campaigns: number; unknown: number }[]>([]);
+  const load = () => call<{ days: typeof days }>('GET', '/api/meta/adjustments').then((r) => setDays(r.days)).catch(() => {});
+  useEffect(() => { load(); }, []);
+  const [locked, setLocked] = useState<string[]>([]);
+  useEffect(() => { call<{ days: string[] }>('GET', '/api/meta/lock-hours').then((r) => setLocked(r.days)).catch(() => {}); }, []);
+  if (!days.length && !locked.length) return null;
+  return (
+    <div className="small" style={{ marginTop: 10 }}>
+      {locked.length > 0 && <div><b>ล็อกยอดรายชั่วโมงไว้ ไม่ดึงจาก Meta ซ้ำ:</b> {locked.join(', ')}</div>}
+      <b>แก้ยอด Meta รายวัน</b> <span className="muted">— หักออกจากยอดรายชั่วโมงของ Meta ก่อนใช้จับคู่ออเดอร์/คิดต้นทุน (Meta ลบ event ไม่ได้)</span>
+      {days.map((d) => (
+        <div key={d.date + d.reason} className="row gap" style={{ justifyContent: 'space-between' }}>
+          <span>{d.date} · {d.reason} · −{d.purchases} ออเดอร์ · −{baht(d.value)} · {d.campaigns} แคมเปญ{d.unknown ? ` · ไม่ทราบแอด ${d.unknown}` : ''}</span>
+          <button className="ghost small" onClick={async () => {
+            try { await call('DELETE', `/api/meta/adjustments?date=${d.date}`); toast(`เลิกแก้ ${d.date} แล้ว`, 'ok'); load(); } catch (e: any) { toast(e.message, 'bad'); }
+          }}>เลิกแก้วันนี้</button>
+        </div>
+      ))}
+    </div>
   );
 }
