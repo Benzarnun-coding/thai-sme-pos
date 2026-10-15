@@ -159,12 +159,17 @@ export interface Lookup {
   labels: Map<string, string>;
 }
 
-export function makeLookup(rows: CatalogRow[], suppliers: Map<string, string>, prices: Map<string, number> = new Map(), labels: Map<string, string> = new Map()): Lookup {
+export function makeLookup(rows: CatalogRow[], suppliers: Map<string, string>, prices: Map<string, number> = new Map(), labels: Map<string, string> = new Map(), aliases: Map<string, string> = new Map()): Lookup {
   const map = new Map<string, CatalogRow>();
   const supplierTabs = new Set(SUPPLIER_TABS);
   for (const r of rows) {
     const k = skuKey(r.sku);
     if (!map.has(k)) map.set(k, r);
+  }
+  // Another system's SKU matched to ours reads as ours (a SKU really in the catalog always wins).
+  for (const [alias, sku] of aliases) {
+    const r = map.get(skuKey(sku));
+    if (r && !map.has(alias)) map.set(alias, r);
   }
   return { rows: map, suppliers, supplierTabs, prices, labels };
 }
@@ -560,4 +565,29 @@ export function saleItems(items: OrderItem[], lookup: Lookup, roundKey: string):
       store: storeLabel(it.store, it.carrier),
     };
   });
+}
+
+// ---- matching another system's SKU to ours ----
+
+/**
+ * Catalog SKUs for a search like "101/1 ดำ 32" or a marketplace product name ("กางเกงยีนส์ 501/1 มิดไนท์ 30"):
+ * rows matching every word first, then by matched words (code / SKU and size count more); a size alone is no match.
+ */
+export function suggestSkus(rows: CatalogRow[], query: string, limit = 8): CatalogRow[] {
+  const words = [...new Set(query.toLowerCase().replace(/[(),]/g, ' ').split(/\s+/).filter(Boolean))];
+  if (!words.length) return [];
+  const out: { r: CatalogRow; score: number; all: boolean }[] = [];
+  for (const r of rows) {
+    const color = COLOR_NAMES[r.color.toUpperCase()] ?? '';
+    const hay = `${r.sku} ${r.code} ${r.name} ${r.color} ${color}`.toLowerCase();
+    let score = 0, hits = 0, misses = 0;
+    for (const w of words) {
+      if (r.size.toLowerCase() === w) { score += 3; continue; }
+      if (!hay.includes(w)) { misses++; continue; }
+      hits++;
+      score += r.code.toLowerCase() === w || r.sku.toLowerCase() === w ? 4 : 1;
+    }
+    if (hits) out.push({ r, score, all: !misses });
+  }
+  return out.sort((a, b) => Number(b.all) - Number(a.all) || b.score - a.score || a.r.sku.localeCompare(b.r.sku)).slice(0, limit).map((x) => x.r);
 }

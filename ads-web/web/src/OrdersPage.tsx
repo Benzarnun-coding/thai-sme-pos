@@ -4,11 +4,12 @@
 // Who supplies a product can be changed right here; it is saved for that product and used every day after.
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { api, type FoundOrder, type LedgerRow, type PurchaseUpload, type SavedPurchaseLine } from './api.ts';
+import { api, type CatalogAlias, type FoundOrder, type LedgerRow, type PurchaseUpload, type SavedPurchaseLine } from './api.ts';
+import { SkuMatch } from './SkuMatch.tsx';
 import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from './catalog.ts';
 import { num } from './fmt.ts';
 import {
-  applyMoves, buildLines, dateFromFileName, saleItems, orderColumns, orderText, paymentWorkbook, PRICE_SOURCE_LABEL, supplierTotals, withPrices, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
+  applyMoves, buildLines, dateFromFileName, optionParts, saleItems, orderColumns, orderText, paymentWorkbook, PRICE_SOURCE_LABEL, supplierTotals, withPrices, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
   orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
 } from './purchase.ts';
 import { orderPictureSheets, pictureSheets } from './pictureSheet.ts';
@@ -40,7 +41,7 @@ function fromSaved(l: SavedPurchaseLine): PurchaseLine {
 export function OrdersApp() {
   useEffect(() => { document.title = 'ใบสั่งสินค้า'; }, []);
   const { toast, confirm } = useUi();
-  const { meta, setMeta, rows, loading, error, canEdit, role, supplierMap, imageMap, priceMap, labelMap } = useCatalog();
+  const { meta, setMeta, rows, loading, error, canEdit, role, supplierMap, imageMap, priceMap, labelMap, aliasMap } = useCatalog();
   const [data, setData] = useState<Loaded | null>(null);
   const [history, setHistory] = useState<PurchaseUpload[]>([]);
   const [viewing, setViewing] = useState<FromHistory | null>(null);
@@ -67,7 +68,7 @@ export function OrdersApp() {
 
   // Sheet rows + SKUs added on the page, so a SKU added this morning already lands on the right sheet.
   const allRows = useMemo<CatalogRow[]>(() => [...rows, ...(meta?.web ?? []).map((w) => webToRow(w, 0))], [rows, meta?.web]);
-  const lookup = useMemo(() => makeLookup(allRows, supplierMap, priceMap, labelMap), [allRows, supplierMap, priceMap, labelMap]);
+  const lookup = useMemo(() => makeLookup(allRows, supplierMap, priceMap, labelMap, aliasMap), [allRows, supplierMap, priceMap, labelMap, aliasMap]);
   // Photo, code and colour per SKU for picture sheets: a picture added on the page, else column J of any size.
   const productInfo = useMemo(() => {
     const firstImage = new Map<string, string>();
@@ -383,7 +384,7 @@ export function OrdersApp() {
             <div className="kpi"><span>ชิ้นทั้งหมด</span><b>{num(pieces)}</b>{data && <small>{num(new Set(data.items.map((i) => i.order).filter(Boolean)).size)} ออเดอร์</small>}</div>
             <div className="kpi"><span>ร้านค้า</span><b>{num(groups.filter((g) => g.kind === 'supplier').length)}</b></div>
             <div className="kpi"><span>โกดัง</span><b>{num(groups.filter((g) => g.kind === 'warehouse').length)}</b></div>
-            <div className="kpi"><span>ต้องตรวจสอบ</span><b className={review || groups.some((g) => g.kind === 'unassigned') ? 'bad' : 'good'}>{num((review?.pieces ?? 0) + groups.filter((g) => g.kind === 'unassigned').reduce((n, g) => n + g.pieces, 0))}</b><small>ไม่มี SKU / ยังไม่ระบุร้าน</small></div>
+            <div className="kpi"><span>ต้องตรวจสอบ</span><b className={review || groups.some((g) => g.kind === 'unassigned') ? 'bad' : 'good'}>{num((review?.pieces ?? 0) + groups.filter((g) => g.kind === 'unassigned').reduce((n, g) => n + g.pieces, 0))}</b><small>ไม่มี SKU / ยังไม่ระบุร้าน · <a href="/catalog/todo">งานค้างทั้งหมด</a></small></div>
           </div>
 
           <section className="card po-actions">
@@ -443,6 +444,7 @@ export function OrdersApp() {
               missing={missing} onMissing={canEdit ? setLineMissing : null} onPrice={canEdit ? setPrice : null}
               onLabel={(l) => (l.tab && !l.sku.startsWith('?') ? (canEdit ? setLabel : null) : (!viewing || canEdit ? setLabel : null))}
               canRemember={canEdit} movable={!viewing || canEdit} targets={targets} onMove={moveLine}
+              matchRows={allRows} onMatched={canEdit ? (a) => setMeta((m) => (m ? { ...m, aliases: [a, ...m.aliases.filter((x) => x.alias !== a.alias)] } : m)) : null}
               onSupplier={setSupplier} onExcel={() => exportExcel(g)} onPrint={() => print(g)} busy={!!busy}
               onPictures={() => { save(); setPictures(g); }}
             />
@@ -494,11 +496,12 @@ export function OrdersApp() {
 
 // ---- one supplier / warehouse ----
 
-function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPrice, onLabel, canRemember, movable, targets, onMove, onSupplier, onExcel, onPrint, onPictures, busy }: {
+function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPrice, onLabel, canRemember, movable, targets, onMove, matchRows, onMatched, onSupplier, onExcel, onPrint, onPictures, busy }: {
   group: PurchaseGroup; open: boolean; onToggle: () => void; found: Set<string>; missing: Map<string, number>; onMissing: ((l: PurchaseLine, n: number) => Promise<void>) | null;
   onPrice: ((l: PurchaseLine, price: number | null) => Promise<void>) | null;
   onLabel: (l: PurchaseLine) => ((l: PurchaseLine, text: string) => Promise<void>) | null;
   canRemember: boolean; movable: boolean; targets: string[]; onMove: (sku: string, to: string) => void;
+  matchRows: CatalogRow[]; onMatched: ((a: CatalogAlias) => void) | null;
   onSupplier: (items: { tab: string; spu: string }[], shop: string) => Promise<void>; onExcel: () => void; onPrint: () => void; onPictures: () => void; busy: boolean;
 }) {
   const rowsOnSheet = sheetRows(g).length;
@@ -599,6 +602,10 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
                           <div className="po-move">
                             <ShopInput placeholder="เลือกหรือพิมพ์" action="ย้าย" remember={canRemember && g.kind !== 'review'} onSubmit={(to, remember) => move(l, to, remember)} />
                             {l.moved && <button className="link small" onClick={() => onMove(l.sku, '')}>ย้อนกลับไป {l.from}</button>}
+                            {g.kind === 'review' && !l.sku.startsWith('?') && onMatched && (
+                              <SkuMatch alias={l.sku} rows={matchRows} onMatched={onMatched}
+                                initialQuery={(() => { const o = optionParts(l.note.split(' · ').slice(1).join(' · ')); return `${o.model} ${o.size}`.trim(); })()} />
+                            )}
                             {g.kind === 'review' && !l.sku.startsWith('?') && <a className="small" href={`/catalog?q=${encodeURIComponent(l.sku)}&add=1`} target="_blank" rel="noreferrer">+ เพิ่มในแคตตาล็อก</a>}
                           </div>
                         </td>

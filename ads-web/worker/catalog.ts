@@ -74,8 +74,8 @@ export async function catalogVersion(db: D1Database): Promise<string> {
   return (await db.prepare("SELECT value FROM settings WHERE key = 'catalog_version'").first<string>('value')) ?? '';
 }
 
-export async function catalogMeta(db: D1Database, fallbackSheet = ''): Promise<{ version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; prices: CatalogPrice[]; labels: CatalogLabel[]; sheet_configured: boolean }> {
-  const [version, tabs, web, sheet, images, suppliers, prices, labels] = await Promise.all([
+export async function catalogMeta(db: D1Database, fallbackSheet = ''): Promise<{ version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; prices: CatalogPrice[]; labels: CatalogLabel[]; aliases: CatalogAlias[]; sheet_configured: boolean }> {
+  const [version, tabs, web, sheet, images, suppliers, prices, labels, aliases] = await Promise.all([
     catalogVersion(db),
     db.prepare('SELECT tab, gid, sort, skus, synced_at, synced_by FROM catalog_tabs ORDER BY sort, tab').all<CatalogTab>(),
     db.prepare('SELECT * FROM catalog_web ORDER BY created_at DESC').all<WebSku>(),
@@ -84,8 +84,9 @@ export async function catalogMeta(db: D1Database, fallbackSheet = ''): Promise<{
     listSuppliers(db),
     listPrices(db),
     listLabels(db),
+    listAliases(db),
   ]);
-  return { version, tabs: tabs.results, web: web.results, images, suppliers, prices, labels, sheet_configured: !!sheet };
+  return { version, tabs: tabs.results, web: web.results, images, suppliers, prices, labels, aliases, sheet_configured: !!sheet };
 }
 
 /** A page of one tab's rows as arrays in ROW_FIELDS order; `next` is the SKU to continue after. */
@@ -407,4 +408,34 @@ export async function saveLabels(db: D1Database, input: any, user: string): Prom
   if (clear.length) statements.push(db.prepare('DELETE FROM catalog_labels WHERE key IN (SELECT value FROM json_each(?1))').bind(JSON.stringify(clear)));
   await db.batch(statements);
   return set;
+}
+
+// ---- another system's SKU matched to ours (Lazada ids, typos, old codes) ----
+
+export interface CatalogAlias { alias: string; sku: string; created_by: string; created_at: string }
+
+export async function listAliases(db: D1Database): Promise<CatalogAlias[]> {
+  return (await db.prepare('SELECT alias, sku, created_by, created_at FROM catalog_aliases ORDER BY created_at DESC').all<CatalogAlias>()).results;
+}
+
+/** Match `alias` to our `sku` (which must exist in the catalog); an empty sku removes the match. */
+export async function saveAlias(db: D1Database, input: any, user: string): Promise<CatalogAlias | null> {
+  const alias = skuKey(input?.alias);
+  if (!alias || alias.length > 120) throw new BadRequest('ไม่มี SKU ที่จะจับคู่');
+  const sku = cleanSku(input?.sku);
+  if (!sku) {
+    await db.prepare('DELETE FROM catalog_aliases WHERE alias = ?1').bind(alias).run();
+    return null;
+  }
+  if (skuKey(sku) === alias) throw new BadRequest('SKU นี้มีในแคตตาล็อกอยู่แล้ว ไม่ต้องจับคู่');
+  const ours = await db.prepare(
+    `SELECT sku FROM catalog WHERE upper(sku) = upper(?1) UNION ALL SELECT sku FROM catalog_web WHERE upper(sku) = upper(?1) LIMIT 1`,
+  ).bind(sku).first<{ sku: string }>();
+  if (!ours) throw new BadRequest(`ไม่พบ SKU ${sku} ในแคตตาล็อก`);
+  const now = new Date().toISOString();
+  await db.prepare(
+    `INSERT INTO catalog_aliases (alias, sku, created_by, created_at) VALUES (?1, ?2, ?3, ?4)
+     ON CONFLICT (alias) DO UPDATE SET sku = excluded.sku, created_by = excluded.created_by, created_at = excluded.created_at`,
+  ).bind(alias, ours.sku, user, now).run();
+  return { alias, sku: ours.sku, created_by: user, created_at: now };
 }

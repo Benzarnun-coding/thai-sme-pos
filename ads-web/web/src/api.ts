@@ -305,8 +305,9 @@ export interface CatalogTab { tab: string; gid: string; sort: number; skus: numb
 export interface CatalogImage { key: string; tab: string; spu: string; url: string | null; uploaded: boolean; bytes: number; updated_by: string; updated_at: string }
 export interface CatalogSupplier { key: string; tab: string; spu: string; shop: string; updated_by: string; updated_at: string }
 export interface CatalogPrice { key: string; tab: string; spu: string; price: number; updated_by: string; updated_at: string }
+export interface CatalogAlias { alias: string; sku: string; created_by: string; created_at: string }
 export interface CatalogLabel { key: string; tab: string; spu: string; label: string; updated_by: string; updated_at: string }
-export interface CatalogMeta { version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; prices: CatalogPrice[]; labels: CatalogLabel[]; sheet_configured: boolean }
+export interface CatalogMeta { version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; prices: CatalogPrice[]; labels: CatalogLabel[]; aliases: CatalogAlias[]; sheet_configured: boolean }
 export type PurchaseKind = 'supplier' | 'warehouse' | 'unassigned' | 'review';
 export interface SalesData {
   from: string; to: string;
@@ -341,6 +342,7 @@ export const api = {
   },
   linkCatalogImage: (tab: string, spu: string, url: string) => call<{ image: CatalogImage }>('POST', '/api/catalog/image', { tab, spu, url }),
   deleteCatalogImage: (tab: string, spu: string) => call<{ ok: true }>('DELETE', `/api/catalog/image?tab=${encodeURIComponent(tab)}&spu=${encodeURIComponent(spu)}`),
+  setAlias: (alias: string, sku: string) => call<{ alias: CatalogAlias | null }>('PUT', '/api/catalog/alias', { alias, sku }),
   setLabels: (items: { tab: string; spu: string; label: string }[]) => call<{ labels: CatalogLabel[] }>('PUT', '/api/catalog/label', { items }),
   setPrices: (items: { tab: string; spu: string; price: number | null }[]) => call<{ prices: CatalogPrice[] }>('PUT', '/api/catalog/price', { items }),
   setSuppliers: (items: { tab: string; spu: string; shop: string }[]) => call<{ suppliers: CatalogSupplier[] }>('PUT', '/api/catalog/supplier', { items }),

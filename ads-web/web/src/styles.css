@@ -924,3 +924,13 @@ tr:hover .po-label-btn { opacity: 1; }
 .po-search-results h3 { margin: 12px 0 6px; }
 .po-search-results .data-table td { padding: 6px 10px; }
 .data-table tr.po-found td { background: color-mix(in srgb, var(--accent-soft) 85%, transparent); box-shadow: inset 0 0 0 1px var(--accent); }
+
+/* SKU matching (order page ตรวจสอบ rows, งานค้าง) */
+.sku-match { display: grid; gap: 6px; min-width: 260px; max-width: 420px; margin: 4px 0; }
+.sku-match input { font-size: 13px; padding: 4px 8px; min-height: 32px; }
+.sku-match-list { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; }
+.sku-match-item { display: grid; gap: 1px; justify-items: start; justify-content: stretch; flex: none; text-align: left; padding: 6px 8px; height: auto; min-height: 36px; line-height: 1.35; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: inherit; font-weight: 400; cursor: pointer; }
+.sku-match-item:hover, .sku-match-item:focus-visible { border-color: var(--accent); background: var(--accent-soft); }
+.sku-match-item code { font-size: 13px; }
+.sku-match > .link { justify-self: start; }
+.todo-card.done .table-card-head button { opacity: .75; }

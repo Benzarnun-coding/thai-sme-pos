@@ -27,7 +27,7 @@ import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, p
 import { PRIVACY_HTML } from './privacy.ts';
 import { parseRange, salesData } from './sales.ts';
 import { deletePurchase, findOrders, ledger, listPurchases, orderTerms, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
-import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
+import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveAlias, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatSummary, purgeChats } from './chatLog.ts';
 import { familyStats, postIdeas, postIdeasText } from './postIdeas.ts';
@@ -639,6 +639,12 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     if (!(await deleteImage(env.DB, key))) return json({ error: 'ไม่พบรูปที่เพิ่มไว้' }, 404);
     await audit(env.DB, user, 'catalog.image.delete', key, {});
     return json({ ok: true });
+  }
+  if (method === 'PUT' && path === '/api/catalog/alias') {
+    const input = await body();
+    const saved = await saveAlias(env.DB, input, user);
+    await audit(env.DB, user, saved ? 'catalog.alias' : 'catalog.alias.delete', String(input?.alias ?? ''), saved ?? {});
+    return json({ alias: saved });
   }
   if (method === 'PUT' && path === '/api/catalog/label') {
     const saved = await saveLabels(env.DB, await body(), user);
