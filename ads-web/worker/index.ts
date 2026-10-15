@@ -42,6 +42,7 @@ import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCa
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
 import { autoFillNote, autoFillOn, customerFor, setAutoFill } from './autoFill.ts';
 import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './metaPurchases.ts';
+import { captureSource, planNotePurchases } from './notePurchases.ts';
 import { adjustmentDays, seedFromSent } from './metaAdjust.ts';
 import { pageOf, receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
@@ -627,6 +628,25 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const r = await sendOne(env, no).catch((err) => { throw new BadRequest(err.message); });
     await audit(env.DB, user, 'meta.capi.send_one', String(no), r);
     return json(r);
+  }
+  // When a sale is sent: at the admin's note (default) or when the bill is sent. Preview = today's notes, nothing sent.
+  if (path === '/api/meta/purchases/source' && method === 'GET') return json({ source: await captureSource(env.DB) });
+  if (path === '/api/meta/purchases/source' && method === 'PUT') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const source = (await body())?.source === 'bill' ? 'bill' : 'note';
+    await env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('source', ?)").bind(source).run();
+    await audit(env.DB, user, 'meta.capi.source', source, {});
+    return json({ source });
+  }
+  if (path === '/api/meta/purchases/note-preview' && method === 'GET') {
+    const date = url.searchParams.get('date') ?? bkkDate(0);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
+    const notes = await loadNotes(env.DB, date);
+    const plan = await planNotePurchases(env.DB, notes);
+    const sent = await env.DB.prepare("SELECT mid, status, detail FROM note_purchases WHERE at >= ? AND at < ?").bind(new Date(`${date}T00:00:00+07:00`).toISOString(), new Date(Date.parse(`${date}T00:00:00+07:00`) + 86_400_000).toISOString()).all<{ mid: string; status: string; detail: string | null }>();
+    const st = new Map(sent.results.map((r) => [r.mid, r]));
+    const text = new Map(notes.map((n) => [n.mid, n.text.replace(/\s+/g, ' ')]));
+    return json({ date, source: await captureSource(env.DB), rows: plan.map((p) => ({ ...p, text: text.get(p.mid), status: st.get(p.mid)?.status ?? null, detail: st.get(p.mid)?.detail ?? null })) });
   }
   if (path === '/api/meta/purchases/sync' && method === 'POST') {
     const dry = url.searchParams.get('dry') === '1';

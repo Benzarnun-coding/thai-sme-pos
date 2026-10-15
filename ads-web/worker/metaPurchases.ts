@@ -152,6 +152,9 @@ export async function syncPurchases(env: CapiEnv, opts: { dry?: boolean } = {}):
 export async function maybeSyncPurchases(env: CapiEnv): Promise<void> {
   const cfg = await loadCapi(env.DB);
   if (cfg.mode !== 'live' || !cfg.dataset_id || !env.P365_COOKIE) return;
+  // Sales are sent when the admin types the note (notePurchases.ts) unless the source is set to the bill.
+  const src = await env.DB.prepare("SELECT value FROM meta_capi WHERE key = 'source'").first<{ value: string }>().catch(() => null);
+  if (src?.value !== 'bill') return;
   if (cfg.last_sync && Date.now() - Date.parse(cfg.last_sync) < SYNC_EVERY_MS) return;
   // Claim the slot first so overlapping deliveries don't both run.
   const claim = await env.DB.prepare('INSERT INTO meta_capi (key, value) VALUES (\'last_sync\', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1 WHERE value = ?2')
