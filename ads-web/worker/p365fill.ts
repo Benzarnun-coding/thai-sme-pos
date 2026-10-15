@@ -228,7 +228,7 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   // The price agreed in the chat wins: a note whose total differs (other than by the COD fee) is not filled.
   const chat_total = chatTotal(chat, note.at);
   if (total != null && chat_total != null && chat_total !== total && chat_total + shipping !== total) problems.push(`ในแชทตกลงยอด ${chat_total} แต่สรุปไว้ ${total} — เช็กกับลูกค้า/แอดมิน`);
-  else if (total != null && chat_total == null && chat.length) warnings.push('ไม่เจอยอดที่ตกลงในแชท — เช็กราคาเอง');
+  // No total written in the chat is fine: the admin's note is the trigger and its total is the price (Benz 15 Oct).
 
   // Address: Page365's own when complete, else read from the chat (typed or a photo).
   let address: PlanAddress | null = draft ? draftAddress(draft) : null;
