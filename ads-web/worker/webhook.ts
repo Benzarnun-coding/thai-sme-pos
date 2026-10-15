@@ -58,9 +58,10 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
 
   const rows = extractReferrals(body.entry ?? []);
   const notes = extractOrderNotes(body.entry ?? []);
+  const echoes = (body.entry ?? []).reduce((n, e) => n + [...(e.messaging ?? []), ...(e.standby ?? [])].filter((ev) => ev.message?.is_echo).length, 0);
   const events = (body.entry ?? []).reduce((n, e) => n + (e.messaging?.length ?? 0) + (e.standby?.length ?? 0), 0);
   // Answer Meta right away; the writes finish in the background (Meta retries deliveries that get no 200).
-  ctx.waitUntil(store(env, rows, events, notes).catch((err) => console.error('webhook store', err)));
+  ctx.waitUntil(store(env, rows, events, notes, echoes).catch((err) => console.error('webhook store', err)));
   return new Response('ok', { status: 200 });
 }
 
@@ -107,7 +108,7 @@ function eventTime(ts: number | undefined): string {
   return new Date(ts < 1e11 ? ts * 1000 : ts).toISOString();
 }
 
-async function store(env: WebhookEnv, rows: ReferralRow[], events: number, notes: StoredNote[] = []): Promise<void> {
+async function store(env: WebhookEnv, rows: ReferralRow[], events: number, notes: StoredNote[] = [], echoes = 0): Promise<void> {
   const now = new Date().toISOString();
   const stmts = [
     bump(env.DB, 'events_total', events),
@@ -126,6 +127,8 @@ async function store(env: WebhookEnv, rows: ReferralRow[], events: number, notes
       env.DB.prepare('INSERT OR REPLACE INTO webhook_status (key, value) VALUES (?, ?)').bind('last_referral_at', now),
     );
   }
+  // Messages the page sent (any app): shows whether Meta delivers echoes at all, notes or not.
+  if (echoes) stmts.push(bump(env.DB, 'echoes_total', echoes), env.DB.prepare('INSERT OR REPLACE INTO webhook_status (key, value) VALUES (?, ?)').bind('last_echo_at', now));
   if (notes.length) {
     const hashes = await nameHashes(env, [...new Set(notes.map((n) => n.psid))]);
     for (const n of notes) n.name_hash = hashes.get(n.psid) ?? null;
@@ -204,6 +207,8 @@ export interface WebhookStatus {
   events_total: number;
   referrals_total: number;
   order_notes_total: number;
+  echoes_total: number;
+  last_echo_at: string | null;
   last_event_at: string | null;
   last_referral_at: string | null;
   last_order_note_at: string | null;
@@ -223,6 +228,8 @@ export async function webhookStatus(env: WebhookEnv, callbackUrl: string): Promi
     events_total: Number(kv.events_total ?? 0),
     referrals_total: Number(kv.referrals_total ?? 0),
     order_notes_total: Number(kv.order_notes_total ?? 0),
+    echoes_total: Number(kv.echoes_total ?? 0),
+    last_echo_at: kv.last_echo_at ?? null,
     last_event_at: kv.last_event_at ?? null,
     last_referral_at: kv.last_referral_at ?? null,
     last_order_note_at: kv.last_order_note_at ?? null,

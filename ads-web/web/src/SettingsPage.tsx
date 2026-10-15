@@ -268,6 +268,7 @@ function WebhookCard() {
             <div><div className="small muted">เหตุการณ์ที่รับมาทั้งหมด</div><b>{st.events_total.toLocaleString('th-TH')}</b>{st.last_event_at && <span className="small muted"> · ล่าสุด {when(st.last_event_at)}</span>}</div>
             <div><div className="small muted">ลูกค้าทักจากแอด</div><b>{st.referrals_total.toLocaleString('th-TH')}</b>{st.last_referral_at && <span className="small muted"> · ล่าสุด {when(st.last_referral_at)}</span>}</div>
             <div><div className="small muted">บรรทัดสรุปออเดอร์ที่แอดมินพิมพ์</div><b>{st.order_notes_total.toLocaleString('th-TH')}</b>{st.last_order_note_at && <span className="small muted"> · ล่าสุด {when(st.last_order_note_at)}</span>}</div>
+            <div><div className="small muted">ข้อความที่เพจส่ง (ทั้งหมด)</div><b>{st.echoes_total.toLocaleString('th-TH')}</b>{st.last_echo_at && <span className="small muted"> · ล่าสุด {when(st.last_echo_at)}</span>}</div>
           </div>
           {connected && st.echoes_missing && <p className="small warn">ยังไม่ได้รับข้อความที่เพจตอบ (message_echoes) — กด "เชื่อมต่อใหม่" เพื่อเริ่มเก็บบรรทัดสรุปออเดอร์</p>}
           {!ready && (

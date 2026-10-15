@@ -23,6 +23,10 @@ test('the admins\' notes as typed in Page365 chats on 15 Oct 2026', () => {
   assert.deepEqual(short('200  36\n111  36\n222  36\n301/3  36\n301/1  36\ncod  1299')?.items.length, 5);
   assert.equal(short('009-1-2  30\ncod299')?.total, 299);
   assert.equal(short('301/1 34 1 โอน 199')?.payment, 'transfer');
+  assert.deepEqual(short('D01 D02 sz30\ncod 448')?.items, ['D01 30 ×1', 'D02 30 ×1']);
+  assert.deepEqual(short('501/1 เอว32\ncod 249')?.items, ['5011 32 ×1']);
+  // Item lines it can't read: kept, all flagged, so the miss shows in the log.
+  assert.deepEqual(short('501/1 ?? \ncod 249'), { items: [], payment: 'cod', total: 249, unknown: ['501/1 ??'] });
 });
 
 test('chat that is not just an order note is never taken (keeps addresses out of storage)', () => {
@@ -30,6 +34,8 @@ test('chat that is not just an order note is never taken (keeps addresses out of
   assert.equal(parseOrderNote('โอน 319 ปลายทาง 369'), null);
   assert.equal(parseOrderNote('501/1 32\nบ้านเลขที่ 22/6 ม.1\ncod 249'), null);
   assert.equal(parseOrderNote('ขอบคุณค่ะ'), null);
+  assert.equal(parseOrderNote('John Smith\n0812345678\ncod 249'), null);
+  assert.equal(parseOrderNote('501/1 32\n10110\ncod 249'), null);
   assert.equal(parseOrderNote(''), null);
   assert.equal(parseOrderNote('501/1 32\n501 ดำ?\ncod 249'), null);
   // A line in codes the parser doesn't follow is kept but flagged, so the team can see what it misses.

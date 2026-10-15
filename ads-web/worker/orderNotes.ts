@@ -12,7 +12,9 @@ import type { OrderItem, StoredOrder } from './p365.ts';
 export interface NoteItem { code: string; prefix: string; size: string; qty: number }
 export interface ParsedNote { items: NoteItem[]; payment: 'cod' | 'transfer' | null; total: number | null; unknown: string[] }
 
-const SIZE = /^(?:(2[4-9]|[34]\d|50)|xs|s|m|l|xl|xxl|[2-5]xl|f|free)$/i;
+// "30", "sz30", "size30", "w30", "เอว30" — a size, written with or without a prefix.
+const SIZE_WORD = /^(?:sz|size|w|เอว|ไซส์|ไซซ์)\.?/i;
+const SIZE = /^(?:sz|size|w|เอว|ไซส์|ไซซ์)?\.?(?:(2[4-9]|[34]\d|50)|xs|s|m|l|xl|xxl|[2-5]xl|f|free)$/i;
 const CODE = /^[a-z]{0,4}\d+[a-z0-9]*(?:[/-][a-z0-9]+)*$/i;
 
 /** One message → its items, or null when it is not an order note (no payment + total, or other text in it). */
@@ -29,11 +31,15 @@ export function parseOrderNote(text: string | null | undefined): ParsedNote | nu
   const unknown: string[] = [];
   for (const line of lines) {
     // Thai letters or anything long → not an order note at all (keeps addresses and chat out of storage).
-    if (line.length > 60 || /[฀-๿]/.test(line)) return null;
+    if (line.length > 60 || /[฀-๿]/.test(line.replace(/เอว|ไซส์|ไซซ์/g, ''))) return null;
     const parsed = parseLine(line);
-    if (parsed) items.push(...parsed); else unknown.push(line);
+    if (parsed) { items.push(...parsed); continue; }
+    // An unread line is kept only if it can't be customer details: no phone/postcode-length numbers, no @, and
+    // every word either has a digit or is short ("501 ดำ", a name or a phone number → the whole message is dropped).
+    if (/\d{5,}|@/.test(line) || !line.split(/\s+/).every((w) => /\d/.test(w) || w.length <= 4)) return null;
+    unknown.push(line);
   }
-  if (!items.length) return null;
+  // A note whose item lines can't be read is still kept (shown as unread), so misses are visible.
   return { items, payment: /cod|ปลายทาง/i.test(pay[1]) ? 'cod' : 'transfer', total: Number(pay[2]), unknown };
 }
 
@@ -47,7 +53,7 @@ function parseLine(line: string): NoteItem[] | null {
   if (rest.length > 1 || (rest.length === 1 && !/^(?:[1-9]|1\d|20)$/.test(rest[0]))) return null;
   if (!codes.every((c) => CODE.test(c) && !SIZE.test(c))) return null;
   const qty = rest.length ? Number(rest[0]) : 1;
-  const size = tok[sizeAt].toUpperCase();
+  const size = tok[sizeAt].replace(SIZE_WORD, '').toUpperCase();
   return codes.flatMap((c) => expandCode(c)).map((code) => ({ code, prefix: skuPrefix(code), size, qty }));
 }
 

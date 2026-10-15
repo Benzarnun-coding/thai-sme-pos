@@ -254,6 +254,8 @@ export interface WebhookStatus {
   events_total: number;
   referrals_total: number;
   order_notes_total: number;
+  echoes_total: number;
+  last_echo_at: string | null;
   last_event_at: string | null;
   last_referral_at: string | null;
   last_order_note_at: string | null;
