@@ -74,8 +74,8 @@ export async function catalogVersion(db: D1Database): Promise<string> {
   return (await db.prepare("SELECT value FROM settings WHERE key = 'catalog_version'").first<string>('value')) ?? '';
 }
 
-export async function catalogMeta(db: D1Database, fallbackSheet = ''): Promise<{ version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; prices: CatalogPrice[]; sheet_configured: boolean }> {
-  const [version, tabs, web, sheet, images, suppliers, prices] = await Promise.all([
+export async function catalogMeta(db: D1Database, fallbackSheet = ''): Promise<{ version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; prices: CatalogPrice[]; labels: CatalogLabel[]; sheet_configured: boolean }> {
+  const [version, tabs, web, sheet, images, suppliers, prices, labels] = await Promise.all([
     catalogVersion(db),
     db.prepare('SELECT tab, gid, sort, skus, synced_at, synced_by FROM catalog_tabs ORDER BY sort, tab').all<CatalogTab>(),
     db.prepare('SELECT * FROM catalog_web ORDER BY created_at DESC').all<WebSku>(),
@@ -83,8 +83,9 @@ export async function catalogMeta(db: D1Database, fallbackSheet = ''): Promise<{
     listImages(db),
     listSuppliers(db),
     listPrices(db),
+    listLabels(db),
   ]);
-  return { version, tabs: tabs.results, web: web.results, images, suppliers, prices, sheet_configured: !!sheet };
+  return { version, tabs: tabs.results, web: web.results, images, suppliers, prices, labels, sheet_configured: !!sheet };
 }
 
 /** A page of one tab's rows as arrays in ROW_FIELDS order; `next` is the SKU to continue after. */
@@ -377,4 +378,33 @@ export async function savePrices(db: D1Database, input: any, user: string): Prom
   if (clear.length) statements.push(db.prepare('DELETE FROM catalog_prices WHERE key IN (SELECT value FROM json_each(?1))').bind(JSON.stringify(clear)));
   await db.batch(statements);
   return set as CatalogPrice[];
+}
+
+// ---- what a product is called on the order sheets (typed on the order page) ----
+
+export interface CatalogLabel { key: string; tab: string; spu: string; label: string; updated_by: string; updated_at: string }
+
+export async function listLabels(db: D1Database): Promise<CatalogLabel[]> {
+  return (await db.prepare('SELECT key, tab, spu, label, updated_by, updated_at FROM catalog_labels').all<CatalogLabel>()).results;
+}
+
+/** Several products at once; an empty label removes it (back to code + colour from the catalog). */
+export async function saveLabels(db: D1Database, input: any, user: string): Promise<CatalogLabel[]> {
+  const list: unknown[] = Array.isArray(input?.items) ? input.items : [input];
+  if (!list.length || list.length > 200) throw new BadRequest('ส่งได้ครั้งละ 1–200 สินค้า');
+  const now = new Date().toISOString();
+  const items = list.map((x: any) => ({ ...imageKey(x?.tab, x?.spu), label: cleanText(x?.label, 120) }));
+  const set = items.filter((i) => i.label).map((i) => ({ ...i, updated_by: user, updated_at: now }));
+  const clear = items.filter((i) => !i.label).map((i) => i.key);
+  const statements: D1PreparedStatement[] = [];
+  if (set.length) {
+    statements.push(db.prepare(
+      `INSERT INTO catalog_labels (key, tab, spu, label, updated_by, updated_at)
+       SELECT value ->> '$.key', value ->> '$.tab', value ->> '$.spu', value ->> '$.label', value ->> '$.updated_by', value ->> '$.updated_at' FROM json_each(?1) WHERE true
+       ON CONFLICT (key) DO UPDATE SET label = excluded.label, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+    ).bind(JSON.stringify(set)));
+  }
+  if (clear.length) statements.push(db.prepare('DELETE FROM catalog_labels WHERE key IN (SELECT value FROM json_each(?1))').bind(JSON.stringify(clear)));
+  await db.batch(statements);
+  return set;
 }

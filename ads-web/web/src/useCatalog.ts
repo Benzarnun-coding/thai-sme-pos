@@ -54,7 +54,9 @@ export function useCatalog() {
   const supplierMap = useMemo(() => new Map((suppliers ?? []).map((s) => [s.key, s.shop])), [suppliers]);
   const prices = meta?.prices;
   const priceMap = useMemo(() => new Map((prices ?? []).map((p) => [p.key, p.price])), [prices]);
+  const labels = meta?.labels;
+  const labelMap = useMemo(() => new Map((labels ?? []).map((l) => [l.key, l.label])), [labels]);
   const canEdit = role === 'owner' || role === 'admin' || role === 'costs';
 
-  return { meta, setMeta, rows, setRows, loading, error, load, role, canEdit, imageMap, supplierMap, priceMap };
+  return { meta, setMeta, rows, setRows, loading, error, load, role, canEdit, imageMap, supplierMap, priceMap, labelMap };
 }

@@ -40,7 +40,7 @@ function fromSaved(l: SavedPurchaseLine): PurchaseLine {
 export function OrdersApp() {
   useEffect(() => { document.title = 'ใบสั่งสินค้า'; }, []);
   const { toast, confirm } = useUi();
-  const { meta, setMeta, rows, loading, error, canEdit, role, supplierMap, imageMap, priceMap } = useCatalog();
+  const { meta, setMeta, rows, loading, error, canEdit, role, supplierMap, imageMap, priceMap, labelMap } = useCatalog();
   const [data, setData] = useState<Loaded | null>(null);
   const [history, setHistory] = useState<PurchaseUpload[]>([]);
   const [viewing, setViewing] = useState<FromHistory | null>(null);
@@ -65,7 +65,7 @@ export function OrdersApp() {
 
   // Sheet rows + SKUs added on the page, so a SKU added this morning already lands on the right sheet.
   const allRows = useMemo<CatalogRow[]>(() => [...rows, ...(meta?.web ?? []).map((w) => webToRow(w, 0))], [rows, meta?.web]);
-  const lookup = useMemo(() => makeLookup(allRows, supplierMap, priceMap), [allRows, supplierMap, priceMap]);
+  const lookup = useMemo(() => makeLookup(allRows, supplierMap, priceMap, labelMap), [allRows, supplierMap, priceMap, labelMap]);
   // Photo, code and colour per SKU for picture sheets: a picture added on the page, else column J of any size.
   const productInfo = useMemo(() => {
     const firstImage = new Map<string, string>();
@@ -81,7 +81,10 @@ export function OrdersApp() {
   // Moves (out of stock → another supplier, ตรวจสอบ rows …) apply to a new upload and to a round reopened from history.
   const baseLines = useMemo(() => (viewing ? viewing.lines : data ? buildLines(data.items, lookup) : []), [viewing, data, lookup]);
   // Price per piece is always the current one (typed on the page > ทุน H); it is stored with the round when saved.
-  const lines = useMemo(() => withPrices(applyMoves(baseLines, moves, warehouses, lookup), lookup), [baseLines, moves, warehouses, lookup]);
+  // Names typed for rows that are not in the catalog (ตรวจสอบ) apply to this round only: Bigseller SKU → name.
+  const [labelEdits, setLabelEdits] = useState<Map<string, string>>(new Map());
+  const lines = useMemo(() => withPrices(applyMoves(baseLines, moves, warehouses, lookup), lookup)
+    .map((l) => (labelEdits.get(l.sku) ? { ...l, label: labelEdits.get(l.sku)! } : l)), [baseLines, moves, warehouses, lookup, labelEdits]);
   const groups = useMemo(() => groupLines(lines), [lines]);
   const pieces = groups.reduce((n, g) => n + g.pieces, 0);
   const pia = useMemo(() => missingGroup(lines, missing, lookup), [lines, missing, lookup]);
@@ -122,6 +125,7 @@ export function OrdersApp() {
       setViewing(null);
       setMoves(new Map());
       setMissingMap(new Map());
+      setLabelEdits(new Map());
       setData({ file: file.name, items });
       setDate(d);
       setRound(same ? same.round : nextRound(d));
@@ -131,6 +135,8 @@ export function OrdersApp() {
         const { lines: saved } = await api.purchaseLines(same.id);
         const fresh = new Map(buildLines(items, lookup).map((l) => [l.sku, l.group]));
         setMoves(new Map(saved.filter((l) => fresh.has(l.sku) && fresh.get(l.sku) !== l.grp).map((l) => [l.sku, l.grp])));
+        // names typed for rows not in the catalog (catalog products get theirs from catalog_labels)
+        setLabelEdits(new Map(saved.filter((l) => !l.tab && l.label && l.label !== '(ไม่มี SKU)' && l.label !== l.sku && !l.label.startsWith(spuOf(l.sku))).map((l) => [l.sku, l.label])));
         setMissingMap(new Map(saved.filter((l) => l.missing > 0).map((l) => [lineKey({ sku: l.sku }), l.missing])));
         toast(`ไฟล์นี้เคยบันทึกเป็น ${thaiShortDate(same.date)} รอบ ${same.round} · เปิดรอบเดิมพร้อมการย้ายร้านและติ๊กของไม่มี · ดาวน์โหลด/พิมพ์/ติ๊ก จะอัปเดตรอบนี้ (เติมเลขคำสั่งซื้อ)`, 'info');
       }
@@ -189,6 +195,25 @@ export function OrdersApp() {
     const t = setTimeout(() => window.print(), 50);
     return () => { clearTimeout(t); window.removeEventListener('afterprint', done); };
   }, [printing]);
+
+  /**
+   * What the sheets call a row. A catalog product: remembered for every size and every day (empty = back to code +
+   * colour). A row not in the catalog: this round only.
+   */
+  async function setLabel(l: PurchaseLine, text: string) {
+    const name = text.trim();
+    if (!l.tab || l.sku.startsWith('?')) {
+      setLabelEdits((m) => { const n = new Map(m); if (name) n.set(l.sku, name); else n.delete(l.sku); return n; });
+      return;
+    }
+    const spu = spuOf(l.sku), key = `${l.tab}|${spu}`;
+    try {
+      await api.setLabels([{ tab: l.tab, spu, label: name }]);
+      const now = new Date().toISOString();
+      setMeta((m) => (m ? { ...m, labels: [...m.labels.filter((x) => x.key !== key), ...(name ? [{ key, tab: l.tab, spu, label: name, updated_by: '', updated_at: now }] : [])] } : m));
+      toast(name ? `เปลี่ยนชื่อในใบสั่งเป็น "${name}" · ทุกไซส์ ใช้ทุกวัน` : 'กลับไปใช้รหัส + สีจากแคตตาล็อก', 'ok');
+    } catch (e: any) { toast(e.message, 'bad'); }
+  }
 
   /** Cost per piece for a product (every size), remembered; empty = back to ทุน (H) from the sheet. */
   async function setPrice(l: PurchaseLine, price: number | null) {
@@ -255,6 +280,7 @@ export function OrdersApp() {
       setSavedSig('');
       setViewing({ upload: u, lines: saved.map(fromSaved) });
       setMoves(new Map());
+      setLabelEdits(new Map());
       setMissingMap(new Map(saved.filter((l) => l.missing > 0).map((l) => [lineKey({ sku: l.sku }), l.missing])));
       setData(null);
       setDate(u.date);
@@ -399,6 +425,7 @@ export function OrdersApp() {
             <GroupCard
               key={g.name} group={g} open={open.has(g.name)} onToggle={() => toggle(g.name)}
               missing={missing} onMissing={canEdit ? setLineMissing : null} onPrice={canEdit ? setPrice : null}
+              onLabel={(l) => (l.tab && !l.sku.startsWith('?') ? (canEdit ? setLabel : null) : (!viewing || canEdit ? setLabel : null))}
               canRemember={canEdit} movable={!viewing || canEdit} targets={targets} onMove={moveLine}
               onSupplier={setSupplier} onExcel={() => exportExcel(g)} onPrint={() => print(g)} busy={!!busy}
               onPictures={() => { save(); setPictures(g); }}
@@ -451,9 +478,10 @@ export function OrdersApp() {
 
 // ---- one supplier / warehouse ----
 
-function GroupCard({ group: g, open, onToggle, missing, onMissing, onPrice, canRemember, movable, targets, onMove, onSupplier, onExcel, onPrint, onPictures, busy }: {
+function GroupCard({ group: g, open, onToggle, missing, onMissing, onPrice, onLabel, canRemember, movable, targets, onMove, onSupplier, onExcel, onPrint, onPictures, busy }: {
   group: PurchaseGroup; open: boolean; onToggle: () => void; missing: Map<string, number>; onMissing: ((l: PurchaseLine, n: number) => Promise<void>) | null;
   onPrice: ((l: PurchaseLine, price: number | null) => Promise<void>) | null;
+  onLabel: (l: PurchaseLine) => ((l: PurchaseLine, text: string) => Promise<void>) | null;
   canRemember: boolean; movable: boolean; targets: string[]; onMove: (sku: string, to: string) => void;
   onSupplier: (items: { tab: string; spu: string }[], shop: string) => Promise<void>; onExcel: () => void; onPrint: () => void; onPictures: () => void; busy: boolean;
 }) {
@@ -531,7 +559,7 @@ function GroupCard({ group: g, open, onToggle, missing, onMissing, onPrice, canR
                   const firstOfProduct = g.lines.findIndex((x) => `${x.tab}|${spuOf(x.sku)}` === product) === i;
                   return (
                     <tr key={l.sku} className={`${firstOfProduct && i > 0 ? 'group-start' : ''} ${missing.get(lineKey(l)) ? 'po-missing' : ''}`}>
-                      <td>{firstOfProduct || g.kind === 'review' ? <b>{l.label}</b> : <span className="muted">{l.label}</span>}</td>
+                      <td><LabelCell line={l} strong={!!firstOfProduct || g.kind === 'review'} onSave={onLabel(l) ? (text) => onLabel(l)!(l, text) : null} /></td>
                       <td>{l.size || '—'}</td>
                       <td className="num"><b>{num(l.qty)}</b></td>
                       <td className="small">
@@ -567,6 +595,42 @@ function GroupCard({ group: g, open, onToggle, missing, onMissing, onPrice, canR
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * The name on the sheet, editable: a catalog product keeps it for every size and day, a row not in the catalog for
+ * this round only. Empty + save = back to the default.
+ */
+function LabelCell({ line: l, strong, onSave }: { line: PurchaseLine; strong: boolean; onSave: ((text: string) => Promise<void>) | null }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(l.label);
+  const [busy, setBusy] = useState(false);
+  const catalog = !!l.tab && !l.sku.startsWith('?');
+  const save = async () => {
+    if (!onSave) return;
+    if (value.trim() === l.label) { setEditing(false); return; }
+    setBusy(true);
+    try { await onSave(value.trim()); setEditing(false); } finally { setBusy(false); }
+  };
+  if (editing) {
+    return (
+      <span className="po-label-edit">
+        <input value={value} autoFocus disabled={busy} onChange={(e) => setValue(e.target.value)} aria-label="ชื่อในใบสั่ง"
+          onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }} />
+        <span className="po-label-actions">
+          <button className="small primary" disabled={busy} onClick={save}>บันทึก</button>
+          <button className="link small" onClick={() => setEditing(false)}>ยกเลิก</button>
+          <small className="muted">{catalog ? 'ทุกไซส์ · จำไว้ทุกวัน · ลบให้ว่าง = กลับเป็นค่าเดิม' : 'เฉพาะรอบนี้'}</small>
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span className="po-label">
+      {strong ? <b>{l.label}</b> : <span className="muted">{l.label}</span>}
+      {onSave && <button className="link small po-label-btn" onClick={() => { setValue(l.label); setEditing(true); }} title="แก้ชื่อที่จะขึ้นในใบสั่ง">แก้</button>}
+    </span>
   );
 }
 

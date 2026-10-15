@@ -356,3 +356,16 @@ test('ตรวจสอบ rows get their size: from Bigseller\'s option text w
   const [moved] = applyMoves([noSku], new Map([[noSku.sku, 'NBG']]), new Set());
   assert.deepEqual([moved.label, moved.size], ['R55', '31'], 'a moved row keeps its size and shows the model');
 });
+
+test('a name typed for a product replaces code + colour on every sheet, every size', async () => {
+  const { withPrices, missingGroup } = await import('../web/src/purchase.ts');
+  const lookup = makeLookup(CATALOG, new Map(), new Map(), new Map([['PK|5011-PK-MD', 'ยีนส์ 501 มิดไนท์ (ใหม่)']]));
+  const lines = buildLines(readOrderItems(RAW), lookup);
+  const pk = groupLines(lines).find((g) => g.name === 'PK')!;
+  assert.deepEqual(sheetRows(pk).map((r) => `${r.label}/${r.size}`), ['200/3 มิดไนท์ย้อมสนิม/32', 'ยีนส์ 501 มิดไนท์ (ใหม่)/30', 'ยีนส์ 501 มิดไนท์ (ใหม่)/32']);
+  // reopened rounds and the พี่เปีย sheet use it too
+  const reopened = withPrices([{ ...pk.lines[1], label: 'old' }], lookup);
+  assert.equal(reopened[0].label, 'ยีนส์ 501 มิดไนท์ (ใหม่)');
+  const pia = missingGroup(lines, new Map([['5011-PK-MD-30', 1]]), lookup)!;
+  assert.equal(pia.lines[0].label, 'ยีนส์ 501 มิดไนท์ (ใหม่)');
+});

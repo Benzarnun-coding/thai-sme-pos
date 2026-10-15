@@ -153,16 +153,18 @@ export interface Lookup {
   supplierTabs: Set<string>;
   /** product key → price per piece typed on the page */
   prices: Map<string, number>;
+  /** product key → what the order sheets call it, typed on the page */
+  labels: Map<string, string>;
 }
 
-export function makeLookup(rows: CatalogRow[], suppliers: Map<string, string>, prices: Map<string, number> = new Map()): Lookup {
+export function makeLookup(rows: CatalogRow[], suppliers: Map<string, string>, prices: Map<string, number> = new Map(), labels: Map<string, string> = new Map()): Lookup {
   const map = new Map<string, CatalogRow>();
   const supplierTabs = new Set(SUPPLIER_TABS);
   for (const r of rows) {
     const k = skuKey(r.sku);
     if (!map.has(k)) map.set(k, r);
   }
-  return { rows: map, suppliers, supplierTabs, prices };
+  return { rows: map, suppliers, supplierTabs, prices, labels };
 }
 
 /** Where one catalog row is ordered from. */
@@ -222,6 +224,11 @@ export function sizeFromSku(sku: string): string {
   return parts.length >= 4 ? parts[parts.length - 1] : '';
 }
 
+/** The name typed on the page for the product, else our code + colour (+ supplier code). */
+export function labelFor(r: CatalogRow, kind: GroupKind, lookup: Lookup | null): string {
+  return lookup?.labels.get(`${r.tab}|${spuOf(r.sku)}`) || labelOf(r, kind);
+}
+
 /** Bigseller items → one line per (group, SKU) with quantities added up. */
 export function buildLines(items: OrderItem[], lookup: Lookup): PurchaseLine[] {
   const lines = new Map<string, PurchaseLine>();
@@ -237,7 +244,7 @@ export function buildLines(items: OrderItem[], lookup: Lookup): PurchaseLine[] {
       };
     } else {
       const g = groupOf(r, lookup);
-      line = { group: g.group, kind: g.kind, sku: r.sku, tab: r.tab, product: `${r.tab}|${spuOf(r.sku)}`, label: labelOf(r, g.kind), size: r.size, qty: 0, note: g.note, orders: [] };
+      line = { group: g.group, kind: g.kind, sku: r.sku, tab: r.tab, product: `${r.tab}|${spuOf(r.sku)}`, label: labelFor(r, g.kind, lookup), size: r.size, qty: 0, note: g.note, orders: [] };
     }
     const key = `${line.group}\u0000${line.sku}`;
     const target = lines.get(key) ?? { ...line, orders: [], stores: {} };
@@ -406,7 +413,7 @@ export function applyMoves(lines: PurchaseLine[], moves: Map<string, string>, wa
       };
     }
     const r = lookup?.rows.get(skuKey(l.sku));
-    return { ...l, group: to, kind, label: r ? labelOf(r, 'warehouse') : l.label, note: '', moved: true, from: l.group };
+    return { ...l, group: to, kind, label: r ? labelFor(r, 'warehouse', lookup) : l.label, note: '', moved: true, from: l.group };
   });
 }
 
@@ -428,7 +435,7 @@ export function missingGroup(lines: PurchaseLine[], missing: Map<string, number>
     const n = Math.min(l.qty, missing.get(lineKey(l)) ?? 0);
     if (n <= 0) continue;
     const r = lookup?.rows.get(skuKey(l.sku));
-    out.push({ ...l, group: MISSING_GROUP, kind: 'supplier', label: r ? labelOf(r, 'warehouse') : l.label, qty: n, note: `ไม่มีที่ ${l.group}`, missing: n });
+    out.push({ ...l, group: MISSING_GROUP, kind: 'supplier', label: r ? labelFor(r, 'warehouse', lookup) : l.label, qty: n, note: `ไม่มีที่ ${l.group}`, missing: n });
   }
   if (!out.length) return null;
   return groupLines(out)[0];
@@ -458,7 +465,7 @@ export function withPrices(lines: PurchaseLine[], lookup: Lookup): PurchaseLine[
   return lines.map((l) => {
     const p = priceOf(l.sku, lookup);
     const r = l.kind === 'review' ? undefined : lookup.rows.get(skuKey(l.sku));
-    const label = r ? labelOf(r, l.moved ? 'warehouse' : l.kind) : l.label;
+    const label = r ? labelFor(r, l.moved ? 'warehouse' : l.kind, lookup) : l.label;
     return { ...l, label, sheetNote: r ? sheetNoteOf(r.alias) : '', price: p.price, priceSource: p.source };
   });
 }
