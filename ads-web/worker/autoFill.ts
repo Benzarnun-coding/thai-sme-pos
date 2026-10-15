@@ -67,10 +67,12 @@ export async function ensureDraft(env: AutoEnv, note: StoredNote): Promise<{ dra
     const last = await call<P365Order>(env, `orders/${who.last_order_id}.json`).catch(() => null);
     if (last && last.customer_fbid === note.psid) {
       if (last.stage === 'draft') draft = last;
-      // Already made and moved on, around or after the note: that bill is this order, unless another note has it.
-      else if (Date.parse(last.created_at) >= t - 3_600_000) {
+      // Already made and moved on: that bill is this order if it was opened around/after the note, or if another
+      // note of the customer within 2 hours went into it (a repeated summary — #29364 / 16:53, 15 Oct).
+      else {
         const other = await otherNoteOn(env.DB, last.no, note.mid);
-        if (!other || Math.abs(Date.parse(other.at) - t) <= SAME_ORDER_MS) return { draft: null, billed: last };
+        const recent = Date.parse(last.created_at) >= t - 3_600_000;
+        if (other ? Math.abs(Date.parse(other.at) - t) <= SAME_ORDER_MS : recent) return { draft: null, billed: last };
       }
     }
   }

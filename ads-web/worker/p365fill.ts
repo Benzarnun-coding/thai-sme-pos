@@ -54,6 +54,8 @@ interface ListOrder { id: number; no: number; created_at: string; stage: string 
 interface Variant { id: number; name: string; code: string | null; price: number; available: number; stockable?: boolean }
 export interface P365Order {
   id: number; no: number; stage: string; customer_fbid: string | null; conversation_id: number | null; created_at: string; cod: boolean;
+  /** COD or transfer is the shipping option (Kerry Express (COD) / Kerry Express (แบบโอน)) */
+  shipping_options?: { id: number; name: string; cod: boolean }[]; shipping_id?: number | null;
   subtotal: number; total: number; shipping_cost: number | null; discount: number | null;
   customer_name: string | null; customer_phone: string | null; customer_address: string | null;
   structural_address: { street: string | null; subdistrict: string | null; district: string | null; province: string | null; postal_code: string | null } | null;
@@ -144,6 +146,8 @@ export interface FillPlan {
   order: { id: number; no: number; stage: string } | null;
   lines: PlanLine[];
   payment: 'cod' | 'transfer' | null;
+  /** the draft's shipping option to set (switches COD ↔ transfer) */
+  shipping_id?: number | null;
   subtotal: number;
   shipping: number;
   discount: number;
@@ -226,7 +230,14 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   // Promos at list price run to ~60% off (1 × 369 for 199 COD, 3 × 369 for 549); beyond 70% the total is likely mistyped.
   else if (allFound && discount > subtotal * 0.7) problems.push(`ส่วนลด ${discount} เกิน 70% ของราคาสินค้า — เช็กยอดอีกครั้ง`);
   else if (allFound && discount > 0 && discount < 20) warnings.push(`ส่วนลดแค่ ${discount} บาท — ยอดพิมพ์ผิดหรือเปล่า`);
-  if (draft && draft.cod !== (parsed.payment === 'cod')) problems.push(`ร่างเป็น${draft.cod ? 'เก็บปลายทาง' : 'โอน'} แต่บรรทัดสรุปเป็น${parsed.payment === 'cod' ? 'ปลายทาง' : 'โอน'}`);
+  // COD or transfer follows the note: a new draft starts as COD, so a transfer note switches its shipping option
+  // (Ou Aumaporn #29373, 15 Oct). Only a draft without a matching option is stopped.
+  let shipping_id: number | null = draft?.shipping_id ?? null;
+  if (draft && draft.cod !== (parsed.payment === 'cod')) {
+    const opt = (draft.shipping_options ?? []).find((o) => o.cod === (parsed.payment === 'cod'));
+    if (opt) shipping_id = opt.id;
+    else problems.push(`ร่างเป็น${draft.cod ? 'เก็บปลายทาง' : 'โอน'} แต่บรรทัดสรุปเป็น${parsed.payment === 'cod' ? 'ปลายทาง' : 'โอน'} และไม่มีตัวเลือกขนส่งแบบนั้น`);
+  }
 
   // The price agreed in the chat wins: a note whose total differs (other than by the COD fee) is not filled.
   const chat_total = chatTotal(chat, note.at);
@@ -254,7 +265,7 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   if (lines.some((l) => GOSELL_CODES.test(l.code)) && !lines.every((l) => GOSELL_CODES.test(l.code))) warnings.push('บิลนี้มี 501/1–3 (ส่ง GoSell) ปนกับรุ่นอื่น — ตั้งชื่อเป็นคลังปกติ ช่วยดูว่าต้องแยกบิลไหม');
   // No recipient name in the chat: the customer's Facebook name (Page365's customer name) is used (Benz 15 Oct).
   const bill_name = draft ? billName(draft.no, lines[0]?.sku ?? null, address?.name || draft.customer_name || '', lines.map((l) => l.code)) : null;
-  return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, subtotal, shipping, discount: Math.max(0, discount), total, chat_total, bill_name, address, problems, warnings, said, notes };
+  return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, shipping_id, subtotal, shipping, discount: Math.max(0, discount), total, chat_total, bill_name, address, problems, warnings, said, notes };
 }
 
 /** A checked address from the screen (the admin may have corrected it), or null. */
@@ -302,12 +313,15 @@ export async function applyFill(env: FillEnv, note: { psid: string; at: string; 
     customer_address: addressLine(a),
     structural_address: { street: a.street, subdistrict: a.subdistrict, district: a.district, province: a.province, postal_code: a.postal_code },
   } : { customer_name: name };
-  await call(env, `orders/${orderId}.json`, { method: 'PUT', body: { order: { stage: 'draft', shipping_cost: plan.shipping, discount: plan.discount, ...customer }, order_items: items } });
+  await call(env, `orders/${orderId}.json`, { method: 'PUT', body: { order: { stage: 'draft', ...(plan.shipping_id ? { shipping_id: plan.shipping_id } : {}), shipping_cost: plan.shipping, discount: plan.discount, ...customer }, order_items: items } });
 
   // 3. Read it back: the right SKUs and the total from the note, or report it.
   const done = await call<P365Order>(env, `orders/${orderId}.json`);
   const want = plan.lines.map((l) => `${(l.sku ?? '').toUpperCase()}×${l.qty}`).sort().join(',');
   const got = done.items.map((i) => `${(i.variant?.code ?? '').toUpperCase()}×${i.quantity}`).sort().join(',');
+  if (plan.payment && done.cod !== (plan.payment === 'cod')) {
+    throw new P365Error(`ใส่สินค้าแล้ว แต่ร่าง #${plan.order.no} ยังเป็น${done.cod ? 'เก็บปลายทาง' : 'โอน'} — เปลี่ยนวิธีจ่ายใน Page365 เอง`);
+  }
   if (want !== got || (plan.total != null && Number(done.total) !== plan.total)) {
     throw new P365Error(`ใส่แล้วแต่ไม่ตรง: ในร่าง ${got} ยอด ${done.total} (ต้องการ ${want} ยอด ${plan.total}) — เปิดร่าง #${plan.order.no} ใน Page365 เพื่อแก้เอง`);
   }
