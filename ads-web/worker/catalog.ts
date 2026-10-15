@@ -74,8 +74,8 @@ export async function catalogVersion(db: D1Database): Promise<string> {
   return (await db.prepare("SELECT value FROM settings WHERE key = 'catalog_version'").first<string>('value')) ?? '';
 }
 
-export async function catalogMeta(db: D1Database, fallbackSheet = ''): Promise<{ version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; prices: CatalogPrice[]; labels: CatalogLabel[]; aliases: CatalogAlias[]; sheet_configured: boolean }> {
-  const [version, tabs, web, sheet, images, suppliers, prices, labels, aliases] = await Promise.all([
+export async function catalogMeta(db: D1Database, fallbackSheet = ''): Promise<{ version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; prices: CatalogPrice[]; sell_prices: CatalogPrice[]; labels: CatalogLabel[]; aliases: CatalogAlias[]; sheet_configured: boolean }> {
+  const [version, tabs, web, sheet, images, suppliers, prices, sellPrices, labels, aliases] = await Promise.all([
     catalogVersion(db),
     db.prepare('SELECT tab, gid, sort, skus, synced_at, synced_by FROM catalog_tabs ORDER BY sort, tab').all<CatalogTab>(),
     db.prepare('SELECT * FROM catalog_web ORDER BY created_at DESC').all<WebSku>(),
@@ -83,10 +83,11 @@ export async function catalogMeta(db: D1Database, fallbackSheet = ''): Promise<{
     listImages(db),
     listSuppliers(db),
     listPrices(db),
+    listPrices(db, 'catalog_sell_prices'),
     listLabels(db),
     listAliases(db),
   ]);
-  return { version, tabs: tabs.results, web: web.results, images, suppliers, prices, labels, aliases, sheet_configured: !!sheet };
+  return { version, tabs: tabs.results, web: web.results, images, suppliers, prices, sell_prices: sellPrices, labels, aliases, sheet_configured: !!sheet };
 }
 
 /** A page of one tab's rows as arrays in ROW_FIELDS order; `next` is the SKU to continue after. */
@@ -351,12 +352,15 @@ export async function proxyImage(raw: string): Promise<Response> {
 
 export interface CatalogPrice { key: string; tab: string; spu: string; price: number; updated_by: string; updated_at: string }
 
-export async function listPrices(db: D1Database): Promise<CatalogPrice[]> {
-  return (await db.prepare('SELECT key, tab, spu, price, updated_by, updated_at FROM catalog_prices').all<CatalogPrice>()).results;
+/** catalog_prices = ทุน (what we pay); catalog_sell_prices = ราคาขาย typed in the catalog. Key tab|SPU or tab|SKU (one size). */
+export type PriceTable = 'catalog_prices' | 'catalog_sell_prices';
+
+export async function listPrices(db: D1Database, table: PriceTable = 'catalog_prices'): Promise<CatalogPrice[]> {
+  return (await db.prepare(`SELECT key, tab, spu, price, updated_by, updated_at FROM ${table}`).all<CatalogPrice>()).results;
 }
 
 /** Several products at once; an empty price removes it (back to the sheet). */
-export async function savePrices(db: D1Database, input: any, user: string): Promise<CatalogPrice[]> {
+export async function savePrices(db: D1Database, input: any, user: string, table: PriceTable = 'catalog_prices'): Promise<CatalogPrice[]> {
   const list: unknown[] = Array.isArray(input?.items) ? input.items : [input];
   if (!list.length || list.length > 200) throw new BadRequest('ส่งได้ครั้งละ 1–200 สินค้า');
   const now = new Date().toISOString();
@@ -371,12 +375,12 @@ export async function savePrices(db: D1Database, input: any, user: string): Prom
   const statements: D1PreparedStatement[] = [];
   if (set.length) {
     statements.push(db.prepare(
-      `INSERT INTO catalog_prices (key, tab, spu, price, updated_by, updated_at)
+      `INSERT INTO ${table} (key, tab, spu, price, updated_by, updated_at)
        SELECT value ->> '$.key', value ->> '$.tab', value ->> '$.spu', value ->> '$.price', value ->> '$.updated_by', value ->> '$.updated_at' FROM json_each(?1) WHERE true
        ON CONFLICT (key) DO UPDATE SET price = excluded.price, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
     ).bind(JSON.stringify(set)));
   }
-  if (clear.length) statements.push(db.prepare('DELETE FROM catalog_prices WHERE key IN (SELECT value FROM json_each(?1))').bind(JSON.stringify(clear)));
+  if (clear.length) statements.push(db.prepare(`DELETE FROM ${table} WHERE key IN (SELECT value FROM json_each(?1))`).bind(JSON.stringify(clear)));
   await db.batch(statements);
   return set as CatalogPrice[];
 }

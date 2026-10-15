@@ -667,6 +667,11 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     await audit(env.DB, user, 'catalog.label', saved.map((s) => `${s.key}=${s.label}`).join(',') || 'clear', {});
     return json({ labels: saved });
   }
+  if (method === 'PUT' && path === '/api/catalog/sell-price') {
+    const saved = await savePrices(env.DB, await body(), user, 'catalog_sell_prices');
+    await audit(env.DB, user, 'catalog.sell_price', saved.map((s) => `${s.key}=${s.price}`).join(',') || 'clear', {});
+    return json({ prices: saved });
+  }
   if (method === 'PUT' && path === '/api/catalog/price') {
     const saved = await savePrices(env.DB, await body(), user);
     await audit(env.DB, user, 'catalog.price', saved.map((s) => `${s.key}=${s.price}`).join(',') || 'clear', {});

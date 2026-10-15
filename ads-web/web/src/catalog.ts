@@ -239,6 +239,45 @@ export function spuOf(sku: string): string {
   return parts.length >= 3 ? parts.slice(0, -1).join('-') : sku;
 }
 
+/**
+ * A cost or selling price typed on the website: this size (key tab|SKU), else the whole product (tab|SPU);
+ * undefined = use the sheet. Shared by the catalog, the order sheets and units sold.
+ */
+export function overrideOf(r: { tab: string; sku: string }, typed: Map<string, number>): number | undefined {
+  return typed.get(`${r.tab}|${r.sku}`) ?? typed.get(`${r.tab}|${spuOf(r.sku)}`);
+}
+
+/**
+ * What to save after prices were edited for every size of one product in the product view. `typed` per SKU:
+ * a number, or null = as in the sheet. Every size the same → one price for the whole product (later sizes get it too);
+ * otherwise one per size that differs from the sheet. Only changes against `saved` (what is stored now) are returned;
+ * price null = remove. `spu` of an item is the key part: the SPU, or the SKU for one size.
+ */
+export function planPrices(
+  tab: string, spu: string, sizes: { sku: string; sheet: number | null; typed: number | null }[], saved: Map<string, number>,
+): { tab: string; spu: string; price: number | null }[] {
+  const want = new Map<string, number | null>();
+  const productKey = `${tab}|${spu}`;
+  const same = (a: number | null, b: number | null) => a !== null && b !== null && Math.abs(a - b) < 0.005;
+  const allSheet = sizes.every((s) => s.typed === null || same(s.typed, s.sheet));
+  const first = sizes[0]?.typed ?? null;
+  const allEqual = !allSheet && first !== null && sizes.every((s) => same(s.typed, first));
+  want.set(productKey, allEqual ? first : null);
+  for (const s of sizes) {
+    const k = `${tab}|${s.sku}`;
+    if (k === productKey) { if (!allEqual) want.set(k, allSheet || s.typed === null || same(s.typed, s.sheet) ? null : s.typed); continue; }
+    want.set(k, allSheet || allEqual || s.typed === null || same(s.typed, s.sheet) ? null : s.typed);
+  }
+  const out: { tab: string; spu: string; price: number | null }[] = [];
+  for (const [k, v] of want) {
+    const now = saved.get(k);
+    if (v === null ? now !== undefined : now === undefined || !same(now, v)) out.push({ tab, spu: k.slice(tab.length + 1), price: v });
+  }
+  return out;
+}
+
+export type ProductSku = CatalogRow & { web?: WebSku; sheet_cost: number | null; sheet_price: number | null; cost_typed: boolean; price_typed: boolean };
+
 export interface Product {
   key: string;
   tab: string;
@@ -256,7 +295,8 @@ export interface Product {
   /** Supplier set on the page ('' = none, the sheet decides) */
   supplier: string;
   aliases: string[];
-  skus: (CatalogRow & { web?: WebSku })[];
+  /** Each size with cost/price as used (typed on the website wins) and the sheet's own values */
+  skus: ProductSku[];
   pos: number;
   cost: [number, number] | null;
   price: [number, number] | null;
@@ -284,10 +324,16 @@ export interface ImageOverride { full: string; thumb: string }
  * Rows → products (one card per SKU-minus-size), in sheet order. Web SKUs already in the sheet are left out.
  * A picture added on the page wins over column J.
  */
-export function groupProducts(rows: CatalogRow[], web: WebSku[] = [], images: Map<string, ImageOverride> = new Map(), suppliers: Map<string, string> = new Map()): Product[] {
+export function groupProducts(
+  rows: CatalogRow[], web: WebSku[] = [], images: Map<string, ImageOverride> = new Map(), suppliers: Map<string, string> = new Map(),
+  costs: Map<string, number> = new Map(), sells: Map<string, number> = new Map(),
+): Product[] {
   const inSheet = new Set(rows.map((r) => skuKey(r.sku)));
-  const all: (CatalogRow & { web?: WebSku })[] = [...rows, ...web.filter((w) => !inSheet.has(skuKey(w.sku))).map((w) => webToRow(w, 1e9))];
-  const groups = new Map<string, (CatalogRow & { web?: WebSku })[]>();
+  const all: ProductSku[] = [...rows, ...web.filter((w) => !inSheet.has(skuKey(w.sku))).map((w) => webToRow(w, 1e9))].map((r) => {
+    const c = overrideOf(r, costs), p = overrideOf(r, sells);
+    return { ...r, cost: c ?? r.cost, price: p ?? r.price, sheet_cost: r.cost, sheet_price: r.price, cost_typed: c !== undefined, price_typed: p !== undefined };
+  });
+  const groups = new Map<string, ProductSku[]>();
   for (const r of all) {
     const key = `${r.tab}|${spuOf(r.sku)}`;
     const g = groups.get(key);

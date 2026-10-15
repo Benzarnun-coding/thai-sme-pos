@@ -4,12 +4,12 @@
 // changed rows. SKUs can also be added here (kept apart from the sheet copy until someone pastes them into the sheet).
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { api, type CatalogImage, type WebSkuInput } from './api.ts';
+import { api, type CatalogImage, type CatalogPrice, type WebSkuInput } from './api.ts';
 import { useCatalog } from './useCatalog.ts';
 import { productPictures } from './imageResize.ts';
 import {
-  buildSku, codeToPrefix, colorLabel, COLOR_NAMES, diffTab, groupProducts, locationOf, parseSheetTab, parseSizes, rowFromArray, rowToArray,
-  NO_SHOP, search, SHOP_STATUSES, shopsOf, skuKey, spuOf, thumb, toSheetTsv, WAREHOUSE_NAMES, type CatalogRow, type Hit, type ImageOverride, type Product, type WebSku,
+  buildSku, codeToPrefix, colorLabel, COLOR_NAMES, diffTab, groupProducts, locationOf, planPrices, parseSheetTab, parseSizes, rowFromArray, rowToArray,
+  NO_SHOP, search, SHOP_STATUSES, shopsOf, skuKey, spuOf, thumb, toSheetTsv, WAREHOUSE_NAMES, type CatalogRow, type Hit, type ImageOverride, type Product, type ProductSku, type WebSku,
 } from './catalog.ts';
 import { num } from './fmt.ts';
 import { Icon, Modal, useUi } from './ui.tsx';
@@ -48,7 +48,7 @@ function dateTime(iso: string | undefined): string {
 export function CatalogApp() {
   useEffect(() => { document.title = 'แคตตาล็อกสินค้า'; }, []);
   const { toast, confirm } = useUi();
-  const { meta, setMeta, rows, setRows, loading, error, load, role, canEdit, imageMap, supplierMap } = useCatalog();
+  const { meta, setMeta, rows, setRows, loading, error, load, role, canEdit, imageMap, supplierMap, priceMap, sellMap } = useCatalog();
   const [tab, setTabState] = useState(readTab);
   // Supplier filter inside a warehouse ('' = every supplier); cleared when the warehouse changes.
   const [shop, setShop] = useState(readShop);
@@ -64,7 +64,7 @@ export function CatalogApp() {
   useEffect(() => { try { localStorage.setItem(TAB_KEY, tab); localStorage.setItem(SHOP_KEY, shop); } catch { /* private mode */ } }, [tab, shop]);
 
   const web = meta?.web ?? [];
-  const products = useMemo(() => groupProducts(rows, web, imageMap, supplierMap), [rows, web, imageMap, supplierMap]);
+  const products = useMemo(() => groupProducts(rows, web, imageMap, supplierMap, priceMap, sellMap), [rows, web, imageMap, supplierMap, priceMap, sellMap]);
   const [noImage, setNoImage] = useState(false);
   const hits = useMemo(() => search(products, deferred), [products, deferred]);
   const byTab = useMemo(() => {
@@ -115,6 +115,28 @@ export function CatalogApp() {
     const k = skuKey(query);
     return rows.some((r) => skuKey(r.sku) === k) || web.some((w) => skuKey(w.sku) === k) ? null : query.trim().toUpperCase();
   }, [looksLikeSku, loading, query, rows, web]);
+
+  /** Cost / selling price edited for every size in the product view: saved per size, or once for the whole product. */
+  async function savePriceEdits(p: Product, typed: Map<string, { cost: number | null; price: number | null }>): Promise<boolean> {
+    const plan = (field: 'cost' | 'price', saved: Map<string, number>) => planPrices(p.tab, p.spu, p.skus.map((r) => ({
+      sku: r.sku, sheet: field === 'cost' ? r.sheet_cost : r.sheet_price, typed: typed.get(r.sku)?.[field] ?? null,
+    })), saved);
+    const costItems = plan('cost', priceMap), sellItems = plan('price', sellMap);
+    if (!costItems.length && !sellItems.length) { toast('ไม่มีอะไรเปลี่ยน', 'info'); return true; }
+    try {
+      const [c, s] = await Promise.all([
+        costItems.length ? api.setPrices(costItems) : null,
+        sellItems.length ? api.setSellPrices(sellItems) : null,
+      ]);
+      const merge = (list: CatalogPrice[] | undefined, items: { tab: string; spu: string }[], saved: CatalogPrice[] = []) => {
+        const touched = new Set(items.map((i) => `${i.tab}|${i.spu}`));
+        return [...(list ?? []).filter((x) => !touched.has(x.key)), ...saved];
+      };
+      setMeta((m) => (m ? { ...m, prices: merge(m.prices, costItems, c?.prices), sell_prices: merge(m.sell_prices, sellItems, s?.prices) } : m));
+      toast(`บันทึกราคา ${p.code || p.spu} แล้ว`, 'ok');
+      return true;
+    } catch (e: any) { toast(e.message, 'bad'); return false; }
+  }
 
   async function startSync() {
     if (loading) return;
@@ -316,6 +338,7 @@ export function CatalogApp() {
           onAdd={(p) => { setOpen(null); setAdding({ tab: p.tab, code: p.code, color: p.color, name: p.name, cost: p.cost?.[1] ?? null, price: p.price?.[1] ?? null, image: p.image, shop: p.shops[0] ?? '', alias: p.aliases[0] ?? '' }); }}
           onEdit={(w) => { setOpen(null); setEditing(w); }}
           onRemove={removeWeb}
+          onPrices={savePriceEdits}
           supplierNames={supplierNames}
           onSupplier={async (p, shop) => {
             try {
@@ -417,13 +440,15 @@ function copy(text: string, toast: (t: string, tone?: 'ok' | 'bad' | 'info') => 
   navigator.clipboard.writeText(text).then(() => toast(`คัดลอก ${text.length > 40 ? 'แล้ว' : text}`, 'ok'), () => toast('คัดลอกไม่ได้', 'bad'));
 }
 
-function ProductModal({ product: p, canEdit, onClose, onAdd, onEdit, onRemove, onImage, supplierNames, onSupplier }: {
+function ProductModal({ product: p, canEdit, onClose, onAdd, onEdit, onRemove, onPrices, onImage, supplierNames, onSupplier }: {
   product: Product; canEdit: boolean; onClose: () => void; onAdd: (p: Product) => void; onEdit: (w: WebSku) => void; onRemove: (w: WebSku) => void;
+  onPrices: (p: Product, typed: Map<string, { cost: number | null; price: number | null }>) => Promise<boolean>;
   onImage: (image: CatalogImage | null, removedKey?: string) => void;
   supplierNames: string[]; onSupplier: (p: Product, shop: string) => Promise<void>;
 }) {
   const { toast } = useUi();
   const hasSupplier = p.skus.some((r) => r.shop || r.alias || r.shop_price !== null);
+  const [editingPrices, setEditingPrices] = useState(false);
   return (
     <Modal title={`${p.code || p.spu}${p.color ? ` · ${colorLabel(p.color)}` : ''}`} onClose={onClose} wide>
       <div className="cat-detail">
@@ -438,8 +463,12 @@ function ProductModal({ product: p, canEdit, onClose, onAdd, onEdit, onRemove, o
           <dl className="cat-facts">
             <dt>โกดัง</dt><dd>{p.tab}</dd>
             <dt>SPU</dt><dd><code>{p.spu}</code> <button className="link small" onClick={() => copy(p.spu, toast)}>คัดลอก</button></dd>
-            <dt>ทุน</dt><dd>{moneyRange(p.cost)}</dd>
-            <dt>ราคาขาย</dt><dd>{moneyRange(p.price)}</dd>
+            <dt>ทุน</dt><dd>{moneyRange(p.cost)}{p.skus.some((r) => r.cost_typed) && <TypedMark />}</dd>
+            <dt>ราคาขาย</dt>
+            <dd>
+              {moneyRange(p.price)}{p.skus.some((r) => r.price_typed) && <TypedMark />}
+              {canEdit && !editingPrices && <> <button className="link small" onClick={() => setEditingPrices(true)}>แก้ราคา</button></>}
+            </dd>
             <dt>สั่งจาก</dt>
             <dd>
               {canEdit ? <SupplierPicker product={p} names={supplierNames} onSave={(shop) => onSupplier(p, shop)} />
@@ -450,7 +479,9 @@ function ProductModal({ product: p, canEdit, onClose, onAdd, onEdit, onRemove, o
           {canEdit && <button className="small" onClick={() => onAdd(p)}>+ เพิ่มไซส์/สีจากรุ่นนี้</button>}
         </div>
       </div>
+      {editingPrices ? <PriceEditor product={p} onCancel={() => setEditingPrices(false)} onSave={async (typed) => { if (await onPrices(p, typed)) setEditingPrices(false); }} /> : (
       <div className="table-wrap">
+        {canEdit && <div className="cat-price-bar"><button className="small" onClick={() => setEditingPrices(true)}><Icon name="sliders" size={14} /> แก้ทุน / ราคาขาย</button></div>}
         <table className="data-table">
           <thead>
             <tr>
@@ -464,8 +495,8 @@ function ProductModal({ product: p, canEdit, onClose, onAdd, onEdit, onRemove, o
               <tr key={r.sku}>
                 <td><button className="link" onClick={() => copy(r.sku, toast)} title="คัดลอก SKU"><code>{r.sku}</code></button></td>
                 <td>{r.size || '—'}</td>
-                <td className="num">{money(r.cost)}</td>
-                <td className="num">{money(r.price)}</td>
+                <td className="num">{money(r.cost)}{r.cost_typed && <TypedMark sheet={r.sheet_cost} />}</td>
+                <td className="num">{money(r.price)}{r.price_typed && <TypedMark sheet={r.sheet_price} />}</td>
                 {hasSupplier && <><td>{r.shop || '—'}</td><td className="small">{r.alias || '—'}</td><td className="num">{money(r.shop_price)}</td></>}
                 <td className="small">
                   {r.web ? (
@@ -480,7 +511,91 @@ function ProductModal({ product: p, canEdit, onClose, onAdd, onEdit, onRemove, o
           </tbody>
         </table>
       </div>
+      )}
     </Modal>
+  );
+}
+
+/** "เว็บ" next to a cost/price typed on the website instead of the sheet's. */
+function TypedMark({ sheet }: { sheet?: number | null }) {
+  return <span className="pill web cat-typed" title={sheet === undefined ? 'มีราคาที่แก้ในเว็บ' : `แก้ในเว็บ · ในชีต ${money(sheet)}`}>เว็บ</span>;
+}
+
+/**
+ * ทุน and ราคาขาย for every size of a product. Blank = as in the sheet. Saved per size, or once for the whole product
+ * when every size is the same. Cost is what the order sheets, supplier payments and units sold use; neither changes
+ * the numbers the ads system uses (it reads its own cost sheet).
+ */
+function PriceEditor({ product: p, onCancel, onSave }: {
+  product: Product; onCancel: () => void; onSave: (typed: Map<string, { cost: number | null; price: number | null }>) => Promise<void>;
+}) {
+  const shown = (v: number | null) => (v === null ? '' : String(v));
+  const [values, setValues] = useState(() => new Map(p.skus.map((r) => [r.sku, { cost: shown(r.cost), price: shown(r.price) }])));
+  const [all, setAll] = useState({ cost: '', price: '' });
+  const [busy, setBusy] = useState(false);
+  const clean = (v: string) => v.replace(/[^\d.]/g, '');
+  const set = (sku: string, field: 'cost' | 'price', v: string) => setValues((m) => new Map(m).set(sku, { ...m.get(sku)!, [field]: clean(v) }));
+  const fillAll = (field: 'cost' | 'price') => {
+    const v = all[field];
+    if (v === '') return;
+    setValues((m) => new Map([...m].map(([sku, x]) => [sku, { ...x, [field]: v }])));
+  };
+  const toSheet = (r: ProductSku) => setValues((m) => new Map(m).set(r.sku, { cost: shown(r.sheet_cost), price: shown(r.sheet_price) }));
+  const bad = [...values.values()].some((x) => [x.cost, x.price].some((v) => v !== '' && !Number.isFinite(Number(v))));
+  async function save() {
+    const num = (v: string) => (v === '' ? null : Number(v));
+    setBusy(true);
+    try { await onSave(new Map([...values].map(([sku, x]) => [sku, { cost: num(x.cost), price: num(x.price) }]))); } finally { setBusy(false); }
+  }
+  return (
+    <div className="cat-price-edit">
+      <p className="small muted">ทุน = ที่เราจ่ายร้าน ใช้ในใบสั่งของ ยอดจ่ายร้าน และต้นทุนในหน้ายอดขาย · ราคาขาย แสดงในแคตตาล็อก · ช่องว่าง = ตามชีต · ไม่เปลี่ยนตัวเลขของระบบแอด และไม่แก้ชีต</p>
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead><tr><th>SKU</th><th>ไซส์</th><th className="num">ทุน</th><th className="num">ราคาขาย</th><th /></tr></thead>
+          <tbody>
+            <tr className="cat-price-all">
+              <td colSpan={2}><b>ทุกไซส์</b></td>
+              {(['cost', 'price'] as const).map((f) => (
+                <td key={f} className="num">
+                  <span className="cat-price-fill">
+                    <input inputMode="decimal" value={all[f]} placeholder={f === 'cost' ? 'ทุน' : 'ราคา'} aria-label={f === 'cost' ? 'ทุนทุกไซส์' : 'ราคาขายทุกไซส์'}
+                      onChange={(e) => setAll({ ...all, [f]: clean(e.target.value) })} onKeyDown={(e) => { if (e.key === 'Enter') fillAll(f); }} />
+                    <button className="small" disabled={all[f] === ''} onClick={() => fillAll(f)}>ใส่</button>
+                  </span>
+                </td>
+              ))}
+              <td />
+            </tr>
+            {p.skus.map((r) => {
+              const v = values.get(r.sku)!;
+              return (
+                <tr key={r.sku}>
+                  <td><code>{r.sku}</code></td>
+                  <td>{r.size || '—'}</td>
+                  {(['cost', 'price'] as const).map((f) => {
+                    const sheet = f === 'cost' ? r.sheet_cost : r.sheet_price;
+                    const changed = v[f] !== shown(sheet);
+                    return (
+                      <td key={f} className="num">
+                        <input className={changed ? 'changed' : ''} inputMode="decimal" value={v[f]} placeholder={sheet === null ? 'ไม่มีในชีต' : String(sheet)}
+                          aria-label={`${f === 'cost' ? 'ทุน' : 'ราคาขาย'} ${r.sku}`} onChange={(e) => set(r.sku, f, e.target.value)} />
+                        <div className="small muted">ชีต {money(sheet)}</div>
+                      </td>
+                    );
+                  })}
+                  <td>{(v.cost !== shown(r.sheet_cost) || v.price !== shown(r.sheet_price)) && <button className="link small" onClick={() => toSheet(r)}>ตามชีต</button>}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="cat-price-actions">
+        <button className="primary" disabled={busy || bad} onClick={save}>{busy ? 'กำลังบันทึก…' : 'บันทึกราคา'}</button>
+        <button disabled={busy} onClick={onCancel}>ยกเลิก</button>
+      </div>
+    </div>
   );
 }
 
