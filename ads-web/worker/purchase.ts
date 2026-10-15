@@ -127,6 +127,91 @@ export async function deletePurchase(db: D1Database, id: string): Promise<boolea
   const [, r] = await db.batch([
     db.prepare('DELETE FROM purchase_lines WHERE upload_id = ?1').bind(id),
     db.prepare('DELETE FROM purchase_uploads WHERE id = ?1').bind(id),
+    db.prepare('DELETE FROM purchase_payments WHERE upload_id = ?1').bind(id),
   ]);
   return (r.meta.changes ?? 0) > 0;
+}
+
+// ---- what was actually paid to each supplier (our side) ----
+
+/** Group name of the out-of-stock pieces bought elsewhere (same as the page's MISSING_GROUP). */
+const MISSING_GROUP = 'พี่เปีย';
+
+export interface PaymentInput { grp: string; paid: number | null; done: boolean; note: string }
+export interface LedgerRow {
+  upload_id: string; date: string; round: number; grp: string; kind: string;
+  /** owed for what was received: Σ (qty − out of stock) × cost, from the lines as last saved */
+  due: number;
+  /** pieces received that have no cost yet (so `due` is short) */
+  unpriced: number;
+  paid: number | null; done: boolean; note: string; updated_by: string | null; updated_at: string | null;
+}
+
+export function validatePayments(input: any): { id: string; items: PaymentInput[] } {
+  const id = String(input?.id ?? '');
+  if (!/^\d{4}-\d{2}-\d{2}#\d$/.test(id)) throw new BadRequest('ไม่รู้ว่าเป็นใบสั่งรอบไหน');
+  const raw: unknown[] = Array.isArray(input?.items) ? input.items : [];
+  if (!raw.length || raw.length > 200) throw new BadRequest('ส่งได้ครั้งละ 1–200 ร้าน');
+  const items = raw.map((x: any) => {
+    const grp = cleanText(x?.grp, 80);
+    if (!grp) throw new BadRequest('ไม่มีชื่อร้าน');
+    const empty = x?.paid === null || x?.paid === undefined || String(x.paid).trim() === '';
+    const paid = empty ? null : Number(String(x.paid).replace(/,/g, ''));
+    if (paid !== null && !(Number.isFinite(paid) && paid >= 0 && paid <= 10_000_000)) throw new BadRequest('ยอดจ่ายต้องเป็นตัวเลข 0–10,000,000');
+    return { grp, paid, done: !!x?.done, note: cleanText(x?.note, 300) };
+  });
+  return { id, items };
+}
+
+export async function savePayments(db: D1Database, p: ReturnType<typeof validatePayments>, user: string): Promise<void> {
+  const exists = await db.prepare('SELECT 1 AS ok FROM purchase_uploads WHERE id = ?1').bind(p.id).first('ok');
+  if (!exists) throw new BadRequest('ยังไม่ได้บันทึกใบสั่งรอบนี้');
+  const now = new Date().toISOString();
+  await db.prepare(
+    `INSERT INTO purchase_payments (upload_id, grp, paid, done, note, updated_by, updated_at)
+     SELECT ?1, value ->> '$.grp', value ->> '$.paid', value ->> '$.done', value ->> '$.note', ?2, ?3 FROM json_each(?4) WHERE true
+     ON CONFLICT (upload_id, grp) DO UPDATE SET paid = excluded.paid, done = excluded.done, note = excluded.note, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+  ).bind(p.id, user, now, JSON.stringify(p.items.map((i) => ({ ...i, done: i.done ? 1 : 0 })))).run();
+}
+
+/**
+ * Owed vs paid per round and supplier since `since` (YYYY-MM-DD): what each round's saved lines say is owed, the
+ * พี่เปีย pieces of that round, and whatever was recorded as paid (also for groups whose lines are gone).
+ */
+export async function ledger(db: D1Database, since: string, id?: string): Promise<LedgerRow[]> {
+  const where = id ? 'u.id = ?1' : 'u.date >= ?1';
+  const arg = id ?? since;
+  const [owed, pia, payments] = await db.batch([
+    db.prepare(
+      `SELECT u.id AS upload_id, u.date, u.round, l.grp, MAX(l.kind) AS kind,
+              SUM((l.qty - l.missing) * COALESCE(l.price, 0)) AS due,
+              SUM(CASE WHEN l.price IS NULL THEN l.qty - l.missing ELSE 0 END) AS unpriced
+       FROM purchase_uploads u JOIN purchase_lines l ON l.upload_id = u.id
+       WHERE ${where} AND l.kind <> 'review' GROUP BY u.id, l.grp`,
+    ).bind(arg),
+    db.prepare(
+      `SELECT u.id AS upload_id, u.date, u.round, SUM(l.missing * COALESCE(l.price, 0)) AS due,
+              SUM(CASE WHEN l.price IS NULL THEN l.missing ELSE 0 END) AS unpriced
+       FROM purchase_uploads u JOIN purchase_lines l ON l.upload_id = u.id
+       WHERE ${where} AND l.missing > 0 GROUP BY u.id`,
+    ).bind(arg),
+    db.prepare(
+      `SELECT u.id AS upload_id, u.date, u.round, p.grp, p.paid, p.done, p.note, p.updated_by, p.updated_at
+       FROM purchase_uploads u JOIN purchase_payments p ON p.upload_id = u.id WHERE ${where}`,
+    ).bind(arg),
+  ]);
+  const rows = new Map<string, LedgerRow>();
+  const key = (u: string, g: string) => `${u}\u0000${g}`;
+  for (const r of owed.results as any[]) {
+    rows.set(key(r.upload_id, r.grp), { upload_id: r.upload_id, date: r.date, round: r.round, grp: r.grp, kind: r.kind, due: r.due ?? 0, unpriced: r.unpriced ?? 0, paid: null, done: false, note: '', updated_by: null, updated_at: null });
+  }
+  for (const r of pia.results as any[]) {
+    rows.set(key(r.upload_id, MISSING_GROUP), { upload_id: r.upload_id, date: r.date, round: r.round, grp: MISSING_GROUP, kind: 'supplier', due: r.due ?? 0, unpriced: r.unpriced ?? 0, paid: null, done: false, note: '', updated_by: null, updated_at: null });
+  }
+  for (const p of payments.results as any[]) {
+    const k = key(p.upload_id, p.grp);
+    const row = rows.get(k) ?? { upload_id: p.upload_id, date: p.date, round: p.round, grp: p.grp, kind: 'supplier', due: 0, unpriced: 0, paid: null, done: false, note: '', updated_by: null, updated_at: null };
+    rows.set(k, { ...row, paid: p.paid, done: !!p.done, note: p.note ?? '', updated_by: p.updated_by, updated_at: p.updated_at });
+  }
+  return [...rows.values()].sort((a, b) => b.date.localeCompare(a.date) || b.round - a.round || a.grp.localeCompare(b.grp));
 }

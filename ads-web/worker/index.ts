@@ -25,7 +25,7 @@ import { bkkDate, loadConversionHours, saveConversionDay, syncConversionHours, t
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
-import { deletePurchase, listPurchases, purchaseLines, savePurchase, setMissing, validateMissing, validatePurchase } from './purchase.ts';
+import { deletePurchase, ledger, listPurchases, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveImageLink, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { familyStats, postIdeas, postIdeasText } from './postIdeas.ts';
@@ -619,6 +619,18 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const result = await setMissing(env.DB, m);
     await audit(env.DB, user, 'purchase.missing', m.id, { items: m.items.slice(0, 50), total: result.missing });
     return json(result);
+  }
+  if (method === 'GET' && path === '/api/purchase/ledger') {
+    const id = url.searchParams.get('id') ?? undefined;
+    const days = Math.min(Math.max(Number(url.searchParams.get('days') ?? 60) || 60, 1), 366);
+    const since = new Date(Date.now() + 7 * 3600_000 - days * 86400_000).toISOString().slice(0, 10);
+    return json({ since, rows: await ledger(env.DB, since, id) });
+  }
+  if (method === 'PUT' && path === '/api/purchase/payments') {
+    const p = validatePayments(await body());
+    await savePayments(env.DB, p, user);
+    await audit(env.DB, user, 'purchase.payment', p.id, { items: p.items });
+    return json({ ok: true });
   }
   if (method === 'DELETE' && path === '/api/purchase') {
     const id = url.searchParams.get('id') ?? '';

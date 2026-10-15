@@ -3,8 +3,8 @@
 // in the browser; only the resulting lines (SKU, quantity, supplier) are saved as history, no order numbers.
 // Who supplies a product can be changed right here; it is saved for that product and used every day after.
 
-import { useEffect, useMemo, useState } from 'react';
-import { api, type PurchaseUpload, type SavedPurchaseLine } from './api.ts';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import { api, type LedgerRow, type PurchaseUpload, type SavedPurchaseLine } from './api.ts';
 import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from './catalog.ts';
 import { num } from './fmt.ts';
 import {
@@ -58,6 +58,10 @@ export function OrdersApp() {
   const moveLine = (sku: string, to: string) => setMoves((m) => { const n = new Map(m); if (to.trim()) n.set(sku, to.trim()); else n.delete(sku); return n; });
 
   useEffect(() => { api.purchases().then((r) => setHistory(r.uploads)).catch(() => {}); }, []);
+  // Owed vs paid per round and supplier, last 60 days (from the rounds as saved + payments recorded).
+  const [ledgerRows, setLedgerRows] = useState<LedgerRow[]>([]);
+  const loadLedger = () => api.ledger(60).then((r) => setLedgerRows(r.rows)).catch(() => {});
+  useEffect(() => { loadLedger(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sheet rows + SKUs added on the page, so a SKU added this morning already lands on the right sheet.
   const allRows = useMemo<CatalogRow[]>(() => [...rows, ...(meta?.web ?? []).map((w) => webToRow(w, 0))], [rows, meta?.web]);
@@ -141,6 +145,7 @@ export function OrdersApp() {
       const { upload } = await api.savePurchase({ date, round, file, lines: lines.map((l) => ({ ...l })) });
       setHistory((h) => [upload, ...h.filter((x) => x.id !== upload.id)].sort((a, b) => b.date.localeCompare(a.date) || b.round - a.round));
       setSavedSig(sig);
+      loadLedger();
       // Saving over a round that already had out-of-stock ticks keeps them; show them here too.
       if (upload.missing > 0) {
         const { lines: saved } = await api.purchaseLines(upload.id);
@@ -194,6 +199,23 @@ export function OrdersApp() {
       const now = new Date().toISOString();
       setMeta((m) => (m ? { ...m, prices: [...m.prices.filter((p) => p.key !== key), ...(price === null ? [] : [{ key, tab: l.tab, spu, price, updated_by: '', updated_at: now }])] } : m));
       toast(price === null ? `${l.label} กลับไปใช้ทุนจากชีต (H)` : `${l.label} ทุน ${num(price)} บาท/ตัว · จำไว้ใช้ทุกวัน`, 'ok');
+    } catch (e: any) { toast(e.message, 'bad'); }
+  }
+
+  /** Record what was paid to a supplier for this round (saved at once; the round is saved first if needed). */
+  async function recordPayment(grp: string, v: { paid: number | null; done: boolean; note: string }) {
+    if (!canEdit) return;
+    const id = viewing ? viewing.upload.id : `${date}#${round}`;
+    if (!viewing && !(await save())) return;
+    try {
+      await api.savePayments(id, [{ grp, ...v }]);
+      setLedgerRows((rows) => {
+        const i = rows.findIndex((r) => r.upload_id === id && r.grp === grp);
+        const base: LedgerRow = i >= 0 ? rows[i] : { upload_id: id, date, round, grp, kind: 'supplier', due: 0, unpriced: 0, paid: null, done: false, note: '', updated_by: null, updated_at: null };
+        const next = { ...base, ...v, updated_at: new Date().toISOString() };
+        return i >= 0 ? rows.map((r, j) => (j === i ? next : r)) : [next, ...rows];
+      });
+      loadLedger();
     } catch (e: any) { toast(e.message, 'bad'); }
   }
 
@@ -334,7 +356,11 @@ export function OrdersApp() {
             </div>
           </section>
 
-          <PaymentCard totals={supplierTotals(pia ? [...groups, pia] : groups, missing)} onExport={exportPayments} busy={!!busy} />
+          <PaymentCard
+            totals={supplierTotals(pia ? [...groups, pia] : groups, missing)} onExport={exportPayments} busy={!!busy}
+            payments={new Map(ledgerRows.filter((r) => r.upload_id === (viewing ? viewing.upload.id : `${date}#${round}`)).map((r) => [r.grp, r]))}
+            onPay={canEdit ? recordPayment : null}
+          />
 
           {pia ? (
             <section className="card table-card po-group pia">
@@ -381,12 +407,14 @@ export function OrdersApp() {
         </>
       )}
 
+      {ledgerRows.length > 0 && <LedgerCard rows={ledgerRows} history={history} onOpen={openHistory} />}
+
       {history.length > 0 && (
         <section className="card table-card">
           <div className="table-card-head"><h2>ใบสั่งย้อนหลัง</h2></div>
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>วันที่</th><th>รอบ</th><th className="num">ชิ้น</th><th>ร้าน / โกดัง</th><th className="num">ตรวจสอบ</th><th className="num">ของไม่มี</th><th>บันทึกโดย</th><th /></tr></thead>
+              <thead><tr><th>วันที่</th><th>รอบ</th><th className="num">ชิ้น</th><th>ร้าน / โกดัง</th><th className="num">ตรวจสอบ</th><th className="num">ของไม่มี</th><th>จ่ายร้าน</th><th>บันทึกโดย</th><th /></tr></thead>
               <tbody>
                 {history.map((u) => (
                   <tr key={u.id} className={viewing?.upload.id === u.id ? 'selected' : ''}>
@@ -396,6 +424,7 @@ export function OrdersApp() {
                     <td className="small">{u.groups.filter((g) => g.kind !== 'review').sort((a, b) => b.pieces - a.pieces).map((g) => `${g.name} ${g.pieces}`).join(' · ')}</td>
                     <td className={`num ${u.review ? 'bad' : ''}`}>{num(u.review)}</td>
                     <td className={`num ${u.missing ? 'warn' : ''}`}>{num(u.missing ?? 0)}</td>
+                    <td className="small"><PaidStatus rows={ledgerRows.filter((r) => r.upload_id === u.id && (r.kind === 'supplier' || r.grp === MISSING_GROUP) && (r.due > 0 || r.unpriced > 0 || r.paid))} /></td>
                     <td className="small muted">{u.saved_by.split('@')[0]}</td>
                     <td className="small">
                       <button className="link small" onClick={() => openHistory(u)}>เปิด</button>
@@ -574,11 +603,19 @@ function PriceCell({ line: l, onSave }: { line: PurchaseLine; onSave: ((price: n
   );
 }
 
-/** Our side only: what each supplier is owed for what it delivered (out-of-stock pieces not counted), and gaps in prices. */
-function PaymentCard({ totals, onExport, busy }: { totals: ReturnType<typeof supplierTotals>; onExport: () => void; busy: boolean }) {
+/**
+ * Our side only: what each supplier is owed for what it delivered (out-of-stock pieces not counted), gaps in costs,
+ * and what was actually paid — amount, settled tick, note — with the difference.
+ */
+function PaymentCard({ totals, onExport, busy, payments, onPay }: {
+  totals: ReturnType<typeof supplierTotals>; onExport: () => void; busy: boolean;
+  payments: Map<string, LedgerRow>; onPay: ((grp: string, v: { paid: number | null; done: boolean; note: string }) => Promise<void>) | null;
+}) {
   const [open, setOpen] = useState(false);
   const sum = (f: 'ordered' | 'missing' | 'received' | 'amount' | 'unpriced') => totals.reduce((n, t) => n + t[f], 0);
   const suppliers = totals.filter((t) => t.kind === 'supplier' || t.name === MISSING_GROUP);
+  const paidSum = totals.reduce((n, t) => n + (payments.get(t.name)?.paid ?? 0), 0);
+  const settled = suppliers.filter((t) => payments.get(t.name)?.done).length;
   return (
     <section className="card table-card po-payments">
       <div className="table-card-head">
@@ -587,6 +624,7 @@ function PaymentCard({ totals, onExport, busy }: { totals: ReturnType<typeof sup
           <b>ยอดจ่ายร้าน</b>
           <span className="pill">ภายใน · ไม่ส่งร้าน</span>
           <span className="muted small">ร้านค้า ฿{num(suppliers.reduce((n, t) => n + t.amount, 0))} · ทุกกลุ่ม ฿{num(sum('amount'))} · ได้จริง {num(sum('received'))} ชิ้น</span>
+          {suppliers.length > 0 && <span className={`pill ${settled === suppliers.length ? 'on' : ''}`}>จ่ายแล้ว {settled}/{suppliers.length} ร้าน · ฿{num(paidSum)}</span>}
           {sum('unpriced') > 0 && <span className="pill warn">ยังไม่มีทุน {num(sum('unpriced'))} ชิ้น</span>}
         </button>
         <button className="small primary" onClick={onExport} disabled={busy}><Icon name="down" size={14} /> Excel สรุปจ่ายร้าน (ภายใน)</button>
@@ -594,28 +632,145 @@ function PaymentCard({ totals, onExport, busy }: { totals: ReturnType<typeof sup
       {open && (
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>ร้าน / โกดัง</th><th>ประเภท</th><th className="num">สั่ง</th><th className="num">ของไม่มี</th><th className="num">ได้จริง</th><th className="num">ยอดเงิน</th><th className="num">ขาดทุน</th></tr></thead>
+            <thead>
+              <tr>
+                <th>ร้าน / โกดัง</th><th>ประเภท</th><th className="num">สั่ง</th><th className="num">ของไม่มี</th><th className="num">ได้จริง</th><th className="num">ยอดเงิน</th><th className="num">ขาดทุน</th>
+                <th className="num">จ่ายจริง</th><th className="center">จ่ายแล้ว</th><th className="num">ส่วนต่าง</th><th>หมายเหตุ</th>
+              </tr>
+            </thead>
             <tbody>
-              {totals.map((t) => (
-                <tr key={t.name}>
-                  <td><b>{t.name}</b></td>
-                  <td className="small muted">{t.name === MISSING_GROUP ? 'สั่งข้างนอก' : KIND_LABEL[t.kind]}</td>
-                  <td className="num">{num(t.ordered)}</td>
-                  <td className={`num ${t.missing ? 'warn' : ''}`}>{t.missing ? num(t.missing) : '—'}</td>
-                  <td className="num">{num(t.received)}</td>
-                  <td className="num"><b>฿{num(t.amount)}</b></td>
-                  <td className={`num ${t.unpriced ? 'warn' : ''}`}>{t.unpriced ? `${num(t.unpriced)} ชิ้น` : '—'}</td>
-                </tr>
-              ))}
+              {totals.map((t) => <PaymentRow key={t.name} total={t} payment={payments.get(t.name)} onPay={onPay} />)}
               <tr className="total-row">
                 <td>รวม</td><td /><td className="num">{num(sum('ordered'))}</td><td className="num">{num(sum('missing'))}</td><td className="num">{num(sum('received'))}</td>
                 <td className="num">฿{num(sum('amount'))}</td><td className="num">{sum('unpriced') ? `${num(sum('unpriced'))} ชิ้น` : '—'}</td>
+                <td className="num">฿{num(paidSum)}</td><td /><td className="num">{paidSum ? num(paidSum - sum('amount')) : '—'}</td><td />
               </tr>
             </tbody>
           </table>
-          <p className="small muted po-hint" style={{ paddingTop: 8 }}>ยอดเงิน = (สั่ง − ของไม่มี) × ทุน/ตัว · ทุน: คอลัมน์ H ของชีต · ถ้าในชีตไม่มี หรือต้องการแก้ ใส่ในช่อง "ทุน/ตัว" ของแต่ละรายการ จำไว้ใช้ทุกวัน</p>
+          <p className="small muted po-hint" style={{ paddingTop: 8 }}>
+            ยอดเงิน = (สั่ง − ของไม่มี) × ทุน/ตัว · ทุน: คอลัมน์ H ของชีต (ไม่มีหรือแก้ได้ในช่อง "ทุน/ตัว") ·
+            จ่ายจริง: ใส่ยอดที่โอนให้ร้าน แล้วติ๊ก "จ่ายแล้ว" (ติ๊กโดยไม่ใส่ยอด = จ่ายเท่ายอดเงิน) · ส่วนต่าง = จ่ายจริง − ยอดเงิน · บันทึกทันที
+          </p>
         </div>
       )}
+    </section>
+  );
+}
+
+function PaymentRow({ total: t, payment, onPay }: {
+  total: ReturnType<typeof supplierTotals>[number]; payment?: LedgerRow;
+  onPay: ((grp: string, v: { paid: number | null; done: boolean; note: string }) => Promise<void>) | null;
+}) {
+  const [paid, setPaid] = useState(payment?.paid != null ? String(payment.paid) : '');
+  const [note, setNote] = useState(payment?.note ?? '');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setPaid(payment?.paid != null ? String(payment.paid) : ''); setNote(payment?.note ?? ''); }, [payment?.paid, payment?.note]);
+  const done = !!payment?.done;
+  const send = async (v: { paid: number | null; done: boolean; note: string }) => {
+    if (!onPay) return;
+    setBusy(true);
+    try { await onPay(t.name, v); } finally { setBusy(false); }
+  };
+  const paidNum = paid.trim() === '' ? null : Number(paid);
+  const changed = paidNum !== (payment?.paid ?? null) || note.trim() !== (payment?.note ?? '');
+  const diff = payment?.paid != null ? payment.paid - t.amount : null;
+  return (
+    <tr className={done ? 'po-paid' : ''}>
+      <td><b>{t.name}</b></td>
+      <td className="small muted">{t.name === MISSING_GROUP ? 'สั่งข้างนอก' : KIND_LABEL[t.kind]}</td>
+      <td className="num">{num(t.ordered)}</td>
+      <td className={`num ${t.missing ? 'warn' : ''}`}>{t.missing ? num(t.missing) : '—'}</td>
+      <td className="num">{num(t.received)}</td>
+      <td className="num"><b>฿{num(t.amount)}</b></td>
+      <td className={`num ${t.unpriced ? 'warn' : ''}`}>{t.unpriced ? `${num(t.unpriced)} ชิ้น` : '—'}</td>
+      <td className="num">
+        {onPay ? (
+          <input className="po-pay-input" inputMode="decimal" value={paid} disabled={busy} placeholder={num(t.amount)} aria-label={`จ่ายจริง ${t.name}`}
+            onChange={(e) => setPaid(e.target.value.replace(/[^\d.]/g, ''))}
+            onBlur={() => { if (changed) send({ paid: paidNum, done, note: note.trim() }); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+        ) : payment?.paid != null ? `฿${num(payment.paid)}` : '—'}
+      </td>
+      <td className="center">
+        <input type="checkbox" checked={done} disabled={!onPay || busy} aria-label={`จ่ายแล้ว ${t.name}`}
+          onChange={(e) => send({ paid: e.target.checked && paidNum === null ? Math.round(t.amount * 100) / 100 : paidNum, done: e.target.checked, note: note.trim() })} />
+      </td>
+      <td className={`num ${diff === null ? '' : Math.abs(diff) < 0.5 ? 'good' : 'warn'}`}>{diff === null ? '—' : Math.abs(diff) < 0.5 ? 'ตรง' : `${diff > 0 ? '+' : ''}${num(diff)}`}</td>
+      <td>
+        {onPay ? (
+          <input className="po-pay-note" value={note} disabled={busy} placeholder="เช่น โอน 15/10 สลิป…" aria-label={`หมายเหตุ ${t.name}`}
+            onChange={(e) => setNote(e.target.value)} onBlur={() => { if (changed) send({ paid: paidNum, done, note: note.trim() }); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+        ) : <span className="small">{payment?.note || ''}</span>}
+      </td>
+    </tr>
+  );
+}
+
+/** "ปิด 3/5" for a round in the history table: suppliers marked paid out of those owed something. */
+function PaidStatus({ rows }: { rows: LedgerRow[] }) {
+  if (!rows.length) return <span className="muted">—</span>;
+  const done = rows.filter((r) => r.done).length;
+  const open = rows.filter((r) => !r.done).reduce((n, r) => n + Math.max(0, r.due - (r.paid ?? 0)), 0);
+  return <span className={done === rows.length ? 'good' : 'warn'}>{done === rows.length ? 'จ่ายครบ' : `ปิด ${done}/${rows.length} · ค้าง ฿${num(open)}`}</span>;
+}
+
+/**
+ * Outstanding payments over the last 60 days, per supplier: owed and paid for rounds not yet settled, and how many
+ * rounds; open a supplier to see its rounds and jump to one.
+ */
+function LedgerCard({ rows, history, onOpen }: { rows: LedgerRow[]; history: PurchaseUpload[]; onOpen: (u: PurchaseUpload) => void }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const [warehouses, setWarehouses] = useState(false);
+  const shown = rows.filter((r) => (warehouses || r.kind === 'supplier' || r.grp === MISSING_GROUP) && (r.due > 0 || r.unpriced > 0 || r.paid));
+  const bySupplier = new Map<string, LedgerRow[]>();
+  for (const r of shown) bySupplier.set(r.grp, [...(bySupplier.get(r.grp) ?? []), r]);
+  const list = [...bySupplier.entries()].map(([grp, rs]) => {
+    const unsettled = rs.filter((r) => !r.done);
+    return { grp, rs, rounds: unsettled.length, due: unsettled.reduce((n, r) => n + r.due, 0), paid: unsettled.reduce((n, r) => n + (r.paid ?? 0), 0), unpriced: unsettled.reduce((n, r) => n + r.unpriced, 0) };
+  }).sort((a, b) => (b.due - b.paid) - (a.due - a.paid));
+  const outstanding = list.reduce((n, s) => n + Math.max(0, s.due - s.paid), 0);
+  return (
+    <section className="card table-card po-payments">
+      <div className="table-card-head">
+        <div>
+          <h2>ยอดค้างจ่ายร้าน <span className="pill">ภายใน</span> <span className="muted small">60 วันล่าสุด · ค้างรวม ฿{num(outstanding)}</span></h2>
+          <p className="muted small">นับเฉพาะรอบที่ยังไม่ติ๊ก "จ่ายแล้ว" · ยอดต้องจ่ายมาจากใบสั่งตอนบันทึกล่าสุด</p>
+        </div>
+        <label className="check small"><input type="checkbox" checked={warehouses} onChange={(e) => setWarehouses(e.target.checked)} /> รวมโกดังของเรา</label>
+      </div>
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead><tr><th>ร้าน</th><th className="num">รอบที่ค้าง</th><th className="num">ต้องจ่าย</th><th className="num">จ่ายแล้ว</th><th className="num">ค้าง</th><th /></tr></thead>
+          <tbody>
+            {list.map((s) => (
+              <Fragment key={s.grp}>
+                <tr className={s.rounds ? '' : 'dim'}>
+                  <td><b>{s.grp}</b>{s.unpriced > 0 && <span className="pill warn" style={{ marginLeft: 6 }}>ยังไม่มีทุน {num(s.unpriced)} ชิ้น</span>}</td>
+                  <td className="num">{s.rounds || '—'}</td>
+                  <td className="num">฿{num(s.due)}</td>
+                  <td className="num">฿{num(s.paid)}</td>
+                  <td className={`num ${s.due - s.paid > 0.5 ? 'warn' : 'good'}`}><b>{s.rounds ? `฿${num(Math.max(0, s.due - s.paid))}` : 'จ่ายครบ'}</b></td>
+                  <td><button className="link small" onClick={() => setOpen(open === s.grp ? null : s.grp)}>{open === s.grp ? 'ย่อ' : 'ดูรอบ'}</button></td>
+                </tr>
+                {open === s.grp && s.rs.map((r) => {
+                  const u = history.find((h) => h.id === r.upload_id);
+                  return (
+                    <tr key={r.upload_id} className="formula-row">
+                      <td className="small">{thaiShortDate(r.date)} รอบ {r.round}{r.done ? ' · จ่ายแล้ว' : ''}{r.note ? ` · ${r.note}` : ''}</td>
+                      <td />
+                      <td className="num small">฿{num(r.due)}</td>
+                      <td className="num small">{r.paid != null ? `฿${num(r.paid)}` : '—'}</td>
+                      <td className="num small">{r.done ? (Math.abs((r.paid ?? 0) - r.due) < 0.5 ? 'ตรง' : `ต่าง ${num((r.paid ?? 0) - r.due)}`) : `฿${num(Math.max(0, r.due - (r.paid ?? 0)))}`}</td>
+                      <td>{u && <button className="link small" onClick={() => onOpen(u)}>เปิดรอบ</button>}</td>
+                    </tr>
+                  );
+                })}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }

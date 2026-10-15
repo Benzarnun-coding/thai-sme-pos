@@ -321,3 +321,12 @@ test('column M: a supplier code goes in brackets, a note like "ร้าน ส.
   const [fixed] = withPrices([old], lookup);
   assert.deepEqual([fixed.label, fixed.sheetNote], ['482/1 มิดไนท์ย้อมสนิม', 'ร้าน ส.']);
 });
+
+test('payments: amounts and ticks are validated', async () => {
+  const { validatePayments } = await import('./purchase.ts');
+  const ok = validatePayments({ id: '2026-10-15#1', items: [{ grp: 'NBG', paid: '1,600', done: true, note: ' โอน 15/10 ' }, { grp: 'J.BIG', paid: '', done: false }] });
+  assert.deepEqual(ok.items, [{ grp: 'NBG', paid: 1600, done: true, note: 'โอน 15/10' }, { grp: 'J.BIG', paid: null, done: false, note: '' }]);
+  assert.throws(() => validatePayments({ id: '2026-10-15#1', items: [{ grp: 'NBG', paid: -5 }] }), /ยอดจ่าย/);
+  assert.throws(() => validatePayments({ id: '2026-10-15#1', items: [{ grp: '', paid: 5 }] }), /ชื่อร้าน/);
+  assert.throws(() => validatePayments({ id: 'x', items: [{ grp: 'NBG' }] }), /รอบไหน/);
+});

@@ -286,6 +286,7 @@ export interface CatalogSupplier { key: string; tab: string; spu: string; shop: 
 export interface CatalogPrice { key: string; tab: string; spu: string; price: number; updated_by: string; updated_at: string }
 export interface CatalogMeta { version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; prices: CatalogPrice[]; sheet_configured: boolean }
 export type PurchaseKind = 'supplier' | 'warehouse' | 'unassigned' | 'review';
+export interface LedgerRow { upload_id: string; date: string; round: number; grp: string; kind: string; due: number; unpriced: number; paid: number | null; done: boolean; note: string; updated_by: string | null; updated_at: string | null }
 export interface PurchaseUpload { id: string; date: string; round: number; file: string; pieces: number; review: number; missing: number; groups: { name: string; kind: PurchaseKind; pieces: number }[]; saved_by: string; saved_at: string }
 export interface SavedPurchaseLine { grp: string; kind: PurchaseKind; sku: string; tab: string; label: string; size: string; qty: number; note: string; orders: string[]; missing: number; stores: Record<string, string>; price: number | null; price_source: string }
 export type WebSkuInput = Omit<WebSku, 'created_by' | 'created_at' | 'updated_at'>;
@@ -314,6 +315,8 @@ export const api = {
   purchaseLines: (id: string) => call<{ lines: SavedPurchaseLine[] }>('GET', `/api/purchase/lines?id=${encodeURIComponent(id)}`),
   savePurchase: (p: { date: string; round: number; file: string; lines: unknown[] }) => call<{ upload: PurchaseUpload }>('PUT', '/api/purchase', p),
   setMissing: (id: string, items: { grp: string; sku: string; missing: number }[]) => call<{ missing: number }>('PUT', '/api/purchase/missing', { id, items }),
+  ledger: (days = 60) => call<{ since: string; rows: LedgerRow[] }>('GET', `/api/purchase/ledger?days=${days}`),
+  savePayments: (id: string, items: { grp: string; paid: number | null; done: boolean; note: string }[]) => call<{ ok: true }>('PUT', '/api/purchase/payments', { id, items }),
   deletePurchase: (id: string) => call<{ ok: true }>('DELETE', `/api/purchase?id=${encodeURIComponent(id)}`),
   setCatalogSheet: (sheet: string) => call<{ ok: true }>('PUT', '/api/catalog/sheet', { sheet }),
   catalogSheetTabs: () => call<{ tabs: { tab: string; gid: string }[] }>('GET', '/api/catalog/sheet'),
