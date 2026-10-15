@@ -991,3 +991,7 @@ tr:hover .po-label-btn { opacity: 1; }
 .stock-form { display: grid; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .stock-form .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
 .stock-moves td { vertical-align: top; }
+.stock-days { font-size: 11px; font-weight: 500; margin-top: 2px; }
+.stock-days.bad { color: var(--bad); }
+.stock-days.warn { color: var(--warn); }
+.stock-days.good { color: var(--good); }
