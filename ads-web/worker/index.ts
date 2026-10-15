@@ -30,6 +30,7 @@ import { deletePurchase, findOrders, ledger, listPurchases, orderTerms, purchase
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveAlias, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatDay, chatDayText, chatSummary, purgeChats } from './chatLog.ts';
+import { aiEnabled, askAI, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
 import { familyStats, postIdeas, postIdeasText } from './postIdeas.ts';
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
 import { approvalsEnabled, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
@@ -56,6 +57,9 @@ export interface Env {
   DISCORD_DECIDER_IDS?: string;
   /** #meta-chat channel webhook: the daily chat report */
   DISCORD_CHAT_WEBHOOK_URL?: string;
+  /** AI read of the chats (chatInsights.ts); company Anthropic account */
+  ANTHROPIC_API_KEY?: string;
+  CHAT_AI_MODEL?: string;
   /** Discord user IDs allowed to press the buttons (comma separated); empty = anyone in the channel */
   DISCORD_APPROVER_IDS?: string;
   /** Discord user IDs who upload Page365 (มอส); tagged at 10:00 if the file is missing, may press the upload buttons */
@@ -128,7 +132,7 @@ export default {
 
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     if (event.cron === COSTS_CRON) {
-      ctx.waitUntil(purgeChats(env.DB).then(() => sendChatReport(env, 'yesterday')).catch((err) => console.error('chat report', err)));
+      ctx.waitUntil(purgeChats(env.DB).then(() => sendChatReport(env, 'yesterday')).then(() => (aiEnabled(env) ? sendChatInsights(env, 'yesterday') : null)).catch((err) => console.error('chat report', err)));
       ctx.waitUntil(loadSettings(env.DB).then((s) => Promise.all([
         s.sheet_id ? syncCosts(env.DB, s) : [],
         s.ads_cost_sheet_id ? syncCampaignCosts(env.DB, s) : null,
@@ -510,6 +514,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
 
   // ---- Messenger webhook: who came from which ad ----
   if (path === '/api/webhook' && method === 'GET') return json(await webhookStatus(env, `${url.origin}/webhook/meta`));
+  if (path === '/api/chats/insights' && method === 'POST') return json(await sendChatInsights(env, url.searchParams.get('scope') === 'today' ? 'today' : 'yesterday'));
   if (path === '/api/chats/report' && method === 'POST') return json(await sendChatReport(env, url.searchParams.get('scope') === 'yesterday' ? 'yesterday' : 'today'));
   if (path === '/api/chats/summary' && method === 'GET') return json(await chatSummary(env.DB, Math.min(30, Math.max(1, Number(url.searchParams.get('days') ?? 7)))));
   if (path === '/api/webhook/setup' && method === 'POST') {
@@ -1211,6 +1216,39 @@ async function sendChatReport(env: Env, scope: 'yesterday' | 'today'): Promise<{
   const title = scope === 'yesterday' ? `แชท ${thai}` : `แชทวันนี้ ${thai} ถึง ${new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}`;
   const sent = await pushDiscord(chatDayText(d, title, (id) => (id ? names.get(id) ?? `แคมเปญ ${id}` : 'ไม่ระบุแอด')), env.DISCORD_CHAT_WEBHOOK_URL).catch(() => false);
   return { sent: !!sent, threads: d.threads };
+}
+
+/** น้องจิบิ's AI read of a day's chats → #meta-chat. One model call per day; tokens are logged in audit. */
+async function sendChatInsights(env: Env, scope: 'yesterday' | 'today'): Promise<{ sent: boolean; customers: number; read: number; input_tokens: number; output_tokens: number }> {
+  if (!aiEnabled(env)) throw new BadRequest('ยังไม่ได้ตั้ง ANTHROPIC_API_KEY');
+  if (!env.DISCORD_CHAT_WEBHOOK_URL) throw new BadRequest('ยังไม่ได้ตั้ง DISCORD_CHAT_WEBHOOK_URL');
+  const day = scope === 'yesterday' ? bkkDate(1) : bkkDate(0);
+  const from = new Date(`${day}T00:00:00+07:00`).toISOString();
+  const to = scope === 'yesterday' ? new Date(`${bkkDate(0)}T00:00:00+07:00`).toISOString() : new Date().toISOString();
+  const [msgs, refs, notes] = await Promise.all([
+    env.DB.prepare('SELECT psid, at, from_page, text, attachments FROM chat_messages WHERE at >= ? AND at < ? ORDER BY at').bind(from, to).all<{ psid: string; at: string; from_page: number; text: string | null; attachments: string | null }>(),
+    env.DB.prepare('SELECT psid, campaign_id FROM ad_referrals WHERE at >= ? AND at < ? GROUP BY psid').bind(new Date(Date.parse(from) - 7 * 86_400_000).toISOString(), to).all<{ psid: string; campaign_id: string | null }>(),
+    env.DB.prepare('SELECT DISTINCT psid FROM order_notes WHERE at >= ? AND at < ?').bind(from, to).all<{ psid: string }>().catch(() => ({ results: [] as { psid: string }[] })),
+  ]);
+  const names = new Map<string, string>();
+  try { for (const e of (await metaData(env)).data.entities) if (e.level === 'campaign') names.set(e.id, e.name); } catch { /* names are a nicety */ }
+  const campOf = new Map(refs.results.map((r) => [r.psid, r.campaign_id]));
+  const ordered = new Set(notes.results.map((n) => n.psid));
+  const convs = new Map<string, Conversation>();
+  for (const m of msgs.results) {
+    const c = convs.get(m.psid) ?? { psid: m.psid, campaign: (() => { const id = campOf.get(m.psid); return id ? names.get(id) ?? 'แอดอื่น' : null; })(), ordered: ordered.has(m.psid), messages: [] };
+    c.messages.push(m); convs.set(m.psid, c);
+  }
+  // Conversations where the customer actually wrote come first, longest first (most to learn from).
+  const list = [...convs.values()].filter((c) => c.messages.some((m) => !m.from_page)).sort((a, b) => b.messages.length - a.messages.length);
+  const thai = new Date(`${day}T00:00:00+07:00`).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' });
+  if (!list.length) return { sent: false, customers: 0, read: 0, input_tokens: 0, output_tokens: 0 };
+  const t = transcript(list);
+  const ai = await askAI(env, INSIGHT_SYSTEM, insightPrompt(thai, t, list.length));
+  const head = `🧠 **น้องจิบิอ่านแชท ${scope === 'yesterday' ? thai : `วันนี้ ${thai} (ถึงตอนนี้)`}** · ${list.length} คน${t.used < list.length ? ` (อ่าน ${t.used})` : ''}\n`;
+  const sent = await pushDiscord(head + ai.text, env.DISCORD_CHAT_WEBHOOK_URL).catch(() => false);
+  await audit(env.DB, 'ai', 'chat.insights', day, { model: ai.model, input_tokens: ai.input_tokens, output_tokens: ai.output_tokens, customers: list.length, read: t.used }).catch(() => null);
+  return { sent: !!sent, customers: list.length, read: t.used, input_tokens: ai.input_tokens, output_tokens: ai.output_tokens };
 }
 
 async function dailyDigest(env: Env): Promise<void> {
