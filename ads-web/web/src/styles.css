@@ -977,3 +977,17 @@ tr:hover .po-label-btn { opacity: 1; }
 .money-preview { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-2); font-size: 14px; }
 .profit-notes ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
 .profit-notes p { margin: 0; }
+
+/* /catalog/stock + the order page's stock notice */
+.warn-card { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+.warn-card a { color: inherit; font-weight: 600; }
+.stock-grid { border-collapse: collapse; width: 100%; }
+.stock-grid th, .stock-grid td { padding: 8px 10px; text-align: center; border-bottom: 1px solid var(--border); }
+.stock-grid th:first-child, .stock-grid td:first-child { text-align: left; white-space: nowrap; }
+.stock-grid td.low { background: var(--warn-bg); color: var(--warn); font-weight: 600; }
+.stock-grid td.out { background: var(--bad-bg); color: var(--bad); font-weight: 600; }
+.stock-grid input { width: 64px; text-align: center; padding: 4px 6px; min-height: 32px; font-size: 14px; }
+.stock-grid tfoot td { font-weight: 600; }
+.stock-form { display: grid; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.stock-form .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.stock-moves td { vertical-align: top; }

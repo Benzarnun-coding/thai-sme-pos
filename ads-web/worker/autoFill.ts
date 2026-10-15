@@ -5,7 +5,7 @@
 // Page365 and presses "ส่งบิล". Switch: meta_capi key auto_fill (on/off), on the settings page.
 
 import { postToDeciders, type DiscordEnv } from './discord.ts';
-import { markFill, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
+import { looksLikeNote, markFill, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { sendNotePurchase } from './notePurchases.ts';
 import { applyFill, call, findDraft, P365Error, planFill, type FillEnv, type P365Order } from './p365fill.ts';
 
@@ -67,10 +67,12 @@ export async function ensureDraft(env: AutoEnv, note: StoredNote): Promise<{ dra
     const last = await call<P365Order>(env, `orders/${who.last_order_id}.json`).catch(() => null);
     if (last && last.customer_fbid === note.psid) {
       if (last.stage === 'draft') draft = last;
-      // Already made and moved on, around or after the note: that bill is this order, unless another note has it.
-      else if (Date.parse(last.created_at) >= t - 3_600_000) {
+      // Already made and moved on: that bill is this order if it was opened around/after the note, or if another
+      // note of the customer within 2 hours went into it (a repeated summary — #29364 / 16:53, 15 Oct).
+      else {
         const other = await otherNoteOn(env.DB, last.no, note.mid);
-        if (!other || Math.abs(Date.parse(other.at) - t) <= SAME_ORDER_MS) return { draft: null, billed: last };
+        const recent = Date.parse(last.created_at) >= t - 3_600_000;
+        if (other ? Math.abs(Date.parse(other.at) - t) <= SAME_ORDER_MS : recent) return { draft: null, billed: last };
       }
     }
   }
@@ -173,10 +175,10 @@ const SWEEP_FROM = '2026-10-15T09:00:00Z'; // 16:00 Bangkok
  * The safety net, on webhook deliveries without notes (at most every 5 minutes): one note from the last 24 hours
  * that never got its draft, or whose fill was cut short, or that waited for Page365, is run again.
  */
-export async function sweepNotes(env: AutoEnv): Promise<AutoResult | null> {
+export async function sweepNotes(env: AutoEnv, opts: { force?: boolean } = {}): Promise<AutoResult | null> {
   if (!(await autoFillOn(env.DB))) return null;
   const last = await env.DB.prepare("SELECT value FROM meta_capi WHERE key = 'fill_sweep_at'").first<{ value: string }>().catch(() => null);
-  if (last && Date.now() - Date.parse(last.value) < 5 * 60_000) return null;
+  if (!opts.force && last && Date.now() - Date.parse(last.value) < 5 * 60_000) return null;
   await env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('fill_sweep_at', ?)").bind(new Date().toISOString()).run();
   const from = new Date(Math.max(Date.now() - 86_400_000, Date.parse(SWEEP_FROM))).toISOString();
   const to = new Date(Date.now() - 3 * 60_000).toISOString();
@@ -187,14 +189,19 @@ export async function sweepNotes(env: AutoEnv): Promise<AutoResult | null> {
       WHERE c.from_page = 1 AND c.at >= ? AND c.text IS NOT NULL AND o.mid IS NULL`,
   ).bind(from).all<{ mid: string; psid: string; at: string; text: string }>();
   const rescued: StoredNote[] = shopLines.filter((m) => parseOrderNote(m.text)).map((m) => ({ mid: m.mid, psid: m.psid, at: m.at, text: m.text.trim(), name_hash: null }));
+  // The same lines that still aren't read but look like notes: kept and told (once), so the format gets learnt.
+  await recordMisses(env, shopLines.filter((m) => looksLikeNote(m.text)).map((m) => ({ mid: m.mid, psid: m.psid, at: m.at, text: m.text.trim(), name_hash: null })));
   if (rescued.length) {
+    // A miss the parser reads now (after a fix) is marked learnt.
+    await env.DB.prepare(`UPDATE note_misses SET resolved_at = ? WHERE resolved_at IS NULL AND mid IN (SELECT value FROM json_each(?))`).bind(new Date().toISOString(), JSON.stringify(rescued.map((n) => n.mid))).run().catch(() => null);
     await saveNotes(env.DB, rescued);
     for (const n of rescued) await sendNotePurchase(env as any, n).catch((err) => console.error('note purchase', err));
   }
+  // instr, not LIKE: D1 refuses LIKE patterns this long in Thai ("pattern too complex").
   const note = await env.DB.prepare(
     `SELECT * FROM order_notes WHERE at >= ? AND at <= ? AND filled_at IS NULL
-       AND (fill_error IS NULL OR fill_error LIKE ? OR fill_error LIKE ?) ORDER BY at LIMIT 1`,
-  ).bind(from, to, `${OPENED}%`, `${WAITING}%`).first<StoredNote>();
+       AND (fill_error IS NULL OR instr(fill_error, ?) = 1 OR instr(fill_error, ?) = 1) ORDER BY at LIMIT 1`,
+  ).bind(from, to, OPENED, WAITING).first<StoredNote>();
   if (!note) return null;
   if (triesOf(note.fill_error) >= 3) {
     const why = ['เปิดร่างแล้วแต่ใส่รายละเอียดไม่สำเร็จ 3 ครั้ง — ใส่เองในร่าง'];
@@ -213,6 +220,11 @@ export async function tell(env: AutoEnv, note: StoredNote, draft: P365Order | nu
     `แอดมินสรุป: \`${note.text.replace(/\s+/g, ' ')}\``,
     ...reasons.slice(0, 6).map((r) => `• ${r}`),
   ].join('\n').slice(0, 2000);
+  await postOrderChannel(env, body);
+}
+
+/** The problem channel (#ออเดอร์มีปัญหา), tagging the person in charge; the ads channel via the bot if not set. */
+async function postOrderChannel(env: AutoEnv, body: (mention: string) => string): Promise<void> {
   if (env.DISCORD_ORDER_WEBHOOK_URL) {
     const ids = (env.DISCORD_ORDER_OWNER_IDS || env.DISCORD_DECIDER_IDS || '').split(',').map((x) => x.trim()).filter(Boolean);
     const r = await fetch(env.DISCORD_ORDER_WEBHOOK_URL, {
@@ -223,4 +235,58 @@ export async function tell(env: AutoEnv, note: StoredNote, draft: P365Order | nu
     console.error('order webhook', r.status);
   }
   await postToDeciders(env, body);
+}
+
+/**
+ * Every 3 hours (Benz 15 Oct), not waiting for chat traffic: the sweep runs once, and if no webhook delivery came
+ * in for 3 hours in the shop's day (10:00–23:00 Bangkok) the problem channel is told — notes typed then are not
+ * seen at all until deliveries come back.
+ */
+export async function cronSweep(env: AutoEnv): Promise<void> {
+  if (!(await autoFillOn(env.DB))) return;
+  await sweepNotes(env, { force: true }).catch((err) => console.error('sweep', err));
+  const hour = (new Date().getUTCHours() + 7) % 24;
+  const last = await env.DB.prepare('SELECT max(at) AS at FROM chat_messages').first<{ at: string | null }>().catch(() => null);
+  if (hour >= 10 && hour < 23 && last?.at && Date.now() - Date.parse(last.at) > 3 * 3_600_000) {
+    await tell(env, { mid: '', psid: '', at: new Date().toISOString(), text: '-', name_hash: null }, null, 'ทุกบิล', [`ไม่มีแชทเข้ามาที่ระบบเลยตั้งแต่ ${bkk(last.at)} น. — webhook ของ Meta อาจหลุด สรุปที่พิมพ์ช่วงนี้ระบบยังไม่เห็น เปิดร่างเองไปก่อน แล้วแจ้งเบนซ์`]);
+  }
+}
+
+/**
+ * Shop messages that look like an order note but can't be read (Benz 15 Oct): stored in `note_misses` and told
+ * to the problem channel once each, so a person opens the bill by hand and the format is added to the parser.
+ */
+export async function recordMisses(env: AutoEnv, misses: StoredNote[]): Promise<number> {
+  if (!misses.length) return 0;
+  const { results: known } = await env.DB.prepare('SELECT mid FROM note_misses WHERE mid IN (SELECT value FROM json_each(?))').bind(JSON.stringify(misses.map((m) => m.mid))).all<{ mid: string }>();
+  const seen = new Set(known.map((k) => k.mid));
+  const fresh = misses.filter((m) => !seen.has(m.mid));
+  if (!fresh.length) return 0;
+  const now = new Date().toISOString();
+  await env.DB.prepare(`INSERT OR IGNORE INTO note_misses (mid, psid, at, text, alerted_at)
+    SELECT value->>'mid', value->>'psid', value->>'at', value->>'text', ? FROM json_each(?)`).bind(now, JSON.stringify(fresh)).run();
+  for (const m of fresh.slice(0, 3)) {
+    const who = await customerFor(env, m.psid, 2).catch(() => null);
+    await tellMiss(env, m, who?.name ?? '').catch((err) => console.error('miss post', err));
+  }
+  return fresh.length;
+}
+
+export async function tellMiss(env: AutoEnv, m: StoredNote, name: string): Promise<void> {
+  await postOrderChannel(env, (mention) => [
+      `❓ ข้อความนี้เหมือนสรุปออเดอร์ แต่ระบบอ่านไม่ออก ${mention}`.trim(),
+      `ลูกค้า: **${name || 'ไม่ทราบชื่อ'}** · พิมพ์ตอน ${bkk(m.at)} น.`,
+      `ข้อความ: \`${m.text.replace(/\s+/g, ' ').slice(0, 200)}\``,
+      '• ระบบยังไม่เปิดร่าง/ไม่ส่งยอดให้ Meta — เปิดบิลเองไปก่อน',
+      '• ส่งรูปแบบนี้ให้เบนซ์/Claude เพิ่มเข้าระบบ (ดูได้ที่แท็บ Log ออเดอร์แชท → "สรุปที่อ่านไม่ออก")',
+    ].join('\n').slice(0, 2000));
+}
+
+export interface NoteMiss { mid: string; at: string; text: string; alerted_at: string | null; resolved_at: string | null }
+
+/** The last `days` days of misses, newest first (Log tab). */
+export async function loadMisses(db: D1Database, days = 14): Promise<NoteMiss[]> {
+  const from = new Date(Date.now() - days * 86_400_000).toISOString();
+  const { results } = await db.prepare('SELECT mid, at, text, alerted_at, resolved_at FROM note_misses WHERE at >= ? ORDER BY at DESC LIMIT 100').bind(from).all<NoteMiss>();
+  return results;
 }

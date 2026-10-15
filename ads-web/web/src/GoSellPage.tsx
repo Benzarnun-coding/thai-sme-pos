@@ -8,6 +8,7 @@ import { baht, num } from './fmt.ts';
 import { Icon, useUi } from './ui.tsx';
 import { readFirstSheet } from './xlsx.ts';
 import { HomeLogo, SiteNav } from './SiteNav.tsx';
+import { GOSELL_HANDOFF, type GosellHandoff } from './StockPage.tsx';
 
 /** The whole /gosell site: just a header and the converter. */
 export function GoSellApp() {
@@ -65,6 +66,14 @@ export function GoSellPage() {
   const ready = orders.filter((o) => !o.problems.length);
   const problems = orders.filter((o) => o.problems.length);
   const exportList = includeProblems ? orders : ready;
+
+  /** Hands this file's orders to the stock page (same browser), which shows what would be cut and cuts on confirm. */
+  function cutStock() {
+    const lines = exportList.flatMap((o) => [...o.skus.matchAll(/(\S+) \((\d+)\)/g)].map((m) => ({ order_no: o.orderNo, sku: m[1], qty: Number(m[2]) })));
+    const handoff: GosellHandoff = { file: data?.file ?? 'ไฟล์ GoSell', at: new Date().toISOString(), lines };
+    try { localStorage.setItem(GOSELL_HANDOFF, JSON.stringify(handoff)); } catch { toast('เบราว์เซอร์นี้ส่งต่อไม่ได้ (โหมดส่วนตัว)', 'bad'); return; }
+    window.open('/catalog/stock?gosell=1', '_blank', 'noopener');
+  }
 
   async function download() {
     if (!exportList.length) return;
@@ -141,6 +150,10 @@ export function GoSellPage() {
                 รวม {problems.length} ออเดอร์ที่ต้องแก้ด้วย (แก้ในไฟล์ Excel เองก่อนนำเข้า)
               </label>
             )}
+            <div className="small" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
+              <button className="small" disabled={!exportList.length} onClick={cutStock}>ตัดสต็อก GoSell…</button>
+              <span className="muted">หลังนำเข้า GoSell แล้ว · เปิดหน้าสต็อกให้ดูว่าจะตัดอะไรก่อนกดยืนยัน · ตัดเฉพาะรุ่นที่อยู่ในสต็อก ออเดอร์ที่ตัดแล้วไม่ตัดซ้ำ</span>
+            </div>
           </section>
 
           {problems.length > 0 && <OrderTable title="ต้องแก้ก่อนนำเข้า" orders={problems} showProblems />}

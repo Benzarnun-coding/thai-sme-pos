@@ -5,10 +5,10 @@
 // cod 449", see orderNotes.ts) is kept to check against Page365, and since 2026-10-15 every message's text is kept
 // for 30 days with phone numbers, e-mails, long numbers and addresses removed first (chatLog.ts).
 
-import { autoFillNote, sweepNotes } from './autoFill.ts';
+import { autoFillNote, recordMisses, sweepNotes } from './autoFill.ts';
 import { maybeSyncPurchases } from './metaPurchases.ts';
 import { sendNotePurchase } from './notePurchases.ts';
-import { parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
+import { looksLikeNote, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { hashName } from './p365.ts';
 import { extractChats, saveChats } from './chatLog.ts';
 
@@ -62,6 +62,7 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
 
   const rows = extractReferrals(body.entry ?? []);
   const notes = extractOrderNotes(body.entry ?? []);
+  const misses = extractNoteMisses(body.entry ?? []);
   const echoes = (body.entry ?? []).reduce((n, e) => n + [...(e.messaging ?? []), ...(e.standby ?? [])].filter((ev) => ev.message?.is_echo).length, 0);
   const events = (body.entry ?? []).reduce((n, e) => n + (e.messaging?.length ?? 0) + (e.standby?.length ?? 0), 0);
   // Answer Meta right away; the writes finish in the background (Meta retries deliveries that get no 200).
@@ -77,6 +78,8 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
   // Webhook deliveries are the clock for sending Page365 purchases to Meta (at most every 10 minutes; off by default)
   // and for the fill sweep (a note whose draft never opened or whose fill was cut short; at most every 5 minutes).
   if (!notes.length) ctx.waitUntil(maybeSyncPurchases(env as any).catch((err) => console.error('capi', err)).then(() => sweepNotes(env as any)).catch((err) => console.error('sweep', err)));
+  // A note the parser can't read: a person is told at once (it is also kept, so the format can be learnt).
+  if (misses.length) ctx.waitUntil(recordMisses(env as any, misses).catch((err) => console.error('note miss', err)));
   const chats = extractChats(body.entry ?? []);
   if (chats.length) ctx.waitUntil(saveChats(env.DB, chats).catch((err) => console.error('chat store', err)));
   return new Response('ok', { status: 200 });
@@ -107,6 +110,19 @@ export function extractReferrals(entries: { messaging?: MessagingEvent[]; standb
 }
 
 /** The page's own messages (echoes) that are an order note and nothing else; everything else is dropped here. */
+/** Shop messages that look like an order note but aren't read (see looksLikeNote). */
+export function extractNoteMisses(entries: { messaging?: MessagingEvent[]; standby?: MessagingEvent[] }[]): StoredNote[] {
+  const out: StoredNote[] = [];
+  for (const e of entries) {
+    for (const ev of [...(e.messaging ?? []), ...(e.standby ?? [])]) {
+      const m = ev.message;
+      if (!m?.is_echo || !m.mid || !m.text || !ev.recipient?.id || !looksLikeNote(m.text)) continue;
+      out.push({ mid: m.mid, psid: ev.recipient.id, at: eventTime(ev.timestamp), text: m.text.trim(), name_hash: null });
+    }
+  }
+  return out;
+}
+
 export function extractOrderNotes(entries: { messaging?: MessagingEvent[]; standby?: MessagingEvent[] }[]): StoredNote[] {
   const out: StoredNote[] = [];
   for (const e of entries) {

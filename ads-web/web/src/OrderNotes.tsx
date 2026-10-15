@@ -43,6 +43,7 @@ export function OrderNotesPage() {
       <DaySales date={date} refresh={tick} />
       <SessionBanner />
       <AutoSwitch />
+      <NoteMisses refresh={tick} />
       <OrderNotesList date={date} dayLabel={date === todayBkk() ? 'วันนี้' : thaiDay(date)} refresh={tick} live={date === todayBkk()} />
     </>
   );
@@ -294,6 +295,31 @@ function FillAll({ notes, onDone }: { notes: NoteCheck[]; onDone: () => void }) 
 }
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' });
+
+/** Shop messages that look like a note but weren't read: each is a format to add (worker/noteFormats.test.ts). */
+function NoteMisses({ refresh }: { refresh: number }) {
+  const [misses, setMisses] = useState<{ mid: string; at: string; text: string; resolved_at: string | null }[]>([]);
+  useEffect(() => { api.orderNoteMisses().then((r) => setMisses(r.misses)).catch(() => {}); }, [refresh]);
+  const open = misses.filter((m) => !m.resolved_at);
+  if (!misses.length) return null;
+  return (
+    <details className="card" style={{ marginBottom: 12 }} open={open.length > 0}>
+      <summary><strong>สรุปที่ระบบอ่านไม่ออก</strong> <span className="muted small">{open.length} รอเพิ่มรูปแบบ · {misses.length - open.length} อ่านได้แล้ว (14 วัน)</span></summary>
+      <p className="muted small">ข้อความของร้านที่มี cod/โอน + ยอด + รหัส แต่ระบบอ่านไม่ได้ — แจ้งห้องออเดอร์มีปัญหาแล้ว ส่งให้ Claude เพิ่มเข้าชุดรูปแบบ แล้วระบบจะกลับมาอ่านเองในรอบตรวจ (ทุก 3 ชม.)</p>
+      <table className="table small">
+        <tbody>
+          {misses.map((m) => (
+            <tr key={m.mid}>
+              <td className="muted">{when(m.at)}</td>
+              <td><code style={{ whiteSpace: 'pre-wrap' }}>{m.text}</code></td>
+              <td>{m.resolved_at ? <span className="good">อ่านได้แล้ว</span> : <span className="bad">รอเพิ่มรูปแบบ</span>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </details>
+  );
+}
 
 export function OrderNotesList({ date, dayLabel, refresh = 0, live = false }: { date: string; dayLabel: string; refresh?: number; live?: boolean }) {
   const [res, setRes] = useState<Awaited<ReturnType<typeof api.orderNotes>> | null>(null);

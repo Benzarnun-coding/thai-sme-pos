@@ -1,0 +1,186 @@
+// Stock we hold ourselves (Benz 2026-10-15): พี่เปีย's branch at BB ('pia') and the GoSell fulfillment warehouse
+// ('gosell'), for the products in stock_items (5 models × sizes 28–36). Balance = Σ stock_moves.qty.
+//   pia:    cut by the order sheets — rows in the "พี่เปีย" group of a saved round (put there by the page when stock
+//           is there, or moved by hand), each order + SKU once (stock_orders), less pieces ticked "ของไม่มี".
+//           Only rounds after the day of the starting balance count (the sheet covered the days before).
+//   gosell: cut by a button after a GoSell file (the page sends order + SKU + qty; each order + SKU once).
+// Received stock and count corrections are typed on /catalog/stock.
+
+import { cleanSku, cleanText } from '../web/src/catalog.ts';
+import { BadRequest } from './validate.ts';
+
+export const LOCS = ['pia', 'gosell'] as const;
+export type Loc = (typeof LOCS)[number];
+/** The order-sheet group that is the พี่เปีย branch (same as the page's STOCK_GROUP). */
+export const STOCK_GROUP = 'พี่เปีย';
+
+export interface StockItem { sku: string; code: string; size: string; sort: number }
+export interface StockMove { id: number; loc: Loc; sku: string; qty: number; kind: 'open' | 'in' | 'out' | 'adjust'; ref: string; date: string; note: string; created_by: string; created_at: string }
+export interface StockData {
+  items: StockItem[];
+  balances: { loc: Loc; sku: string; qty: number }[];
+  /** The day of each location's starting balance; the order sheets cut from the day after */
+  start: Partial<Record<Loc, string>>;
+  /** Changes of the last 45 days, newest first */
+  moves: StockMove[];
+  /** Order + SKU already cut in the last 14 days (the order page keeps them in the พี่เปีย group) */
+  cut: { loc: Loc; order_no: string; sku: string; ref: string }[];
+}
+
+const today = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
+const minus = (iso: string, d: number) => new Date(Date.parse(iso) - d * 86400_000).toISOString().slice(0, 10);
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+export async function stockData(db: D1Database): Promise<StockData> {
+  const [items, balances, start, moves, cut] = await db.batch([
+    db.prepare('SELECT sku, code, size, sort FROM stock_items ORDER BY sort'),
+    db.prepare('SELECT loc, sku, SUM(qty) AS qty FROM stock_moves GROUP BY loc, sku'),
+    db.prepare("SELECT loc, MAX(date) AS date FROM stock_moves WHERE kind = 'open' GROUP BY loc"),
+    db.prepare('SELECT * FROM stock_moves WHERE date >= ?1 ORDER BY date DESC, id DESC LIMIT 3000').bind(minus(today(), 45)),
+    db.prepare(
+      `SELECT s.loc, s.order_no, s.sku, s.ref FROM stock_orders s
+       WHERE s.ref >= ?1 OR s.ref LIKE 'gosell:%'`,
+    ).bind(minus(today(), 14)),
+  ]);
+  return {
+    items: items.results as StockItem[],
+    balances: (balances.results as StockData['balances']).map((b) => ({ ...b, qty: Number(b.qty) || 0 })),
+    start: Object.fromEntries((start.results as { loc: Loc; date: string }[]).map((r) => [r.loc, r.date])),
+    moves: moves.results as StockMove[],
+    cut: cut.results as StockData['cut'],
+  };
+}
+
+/** Received stock ('in', +), a count correction ('adjust', ±) or a starting balance ('open', owners/admins only). */
+export function validateMoves(input: any): { loc: Loc; kind: 'in' | 'adjust' | 'open'; date: string; note: string; items: { sku: string; qty: number }[] } {
+  const loc = input?.loc;
+  if (!LOCS.includes(loc)) throw new BadRequest('ไม่รู้ว่าเป็นสต็อกที่ไหน');
+  const kind = input?.kind;
+  if (kind !== 'in' && kind !== 'adjust' && kind !== 'open') throw new BadRequest('ไม่รู้ว่าเป็นของเข้าหรือปรับยอด');
+  const date = typeof input?.date === 'string' && DAY.test(input.date) ? input.date : today();
+  const raw: any[] = Array.isArray(input?.items) ? input.items : [];
+  const items = raw.map((x) => ({ sku: cleanSku(x?.sku), qty: Math.round(Number(x?.qty)) }))
+    .filter((x) => x.sku && Number.isFinite(x.qty) && x.qty !== 0);
+  if (!items.length) throw new BadRequest('ใส่จำนวนอย่างน้อย 1 ช่อง');
+  if (items.length > 200 || items.some((x) => Math.abs(x.qty) > 100_000)) throw new BadRequest('จำนวนไม่ถูกต้อง');
+  if (kind === 'in' && items.some((x) => x.qty < 0)) throw new BadRequest('ของเข้าต้องเป็นจำนวนบวก · ถ้านับแล้วขาดให้ใช้ "ปรับยอด"');
+  return { loc, kind, date, note: cleanText(input?.note, 200), items };
+}
+
+export async function saveMoves(db: D1Database, m: ReturnType<typeof validateMoves>, user: string): Promise<number> {
+  const known = new Set(((await db.prepare('SELECT sku FROM stock_items').all<{ sku: string }>()).results).map((r) => r.sku));
+  const bad = m.items.filter((x) => !known.has(x.sku));
+  if (bad.length) throw new BadRequest(`ไม่ใช่สินค้าในสต็อก: ${bad.map((x) => x.sku).join(', ')}`);
+  const now = new Date().toISOString();
+  const rows = m.items.map((x) => ({ loc: m.loc, sku: x.sku, qty: x.qty, kind: m.kind, ref: '', date: m.date, note: m.note, created_by: user, created_at: now }));
+  await insertMoves(db, rows);
+  return rows.length;
+}
+
+/** Removes a typed change (received / correction / starting balance); cuts by orders are undone from their round. */
+export async function deleteMove(db: D1Database, id: number): Promise<boolean> {
+  const r = await db.prepare("DELETE FROM stock_moves WHERE id = ?1 AND kind IN ('in', 'adjust', 'open')").bind(id).run();
+  return (r.meta.changes ?? 0) > 0;
+}
+
+async function insertMoves(db: D1Database, rows: Omit<StockMove, 'id'>[]): Promise<void> {
+  if (!rows.length) return;
+  await db.prepare(
+    `INSERT INTO stock_moves (loc, sku, qty, kind, ref, date, note, created_by, created_at)
+     SELECT value ->> '$.loc', value ->> '$.sku', value ->> '$.qty', value ->> '$.kind', value ->> '$.ref', value ->> '$.date',
+            value ->> '$.note', value ->> '$.created_by', value ->> '$.created_at'
+     FROM json_each(?1)`,
+  ).bind(JSON.stringify(rows)).run();
+}
+
+/**
+ * Re-cuts พี่เปีย stock for one saved round, from what is in its "พี่เปีย" group now (called after the round is saved,
+ * ticked or deleted). Orders + SKUs already cut by another round are left alone; this round's cut is replaced.
+ */
+export async function syncRoundStock(db: D1Database, uploadId: string, user: string): Promise<void> {
+  const [up, start] = await db.batch([
+    db.prepare('SELECT date FROM purchase_uploads WHERE id = ?1').bind(uploadId),
+    db.prepare("SELECT MAX(date) AS date FROM stock_moves WHERE loc = 'pia' AND kind = 'open'"),
+  ]);
+  const date = (up.results[0] as { date: string } | undefined)?.date;
+  const from = (start.results[0] as { date: string | null } | undefined)?.date;
+  const clear = [
+    db.prepare("DELETE FROM stock_orders WHERE loc = 'pia' AND ref = ?1").bind(uploadId),
+    db.prepare("DELETE FROM stock_moves WHERE loc = 'pia' AND kind = 'out' AND ref = ?1").bind(uploadId),
+  ];
+  // Deleted round, no starting balance yet, or a day the sheet already covered: nothing to cut.
+  if (!date || !from || date <= from) { await db.batch(clear); return; }
+  const [, , marked, lines] = await db.batch([
+    ...clear,
+    db.prepare(
+      `INSERT OR IGNORE INTO stock_orders (loc, order_no, sku, ref, qty)
+       SELECT 'pia', i.order_no, i.sku, i.upload_id, i.qty FROM purchase_items i
+       JOIN purchase_lines l ON l.upload_id = i.upload_id AND l.sku = i.sku AND l.grp = ?2
+       JOIN stock_items s ON s.sku = i.sku
+       WHERE i.upload_id = ?1 AND EXISTS (SELECT 1 FROM json_each(l.orders) j WHERE j.value = i.order_no)`,
+    ).bind(uploadId, STOCK_GROUP),
+    db.prepare(
+      `SELECT l.sku, l.missing, COALESCE((SELECT SUM(qty) FROM stock_orders o WHERE o.loc = 'pia' AND o.ref = l.upload_id AND o.sku = l.sku), 0) AS cut
+       FROM purchase_lines l JOIN stock_items s ON s.sku = l.sku WHERE l.upload_id = ?1 AND l.grp = ?2`,
+    ).bind(uploadId, STOCK_GROUP),
+  ]);
+  void marked;
+  const now = new Date().toISOString();
+  const rows = (lines.results as { sku: string; missing: number; cut: number }[])
+    .map((l) => ({ sku: l.sku, qty: Math.max(0, Number(l.cut) - Math.min(Number(l.cut), Number(l.missing) || 0)) }))
+    .filter((x) => x.qty > 0)
+    .map((x) => ({ loc: 'pia' as Loc, sku: x.sku, qty: -x.qty, kind: 'out' as const, ref: uploadId, date, note: '', created_by: user, created_at: now }));
+  await insertMoves(db, rows);
+}
+
+/** GoSell: cut the orders of a file sent to GoSell. `dry` only says what would be cut. */
+export async function gosellCut(db: D1Database, input: any, user: string): Promise<{ cut: { sku: string; qty: number }[]; orders: number; already: number; other: number }> {
+  const file = cleanText(input?.file, 120) || 'ไฟล์ GoSell';
+  const raw: any[] = Array.isArray(input?.lines) ? input.lines.slice(0, 5000) : [];
+  const known = new Set(((await db.prepare('SELECT sku FROM stock_items').all<{ sku: string }>()).results).map((r) => r.sku));
+  const lines = raw.map((x) => ({ order_no: cleanText(x?.order_no, 40), sku: cleanSku(x?.sku), qty: Math.round(Number(x?.qty)) }))
+    .filter((x) => x.order_no && x.sku && x.qty > 0 && x.qty < 1000);
+  const ours = lines.filter((x) => known.has(x.sku));
+  const done = ours.length ? new Set(((await db.prepare(
+    "SELECT order_no || '|' || sku AS k FROM stock_orders WHERE loc = 'gosell' AND order_no IN (SELECT value FROM json_each(?1))",
+  ).bind(JSON.stringify([...new Set(ours.map((x) => x.order_no))])).all<{ k: string }>()).results).map((r) => r.k)) : new Set<string>();
+  const todo = new Map<string, { order_no: string; sku: string; qty: number }>();
+  for (const x of ours) {
+    const k = `${x.order_no}|${x.sku}`;
+    if (done.has(k)) continue;
+    const t = todo.get(k) ?? { ...x, qty: 0 };
+    t.qty += x.qty;
+    todo.set(k, t);
+  }
+  const bySku = new Map<string, number>();
+  for (const t of todo.values()) bySku.set(t.sku, (bySku.get(t.sku) ?? 0) + t.qty);
+  const result = {
+    cut: [...bySku].map(([sku, qty]) => ({ sku, qty })),
+    orders: new Set([...todo.values()].map((t) => t.order_no)).size,
+    already: new Set(ours.filter((x) => done.has(`${x.order_no}|${x.sku}`)).map((x) => x.order_no)).size,
+    other: lines.length - ours.length,
+  };
+  if (input?.dry || !todo.size) return result;
+  const ref = `gosell:${today()}:${Date.now()}`;
+  const now = new Date().toISOString();
+  await db.batch([
+    db.prepare(
+      `INSERT OR IGNORE INTO stock_orders (loc, order_no, sku, ref, qty)
+       SELECT 'gosell', value ->> '$.order_no', value ->> '$.sku', ?2, value ->> '$.qty' FROM json_each(?1)`,
+    ).bind(JSON.stringify([...todo.values()]), ref),
+    db.prepare(
+      `INSERT INTO stock_moves (loc, sku, qty, kind, ref, date, note, created_by, created_at)
+       SELECT 'gosell', value ->> '$.sku', -(value ->> '$.qty'), 'out', ?2, ?3, ?4, ?5, ?6 FROM json_each(?1)`,
+    ).bind(JSON.stringify(result.cut), ref, today(), `${file} · ${result.orders} ออเดอร์`, user, now),
+  ]);
+  return result;
+}
+
+/** Sizes at or under `low` pieces, for the morning report. */
+export async function lowStock(db: D1Database, low = 5): Promise<{ loc: Loc; code: string; size: string; qty: number }[]> {
+  const { results } = await db.prepare(
+    `SELECT m.loc, i.code, i.size, SUM(m.qty) AS qty FROM stock_moves m JOIN stock_items i ON i.sku = m.sku
+     GROUP BY m.loc, m.sku HAVING SUM(m.qty) <= ?1 ORDER BY m.loc, i.sort`,
+  ).bind(low).all<{ loc: Loc; code: string; size: string; qty: number }>();
+  return results;
+}

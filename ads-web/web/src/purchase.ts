@@ -37,7 +37,7 @@ export interface PurchaseLine {
   /** what we pay per piece (ทุน H from the sheet, or typed on the page), filled by withPrices; null = unknown */
   price?: number | null;
   priceSource?: PriceSource;
-  /** pieces the supplier reported out of stock (ticked on the page; goes to the พี่เปีย file) */
+  /** pieces the supplier reported out of stock (ticked on the page; goes to the เก็บตกแทน file) */
   missing?: number;
   /** moved by hand to another supplier/warehouse for this round (out of stock, a substitute, a ตรวจสอบ row …) */
   moved?: boolean;
@@ -245,7 +245,26 @@ export function labelFor(r: CatalogRow, kind: GroupKind, lookup: Lookup | null):
 }
 
 /** Bigseller items → one line per (group, SKU) with quantities added up. */
-export function buildLines(items: OrderItem[], lookup: Lookup): PurchaseLine[] {
+/**
+ * Which items go to the พี่เปีย stock group: a stock product whose order + SKU was already cut (it came back in a later
+ * round) always does; a new one does while the balance lasts, first come first served. `short` counts the pieces that
+ * did not fit (they stay on their usual sheet). Off when the round's day is not after the starting balance.
+ */
+export function stockPlacer(stock: { skus: Set<string>; balance: Map<string, number>; cut: Set<string>; active: boolean }) {
+  const left = new Map(stock.balance);
+  const short = new Map<string, number>();
+  const place = (it: OrderItem, r: CatalogRow): boolean => {
+    if (!stock.active || !stock.skus.has(r.sku)) return false;
+    if (it.order && stock.cut.has(`${it.order}|${r.sku}`)) return true;
+    const n = left.get(r.sku) ?? 0;
+    if (n >= it.qty) { left.set(r.sku, n - it.qty); return true; }
+    short.set(r.sku, (short.get(r.sku) ?? 0) + it.qty);
+    return false;
+  };
+  return { place, short };
+}
+
+export function buildLines(items: OrderItem[], lookup: Lookup, place?: (it: OrderItem, r: CatalogRow) => boolean): PurchaseLine[] {
   const lines = new Map<string, PurchaseLine>();
   for (const it of items) {
     const r = it.sku ? lookup.rows.get(skuKey(it.sku)) : undefined;
@@ -260,7 +279,7 @@ export function buildLines(items: OrderItem[], lookup: Lookup): PurchaseLine[] {
         note: `${it.sku ? 'SKU ไม่มีในแคตตาล็อก' : 'ไม่มี SKU ใน Bigseller'} · ${what}`, orders: [],
       };
     } else {
-      const g = groupOf(r, lookup);
+      const g = place?.(it, r) ? { group: STOCK_GROUP, kind: 'warehouse' as GroupKind, note: '' } : groupOf(r, lookup);
       line = { group: g.group, kind: g.kind, sku: r.sku, tab: r.tab, product: `${r.tab}|${spuOf(r.sku)}`, label: labelFor(r, g.kind, lookup), size: r.size, qty: 0, note: g.note, orders: [] };
     }
     const key = `${line.group}\u0000${line.sku}`;
@@ -436,16 +455,19 @@ export function applyMoves(lines: PurchaseLine[], moves: Map<string, string>, wa
   });
 }
 
-// ---- out of stock → the พี่เปีย file ----
+// ---- out of stock → the เก็บตกแทน file ----
 
-/** Name of the sheet of everything suppliers did not have, bought elsewhere by พี่เปีย. */
-export const MISSING_GROUP = 'พี่เปีย';
+/** Name of the sheet of everything suppliers did not have, picked up elsewhere instead (was "พี่เปีย" until 2026-10-15). */
+export const MISSING_GROUP = 'เก็บตกแทน';
+
+/** The order-sheet group that is our own stock at พี่เปีย's BB branch (cuts /catalog/stock; same as worker/stock.ts). */
+export const STOCK_GROUP = 'พี่เปีย';
 
 /** How moves and out-of-stock ticks are keyed on the page: the SKU (a SKU is on one line per round). */
 export const lineKey = (l: Pick<PurchaseLine, 'sku'>) => l.sku;
 
 /**
- * Every ticked line of the round, with the ticked quantity, as one group named พี่เปีย. Labels are the product's own
+ * Every ticked line of the round, with the ticked quantity, as one group named เก็บตกแทน. Labels are the product's own
  * code + colour (not the old supplier's code, which means nothing elsewhere); the note says which supplier lacked it.
  */
 export function missingGroup(lines: PurchaseLine[], missing: Map<string, number>, lookup: Lookup | null): PurchaseGroup | null {

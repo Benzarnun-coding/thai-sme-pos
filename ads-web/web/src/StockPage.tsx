@@ -1,0 +1,262 @@
+// /catalog/stock — "สต็อก": our own stock of 5 models × sizes 28–36 in two places.
+//   พี่เปีย (BB branch): cut by the order sheets — rows in the "พี่เปีย" group of a saved round, each order once.
+//   GoSell (fulfillment): cut by the button on the GoSell page after a file (confirmed here).
+// Received stock ("รับของเข้า") and count corrections ("ปรับยอด") are typed here. Replaces the "Stock BB" sheet.
+
+import { useEffect, useMemo, useState } from 'react';
+import { api, type GosellCut, type Role, type StockData, type StockLoc, type StockMove } from './api.ts';
+import { num } from './fmt.ts';
+import { thaiShortDate } from './purchase.ts';
+import { HomeLogo, SiteNav } from './SiteNav.tsx';
+import { useUi } from './ui.tsx';
+
+const LOC_LABEL: Record<StockLoc, string> = { pia: 'พี่เปีย (BB)', gosell: 'GoSell' };
+const KIND_LABEL: Record<StockMove['kind'], string> = { open: 'ยอดเริ่ม', in: 'ของเข้า', out: 'ออก', adjust: 'ปรับยอด' };
+const LOW = 5;
+const todayBkk = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
+/** What the GoSell page hands over (same browser): the orders of the file it just made. */
+export const GOSELL_HANDOFF = 'gosell.stockCut';
+export interface GosellHandoff { file: string; at: string; lines: { order_no: string; sku: string; qty: number }[] }
+
+type Mode = null | 'in' | 'adjust' | 'open';
+
+export function StockApp() {
+  useEffect(() => { document.title = 'สต็อก'; }, []);
+  const { toast, confirm } = useUi();
+  const [data, setData] = useState<StockData | null>(null);
+  const [role, setRole] = useState<Role>('viewer');
+  const [loc, setLoc] = useState<StockLoc>(() => (new URLSearchParams(location.search).get('gosell') ? 'gosell' : 'pia'));
+  const [mode, setMode] = useState<Mode>(null);
+  const load = () => api.stock().then(setData).catch((e) => toast(e.message, 'bad'));
+  useEffect(() => { load(); api.me().then((m) => setRole(m.role)).catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const canEdit = role === 'owner' || role === 'admin' || role === 'costs';
+  const canOpen = role === 'owner' || role === 'admin';
+
+  const items = data?.items ?? [];
+  const models = useMemo(() => [...new Set(items.map((i) => i.code))], [items]);
+  const sizes = useMemo(() => [...new Set(items.map((i) => i.size))].sort((a, b) => Number(a) - Number(b)), [items]);
+  const skuOf = (code: string, size: string) => items.find((i) => i.code === code && i.size === size)?.sku;
+  const balance = useMemo(() => new Map((data?.balances ?? []).filter((b) => b.loc === loc).map((b) => [b.sku, b.qty])), [data, loc]);
+  const started = !!data?.start[loc];
+  const total = [...balance.values()].reduce((a, b) => a + b, 0);
+  // A size with no entry at all is not kept at this place (e.g. 701/1 at พี่เปีย): shown as — rather than as sold out.
+  const lowCount = items.filter((i) => balance.has(i.sku) && (balance.get(i.sku) ?? 0) <= LOW).length;
+
+  return (
+    <div className="app stock">
+      <SiteNav current="/catalog/stock" />
+      <header className="top">
+        <div className="brand">
+          <HomeLogo text="สต็อก" />
+          <div>
+            <h1>สต็อก</h1>
+            <p className="muted small clip">{models.length} รุ่น · ไซส์ {sizes[0] ?? ''}–{sizes[sizes.length - 1] ?? ''} · พี่เปียตัดตามใบสั่งของ · GoSell ตัดเมื่อกดหลังทำไฟล์ GoSell</p>
+          </div>
+        </div>
+      </header>
+
+      <section className="card units-range">
+        <div className="segmented" role="tablist" aria-label="สต็อกที่ไหน">
+          {(['pia', 'gosell'] as StockLoc[]).map((l) => <button key={l} className={loc === l ? 'on' : ''} onClick={() => { setLoc(l); setMode(null); }}>{LOC_LABEL[l]}</button>)}
+        </div>
+        {data && <span className="small muted">{started ? `ยอดเริ่ม ${thaiShortDate(data.start[loc]!)} · ${loc === 'pia' ? `ตัดจากใบสั่งตั้งแต่ ${thaiShortDate(nextDay(data.start[loc]!))}` : 'ตัดเมื่อกดจากหน้า GoSell'}` : 'ยังไม่ได้ตั้งยอดเริ่ม'}</span>}
+      </section>
+
+      {loc === 'gosell' && canEdit && <GosellConfirm data={data} onDone={load} />}
+
+      {data && (
+        <section className="card table-card">
+          <div className="table-card-head">
+            <h2>คงเหลือ {LOC_LABEL[loc]} <span className="muted small">{num(total)} ตัว{lowCount ? ` · เหลือ ≤ ${LOW} ตัว ${lowCount} ไซส์` : ''}</span></h2>
+            {canEdit && !mode && (
+              <div className="row-actions">
+                {started && <button className="small primary" onClick={() => setMode('in')}>+ รับของเข้า</button>}
+                {started && <button className="small" onClick={() => setMode('adjust')}>ปรับยอด (นับจริง)</button>}
+                {!started && canOpen && <button className="small primary" onClick={() => setMode('open')}>ตั้งยอดเริ่ม</button>}
+              </div>
+            )}
+          </div>
+          <div className="table-wrap">
+            {mode ? (
+              <StockForm mode={mode} loc={loc} models={models} sizes={sizes} skuOf={skuOf} balance={balance}
+                onCancel={() => setMode(null)} onSaved={() => { setMode(null); load(); }} />
+            ) : (
+              <table className="stock-grid">
+                <thead><tr><th>รุ่น</th>{sizes.map((s) => <th key={s}>#{s}</th>)}<th>รวม</th></tr></thead>
+                <tbody>
+                  {models.map((m) => {
+                    const row = sizes.map((s) => { const sku = skuOf(m, s); return sku && balance.has(sku) ? balance.get(sku)! : null; });
+                    return (
+                      <tr key={m}>
+                        <td><b>{m}</b></td>
+                        {row.map((q, i) => <td key={sizes[i]} className={q === null ? 'muted' : q <= 0 ? 'out' : q <= LOW ? 'low' : ''}>{q === null ? '—' : num(q)}</td>)}
+                        <td><b>{num(row.reduce<number>((a, b) => a + (b ?? 0), 0))}</b></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot><tr><td>รวม</td>{sizes.map((s) => <td key={s}>{num(models.reduce((t, m) => t + (balance.get(skuOf(m, s) ?? '') ?? 0), 0))}</td>)}<td>{num(total)}</td></tr></tfoot>
+              </table>
+            )}
+          </div>
+        </section>
+      )}
+
+      {data && <History data={data} loc={loc} canEdit={canEdit} onDelete={async (ids) => {
+        if (!(await confirm({ title: 'ลบรายการนี้?', body: 'ยอดคงเหลือจะคำนวณใหม่โดยไม่มีรายการนี้', confirmLabel: 'ลบ', tone: 'danger' }))) return;
+        try { for (const id of ids) await api.deleteStockMove(id); toast('ลบแล้ว', 'ok'); load(); } catch (e: any) { toast(e.message, 'bad'); load(); }
+      }} />}
+    </div>
+  );
+}
+
+const nextDay = (d: string) => new Date(Date.parse(d) + 86400_000).toISOString().slice(0, 10);
+
+/** Grid of inputs: received pieces (in), counted pieces (adjust → difference saved) or the starting balance (open). */
+function StockForm({ mode, loc, models, sizes, skuOf, balance, onCancel, onSaved }: {
+  mode: Exclude<Mode, null>; loc: StockLoc; models: string[]; sizes: string[]; skuOf: (m: string, s: string) => string | undefined;
+  balance: Map<string, number>; onCancel: () => void; onSaved: () => void;
+}) {
+  const { toast } = useUi();
+  const [vals, setVals] = useState<Map<string, string>>(() => new Map(mode === 'adjust' ? [...balance].map(([k, v]) => [k, String(v)]) : []));
+  const [date, setDate] = useState(todayBkk());
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const changes = [...vals].map(([sku, v]) => {
+    if (v.trim() === '') return null;
+    const n = Math.round(Number(v));
+    if (!Number.isFinite(n)) return null;
+    const qty = mode === 'adjust' ? n - (balance.get(sku) ?? 0) : n;
+    return qty ? { sku, qty } : null;
+  }).filter((x): x is { sku: string; qty: number } => !!x);
+  const sum = changes.reduce((t, x) => t + x.qty, 0);
+  async function save() {
+    if (!changes.length) return;
+    setBusy(true);
+    try {
+      await api.stockMoves(loc, mode, date, note, changes);
+      toast(mode === 'in' ? `รับของเข้า ${num(sum)} ตัว` : mode === 'adjust' ? `ปรับยอด ${changes.length} ไซส์ (${sum > 0 ? '+' : ''}${num(sum)})` : `ตั้งยอดเริ่ม ${num(sum)} ตัว`, 'ok');
+      onSaved();
+    } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
+  }
+  const title = mode === 'in' ? 'รับของเข้า: ใส่จำนวนที่เข้ามา' : mode === 'adjust' ? 'ปรับยอด: ใส่จำนวนที่นับได้จริง (บันทึกเฉพาะส่วนต่าง)' : 'ตั้งยอดเริ่ม: ใส่ยอดคงเหลือตอนนี้';
+  return (
+    <div className="stock-form">
+      <p className="small"><b>{title}</b></p>
+      <table className="stock-grid">
+        <thead><tr><th>รุ่น</th>{sizes.map((s) => <th key={s}>#{s}</th>)}</tr></thead>
+        <tbody>
+          {models.map((m) => (
+            <tr key={m}>
+              <td><b>{m}</b></td>
+              {sizes.map((s) => {
+                const sku = skuOf(m, s);
+                return (
+                  <td key={s}>
+                    {sku ? <input inputMode="numeric" aria-label={`${m} #${s}`} value={vals.get(sku) ?? ''} placeholder={mode === 'adjust' ? String(balance.get(sku) ?? 0) : ''}
+                      onChange={(e) => setVals((x) => new Map(x).set(sku, e.target.value.replace(/[^\d-]/g, '')))} /> : '—'}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="row">
+        <label>วันที่<input type="date" value={date} max={todayBkk()} onChange={(e) => setDate(e.target.value)} /></label>
+        <label style={{ flex: 1, minWidth: 200 }}>หมายเหตุ<input value={note} maxLength={200} placeholder={mode === 'in' ? 'เช่น ของเข้าจากโรงงาน' : mode === 'adjust' ? 'เช่น นับสต็อกสิ้นเดือน' : ''} onChange={(e) => setNote(e.target.value)} /></label>
+      </div>
+      <div className="cat-price-actions">
+        <span className="small muted">{changes.length ? `${changes.length} ไซส์ · ${sum > 0 ? '+' : ''}${num(sum)} ตัว` : 'ยังไม่มีการเปลี่ยน'}</span>
+        <button className="primary" disabled={busy || !changes.length} onClick={save}>{busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
+        <button disabled={busy} onClick={onCancel}>ยกเลิก</button>
+      </div>
+    </div>
+  );
+}
+
+/** The orders the GoSell page handed over: what would be cut, then cut on confirm. */
+function GosellConfirm({ data, onDone }: { data: StockData | null; onDone: () => void }) {
+  const { toast } = useUi();
+  const [handoff, setHandoff] = useState<GosellHandoff | null>(() => { try { return JSON.parse(localStorage.getItem(GOSELL_HANDOFF) ?? 'null'); } catch { return null; } });
+  const [preview, setPreview] = useState<GosellCut | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!handoff) return;
+    api.gosellCut(handoff.file, handoff.lines, true).then(setPreview).catch((e) => toast(e.message, 'bad'));
+  }, [handoff]); // eslint-disable-line react-hooks/exhaustive-deps
+  const drop = () => { try { localStorage.removeItem(GOSELL_HANDOFF); } catch { /* ignore */ } setHandoff(null); setPreview(null); };
+  if (!handoff) return null;
+  const name = (sku: string) => { const i = data?.items.find((x) => x.sku === sku); return i ? `${i.code} #${i.size}` : sku; };
+  const pieces = preview?.cut.reduce((t, c) => t + c.qty, 0) ?? 0;
+  async function cut() {
+    if (!handoff) return;
+    setBusy(true);
+    try {
+      const r = await api.gosellCut(handoff.file, handoff.lines, false);
+      toast(`ตัดสต็อก GoSell ${num(r.cut.reduce((t, c) => t + c.qty, 0))} ตัว จาก ${num(r.orders)} ออเดอร์`, 'ok');
+      drop();
+      onDone();
+    } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
+  }
+  return (
+    <section className="card">
+      <h2>ตัดสต็อก GoSell จากไฟล์ {handoff.file}</h2>
+      {!preview ? <p className="muted small">กำลังตรวจ…</p> : (
+        <>
+          <p className="small">
+            {preview.cut.length ? <>จะตัด <b>{num(pieces)} ตัว</b> จาก {num(preview.orders)} ออเดอร์: {preview.cut.map((c) => `${name(c.sku)} ${c.qty}`).join(' · ')}</> : 'ไม่มีอะไรต้องตัด'}
+            {preview.already > 0 && <span className="muted"> · {num(preview.already)} ออเดอร์ตัดไปแล้ว (ข้าม)</span>}
+            {preview.other > 0 && <span className="muted"> · {num(preview.other)} รายการไม่ใช่สินค้าในสต็อก</span>}
+          </p>
+          <div className="cat-price-actions">
+            {preview.cut.length > 0 && <button className="primary" disabled={busy} onClick={cut}>{busy ? 'กำลังตัด…' : `ตัดสต็อก ${num(pieces)} ตัว`}</button>}
+            <button disabled={busy} onClick={drop}>{preview.cut.length ? 'ไม่ตัด' : 'ปิด'}</button>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** Changes of the last 45 days, one row per round / file / typed entry. */
+function History({ data, loc, canEdit, onDelete }: { data: StockData; loc: StockLoc; canEdit: boolean; onDelete: (ids: number[]) => void }) {
+  const name = (sku: string) => { const i = data.items.find((x) => x.sku === sku); return i ? `${i.code} #${i.size}` : sku; };
+  const rows = useMemo(() => {
+    const m = new Map<string, { key: string; date: string; kind: StockMove['kind']; ref: string; note: string; by: string; moves: StockMove[] }>();
+    for (const mv of data.moves.filter((x) => x.loc === loc)) {
+      const key = mv.kind === 'out' ? `out|${mv.ref}` : `${mv.kind}|${mv.created_at}`;
+      const r = m.get(key) ?? { key, date: mv.date, kind: mv.kind, ref: mv.ref, note: mv.note, by: mv.created_by, moves: [] };
+      r.moves.push(mv);
+      m.set(key, r);
+    }
+    return [...m.values()];
+  }, [data, loc]);
+  const what = (r: (typeof rows)[number]) => r.kind === 'out' && /^\d{4}-\d{2}-\d{2}#\d+$/.test(r.ref) ? `ใบสั่ง ${thaiShortDate(r.ref.slice(0, 10))} รอบ ${r.ref.split('#')[1]}` : r.note || '';
+  return (
+    <section className="card table-card">
+      <div className="table-card-head"><h2>เข้า-ออก 45 วันล่าสุด</h2></div>
+      <div className="table-wrap">
+        <table className="data-table stock-moves">
+          <thead><tr><th>วันที่</th><th>รายการ</th><th className="num">ตัว</th><th>รายละเอียด</th><th>โดย</th><th /></tr></thead>
+          <tbody>
+            {rows.map((r) => {
+              const sum = r.moves.reduce((t, x) => t + x.qty, 0);
+              return (
+                <tr key={r.key}>
+                  <td>{thaiShortDate(r.date)}</td>
+                  <td><b>{KIND_LABEL[r.kind]}</b>{what(r) && <div className="small muted">{what(r)}</div>}</td>
+                  <td className={`num ${sum < 0 ? 'bad' : 'good'}`}><b>{sum > 0 ? '+' : ''}{num(sum)}</b></td>
+                  <td className="small">{r.moves.map((x) => `${name(x.sku)} ${x.qty > 0 ? '+' : ''}${x.qty}`).join(' · ')}</td>
+                  <td className="small muted">{r.by.split('@')[0]}</td>
+                  <td>{canEdit && r.kind !== 'out' && <button className="link small danger" onClick={() => onDelete(r.moves.map((x) => x.id))}>ลบ</button>}</td>
+                </tr>
+              );
+            })}
+            {!rows.length && <tr><td colSpan={6} className="muted">ยังไม่มีรายการ</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}

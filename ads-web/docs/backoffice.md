@@ -1,7 +1,7 @@
 # Back office (catalog, order sheets, sales, profit)
 
 Standalone pages behind the main Cloudflare Access app (they call `/api`). Every page has the same link bar
-(`web/src/SiteNav.tsx`): แอด · แคตตาล็อก · สั่งของ · ยอดขาย · กำไร · งานค้าง · GoSell. A new page goes in that bar.
+(`web/src/SiteNav.tsx`): แอด · แคตตาล็อก · สั่งของ · ยอดขาย · กำไร · สต็อก · งานค้าง · GoSell. A new page goes in that bar.
 
 Pages and the one job each does:
 
@@ -11,6 +11,7 @@ Pages and the one job each does:
 | `/catalog/orders` สั่งของ | Bigseller file → order sheets per supplier / warehouse; what we owe suppliers | `web/src/OrdersPage.tsx`, `web/src/purchase.ts`, `worker/purchase.ts` |
 | `/catalog/sales` ยอดขาย | pieces sold per day and channel | `web/src/UnitsPage.tsx`, `web/src/sales.ts`, `worker/sales.ts` |
 | `/catalog/profit` กำไร | money per channel and product; upload TikTok/Shopee money files | `web/src/ProfitPage.tsx`, `web/src/profit.ts`, `web/src/money.ts`, `worker/mpOrders.ts` |
+| `/catalog/stock` สต็อก | our own stock: พี่เปีย's BB branch and GoSell's warehouse | `web/src/StockPage.tsx`, `worker/stock.ts` |
 | `/catalog/todo` งานค้าง | missing data, most sold first, fixed inline | `web/src/TodoPage.tsx` |
 
 Shared rule for every page: a cost or price typed on the website wins over the sheet; nothing here changes the ads
@@ -74,7 +75,12 @@ rules, the monthly goal or the sheet.
   SKU, qty, group, order numbers, `missing`, price; tracking numbers never saved) and `purchase_items` (order + SKU +
   qty + store, for units sold). Uploading the same file again (by file name) reopens that round and fills in what's new.
 - Out of stock: tick "ของไม่มี" (all or N pieces; `PUT /api/purchase/missing`, kept across re-saves) → the round's
-  "พี่เปีย" sheet (`missingGroup`), bought elsewhere.
+  "เก็บตกแทน" sheet (`missingGroup`, `MISSING_GROUP`), picked up elsewhere instead. It was called "พี่เปีย" until
+  2026-10-15; that name is now the stock branch below (payments recorded under the old name were renamed).
+- พี่เปีย stock: rows of stock products (`stock_items`) go to the "พี่เปีย" group (`STOCK_GROUP`, kind warehouse, no
+  supplier to pay) while the balance lasts, first come first served (`stockPlacer`); orders already cut stay there; the
+  rest stay on their usual sheet with a notice. Rows can also be moved there by hand. Saving / ticking / deleting a
+  round re-cuts its stock (`syncRoundStock`).
 - What we pay (internal, never on supplier sheets): ทุน = sheet column H only (Benz 2026-10-15; ราคาร้านค้า N not used),
   or a cost typed on the page; amount = (qty − out of stock) × price. "ยอดจ่ายร้าน" card per supplier + internal
   Excel "สรุปจ่ายร้าน (ภายใน)" (`paymentWorkbook`). Payments: amount, "จ่ายแล้ว" tick (no amount = the amount owed),
@@ -103,6 +109,24 @@ rules, the monthly goal or the sheet.
 - Items come from the file or the order-sheet rounds; an order's money and fees are split over its items by value, so
   products add up to channels. Cost = catalog ทุน, not the Page365 cost the monthly goal uses.
 - No real TikTok/Shopee export has been tried yet: check the guessed columns on the first upload.
+
+## Stock `/catalog/stock` (Benz 2026-10-15; replaces the "Stock BB" sheet)
+
+- Products: `stock_items` = 501/1, 501/2, 501/3, 701/1, 701/2 × sizes 28–36 (our PK SKUs; 38+ come from BB
+  suppliers). Two places, balance = Σ `stock_moves.qty` (open / in / out / adjust):
+  - พี่เปีย (`pia`, our branch at BB, the sheet's tab BB): cut by the order sheets — what is in a saved round's
+    "พี่เปีย" group, each order + SKU once (`stock_orders`, so in-process orders that come back are not cut again),
+    less pieces ticked "ของไม่มี". Only rounds dated after the starting balance count.
+  - GoSell (`gosell`, the fulfillment warehouse, the sheet's tab Fulfillment): cut by "ตัดสต็อก GoSell…" on the GoSell
+    page after a file — it hands the file's order + SKU + qty to this page (localStorage, same browser; the GoSell page's
+    own Access app can't call `/api`), which shows what would be cut and cuts on confirm (`POST /api/stock/gosell`),
+    each order + SKU once.
+- Page: tabs พี่เปีย / GoSell, model × size grid (≤ 5 orange, ≤ 0 red), "รับของเข้า" (received), "ปรับยอด (นับจริง)"
+  (counted → only the difference is saved), 45 days of history (typed entries can be deleted). Team members add stock
+  themselves; a starting balance is owner/admin only.
+- Starting balance: the sheet's "Stock คงเหลือ" on 2026-10-15 after the noon round (pia 540, gosell 811; sizes at 0
+  left out), loaded once; cutting from the order sheets starts with rounds of 2026-10-16. The sheet is retired after that.
+- 07:30 #report lists sizes at ≤ 5 pieces.
 
 ## งานค้าง `/catalog/todo`
 

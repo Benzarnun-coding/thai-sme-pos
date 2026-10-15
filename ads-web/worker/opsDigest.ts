@@ -6,6 +6,7 @@ import { channelOfStore, CHANNELS, type Channel } from '../web/src/sales.ts';
 import { MISSING_GROUP } from '../web/src/purchase.ts';
 import { ledger } from './purchase.ts';
 import { salesData } from './sales.ts';
+import { lowStock } from './stock.ts';
 
 const SITE = 'https://pkjeans-ads.ads-web.workers.dev';
 const minus = (iso: string, d: number) => new Date(Date.parse(iso) - d * 86400_000).toISOString().slice(0, 10);
@@ -24,11 +25,13 @@ export interface OpsFacts {
   owed: { grp: string; amount: number }[];
   unknownSkus: number;
   unknownPieces: number;
+  /** Our own stock sizes at ≤ 5 pieces (พี่เปีย / GoSell) */
+  low: { loc: string; code: string; size: string; qty: number }[];
 }
 
 export async function opsFacts(db: D1Database, date: string): Promise<OpsFacts> {
   const week = minus(date, 6);
-  const [batch, sales, led] = await Promise.all([
+  const [batch, sales, led, low] = await Promise.all([
     db.batch([
       db.prepare('SELECT round, pieces, missing FROM purchase_uploads WHERE date = ?1 ORDER BY round').bind(date),
       db.prepare(
@@ -59,6 +62,7 @@ export async function opsFacts(db: D1Database, date: string): Promise<OpsFacts> 
     ]),
     salesData(db, date, date),
     ledger(db, minus(date, 60)),
+    lowStock(db).catch(() => []),
   ]);
   const [rounds, sheets, money, unknown] = batch;
   const sold: Partial<Record<Channel, number>> = {};
@@ -80,6 +84,7 @@ export async function opsFacts(db: D1Database, date: string): Promise<OpsFacts> 
     noMoney: Number(m.no_money ?? 0), withMoney: Number(m.with_money ?? 0),
     owed: [...owedBy].map(([grp, amount]) => ({ grp, amount })).filter((x) => x.amount > 0.5).sort((a, b) => b.amount - a.amount),
     unknownSkus: Number(u.skus ?? 0), unknownPieces: Number(u.pieces ?? 0),
+    low,
   };
 }
 
@@ -102,6 +107,10 @@ export function opsText(f: OpsFacts): string {
   if (f.owed.length) {
     const sum = f.owed.reduce((t, x) => t + x.amount, 0);
     lines.push(`💸 ค้างจ่ายร้าน **฿${n(sum)}**: ${f.owed.slice(0, 5).map((x) => `${x.grp} ฿${n(x.amount)}`).join(' · ')}${f.owed.length > 5 ? ` · อีก ${f.owed.length - 5} ร้าน` : ''}`);
+  }
+  for (const [loc, label] of [['pia', 'พี่เปีย'], ['gosell', 'GoSell']] as const) {
+    const l = f.low.filter((x) => x.loc === loc);
+    if (l.length) lines.push(`📉 สต็อก${label}เหลือน้อย: ${l.slice(0, 8).map((x) => `${x.code} #${x.size} ${n(x.qty)}`).join(' · ')}${l.length > 8 ? ` · อีก ${l.length - 8} ไซส์` : ''} · ${SITE}/catalog/stock`);
   }
   if (f.unknownSkus) lines.push(`🧩 SKU ที่ไม่มีในแคตตาล็อก ${n(f.unknownSkus)} ตัว (ขายไป ${n(f.unknownPieces)} ชิ้นใน 7 วัน) · จับคู่ที่ ${SITE}/catalog/todo`);
   return lines.join('\n');

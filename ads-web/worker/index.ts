@@ -28,6 +28,7 @@ import { PRIVACY_HTML } from './privacy.ts';
 import { parseRange, salesData } from './sales.ts';
 import { listImportMaps, profitData, saveImportMap, saveMpOrders, validateMpOrders } from './mpOrders.ts';
 import { opsFacts, opsText } from './opsDigest.ts';
+import { deleteMove, gosellCut, saveMoves, stockData, syncRoundStock, validateMoves } from './stock.ts';
 import { deletePurchase, findOrders, ledger, listPurchases, orderTerms, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveAlias, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
@@ -40,7 +41,7 @@ import { approvalsEnabled, editMessage, expireOld, idList, postToDeciders, recen
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
-import { autoFillNote, autoFillOn, customerFor, setAutoFill, tell } from './autoFill.ts';
+import { autoFillNote, autoFillOn, cronSweep, customerFor, loadMisses, setAutoFill, sweepNotes, tell, tellMiss } from './autoFill.ts';
 import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './metaPurchases.ts';
 import { captureSource, planNotePurchases } from './notePurchases.ts';
 import { dayOrders, reconcile } from './orderDay.ts';
@@ -106,6 +107,8 @@ const RULES_CRON = '0 1,13 * * *';
 const COSTS_CRON = '30 0 * * *';
 /** 10:00 Bangkok: remind the uploaders if yesterday's Page365 file is still missing. */
 const REMIND_CRON = '0 3 * * *';
+// Order-note sweep + webhook check every 3 hours (autoFill.ts cronSweep, Benz 15 Oct).
+const SWEEP_CRON = '15 */3 * * *';
 const DASHBOARD_WINDOWS: Window[] = ['today', 'yesterday', 'last_3d', 'last_7d', 'last_14d', 'last_30d'];
 
 function metaFor(env: Env): MetaLike {
@@ -160,6 +163,8 @@ export default {
         Promise.resolve().then(() => syncConversionHours(env.DB, metaFor(env))).catch(() => null),
       ]).then(() => recreditDates(env.DB, [bkkDate(1), bkkDate(2), bkkDate(3)]).catch(() => null))
         .then(() => dailyDigest(env).catch((err) => console.error('digest', err)))));
+    } else if (event.cron === SWEEP_CRON) {
+      ctx.waitUntil(cronSweep(env).catch((err) => console.error('cron sweep', err)));
     } else if (event.cron === REMIND_CRON) {
       ctx.waitUntil(uploadReminder(env).catch((err) => console.error('reminder', err)));
       ctx.waitUntil(kbReminder(env).catch((err) => console.error('kb reminder', err)));
@@ -488,7 +493,8 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   // A sample "needs a person" message into the order-problems channel, so the team sees what it looks like.
   if (path === '/api/order-notes/test-discord' && method === 'POST') {
     if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
-    await tell(env, { mid: 'test', psid: '', at: new Date().toISOString(), text: '501/1 31\ncod 249', name_hash: null }, null, 'ข้อความทดสอบ (ไม่ใช่ลูกค้าจริง)', ['ตัวอย่าง: 501/1 ไม่มีไซส์ 31 — รุ่นนี้มี 28, 29, 30, 32, 34, 36 · ต้องถามลูกค้าใหม่']);
+    if (url.searchParams.get('kind') === 'miss') await tellMiss(env, { mid: 'test', psid: '', at: new Date().toISOString(), text: 'โอน349 ธนชาต\n301/1 เอวสามสี่ สองตัว', name_hash: null }, 'ข้อความทดสอบ (ไม่ใช่ลูกค้าจริง)');
+    else await tell(env, { mid: 'test', psid: '', at: new Date().toISOString(), text: '501/1 31\ncod 249', name_hash: null }, null, 'ข้อความทดสอบ (ไม่ใช่ลูกค้าจริง)', ['ตัวอย่าง: 501/1 ไม่มีไซส์ 31 — รุ่นนี้มี 28, 29, 30, 32, 34, 36 · ต้องถามลูกค้าใหม่']);
     await audit(env.DB, user, 'p365.test_discord', 'order-problems', {});
     return json({ ok: true, channel: env.DISCORD_ORDER_WEBHOOK_URL ? 'ห้องออเดอร์มีปัญหา' : 'ห้องรายงานแอด (ยังไม่ได้ตั้งห้องใหม่)' });
   }
@@ -499,6 +505,10 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const who = draft ? null : await customerFor(env, note.psid);
     return json({ draft: draft ? { no: draft.no, items: draft.items.length } : null, customer: who ? { conversation_id: who.conversation_id, customer_id: who.customer_id, has_name: !!who.name } : null });
   }
+  // Notes the parser couldn't read (problem channel told; resolved once the format is learnt).
+  if (path === '/api/order-notes/misses' && method === 'GET') return json({ misses: await loadMisses(env.DB) });
+  // The sweep by hand (owner/admin): picks up missed notes and runs the oldest waiting one.
+  if (path === '/api/order-notes/sweep' && method === 'POST') return json({ result: await sweepNotes(env, { force: true }) });
   if (path === '/api/order-notes/auto-run' && method === 'POST') {
     const note = await loadNote(env.DB, String((await body())?.mid ?? ''));
     if (!note) throw new BadRequest('ไม่พบบรรทัดสรุปนี้');
@@ -920,16 +930,40 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
 
   // ---- order sheets (/catalog/orders) ----
+  // ---- stock (/catalog/stock): พี่เปีย (cut by the order sheets) and GoSell (cut after a GoSell file) ----
+  if (method === 'GET' && path === '/api/stock') return json(await stockData(env.DB));
+  if (method === 'POST' && path === '/api/stock/moves') {
+    const m = validateMoves(await body());
+    if (m.kind === 'open' && role !== 'owner' && role !== 'admin') throw new BadRequest('ตั้งยอดเริ่มได้เฉพาะเจ้าของและผู้ดูแล');
+    const saved = await saveMoves(env.DB, m, user);
+    await audit(env.DB, user, `stock.${m.kind}`, m.loc, { date: m.date, note: m.note, items: m.items });
+    return json({ saved });
+  }
+  if (method === 'DELETE' && path === '/api/stock/moves') {
+    const id = Number(url.searchParams.get('id'));
+    if (!(await deleteMove(env.DB, id))) return json({ error: 'ลบได้เฉพาะของเข้า ปรับยอด และยอดเริ่ม' }, 404);
+    await audit(env.DB, user, 'stock.delete', String(id), {});
+    return json({ ok: true });
+  }
+  if (method === 'POST' && path === '/api/stock/gosell') {
+    const input = await body();
+    const r = await gosellCut(env.DB, input, user);
+    if (!input?.dry) await audit(env.DB, user, 'stock.gosell', String(input?.file ?? ''), r);
+    return json(r);
+  }
+
   if (method === 'GET' && path === '/api/purchase') return json({ uploads: await listPurchases(env.DB) });
   if (method === 'GET' && path === '/api/purchase/lines') return json({ lines: await purchaseLines(env.DB, url.searchParams.get('id') ?? '') });
   if (method === 'PUT' && path === '/api/purchase') {
     const upload = await savePurchase(env.DB, validatePurchase(await body()), user);
+    await syncRoundStock(env.DB, upload.id, user);
     await audit(env.DB, user, 'purchase.save', upload.id, { pieces: upload.pieces, review: upload.review, file: upload.file });
     return json({ upload });
   }
   if (method === 'PUT' && path === '/api/purchase/missing') {
     const m = validateMissing(await body());
     const result = await setMissing(env.DB, m);
+    await syncRoundStock(env.DB, m.id, user);
     await audit(env.DB, user, 'purchase.missing', m.id, { items: m.items.slice(0, 50), total: result.missing });
     return json(result);
   }
@@ -952,6 +986,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (method === 'DELETE' && path === '/api/purchase') {
     const id = url.searchParams.get('id') ?? '';
     if (!(await deletePurchase(env.DB, id))) return json({ error: 'ไม่พบใบสั่งนี้' }, 404);
+    await syncRoundStock(env.DB, id, user);
     await audit(env.DB, user, 'purchase.delete', id, {});
     return json({ ok: true });
   }

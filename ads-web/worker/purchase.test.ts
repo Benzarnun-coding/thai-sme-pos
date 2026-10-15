@@ -224,7 +224,7 @@ test('order numbers follow each line to the sheet and the Excel file', async () 
   assert.deepEqual(saved.lines.find((l) => l.sku === '5011-PK-MD-30')!.orders, ['A1', 'A2']);
 });
 
-test('ticked out-of-stock lines become the พี่เปีย sheet', async () => {
+test('ticked out-of-stock lines become the เก็บตกแทน sheet', async () => {
   const { missingGroup, lineKey, MISSING_GROUP } = await import('../web/src/purchase.ts');
   const lookup = makeLookup(CATALOG, new Map());
   const lines = buildLines(readOrderItems(RAW), lookup);
@@ -295,11 +295,11 @@ test('what we pay: ทุน H only (ราคาร้านค้า ignored),
   assert.deepEqual(totals.map((t) => [t.name, t.ordered, t.missing, t.received, t.amount, t.unpriced]), [
     ['แพลนเนท', 6, 1, 5, 2 * 150 + 150, 2],
     ['PK', 2, 0, 2, 220, 0],
-    ['พี่เปีย', 1, 0, 1, 150, 0],
+    ['เก็บตกแทน', 1, 0, 1, 150, 0],
   ]);
   const files = await unzip(await paymentWorkbook([...groupLines(lines), pia], missing, '2026-10-15', 1));
   const wb = new TextDecoder().decode(files.get('xl/workbook.xml'));
-  assert.deepEqual([...wb.matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1]), ['สรุปจ่ายร้าน', 'แพลนเนท', 'PK', 'พี่เปีย']);
+  assert.deepEqual([...wb.matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1]), ['สรุปจ่ายร้าน', 'แพลนเนท', 'PK', 'เก็บตกแทน']);
   const summary = new TextDecoder().decode(files.get('xl/worksheets/sheet1.xml'));
   assert.ok(summary.includes('<v>450</v>') && summary.includes('ภายใน ไม่ส่งร้าน'));
   const supplierSheet = new TextDecoder().decode((await unzip(await orderWorkbook(groupLines(lines), '2026-10-15', 1))).get('xl/worksheets/sheet2.xml'));
@@ -369,7 +369,7 @@ test('a name typed for a product replaces code + colour on every sheet, every si
   const lines = buildLines(readOrderItems(RAW), lookup);
   const pk = groupLines(lines).find((g) => g.name === 'PK')!;
   assert.deepEqual(sheetRows(pk).map((r) => `${r.label}/${r.size}`), ['200/3 มิดไนท์ย้อมสนิม/32', 'ยีนส์ 501 มิดไนท์ (ใหม่)/30', 'ยีนส์ 501 มิดไนท์ (ใหม่)/32']);
-  // reopened rounds and the พี่เปีย sheet use it too
+  // reopened rounds and the เก็บตกแทน sheet use it too
   const reopened = withPrices([{ ...pk.lines[1], label: 'old' }], lookup);
   assert.equal(reopened[0].label, 'ยีนส์ 501 มิดไนท์ (ใหม่)');
   const pia = missingGroup(lines, new Map([['5011-PK-MD-30', 1]]), lookup)!;

@@ -54,6 +54,8 @@ interface ListOrder { id: number; no: number; created_at: string; stage: string 
 interface Variant { id: number; name: string; code: string | null; price: number; available: number; stockable?: boolean }
 export interface P365Order {
   id: number; no: number; stage: string; customer_fbid: string | null; conversation_id: number | null; created_at: string; cod: boolean;
+  /** COD or transfer is the shipping option (Kerry Express (COD) / Kerry Express (แบบโอน)) */
+  shipping_options?: { id: number; name: string; cod: boolean }[]; shipping_id?: number | null;
   subtotal: number; total: number; shipping_cost: number | null; discount: number | null;
   customer_name: string | null; customer_phone: string | null; customer_address: string | null;
   structural_address: { street: string | null; subdistrict: string | null; district: string | null; province: string | null; postal_code: string | null } | null;
@@ -127,8 +129,11 @@ export function chatTotal(messages: ChatMessage[], until?: string): number | nul
 }
 
 /** "PK-9349 สมชาย ใจดี": the warehouse of the first item, the order number's last 4 digits, the recipient (team convention). */
-export function billName(no: number, firstSku: string | null, name: string): string {
-  const wh = (firstSku ?? '').split('-')[1]?.toUpperCase() ?? '';
+/** 501/1, 501/2, 501/3 ship through GoSell: their bills are named "GS-1234 …" so the team can pick them out (Benz 15 Oct). */
+export const GOSELL_CODES = /^501\/[123]$/;
+
+export function billName(no: number, firstSku: string | null, name: string, codes: string[] = []): string {
+  const wh = codes.length && codes.every((c) => GOSELL_CODES.test(c)) ? 'GS' : (firstSku ?? '').split('-')[1]?.toUpperCase() ?? '';
   const prefix = wh ? `${wh === 'CN' ? 'C' : wh}-${String(no).slice(-4)} ` : '';
   return `${prefix}${name.replace(/^[A-Z]{1,3}-\d{4}\s+/, '').trim()}`;
 }
@@ -141,6 +146,10 @@ export interface FillPlan {
   order: { id: number; no: number; stage: string } | null;
   lines: PlanLine[];
   payment: 'cod' | 'transfer' | null;
+  /** the draft's shipping option to set (switches COD ↔ transfer) */
+  shipping_id?: number | null;
+  /** its name: Page365 keeps the old one on the bill unless it is sent too */
+  shipping_option?: string | null;
   subtotal: number;
   shipping: number;
   discount: number;
@@ -223,7 +232,15 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   // Promos at list price run to ~60% off (1 × 369 for 199 COD, 3 × 369 for 549); beyond 70% the total is likely mistyped.
   else if (allFound && discount > subtotal * 0.7) problems.push(`ส่วนลด ${discount} เกิน 70% ของราคาสินค้า — เช็กยอดอีกครั้ง`);
   else if (allFound && discount > 0 && discount < 20) warnings.push(`ส่วนลดแค่ ${discount} บาท — ยอดพิมพ์ผิดหรือเปล่า`);
-  if (draft && draft.cod !== (parsed.payment === 'cod')) problems.push(`ร่างเป็น${draft.cod ? 'เก็บปลายทาง' : 'โอน'} แต่บรรทัดสรุปเป็น${parsed.payment === 'cod' ? 'ปลายทาง' : 'โอน'}`);
+  // COD or transfer follows the note: a new draft starts as COD, so a transfer note switches its shipping option
+  // (Ou Aumaporn #29373, 15 Oct). Only a draft without a matching option is stopped.
+  let shipping_id: number | null = null;
+  let shipping_option: string | null = null;
+  if (draft && draft.cod !== (parsed.payment === 'cod')) {
+    const opt = (draft.shipping_options ?? []).find((o) => o.cod === (parsed.payment === 'cod'));
+    if (opt) { shipping_id = opt.id; shipping_option = opt.name; }
+    else problems.push(`ร่างเป็น${draft.cod ? 'เก็บปลายทาง' : 'โอน'} แต่บรรทัดสรุปเป็น${parsed.payment === 'cod' ? 'ปลายทาง' : 'โอน'} และไม่มีตัวเลือกขนส่งแบบนั้น`);
+  }
 
   // The price agreed in the chat wins: a note whose total differs (other than by the COD fee) is not filled.
   const chat_total = chatTotal(chat, note.at);
@@ -247,8 +264,11 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   } else if (draft && !address) {
     warnings.push(opts.readAddress === false ? 'ยังไม่ได้อ่านที่อยู่จากแชท' : 'ร่างยังไม่มีที่อยู่ครบ และยังไม่ได้ตั้ง ANTHROPIC_API_KEY ให้ระบบอ่านที่อยู่จากแชท — แอดมินกรอกเอง');
   }
-  const bill_name = draft ? billName(draft.no, lines[0]?.sku ?? null, address?.name || draft.customer_name || '') : null;
-  return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, subtotal, shipping, discount: Math.max(0, discount), total, chat_total, bill_name, address, problems, warnings, said, notes };
+  // GoSell models mixed with others in one bill: still one bill, but someone decides how it ships.
+  if (lines.some((l) => GOSELL_CODES.test(l.code)) && !lines.every((l) => GOSELL_CODES.test(l.code))) warnings.push('บิลนี้มี 501/1–3 (ส่ง GoSell) ปนกับรุ่นอื่น — ตั้งชื่อเป็นคลังปกติ ช่วยดูว่าต้องแยกบิลไหม');
+  // No recipient name in the chat: the customer's Facebook name (Page365's customer name) is used (Benz 15 Oct).
+  const bill_name = draft ? billName(draft.no, lines[0]?.sku ?? null, address?.name || draft.customer_name || '', lines.map((l) => l.code)) : null;
+  return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, shipping_id, shipping_option, subtotal, shipping, discount: Math.max(0, discount), total, chat_total, bill_name, address, problems, warnings, said, notes };
 }
 
 /** A checked address from the screen (the admin may have corrected it), or null. */
@@ -289,19 +309,22 @@ export async function applyFill(env: FillEnv, note: { psid: string; at: string; 
     return { id: it.id, name: it.name, note: it.note, price: l.price ?? 0, quantity: l.qty, product_id: l.variant_id };
   });
   const a = plan.address;
-  const name = billName(plan.order.no, plan.lines[0]?.sku ?? null, a?.name || added.customer_name || '');
+  const name = billName(plan.order.no, plan.lines[0]?.sku ?? null, a?.name || added.customer_name || '', plan.lines.map((l) => l.code));
   const customer = a ? {
     customer_name: name,
     customer_phone: a.phone,
     customer_address: addressLine(a),
     structural_address: { street: a.street, subdistrict: a.subdistrict, district: a.district, province: a.province, postal_code: a.postal_code },
   } : { customer_name: name };
-  await call(env, `orders/${orderId}.json`, { method: 'PUT', body: { order: { stage: 'draft', shipping_cost: plan.shipping, discount: plan.discount, ...customer }, order_items: items } });
+  await call(env, `orders/${orderId}.json`, { method: 'PUT', body: { order: { stage: 'draft', ...(plan.shipping_id ? { shipping_id: plan.shipping_id, shipping_option: plan.shipping_option } : {}), shipping_cost: plan.shipping, discount: plan.discount, ...customer }, order_items: items } });
 
   // 3. Read it back: the right SKUs and the total from the note, or report it.
   const done = await call<P365Order>(env, `orders/${orderId}.json`);
   const want = plan.lines.map((l) => `${(l.sku ?? '').toUpperCase()}×${l.qty}`).sort().join(',');
   const got = done.items.map((i) => `${(i.variant?.code ?? '').toUpperCase()}×${i.quantity}`).sort().join(',');
+  if (plan.payment && done.cod !== (plan.payment === 'cod')) {
+    throw new P365Error(`ใส่สินค้าแล้ว แต่ร่าง #${plan.order.no} ยังเป็น${done.cod ? 'เก็บปลายทาง' : 'โอน'} — เปลี่ยนวิธีจ่ายใน Page365 เอง`);
+  }
   if (want !== got || (plan.total != null && Number(done.total) !== plan.total)) {
     throw new P365Error(`ใส่แล้วแต่ไม่ตรง: ในร่าง ${got} ยอด ${done.total} (ต้องการ ${want} ยอด ${plan.total}) — เปิดร่าง #${plan.order.no} ใน Page365 เพื่อแก้เอง`);
   }
