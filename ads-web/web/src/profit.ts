@@ -81,7 +81,8 @@ export function profit(d: ProfitData, lookup: Lookup, sell: Map<string, number>)
   }
 
   for (const o of d.page365) {
-    book('Facebook', o.items.map((i) => ({ sku: i.sku, name: i.name, qty: Number(i.qty) || 0, value: (Number(i.price) || 0) * (Number(i.qty) || 0) })), o.total, o.fee);
+    // Page365's item price is already the line total ("x3 THB 1107"), not a price per piece.
+    book('Facebook', o.items.map((i) => ({ sku: i.sku, name: i.name, qty: Number(i.qty) || 0, value: Number(i.price) || 0 })), o.total, o.fee);
   }
 
   // Items per marketplace order from the order-sheet rounds; `inRange` = it first appeared in this range.
