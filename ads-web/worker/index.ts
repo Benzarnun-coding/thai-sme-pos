@@ -40,7 +40,7 @@ import { approvalsEnabled, editMessage, expireOld, idList, postToDeciders, recen
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
-import { autoFillNote, autoFillOn, customerFor, setAutoFill, tell } from './autoFill.ts';
+import { autoFillNote, autoFillOn, cronSweep, customerFor, setAutoFill, sweepNotes, tell } from './autoFill.ts';
 import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './metaPurchases.ts';
 import { captureSource, planNotePurchases } from './notePurchases.ts';
 import { dayOrders, reconcile } from './orderDay.ts';
@@ -106,6 +106,8 @@ const RULES_CRON = '0 1,13 * * *';
 const COSTS_CRON = '30 0 * * *';
 /** 10:00 Bangkok: remind the uploaders if yesterday's Page365 file is still missing. */
 const REMIND_CRON = '0 3 * * *';
+// Order-note sweep + webhook check every 3 hours (autoFill.ts cronSweep, Benz 15 Oct).
+const SWEEP_CRON = '15 */3 * * *';
 const DASHBOARD_WINDOWS: Window[] = ['today', 'yesterday', 'last_3d', 'last_7d', 'last_14d', 'last_30d'];
 
 function metaFor(env: Env): MetaLike {
@@ -160,6 +162,8 @@ export default {
         Promise.resolve().then(() => syncConversionHours(env.DB, metaFor(env))).catch(() => null),
       ]).then(() => recreditDates(env.DB, [bkkDate(1), bkkDate(2), bkkDate(3)]).catch(() => null))
         .then(() => dailyDigest(env).catch((err) => console.error('digest', err)))));
+    } else if (event.cron === SWEEP_CRON) {
+      ctx.waitUntil(cronSweep(env).catch((err) => console.error('cron sweep', err)));
     } else if (event.cron === REMIND_CRON) {
       ctx.waitUntil(uploadReminder(env).catch((err) => console.error('reminder', err)));
       ctx.waitUntil(kbReminder(env).catch((err) => console.error('kb reminder', err)));
@@ -499,6 +503,8 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const who = draft ? null : await customerFor(env, note.psid);
     return json({ draft: draft ? { no: draft.no, items: draft.items.length } : null, customer: who ? { conversation_id: who.conversation_id, customer_id: who.customer_id, has_name: !!who.name } : null });
   }
+  // The sweep by hand (owner/admin): picks up missed notes and runs the oldest waiting one.
+  if (path === '/api/order-notes/sweep' && method === 'POST') return json({ result: await sweepNotes(env, { force: true }) });
   if (path === '/api/order-notes/auto-run' && method === 'POST') {
     const note = await loadNote(env.DB, String((await body())?.mid ?? ''));
     if (!note) throw new BadRequest('ไม่พบบรรทัดสรุปนี้');

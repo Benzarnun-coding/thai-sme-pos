@@ -173,10 +173,10 @@ const SWEEP_FROM = '2026-10-15T09:00:00Z'; // 16:00 Bangkok
  * The safety net, on webhook deliveries without notes (at most every 5 minutes): one note from the last 24 hours
  * that never got its draft, or whose fill was cut short, or that waited for Page365, is run again.
  */
-export async function sweepNotes(env: AutoEnv): Promise<AutoResult | null> {
+export async function sweepNotes(env: AutoEnv, opts: { force?: boolean } = {}): Promise<AutoResult | null> {
   if (!(await autoFillOn(env.DB))) return null;
   const last = await env.DB.prepare("SELECT value FROM meta_capi WHERE key = 'fill_sweep_at'").first<{ value: string }>().catch(() => null);
-  if (last && Date.now() - Date.parse(last.value) < 5 * 60_000) return null;
+  if (!opts.force && last && Date.now() - Date.parse(last.value) < 5 * 60_000) return null;
   await env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('fill_sweep_at', ?)").bind(new Date().toISOString()).run();
   const from = new Date(Math.max(Date.now() - 86_400_000, Date.parse(SWEEP_FROM))).toISOString();
   const to = new Date(Date.now() - 3 * 60_000).toISOString();
@@ -223,4 +223,19 @@ export async function tell(env: AutoEnv, note: StoredNote, draft: P365Order | nu
     console.error('order webhook', r.status);
   }
   await postToDeciders(env, body);
+}
+
+/**
+ * Every 3 hours (Benz 15 Oct), not waiting for chat traffic: the sweep runs once, and if no webhook delivery came
+ * in for 3 hours in the shop's day (10:00–23:00 Bangkok) the problem channel is told — notes typed then are not
+ * seen at all until deliveries come back.
+ */
+export async function cronSweep(env: AutoEnv): Promise<void> {
+  if (!(await autoFillOn(env.DB))) return;
+  await sweepNotes(env, { force: true }).catch((err) => console.error('sweep', err));
+  const hour = (new Date().getUTCHours() + 7) % 24;
+  const last = await env.DB.prepare('SELECT max(at) AS at FROM chat_messages').first<{ at: string | null }>().catch(() => null);
+  if (hour >= 10 && hour < 23 && last?.at && Date.now() - Date.parse(last.at) > 3 * 3_600_000) {
+    await tell(env, { mid: '', psid: '', at: new Date().toISOString(), text: '-', name_hash: null }, null, 'ทุกบิล', [`ไม่มีแชทเข้ามาที่ระบบเลยตั้งแต่ ${bkk(last.at)} น. — webhook ของ Meta อาจหลุด สรุปที่พิมพ์ช่วงนี้ระบบยังไม่เห็น เปิดร่างเองไปก่อน แล้วแจ้งเบนซ์`]);
+  }
 }
