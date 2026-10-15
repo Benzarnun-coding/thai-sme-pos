@@ -150,6 +150,39 @@ export function checkNotes(notes: StoredNote[], orders: StoredOrder[]): NoteChec
   });
 }
 
+// ---- which catalog product each line is ----
+
+export interface CatalogHit { tab: string; sku: string; name: string; color: string; price: number | null; image: string }
+export interface CatalogPick extends CatalogHit { others: string[] }
+
+const catKey = (code: string, size: string) => `${code.toUpperCase()}|${size.toUpperCase()}`;
+
+/** Catalog rows (sheet + added on the page) for these product codes, keyed "CODE|SIZE". */
+export async function catalogFor(db: D1Database, codes: string[]): Promise<Map<string, CatalogHit[]>> {
+  const out = new Map<string, CatalogHit[]>();
+  const list = [...new Set(codes.map((c) => c.toUpperCase()))];
+  if (!list.length) return out;
+  const sql = (t: string) => `SELECT tab, sku, code, size, name, color, price, image FROM ${t} WHERE code COLLATE NOCASE IN (SELECT value FROM json_each(?))`;
+  const [sheet, web] = await db.batch<CatalogHit & { code: string; size: string }>([db.prepare(sql('catalog')).bind(JSON.stringify(list)), db.prepare(sql('catalog_web')).bind(JSON.stringify(list))]);
+  for (const r of [...web.results, ...sheet.results]) {
+    const k = catKey(r.code, r.size);
+    const hits = out.get(k) ?? out.set(k, []).get(k)!;
+    if (!hits.some((h) => h.sku.toUpperCase() === r.sku.toUpperCase())) hits.push({ tab: r.tab, sku: r.sku, name: r.name, color: r.color, price: r.price, image: r.image });
+  }
+  return out;
+}
+
+/** The catalog product for one line: the PK warehouse first (the shop's own stock), the other warehouses listed. */
+export function pickCatalog(hits: CatalogHit[] | undefined): CatalogPick | null {
+  if (!hits?.length) return null;
+  const best = hits.find((h) => h.tab === 'PK') ?? hits[0];
+  return { ...best, others: hits.filter((h) => h !== best).map((h) => h.tab) };
+}
+
+export function withCatalog<T extends { items: NoteItem[] }>(checks: T[], cat: Map<string, CatalogHit[]>): (Omit<T, 'items'> & { items: (NoteItem & { catalog: CatalogPick | null })[] })[] {
+  return checks.map((c) => ({ ...c, items: c.items.map((i) => ({ ...i, catalog: pickCatalog(cat.get(catKey(i.code, i.size))) })) }));
+}
+
 // ---- storage ----
 
 export async function saveNotes(db: D1Database, notes: StoredNote[]): Promise<void> {

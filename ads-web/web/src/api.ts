@@ -264,7 +264,7 @@ export interface WebhookStatus {
 }
 export interface NoteCheck {
   at: string; text: string;
-  items: { code: string; prefix: string; size: string; qty: number }[];
+  items: { code: string; prefix: string; size: string; qty: number; catalog: { tab: string; sku: string; name: string; color: string; price: number | null; image: string; others: string[] } | null }[];
   unknown: string[]; payment: 'cod' | 'transfer' | null; total: number | null;
   order_no: string | null; order_total: number | null; order_items: { sku: string; qty: number }[];
   linked_by: 'customer' | 'total' | null;

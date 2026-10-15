@@ -33,7 +33,7 @@ import { familyStats, postIdeas, postIdeasText } from './postIdeas.ts';
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
 import { approvalsEnabled, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
-import { checkNotes, loadNotes, noteDays } from './orderNotes.ts';
+import { catalogFor, checkNotes, loadNotes, noteDays, withCatalog } from './orderNotes.ts';
 import { receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
@@ -423,9 +423,10 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const around = [-1, 0, 1].map((d) => new Date(Date.parse(`${date}T00:00:00Z`) + d * 86_400_000).toISOString().slice(0, 10));
     const [notes, orders, uploads] = await Promise.all([loadNotes(env.DB, date), loadOrders(env.DB, around), loadUploads(env.DB, [date])]);
     const checks = checkNotes(notes, orders);
+    const cat = await catalogFor(env.DB, checks.flatMap((c) => c.items.map((i) => i.code)));
     const linked = new Set(checks.map((c) => c.order_no).filter(Boolean));
     return json({ date, uploaded: uploads.has(date), orders: orders.filter((o) => o.date === date).length,
-      orders_without_note: orders.filter((o) => o.date === date && !linked.has(o.order_no)).length, notes: checks });
+      orders_without_note: orders.filter((o) => o.date === date && !linked.has(o.order_no)).length, notes: withCatalog(checks, cat) });
   }
   if (path === '/api/p365/recredit' && method === 'POST') {
     const input = await body();

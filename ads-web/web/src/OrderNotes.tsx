@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { api, type NoteCheck } from './api.ts';
+import { thumb } from './catalog.ts';
 import { baht, num } from './fmt.ts';
 
 const VERDICT: Record<NoteCheck['verdict'], [string, string]> = {
@@ -54,6 +55,7 @@ export function OrderNotesList({ date, dayLabel, refresh = 0, live = false }: { 
   const notes = [...(res?.notes ?? [])].reverse();
   const count = (v: NoteCheck['verdict']) => notes.filter((n) => n.verdict === v).length;
   const compared = notes.filter((n) => n.order_no).length;
+  const noCatalog = notes.reduce((t, n) => t + n.items.filter((i) => !i.catalog).length, 0);
 
   return (
     <section className="card table-card">
@@ -71,6 +73,7 @@ export function OrderNotesList({ date, dayLabel, refresh = 0, live = false }: { 
               {count('diff_items') > 0 && <> · <span className="bad">สินค้าต่าง {num(count('diff_items'))}</span></>}
               {count('diff_total') > 0 && <> · <span className="warn">ยอดต่าง {num(count('diff_total'))}</span></>}
               {count('unparsed') > 0 && <> · <span className="warn">อ่านไม่ออก {num(count('unparsed'))}</span></>}
+              {noCatalog > 0 && <> · <span className="warn">ไม่พบใน Catalog {num(noCatalog)} รายการ</span></>}
               {res.uploaded ? <> · ออเดอร์ Page365 ที่ไม่มีสรุปในแชท {num(res.orders_without_note)} จาก {num(res.orders)}</> : <span className="muted"> · ยังไม่ได้อัปโหลดไฟล์ Page365 ของวันนี้</span>}
             </p>
           )}
@@ -90,7 +93,17 @@ export function OrderNotesList({ date, dayLabel, refresh = 0, live = false }: { 
                     <td className="small">{time(n.at)}</td>
                     <td className="small" style={{ whiteSpace: 'pre-line', fontFamily: 'ui-monospace, monospace' }}>{n.text}</td>
                     <td className="small">
-                      {n.items.map((it, j) => <div key={j}>{it.prefix} · {it.size} × {it.qty}</div>)}
+                      {n.items.map((it, j) => (
+                        <div key={j} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+                          {it.catalog?.image ? <img src={thumb(it.catalog.image)} alt="" width={32} height={32} style={{ objectFit: 'cover', borderRadius: 4, flex: 'none' }} loading="lazy" /> : <span style={{ width: 32, flex: 'none' }} />}
+                          <div>
+                            <b>{it.catalog?.sku ?? `${it.code} ${it.size}`}</b> × {it.qty}
+                            {it.catalog ? (
+                              <div className="muted">{it.catalog.name}{it.catalog.others.length > 0 && ` · มีที่ ${it.catalog.others.join(', ')} ด้วย`}</div>
+                            ) : <div className="warn">ไม่พบใน Catalog</div>}
+                          </div>
+                        </div>
+                      ))}
                       {n.unknown.map((u, j) => <div key={`u${j}`} className="warn">? {u}</div>)}
                       <div className="muted">{n.payment === 'cod' ? 'ปลายทาง' : 'โอน'} {n.total != null ? baht(n.total) : ''}</div>
                     </td>
