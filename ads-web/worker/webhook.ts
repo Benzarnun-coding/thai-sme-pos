@@ -5,6 +5,7 @@
 // cod 449", see orderNotes.ts) is kept to check against Page365, and since 2026-10-15 every message's text is kept
 // for 30 days with phone numbers, e-mails, long numbers and addresses removed first (chatLog.ts).
 
+import { maybeSyncPurchases } from './metaPurchases.ts';
 import { parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { hashName } from './p365.ts';
 import { extractChats, saveChats } from './chatLog.ts';
@@ -63,6 +64,8 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
   const events = (body.entry ?? []).reduce((n, e) => n + (e.messaging?.length ?? 0) + (e.standby?.length ?? 0), 0);
   // Answer Meta right away; the writes finish in the background (Meta retries deliveries that get no 200).
   ctx.waitUntil(store(env, rows, events, notes, echoes).catch((err) => console.error('webhook store', err)));
+  // Webhook deliveries are the clock for sending Page365 purchases to Meta (at most every 10 minutes; off by default).
+  ctx.waitUntil(maybeSyncPurchases(env as any).catch((err) => console.error('capi', err)));
   const chats = extractChats(body.entry ?? []);
   if (chats.length) ctx.waitUntil(saveChats(env.DB, chats).catch((err) => console.error('chat store', err)));
   return new Response('ok', { status: 200 });

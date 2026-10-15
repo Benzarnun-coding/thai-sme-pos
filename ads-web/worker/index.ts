@@ -38,6 +38,7 @@ import { approvalsEnabled, editMessage, expireOld, idList, postToDeciders, recen
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, planFill, sessionStatus, P365Error } from './p365fill.ts';
+import { loadCapi, recentPurchases, saveCapi, syncPurchases } from './metaPurchases.ts';
 import { pageOf, receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
@@ -527,6 +528,23 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
 
   // ---- Messenger webhook: who came from which ad ----
   if (path === '/api/webhook' && method === 'GET') return json(await webhookStatus(env, `${url.origin}/webhook/meta`));
+  // Purchases to Meta from Page365 orders (worker/metaPurchases.ts): settings, what was sent, a manual / dry run.
+  if (path === '/api/meta/purchases' && method === 'GET') {
+    const [config, rows] = await Promise.all([loadCapi(env.DB), recentPurchases(env.DB)]);
+    return json({ config, rows });
+  }
+  if (path === '/api/meta/purchases/config' && method === 'PUT') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const cfg = await saveCapi(env.DB, await body()).catch((err) => { throw new BadRequest(err.message); });
+    await audit(env.DB, user, 'meta.capi.config', cfg.mode, { dataset_id: cfg.dataset_id, live_from: cfg.live_from });
+    return json(cfg);
+  }
+  if (path === '/api/meta/purchases/sync' && method === 'POST') {
+    const dry = url.searchParams.get('dry') === '1';
+    const r = await syncPurchases(env, { dry }).catch((err) => { throw new BadRequest(err.message); });
+    if (!dry) await audit(env.DB, user, 'meta.capi.sync', r.mode, { sent: r.sent.length, error: r.error });
+    return json(r);
+  }
   // Datasets (pixels) the Meta token can see — the one linked to the Page receives purchases from chat orders.
   if (path === '/api/meta/datasets' && method === 'GET') {
     if (!env.META_ACCESS_TOKEN) throw new BadRequest('ยังไม่ได้ตั้ง META_ACCESS_TOKEN');

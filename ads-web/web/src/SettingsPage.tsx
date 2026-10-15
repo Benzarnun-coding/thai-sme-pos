@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useUi } from './ui.tsx';
 import { api, type CostTier, type Settings, type WebhookStatus } from './api.ts';
 import { when } from './fmt.ts';
+import { MetaPurchasesCard } from './MetaPurchases.tsx';
 
 export function SettingsPage({ costsLoaded, campaignNames, onSaved }: { costsLoaded: number; campaignNames: string[]; onSaved: () => void }) {
   const { confirm } = useUi();
@@ -86,6 +87,7 @@ export function SettingsPage({ costsLoaded, campaignNames, onSaved }: { costsLoa
       <ConversionHoursCard />
 
       <WebhookCard />
+      <MetaPurchasesCard />
 
       <CampaignCostSheet s={s} setS={setS} busy={busy} onSave={() => save(s)} campaignNames={campaignNames} onSynced={onSaved} />
 
