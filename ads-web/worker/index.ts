@@ -682,7 +682,11 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (path === '/api/meta/purchases/source' && method === 'PUT') {
     if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
     const source = (await body())?.source === 'bill' ? 'bill' : 'note';
-    await env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('source', ?)").bind(source).run();
+    // Switching to "bill" starts its own clock: bills opened before it were already sent at the note.
+    const prev = await captureSource(env.DB);
+    const stmts = [env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('source', ?)").bind(source)];
+    if (source !== prev) stmts.push(env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('source_at', ?)").bind(new Date().toISOString()));
+    await env.DB.batch(stmts);
     await audit(env.DB, user, 'meta.capi.source', source, {});
     return json({ source });
   }
@@ -698,6 +702,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
   if (path === '/api/meta/purchases/sync' && method === 'POST') {
     const dry = url.searchParams.get('dry') === '1';
+    if (!dry && role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
     const r = await syncPurchases(env, { dry }).catch((err) => { throw new BadRequest(err.message); });
     if (!dry) await audit(env.DB, user, 'meta.capi.sync', r.mode, { sent: r.sent.length, error: r.error });
     return json(r);
