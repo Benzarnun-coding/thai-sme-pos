@@ -5,7 +5,7 @@
 // cod 449", see orderNotes.ts) is kept to check against Page365, and since 2026-10-15 every message's text is kept
 // for 30 days with phone numbers, e-mails, long numbers and addresses removed first (chatLog.ts).
 
-import { autoFillNote } from './autoFill.ts';
+import { autoFillNote, sweepNotes } from './autoFill.ts';
 import { maybeSyncPurchases } from './metaPurchases.ts';
 import { sendNotePurchase } from './notePurchases.ts';
 import { parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
@@ -70,10 +70,13 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
   ctx.waitUntil(store(env, rows, events, notes, echoes)
     // The sale goes to Meta first (seconds after the note), then the draft is filled.
     .then(() => Promise.all(notes.map((n) => sendNotePurchase(env as any, n).catch((err) => console.error('note purchase', err)))))
-    .then(() => Promise.all(notes.map((n) => autoFillNote(env as any, n))))
+    // One note's draft per delivery: a fill takes ~30 requests and the free plan allows 50 per invocation. Further
+    // notes in the same delivery (rare) are left to the sweep, which runs on the next deliveries.
+    .then(() => (notes.length ? autoFillNote(env as any, notes[0]) : null))
     .catch((err) => console.error('webhook store', err)));
-  // Webhook deliveries are the clock for sending Page365 purchases to Meta (at most every 10 minutes; off by default).
-  if (!notes.length) ctx.waitUntil(maybeSyncPurchases(env as any).catch((err) => console.error('capi', err)));
+  // Webhook deliveries are the clock for sending Page365 purchases to Meta (at most every 10 minutes; off by default)
+  // and for the fill sweep (a note whose draft never opened or whose fill was cut short; at most every 5 minutes).
+  if (!notes.length) ctx.waitUntil(maybeSyncPurchases(env as any).catch((err) => console.error('capi', err)).then(() => sweepNotes(env as any)).catch((err) => console.error('sweep', err)));
   const chats = extractChats(body.entry ?? []);
   if (chats.length) ctx.waitUntil(saveChats(env.DB, chats).catch((err) => console.error('chat store', err)));
   return new Response('ok', { status: 200 });

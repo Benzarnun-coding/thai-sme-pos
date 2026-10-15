@@ -6,7 +6,7 @@
 
 import { postToDeciders, type DiscordEnv } from './discord.ts';
 import { markFill, type StoredNote } from './orderNotes.ts';
-import { applyFill, call, findDraft, planFill, type FillEnv, type P365Order } from './p365fill.ts';
+import { applyFill, call, findDraft, P365Error, planFill, type FillEnv, type P365Order } from './p365fill.ts';
 
 export interface AutoEnv extends FillEnv, DiscordEnv { DB: D1Database; /** #ออเดอร์มีปัญหา (Benz 15 Oct); falls back to the ads channel via the bot */ DISCORD_ORDER_WEBHOOK_URL?: string; /** who answers for problem bills (เนย, Benz 15 Oct); empty = the deciders */ DISCORD_ORDER_OWNER_IDS?: string }
 
@@ -22,41 +22,111 @@ export async function setAutoFill(db: D1Database, on: boolean): Promise<void> {
   await db.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('auto_fill', ?)").bind(on ? 'on' : 'off').run();
 }
 
-/** The customer behind a PSID in Page365 (conversation list, most recently active first: { id, customer: { id, fbid, name } }). */
-export async function customerFor(env: FillEnv, psid: string, pages = 4): Promise<{ conversation_id: number; customer_id: number; name: string } | null> {
+/** The customer behind a PSID in Page365 (conversation list, most recently active first: { id, customer: { id, fbid, name, last_order_id } }). */
+export async function customerFor(env: FillEnv, psid: string, pages = 4): Promise<{ conversation_id: number; customer_id: number; name: string; last_order_id: number | null } | null> {
   for (let page = 1; page <= pages; page++) {
-    const list = await call<{ conversations?: { id: number; customer?: { id: number; fbid?: string; name?: string } }[] }>(env, `conversations.json?page=${page}`);
+    const list = await call<{ conversations?: { id: number; customer?: { id: number; fbid?: string; name?: string; last_order_id?: number | null } }[] }>(env, `conversations.json?page=${page}`);
     const convs = list.conversations ?? [];
     const hit = convs.find((c) => c.customer?.fbid === psid);
-    if (hit?.customer?.id) return { conversation_id: hit.id, customer_id: hit.customer.id, name: hit.customer.name ?? '' };
+    if (hit?.customer?.id) return { conversation_id: hit.id, customer_id: hit.customer.id, name: hit.customer.name ?? '', last_order_id: hit.customer.last_order_id ?? null };
     if (convs.length < 50) break;
   }
   return null;
 }
 
 /** Opens a draft for the customer the way the chat screen's "เปิดบิล" does. */
-export async function openDraft(env: FillEnv, psid: string): Promise<P365Order | null> {
-  const who = await customerFor(env, psid);
-  if (!who) return null;
-  const r = await call<any>(env, `customers/${who.customer_id}/orders.json`, { method: 'POST', body: {} });
+export async function openDraft(env: FillEnv, customerId: number): Promise<P365Order | null> {
+  const r = await call<any>(env, `customers/${customerId}/orders.json`, { method: 'POST', body: {} });
   const id = r?.id ?? r?.order?.id;
   return id ? call<P365Order>(env, `orders/${id}.json`) : null;
 }
 
-export interface AutoResult { status: 'filled' | 'needs_person' | 'skipped'; order_no: number | null; reasons: string[] }
+/** Two notes for one customer this close together are one order (a correction), as for purchases to Meta. */
+const SAME_ORDER_MS = 2 * 3_600_000;
+
+/** Another note of this customer already put into this bill, if any. */
+async function otherNoteOn(db: D1Database, orderNo: number, mid: string): Promise<{ mid: string; at: string } | null> {
+  return db.prepare('SELECT mid, at FROM order_notes WHERE fill_order_no = ? AND mid != ? AND filled_at IS NOT NULL ORDER BY at DESC LIMIT 1').bind(orderNo, mid).first<{ mid: string; at: string }>();
+}
+
+const bkk = (iso: string) => new Date(Date.parse(iso) + 7 * 3_600_000).toISOString().slice(11, 16);
+
+/**
+ * The bill a note belongs to (Benz 15 Oct: whenever an admin types a summary there is a draft in Page365, whatever
+ * else is missing; details follow). Order of looking: the customer's latest Page365 order if it is a draft, a
+ * draft of theirs near the note, else a new draft. Never a second bill for one order: a bill made and sent already
+ * (the morning round, an admin) is taken as this note's, and a second note within 2 hours of one already filled
+ * is a correction, left for a person.
+ */
+export async function ensureDraft(env: AutoEnv, note: StoredNote): Promise<{ draft: P365Order | null; billed?: P365Order; why?: string }> {
+  const t = Date.parse(note.at);
+  const who = await customerFor(env, note.psid);
+  let draft: P365Order | null = null;
+  if (who?.last_order_id) {
+    const last = await call<P365Order>(env, `orders/${who.last_order_id}.json`).catch(() => null);
+    if (last && last.customer_fbid === note.psid) {
+      if (last.stage === 'draft') draft = last;
+      // Already made and moved on, around or after the note: that bill is this order, unless another note has it.
+      else if (Date.parse(last.created_at) >= t - 3_600_000) {
+        const other = await otherNoteOn(env.DB, last.no, note.mid);
+        if (!other || Math.abs(Date.parse(other.at) - t) <= SAME_ORDER_MS) return { draft: null, billed: last };
+      }
+    }
+  }
+  if (!draft) draft = await findDraft(env, note.psid, note.at);
+  if (draft?.items.length) {
+    const other = await otherNoteOn(env.DB, draft.no, note.mid);
+    if (other && Math.abs(Date.parse(other.at) - t) <= SAME_ORDER_MS) {
+      return { draft, why: `สรุปซ้ำ: ร่าง #${draft.no} ใส่ไปแล้วจากสรุปตอน ${bkk(other.at)} น. — ถ้าเป็นการแก้ ให้แก้ในร่างเอง` };
+    }
+    // Filled from an older order note: this is a new order and gets its own draft. Items a person put in: theirs.
+    if (other) draft = null;
+  }
+  if (!draft) {
+    if (!who) return { draft: null, why: 'หาลูกค้าคนนี้ใน Page365 ไม่เจอ (แชทไม่อยู่ใน 200 แชทล่าสุด) — เปิดร่างเองในแชท' };
+    draft = await openDraft(env, who.customer_id);
+    if (!draft) return { draft: null, why: 'สั่งเปิดร่างใน Page365 แล้วแต่ไม่ได้บิลกลับมา — เปิดร่างเองในแชท' };
+  }
+  return { draft };
+}
+
+export interface AutoResult { status: 'filled' | 'needs_person' | 'skipped' | 'waiting'; order_no: number | null; reasons: string[] }
+
+/** Note state while its draft is open but not filled yet: the sweep finishes it (counted, gives up after 3 tries). */
+export const OPENED = 'เปิดร่างแล้ว · รอใส่รายละเอียด';
+/** Note state while Page365 can't be reached (no or expired login): the sweep opens the draft once it can. */
+export const WAITING = 'รอเปิดร่าง';
 
 /** One note, start to finish. Never throws: failures become a Discord message. */
 export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force?: boolean } = {}): Promise<AutoResult> {
   if (!opts.force && !(await autoFillOn(env.DB))) return { status: 'skipped', order_no: null, reasons: ['ปิดอยู่'] };
-  if (!env.P365_COOKIE) return { status: 'skipped', order_no: null, reasons: ['ไม่มี P365_COOKIE'] };
   let draft: P365Order | null = null;
   let name = '';
   try {
-    draft = await findDraft(env, note.psid, note.at);
-    if (!draft) draft = await openDraft(env, note.psid);
-    name = draft?.customer_name ?? '';
+    // 1. The draft first, recorded at once: whatever happens next, the bill exists and is linked to the note.
+    const got = await ensureDraft(env, note);
+    draft = got.draft;
+    if (got.billed) {
+      await markFill(env.DB, note.mid, { by: 'auto', order_no: got.billed.no, error: null });
+      return { status: 'filled', order_no: got.billed.no, reasons: [`บิล #${got.billed.no} เปิดไปแล้ว (${got.billed.stage})`] };
+    }
+    if (!draft) {
+      const why = [got.why ?? 'เปิดร่างไม่ได้'];
+      await markFill(env.DB, note.mid, { by: 'auto', order_no: null, error: `ต้องให้คนดู: ${why.join(' · ')}` }).catch(() => null);
+      await tell(env, note, null, '', why);
+      return { status: 'needs_person', order_no: null, reasons: why };
+    }
+    name = draft.customer_name ?? '';
+    if (got.why) {
+      await markFill(env.DB, note.mid, { by: 'auto', order_no: draft.no, error: `ต้องให้คนดู: ${got.why}` }).catch(() => null);
+      await tell(env, note, draft, name, [got.why]);
+      return { status: 'needs_person', order_no: draft.no, reasons: [got.why] };
+    }
+    const tries = triesOf(note.fill_error) + 1;
+    await markFill(env.DB, note.mid, { by: 'auto', order_no: draft.no, error: `${OPENED} (${tries})` });
+
+    // 2. Details: items, price, address — filled when nothing stops it, else a person is asked.
     const plan = await planFill(env, note, { draft });
-    const reasons = [...plan.problems, ...plan.warnings];
     // Warnings only (an address doubt, a small discount): fill anyway — items, price and whatever address could
     // be read — and ask a person to check (Benz 15 Oct: a bill left empty for a doubt about the name is worse).
     if (!plan.problems.length && plan.order) {
@@ -65,17 +135,62 @@ export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force
       if (plan.warnings.length) await tell(env, note, r.order, name, plan.warnings, true);
       return { status: 'filled', order_no: r.order.no, reasons: plan.warnings };
     }
-    const why = reasons.length ? reasons : ['ไม่เจอร่างบิล และเปิดร่างให้ไม่ได้'];
+    const why = plan.problems.length ? plan.problems : ['ไม่เจอร่างบิล'];
     // Shown on the note's row in the Log tab too, not only in Discord.
-    await markFill(env.DB, note.mid, { by: 'auto', order_no: draft?.no ?? null, error: `ต้องให้คนดู: ${why.join(' · ')}` }).catch(() => null);
+    await markFill(env.DB, note.mid, { by: 'auto', order_no: draft.no, error: `ต้องให้คนดู: ${why.join(' · ')}` }).catch(() => null);
     await tell(env, note, draft, name, why);
-    return { status: 'needs_person', order_no: draft?.no ?? null, reasons: why };
+    return { status: 'needs_person', order_no: draft.no, reasons: why };
   } catch (err: any) {
     const msg = err?.message ?? String(err);
-    await markFill(env.DB, note.mid, { by: 'auto', order_no: null, error: msg }).catch(() => null);
-    await tell(env, note, draft, name, [msg]).catch(() => null);
-    return { status: 'needs_person', order_no: draft?.no ?? null, reasons: [msg] };
+    // Page365 not reachable with our login: keep the note waiting (the sweep retries) and say so once an hour.
+    if (err instanceof P365Error && err.kind === 'session') {
+      await markFill(env.DB, note.mid, { by: 'auto', order_no: draft?.no ?? null, error: `${WAITING}: ${msg}` }).catch(() => null);
+      await sessionAlarm(env, msg).catch(() => null);
+      return { status: 'waiting', order_no: draft?.no ?? null, reasons: [msg] };
+    }
+    const why = draft ? [`ร่าง #${draft.no} เปิดแล้ว แต่ใส่รายละเอียดไม่สำเร็จ: ${msg}`] : [msg];
+    await markFill(env.DB, note.mid, { by: 'auto', order_no: draft?.no ?? null, error: `ต้องให้คนดู: ${why.join(' · ')}` }).catch(() => null);
+    await tell(env, note, draft, name, why).catch(() => null);
+    return { status: 'needs_person', order_no: draft?.no ?? null, reasons: why };
   }
+}
+
+const triesOf = (error: string | null | undefined) => Number(/^เปิดร่างแล้ว.*\((\d+)\)$/.exec(error ?? '')?.[1] ?? 0);
+
+/** "Page365 login expired" to the problem channel, at most once an hour. */
+async function sessionAlarm(env: AutoEnv, msg: string): Promise<void> {
+  const last = await env.DB.prepare("SELECT value FROM meta_capi WHERE key = 'p365_alarm_at'").first<{ value: string }>().catch(() => null);
+  if (last && Date.now() - Date.parse(last.value) < 3_600_000) return;
+  await env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('p365_alarm_at', ?)").bind(new Date().toISOString()).run();
+  await tell(env, { mid: '', psid: '', at: new Date().toISOString(), text: '-', name_hash: null }, null, 'ทุกบิล', [`ระบบเปิดร่างใน Page365 ไม่ได้: ${msg}`, 'ออเดอร์ที่สรุประหว่างนี้รอไว้ เปิดให้เองเมื่อล็อกอินใหม่แล้ว — หรือแอดมินเปิดร่างเองไปก่อน']);
+}
+
+/** Only notes from when the sweep started: older ones were done by hand or by the 15 Oct backfill. */
+const SWEEP_FROM = '2026-10-15T12:00:00Z';
+
+/**
+ * The safety net, on webhook deliveries without notes (at most every 5 minutes): one note from the last 24 hours
+ * that never got its draft, or whose fill was cut short, or that waited for Page365, is run again.
+ */
+export async function sweepNotes(env: AutoEnv): Promise<AutoResult | null> {
+  if (!(await autoFillOn(env.DB))) return null;
+  const last = await env.DB.prepare("SELECT value FROM meta_capi WHERE key = 'fill_sweep_at'").first<{ value: string }>().catch(() => null);
+  if (last && Date.now() - Date.parse(last.value) < 5 * 60_000) return null;
+  await env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('fill_sweep_at', ?)").bind(new Date().toISOString()).run();
+  const from = new Date(Math.max(Date.now() - 86_400_000, Date.parse(SWEEP_FROM))).toISOString();
+  const to = new Date(Date.now() - 3 * 60_000).toISOString();
+  const note = await env.DB.prepare(
+    `SELECT * FROM order_notes WHERE at >= ? AND at <= ? AND filled_at IS NULL
+       AND (fill_error IS NULL OR fill_error LIKE ? OR fill_error LIKE ?) ORDER BY at LIMIT 1`,
+  ).bind(from, to, `${OPENED}%`, `${WAITING}%`).first<StoredNote>();
+  if (!note) return null;
+  if (triesOf(note.fill_error) >= 3) {
+    const why = ['เปิดร่างแล้วแต่ใส่รายละเอียดไม่สำเร็จ 3 ครั้ง — ใส่เองในร่าง'];
+    await markFill(env.DB, note.mid, { by: 'auto', order_no: note.fill_order_no ?? null, error: `ต้องให้คนดู: ${why[0]}` });
+    await tell(env, note, null, '', why);
+    return { status: 'needs_person', order_no: note.fill_order_no ?? null, reasons: why };
+  }
+  return autoFillNote(env, note);
 }
 
 export async function tell(env: AutoEnv, note: StoredNote, draft: P365Order | null, name: string, reasons: string[], filled = false): Promise<void> {
