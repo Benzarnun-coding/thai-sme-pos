@@ -224,10 +224,13 @@ export function OrdersApp() {
   async function setPrice(l: PurchaseLine, price: number | null) {
     if (!l.tab || l.sku.startsWith('?')) return;
     const spu = spuOf(l.sku), key = `${l.tab}|${spu}`;
+    // A cost typed here is for every size: per-size costs set in the catalog's product view are cleared, or they would win.
+    const sizes = (meta?.prices ?? []).filter((p) => p.tab === l.tab && p.key !== key && spuOf(p.spu) === spu);
     try {
-      await api.setPrices([{ tab: l.tab, spu, price }]);
+      await api.setPrices([{ tab: l.tab, spu, price }, ...sizes.map((p) => ({ tab: p.tab, spu: p.spu, price: null }))]);
       const now = new Date().toISOString();
-      setMeta((m) => (m ? { ...m, prices: [...m.prices.filter((p) => p.key !== key), ...(price === null ? [] : [{ key, tab: l.tab, spu, price, updated_by: '', updated_at: now }])] } : m));
+      const gone = new Set([key, ...sizes.map((p) => p.key)]);
+      setMeta((m) => (m ? { ...m, prices: [...m.prices.filter((p) => !gone.has(p.key)), ...(price === null ? [] : [{ key, tab: l.tab, spu, price, updated_by: '', updated_at: now }])] } : m));
       toast(price === null ? `${l.label} กลับไปใช้ทุนจากชีต (H)` : `${l.label} ทุน ${num(price)} บาท/ตัว · จำไว้ใช้ทุกวัน`, 'ok');
     } catch (e: any) { toast(e.message, 'bad'); }
   }

@@ -3,7 +3,7 @@
 // two agree often enough, the system can later fill the orders itself.
 
 import { useEffect, useState } from 'react';
-import { api, type FillPlan, type NoteCheck } from './api.ts';
+import { api, type FillPlan, type NoteCheck, type PlanAddress } from './api.ts';
 import { thumb } from './catalog.ts';
 import { baht, num, when } from './fmt.ts';
 import { Modal, useUi } from './ui.tsx';
@@ -55,26 +55,33 @@ function SessionBanner() {
 }
 
 /** The plan for one note (looked up live in Page365) and the button that puts the items into the draft. */
+const ADDRESS_FIELDS: [keyof PlanAddress, string][] = [['name', 'ชื่อผู้รับ'], ['phone', 'เบอร์'], ['street', 'บ้านเลขที่ / หมู่ / ซอย / ถนน'], ['subdistrict', 'ตำบล/แขวง'], ['district', 'อำเภอ/เขต'], ['province', 'จังหวัด'], ['postal_code', 'รหัสไปรษณีย์']];
+const EMPTY_ADDRESS: PlanAddress = { name: '', phone: '', street: '', subdistrict: '', district: '', province: '', postal_code: '', from_image: false, source: 'chat' };
+
+/** The plan for one note (looked up live in Page365, address read from the chat) and the button that fills the draft. */
 function FillModal({ note, onClose, onDone }: { note: NoteCheck; onClose: () => void; onDone: () => void }) {
   const { toast } = useUi();
   const [plan, setPlan] = useState<FillPlan | null>(null);
+  const [address, setAddress] = useState<PlanAddress | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => { api.fillPlan(note.mid).then(setPlan).catch((e) => setError(e.message)); }, [note.mid]);
+  useEffect(() => { api.fillPlan(note.mid).then((p) => { setPlan(p); setAddress(p.address); }).catch((e) => setError(e.message)); }, [note.mid]);
+  const addressOk = !!address && /^\d{5}$/.test(address.postal_code) && /^0\d{8,9}$/.test(address.phone.replace(/\D/g, '')) && !!address.province && !!address.district && !!address.street;
   async function fill() {
     setBusy(true);
     try {
-      const r = await api.fillNote(note.mid);
-      toast(`ใส่สินค้าในร่าง #${r.order_no} แล้ว ยอด ${baht(r.total)} — เปิดใน Page365 แล้วกดบันทึกและส่งบิลได้เลย`, 'ok');
+      const r = await api.fillNote(note.mid, { address: addressOk ? address : null, allow_warnings: true });
+      toast(`ใส่ร่าง #${r.order_no} แล้ว ยอด ${baht(r.total)} — เปิดใน Page365 แล้วกดส่งบิลได้เลย`, 'ok');
       onDone();
     } catch (e: any) { toast(e.message, 'bad'); setBusy(false); }
   }
+  const set = (k: keyof PlanAddress, v: string) => setAddress((a) => ({ ...(a ?? EMPTY_ADDRESS), [k]: v, source: 'chat' }));
   return (
-    <Modal title="ใส่สินค้าในร่างบิล Page365" onClose={onClose}>
+    <Modal title="ใส่บิลใน Page365" onClose={onClose}>
       <p className="small" style={{ whiteSpace: 'pre-line', fontFamily: 'ui-monospace, monospace' }}>{note.text}</p>
-      {error ? <p className="error">{error}</p> : !plan ? <div className="skeleton" style={{ height: 120 }} /> : (
+      {error ? <p className="error">{error}</p> : !plan ? <><div className="skeleton" style={{ height: 120 }} /><p className="muted small">กำลังดูใน Page365 และอ่านที่อยู่จากแชท…</p></> : (
         <>
-          <p className="small">{plan.order ? <>ร่าง <b>#{plan.order.no}</b> ของลูกค้าคนนี้</> : <span className="bad">ไม่เจอร่างบิล</span>}</p>
+          <p className="small">{plan.order ? <>ร่าง <b>#{plan.order.no}</b> · ชื่อบิล <b>{plan.bill_name}</b></> : <span className="bad">ไม่เจอร่างบิล</span>}</p>
           <table className="data-table small">
             <thead><tr><th>Page365</th><th className="num">ราคา</th><th className="num">จำนวน</th><th className="num">เหลือ</th></tr></thead>
             <tbody>
@@ -90,23 +97,79 @@ function FillModal({ note, onClose, onDone }: { note: NoteCheck; onClose: () => 
           </table>
           <p className="small">
             สินค้า {baht(plan.subtotal)} + ค่าส่ง {baht(plan.shipping)} − ส่วนลดโปร {baht(plan.discount)} = <b>{plan.total != null ? baht(plan.total) : '–'}</b>
-            {' '}({plan.payment === 'cod' ? 'ปลายทาง' : 'โอน'})
+            {' '}({plan.payment === 'cod' ? 'ปลายทาง' : 'โอน'}){plan.chat_total != null && <span className="muted"> · ในแชทตกลง {baht(plan.chat_total)}</span>}
           </p>
           {plan.problems.length > 0 && <ul className="small bad">{plan.problems.map((p, i) => <li key={i}>{p}</li>)}</ul>}
+          {plan.warnings.length > 0 && <ul className="small warn">{plan.warnings.map((p, i) => <li key={i}>{p}</li>)}</ul>}
           {plan.said.length > 0 && (
             <div className="small">
               <div className="muted">ลูกค้าพิมพ์เรื่องไซส์ไว้ในแชท:</div>
               {plan.said.map((t, i) => <div key={i}>“{t}”</div>)}
             </div>
           )}
-          <p className="muted small">ระบบใส่สินค้า ไซส์ จำนวน ค่าส่ง และส่วนลดลงในร่างเท่านั้น — บิลยังเป็นร่าง ยังไม่ส่งหาลูกค้า · เปิดบิลใน Page365 แล้วกด "บันทึกและส่ง" เองเหมือนเดิม</p>
+          {plan.order && plan.problems.length === 0 && (
+            <div className="small" style={{ margin: '8px 0' }}>
+              <div className="muted">
+                ที่อยู่จัดส่ง {address?.source === 'page365' ? '(มีในร่างอยู่แล้ว)' : address?.from_image ? '(อ่านจากรูปในแชท — เช็กให้ดี)' : address ? '(อ่านจากแชท)' : '(ยังไม่มี — กรอกเองได้)'}
+              </div>
+              <div className="grid2">
+                {ADDRESS_FIELDS.map(([k, label]) => (
+                  <label key={k} className="small">{label}
+                    <input value={String(address?.[k] ?? '')} onChange={(e) => set(k, e.target.value)} disabled={busy} />
+                  </label>
+                ))}
+              </div>
+              {!addressOk && <div className="warn">ที่อยู่ยังไม่ครบ — จะใส่แค่สินค้า แอดมินกรอกที่อยู่ใน Page365 เอง</div>}
+            </div>
+          )}
+          <p className="muted small">ระบบใส่สินค้า ไซส์ จำนวน ค่าส่ง ส่วนลด ชื่อบิล และที่อยู่ลงในร่าง — บิลยังเป็นร่าง ยังไม่ส่งหาลูกค้า · เปิดบิลใน Page365 แล้วกด "ส่งบิล" เองเหมือนเดิม</p>
           <div className="row gap">
-            <button disabled={busy || plan.problems.length > 0 || !plan.order} onClick={fill}>{busy ? 'กำลังใส่…' : `ใส่สินค้าในร่าง${plan.order ? ` #${plan.order.no}` : ''}`}</button>
+            <button disabled={busy || plan.problems.length > 0 || !plan.order} onClick={fill}>{busy ? 'กำลังใส่…' : `ใส่ร่าง${plan.order ? ` #${plan.order.no}` : ''}`}</button>
             <button className="ghost" onClick={onClose}>ปิด</button>
           </div>
         </>
       )}
     </Modal>
+  );
+}
+
+/**
+ * "Fill all that pass": every note of the day not yet filled, one by one — plan (live in Page365), and fill only
+ * when there is no problem and no warning (complete address, chat price agrees, …). The rest stay for a person.
+ */
+function FillAll({ notes, onDone }: { notes: NoteCheck[]; onDone: () => void }) {
+  const { toast, confirm } = useUi();
+  const [run, setRun] = useState<{ i: number; n: number; done: number[]; skipped: { text: string; why: string }[] } | null>(null);
+  const todo = notes.filter((n) => !n.fill.at && n.verdict !== 'unparsed' && n.items.every((i) => i.catalog || !i.sizes.length));
+  async function go() {
+    if (!(await confirm({ title: `ใส่บิลใน Page365 ${todo.length} ใบ?`, body: 'ใส่เฉพาะใบที่ผ่านทุกข้อ (สินค้า ไซส์ สต็อก ยอดตรงกับแชท ที่อยู่ครบ) — ใบที่มีปัญหาหรือคำเตือนจะข้ามไว้ให้คนดู · บิลยังเป็นร่าง ยังไม่ส่งหาลูกค้า', confirmLabel: 'ใส่เลย' }))) return;
+    const st = { i: 0, n: todo.length, done: [] as number[], skipped: [] as { text: string; why: string }[] };
+    setRun({ ...st });
+    for (const n of todo) {
+      st.i++;
+      try {
+        const p = await api.fillPlan(n.mid);
+        const why = [...p.problems, ...p.warnings];
+        if (why.length || !p.order) st.skipped.push({ text: n.text.replace(/\s+/g, ' '), why: why.join(' · ') || 'ไม่เจอร่าง' });
+        else { const r = await api.fillNote(n.mid, { address: p.address }); st.done.push(r.order_no); }
+      } catch (e: any) { st.skipped.push({ text: n.text.replace(/\s+/g, ' '), why: e.message }); }
+      setRun({ ...st, done: [...st.done], skipped: [...st.skipped] });
+    }
+    toast(`ใส่แล้ว ${st.done.length} ใบ · ข้าม ${st.skipped.length} ใบ`, 'ok');
+    onDone();
+  }
+  return (
+    <div style={{ padding: '0 18px 12px' }}>
+      <button disabled={!todo.length || (run !== null && run.i < run.n)} onClick={go}>
+        {run && run.i < run.n ? `กำลังใส่… ${run.i}/${run.n}` : `ใส่ทุกใบที่ผ่าน (${todo.length})`}
+      </button>
+      {run && (
+        <div className="small" style={{ marginTop: 6 }}>
+          {run.done.length > 0 && <div className="good">ใส่แล้ว: {run.done.map((no) => `#${no}`).join(', ')}</div>}
+          {run.skipped.map((s, i) => <div key={i} className="warn">ข้าม “{s.text}” — {s.why}</div>)}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -149,6 +212,7 @@ export function OrderNotesList({ date, dayLabel, refresh = 0, live = false }: { 
           )}
         </div>
       </div>
+      {res && res.notes.length > 0 && <FillAll notes={res.notes} onDone={() => setAgain((x) => x + 1)} />}
       {error ? <p className="error" style={{ margin: '0 18px 12px' }}>{error}</p> : !res ? <div className="skeleton" style={{ height: 80, margin: '0 18px 12px' }} /> : notes.length === 0 ? (
         <p className="muted small" style={{ padding: '0 18px 12px' }}>ยังไม่มีบรรทัดสรุปของ{dayLabel} — เก็บตั้งแต่กด "เชื่อมต่อใหม่" ที่การ์ด Messenger webhook ในหน้าตั้งค่า (15 ต.ค.)</p>
       ) : (

@@ -34,13 +34,22 @@ export async function pushLine(text: string, token?: string, to?: string): Promi
 export async function pushDiscord(text: string, url?: string): Promise<boolean> {
   if (!url) return false;
   const chunks: string[] = [];
-  for (const line of text.split('\n')) {
+  // A line longer than a message is cut into pieces by code point (never through an emoji's surrogate pair).
+  const lines = text.replace(/\r/g, '').split('\n').flatMap((line) => {
+    const cps = Array.from(line);
+    if (cps.length <= 1900) return [line];
+    const parts: string[] = [];
+    for (let i = 0; i < cps.length; i += 1900) parts.push(cps.slice(i, i + 1900).join(''));
+    return parts;
+  });
+  for (const line of lines) {
     const last = chunks[chunks.length - 1];
     if (last !== undefined && last.length + line.length + 1 <= 1900) chunks[chunks.length - 1] = `${last}\n${line}`;
-    else chunks.push(line.slice(0, 1900));
+    else chunks.push(line);
   }
   let ok = true;
-  for (const content of chunks) {
+  for (const [i, content] of chunks.entries()) {
+    if (i) await new Promise((r) => setTimeout(r, 400)); // webhooks allow a few posts per second
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content, username: 'น้องจิบิ' }) });
     if (!res.ok) { console.error('Discord push failed:', res.status, await res.text()); ok = false; }
   }

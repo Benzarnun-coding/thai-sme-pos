@@ -266,7 +266,9 @@ export interface FillPlan {
   order: { id: number; no: number; stage: string } | null;
   lines: { code: string; size: string; qty: number; product_id: number | null; variant_id: number | null; sku: string | null; price: number | null; available: number | null }[];
   payment: 'cod' | 'transfer' | null; subtotal: number; shipping: number; discount: number; total: number | null; problems: string[]; said: string[];
+  chat_total: number | null; bill_name: string | null; address: PlanAddress | null; warnings: string[];
 }
+export interface PlanAddress { name: string; phone: string; street: string; subdistrict: string; district: string; province: string; postal_code: string; from_image: boolean; source: 'page365' | 'chat' }
 export interface NoteCheck {
   mid: string;
   fill: { at: string | null; by: string | null; order_no: number | null; error: string | null };
@@ -307,7 +309,7 @@ export interface CatalogSupplier { key: string; tab: string; spu: string; shop: 
 export interface CatalogPrice { key: string; tab: string; spu: string; price: number; updated_by: string; updated_at: string }
 export interface CatalogAlias { alias: string; sku: string; created_by: string; created_at: string }
 export interface CatalogLabel { key: string; tab: string; spu: string; label: string; updated_by: string; updated_at: string }
-export interface CatalogMeta { version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; prices: CatalogPrice[]; labels: CatalogLabel[]; aliases: CatalogAlias[]; sheet_configured: boolean }
+export interface CatalogMeta { version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; prices: CatalogPrice[]; sell_prices: CatalogPrice[]; labels: CatalogLabel[]; aliases: CatalogAlias[]; sheet_configured: boolean }
 export type PurchaseKind = 'supplier' | 'warehouse' | 'unassigned' | 'review';
 export interface SalesData {
   from: string; to: string;
@@ -345,6 +347,7 @@ export const api = {
   setAlias: (alias: string, sku: string) => call<{ alias: CatalogAlias | null }>('PUT', '/api/catalog/alias', { alias, sku }),
   setLabels: (items: { tab: string; spu: string; label: string }[]) => call<{ labels: CatalogLabel[] }>('PUT', '/api/catalog/label', { items }),
   setPrices: (items: { tab: string; spu: string; price: number | null }[]) => call<{ prices: CatalogPrice[] }>('PUT', '/api/catalog/price', { items }),
+  setSellPrices: (items: { tab: string; spu: string; price: number | null }[]) => call<{ prices: CatalogPrice[] }>('PUT', '/api/catalog/sell-price', { items }),
   setSuppliers: (items: { tab: string; spu: string; shop: string }[]) => call<{ suppliers: CatalogSupplier[] }>('PUT', '/api/catalog/supplier', { items }),
   purchases: () => call<{ uploads: PurchaseUpload[] }>('GET', '/api/purchase'),
   purchaseLines: (id: string) => call<{ lines: SavedPurchaseLine[] }>('GET', `/api/purchase/lines?id=${encodeURIComponent(id)}`),
@@ -407,7 +410,7 @@ export const api = {
   orderNoteDays: () => call<{ days: { date: string; notes: number }[] }>('GET', '/api/order-notes/days'),
   p365Session: () => call<{ ok: boolean; error: string | null }>('GET', '/api/p365/session'),
   fillPlan: (mid: string) => call<FillPlan>('GET', `/api/order-notes/plan?mid=${encodeURIComponent(mid)}`),
-  fillNote: (mid: string) => call<{ ok: true; order_no: number; total: number }>('POST', '/api/order-notes/fill', { mid }),
+  fillNote: (mid: string, opts: { address?: PlanAddress | null; allow_warnings?: boolean } = {}) => call<{ ok: true; order_no: number; total: number }>('POST', '/api/order-notes/fill', { mid, ...opts }),
   orderNotes: (date: string) => call<{ date: string; uploaded: boolean; orders: number; orders_without_note: number; notes: NoteCheck[] }>('GET', `/api/order-notes?date=${date}`),
   sendPostIdeas: () => call<{ sent: boolean; ideas: number }>('POST', '/api/post-ideas/send'),
   goal: () => call<GoalStatus>('GET', '/api/goal'),

@@ -7,7 +7,7 @@
 //   4. other tabs → the warehouse itself (PK, CM, CN …)
 // Rows whose SKU is missing or not in the catalog go to "ตรวจสอบ". Shared by the page and the tests.
 
-import { cleanSku, COLOR_NAMES, compareSize, SHOP_STATUSES, skuKey, spuOf, type CatalogRow } from './catalog.ts';
+import { cleanSku, COLOR_NAMES, compareSize, overrideOf, SHOP_STATUSES, skuKey, spuOf, type CatalogRow } from './catalog.ts';
 import { buildXlsx, S, type Cell, type Sheet } from './xlsxWrite.ts';
 
 export type GroupKind = 'supplier' | 'warehouse' | 'unassigned' | 'review';
@@ -470,7 +470,7 @@ export const PRICE_SOURCE_LABEL: Record<PriceSource, string> = { web: 'กรอ
 export function priceOf(sku: string, lookup: Lookup): { price: number | null; source: PriceSource } {
   const r = lookup.rows.get(skuKey(sku));
   if (!r) return { price: null, source: '' };
-  const typed = lookup.prices.get(`${r.tab}|${spuOf(r.sku)}`);
+  const typed = overrideOf(r, lookup.prices);
   if (typed !== undefined) return { price: typed, source: 'web' };
   if (r.cost !== null && r.cost > 0) return { price: r.cost, source: 'cost' };
   return { price: null, source: '' };
