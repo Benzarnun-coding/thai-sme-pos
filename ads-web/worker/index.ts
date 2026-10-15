@@ -43,7 +43,7 @@ import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365
 import { autoFillNote, autoFillOn, customerFor, setAutoFill } from './autoFill.ts';
 import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './metaPurchases.ts';
 import { captureSource, planNotePurchases } from './notePurchases.ts';
-import { dayOrders } from './orderDay.ts';
+import { dayOrders, reconcile } from './orderDay.ts';
 import { adjustmentDays, seedFromSent } from './metaAdjust.ts';
 import { pageOf, receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
@@ -517,7 +517,19 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (path === '/api/order-notes/sales' && method === 'GET') {
     const date = url.searchParams.get('date') ?? bkkDate(0);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
-    return json({ date, ...(await dayOrders(env, await loadNotes(env.DB, date))) });
+    const notes = await loadNotes(env.DB, date);
+    const day = await dayOrders(env, notes);
+    // Once the day's file is uploaded: which notes became bills, which didn't, which bills have no note.
+    const uploads = await loadUploads(env.DB, [date]);
+    let recon = null;
+    if (uploads.has(date)) {
+      const around = [-1, 0, 1].map((d) => new Date(Date.parse(`${date}T00:00:00Z`) + d * 86_400_000).toISOString().slice(0, 10));
+      const orders = await loadOrders(env.DB, around);
+      const links = new Map(checkNotes(notes, orders).filter((c) => c.order_no).map((c) => [c.mid, String(c.order_no)]));
+      for (const n of notes) if (n.fill_order_no) links.set(n.mid, String(n.fill_order_no)); // the bill the system filled wins
+      recon = reconcile(day.rows, links, orders.filter((o) => o.date === date).map((o) => ({ order_no: o.order_no, total: o.total, created_at: o.created_at })));
+    }
+    return json({ date, ...day, recon });
   }
   if (path === '/api/order-notes/days' && method === 'GET') return json({ days: await noteDays(env.DB, 14) });
   if (path === '/api/order-notes' && method === 'GET') {

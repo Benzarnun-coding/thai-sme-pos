@@ -96,3 +96,36 @@ export async function dayOrders(env: P365Env & { DB: D1Database }, notes: (Store
   }
   return { rows, summary: summarize(rows), page365, error };
 }
+
+// ---- against the uploaded Page365 file ----
+
+export interface Recon {
+  log: number; file: number; matched: number;
+  log_only: { mid: string; at: string; customer: string | null; text: string; total: number }[];
+  file_only: { order_no: string; total: number; created_at: string }[];
+  diff: { order_no: string; note_total: number; bill_total: number; customer: string | null }[];
+  sales_log: number; sales_file: number;
+}
+
+/**
+ * Notes of the day vs bills of the day in the uploaded file. A note's bill: the one the system filled, else the
+ * customer's bill in Page365 now, else the file match (same customer, or unique total and time) — `links`.
+ */
+export function reconcile(rows: DayOrder[], links: Map<string, string>, file: { order_no: string; total: number; created_at: string }[]): Recon {
+  const real = rows.filter((r) => !r.repeat && r.total > 0);
+  const byNo = new Map(file.map((o) => [String(o.order_no), o]));
+  const used = new Set<string>();
+  const log_only: Recon['log_only'] = [];
+  const diff: Recon['diff'] = [];
+  let matched = 0;
+  for (const r of real) {
+    const no = [r.bill?.no != null ? String(r.bill.no) : null, links.get(r.mid) ?? null].find((x) => x && byNo.has(x) && !used.has(x));
+    if (!no) { log_only.push({ mid: r.mid, at: r.at, customer: r.customer, text: r.text, total: r.total }); continue; }
+    used.add(no);
+    matched++;
+    const bill = byNo.get(no)!;
+    if (Math.abs(Number(bill.total) - r.total) > 0.5) diff.push({ order_no: no, note_total: r.total, bill_total: Number(bill.total), customer: r.customer });
+  }
+  const file_only = file.filter((o) => !used.has(String(o.order_no))).map((o) => ({ order_no: String(o.order_no), total: Number(o.total), created_at: o.created_at }));
+  return { log: real.length, file: file.length, matched, log_only, file_only, diff, sales_log: real.reduce((t, r) => t + r.total, 0), sales_file: file.reduce((t, o) => t + Number(o.total), 0) };
+}

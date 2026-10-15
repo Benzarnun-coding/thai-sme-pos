@@ -52,11 +52,43 @@ type Stage = 'draft' | 'unpaid' | 'transferred' | 'paid' | 'shipped' | 'expired'
 const STAGE_LABEL: Record<Stage, string> = { draft: 'ร่าง', unpaid: 'ส่งบิลแล้ว รอชำระ', transferred: 'โอนแล้ว', paid: 'เตรียมส่ง', shipped: 'ส่งแล้ว', expired: 'หมดอายุ', voided: 'ยกเลิก', none: 'ยังไม่มีบิล' };
 const STAGE_TONE: Record<Stage, string> = { draft: 'warn', unpaid: '', transferred: 'on', paid: 'on', shipped: 'on', expired: 'bad', voided: 'bad', none: 'bad' };
 interface DayRow { mid: string; at: string; text: string; customer: string | null; items: { code: string; size: string; qty: number }[]; pieces: number; total: number; payment: 'cod' | 'transfer' | null; bill: { id: number; no: number; stage: Stage; total: number } | null; meta: string | null; repeat: boolean }
+interface Recon {
+  log: number; file: number; matched: number; sales_log: number; sales_file: number;
+  log_only: { mid: string; at: string; customer: string | null; text: string; total: number }[];
+  file_only: { order_no: string; total: number; created_at: string }[];
+  diff: { order_no: string; note_total: number; bill_total: number; customer: string | null }[];
+}
 interface DaySummary { orders: number; sales: number; pieces: number; cod: number; transfer: number; avg: number; by_stage: Record<string, { orders: number; sales: number }>; meta_sent: number }
+
+/** Notes vs the uploaded Page365 file: what matched, notes without a bill, bills without a note, amounts that differ. */
+function ReconLine({ r }: { r: Recon }) {
+  const ok = !r.log_only.length && !r.file_only.length && !r.diff.length;
+  return (
+    <div className="small" style={{ margin: '6px 0' }}>
+      <b>เทียบกับไฟล์ Page365:</b> สรุป {num(r.log)} · ไฟล์ {num(r.file)} · ตรงกัน {num(r.matched)}
+      {' '}· ยอดสรุป {baht(r.sales_log)} · ยอดบิล {baht(r.sales_file)}{ok && <span className="good"> · ตรงทั้งหมด</span>}
+      {r.log_only.length > 0 && (
+        <details><summary className="warn">มีสรุปแต่ไม่มีบิลในไฟล์ {num(r.log_only.length)} (ยกเลิก / ไม่ได้เปิดบิล / เปิดบิลวันอื่น)</summary>
+          {r.log_only.map((x) => <div key={x.mid}>{time(x.at)} · {x.customer ?? '–'} · {baht(x.total)} · “{x.text}”</div>)}
+        </details>
+      )}
+      {r.file_only.length > 0 && (
+        <details><summary className="warn">มีบิลแต่ไม่มีสรุป {num(r.file_only.length)} (แอดมินไม่ได้พิมพ์สรุป หรือระบบอ่านไม่ออก)</summary>
+          {r.file_only.map((x) => <div key={x.order_no}>#{x.order_no} · {time(x.created_at)} · {baht(x.total)}</div>)}
+        </details>
+      )}
+      {r.diff.length > 0 && (
+        <details><summary className="warn">ยอดต่าง {num(r.diff.length)}</summary>
+          {r.diff.map((x) => <div key={x.order_no}>#{x.order_no} · {x.customer ?? '–'} · สรุป {baht(x.note_total)} · บิล {baht(x.bill_total)}</div>)}
+        </details>
+      )}
+    </div>
+  );
+}
 
 /** The day's sales for Max: totals, then one row per order (customer, items, amount, Page365 bill + stage, Meta). */
 function DaySales({ date, refresh }: { date: string; refresh: number }) {
-  const [res, setRes] = useState<{ rows: DayRow[]; summary: DaySummary; page365: boolean; error: string | null } | null>(null);
+  const [res, setRes] = useState<{ rows: DayRow[]; summary: DaySummary; page365: boolean; error: string | null; recon: Recon | null } | null>(null);
   const [filter, setFilter] = useState<Stage | 'all'>('all');
   useEffect(() => { setRes(null); }, [date]);
   useEffect(() => { fetch(`/api/order-notes/sales?date=${date}`).then((r) => r.json()).then(setRes).catch(() => {}); }, [date, refresh]);
@@ -79,6 +111,7 @@ function DaySales({ date, refresh }: { date: string; refresh: number }) {
             <div><div className="small muted">ส่งยอดให้ Meta แล้ว</div><b>{num(s.meta_sent)}</b></div>
           </div>
           <p className="muted small">ยอด = ยอดในบรรทัดสรุปของแอดมิน (ลูกค้าคนเดิมใน 2 ชม. นับครั้งเดียว) · ชื่อลูกค้าและสถานะบิลดึงสดจาก Page365{res.error ? ` — ดึงไม่ได้: ${res.error}` : ''} · กำไรจริงดูที่หน้ายอดขายรายวันหลังอัปโหลดไฟล์</p>
+          {res.recon ? <ReconLine r={res.recon} /> : <p className="small muted">ยังไม่ได้อัปโหลดไฟล์ Page365 ของวันนี้ — อัปโหลดแล้วจะขึ้นการเทียบกับบิลจริง</p>}
           <div className="segmented" style={{ flexWrap: 'wrap', marginTop: 6 }}>
             <button className={filter === 'all' ? 'on' : ''} onClick={() => setFilter('all')}>ทั้งหมด {num(s.orders)}</button>
             {stages.map((k) => (
