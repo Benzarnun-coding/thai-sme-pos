@@ -262,7 +262,14 @@ export interface WebhookStatus {
   echoes_missing: boolean;
   error: string | null;
 }
+export interface FillPlan {
+  order: { id: number; no: number; stage: string } | null;
+  lines: { code: string; size: string; qty: number; product_id: number | null; variant_id: number | null; sku: string | null; price: number | null; available: number | null }[];
+  payment: 'cod' | 'transfer' | null; subtotal: number; shipping: number; discount: number; total: number | null; problems: string[];
+}
 export interface NoteCheck {
+  mid: string;
+  fill: { at: string | null; by: string | null; order_no: number | null; error: string | null };
   at: string; text: string;
   items: { code: string; prefix: string; size: string; qty: number; catalog: { tab: string; sku: string; name: string; color: string; price: number | null; image: string; others: string[] } | null }[];
   unknown: string[]; payment: 'cod' | 'transfer' | null; total: number | null;
@@ -396,6 +403,9 @@ export const api = {
   syncAccess: () => call<{ emails: string[] }>('POST', '/api/users/access-sync'),
   webhook: () => call<WebhookStatus>('GET', '/api/webhook'),
   orderNoteDays: () => call<{ days: { date: string; notes: number }[] }>('GET', '/api/order-notes/days'),
+  p365Session: () => call<{ ok: boolean; error: string | null }>('GET', '/api/p365/session'),
+  fillPlan: (mid: string) => call<FillPlan>('GET', `/api/order-notes/plan?mid=${encodeURIComponent(mid)}`),
+  fillNote: (mid: string) => call<{ ok: true; order_no: number; total: number }>('POST', '/api/order-notes/fill', { mid }),
   orderNotes: (date: string) => call<{ date: string; uploaded: boolean; orders: number; orders_without_note: number; notes: NoteCheck[] }>('GET', `/api/order-notes?date=${date}`),
   sendPostIdeas: () => call<{ sent: boolean; ideas: number }>('POST', '/api/post-ideas/send'),
   goal: () => call<GoalStatus>('GET', '/api/goal'),

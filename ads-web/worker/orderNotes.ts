@@ -75,8 +75,10 @@ export function skuPrefix(code: string): string {
 
 export type Verdict = 'same' | 'diff_items' | 'diff_total' | 'unparsed' | 'no_order';
 
-export interface StoredNote { mid: string; psid: string; at: string; text: string; name_hash: string | null }
+export interface StoredNote { mid: string; psid: string; at: string; text: string; name_hash: string | null; filled_at?: string | null; filled_by?: string | null; fill_order_no?: number | null; fill_error?: string | null }
 export interface NoteCheck {
+  mid: string;
+  fill: { at: string | null; by: string | null; order_no: number | null; error: string | null };
   at: string;
   text: string;
   items: NoteItem[];
@@ -134,6 +136,7 @@ export function checkNotes(notes: StoredNote[], orders: StoredOrder[]): NoteChec
     const hit = pick.get(n.mid);
     const o = hit?.o;
     const base: NoteCheck = {
+      mid: n.mid, fill: { at: n.filled_at ?? null, by: n.filled_by ?? null, order_no: n.fill_order_no ?? null, error: n.fill_error ?? null },
       at: n.at, text: n.text, items: p?.items ?? [], unknown: p?.unknown ?? [], payment: p?.payment ?? null, total: p?.total ?? null,
       order_no: o?.order_no ?? null, order_total: o?.total ?? null, order_items: (o?.items ?? []).map((i) => ({ sku: i.sku, qty: i.qty })),
       linked_by: hit?.by ?? null, verdict: 'no_order', missing: [], extra: [],
@@ -202,6 +205,15 @@ export async function noteDays(db: D1Database, days: number): Promise<{ date: st
 export async function loadNotes(db: D1Database, date: string): Promise<StoredNote[]> {
   const from = new Date(`${date}T00:00:00+07:00`).toISOString();
   const to = new Date(Date.parse(`${date}T00:00:00+07:00`) + 86_400_000).toISOString();
-  const { results } = await db.prepare('SELECT mid, psid, at, text, name_hash FROM order_notes WHERE at >= ? AND at < ? ORDER BY at').bind(from, to).all<StoredNote>();
+  const { results } = await db.prepare('SELECT mid, psid, at, text, name_hash, filled_at, filled_by, fill_order_no, fill_error FROM order_notes WHERE at >= ? AND at < ? ORDER BY at').bind(from, to).all<StoredNote>();
   return results;
+}
+
+export async function loadNote(db: D1Database, mid: string): Promise<StoredNote | null> {
+  return db.prepare('SELECT * FROM order_notes WHERE mid = ?').bind(mid).first<StoredNote>();
+}
+
+export async function markFill(db: D1Database, mid: string, r: { by: string; order_no: number | null; error: string | null }): Promise<void> {
+  await db.prepare('UPDATE order_notes SET filled_at = ?, filled_by = ?, fill_order_no = ?, fill_error = ? WHERE mid = ?')
+    .bind(r.error ? null : new Date().toISOString(), r.by, r.order_no, r.error, mid).run();
 }

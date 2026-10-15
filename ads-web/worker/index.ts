@@ -33,7 +33,8 @@ import { familyStats, postIdeas, postIdeasText } from './postIdeas.ts';
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
 import { approvalsEnabled, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
-import { catalogFor, checkNotes, loadNotes, noteDays, withCatalog } from './orderNotes.ts';
+import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
+import { applyFill, planFill, sessionStatus, P365Error } from './p365fill.ts';
 import { receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
@@ -56,6 +57,9 @@ export interface Env {
   DISCORD_APPROVER_IDS?: string;
   /** Discord user IDs who upload Page365 (มอส); tagged at 10:00 if the file is missing, may press the upload buttons */
   DISCORD_UPLOADER_IDS?: string;
+  /** Page365 login the Worker uses to fill drafts (secret; see worker/p365fill.ts) and the shop's page id */
+  P365_COOKIE?: string;
+  P365_PAGE_ID?: string;
   /** Messenger webhook (see worker/webhook.ts): app id is a var, the other two are secrets */
   META_APP_ID?: string;
   META_APP_SECRET?: string;
@@ -416,6 +420,29 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     return json({ date, fees: settings.order_fees, orders: orders.map(({ name_hash: _h, ...o }) => ({ ...o, fees: orderFees(o, settings.order_fees) })) });
   }
   // Admins' order notes in the chat vs what Page365 holds (phase 0 of filling Page365 orders automatically).
+  // Phase 1: put a note's items into the customer's Page365 draft (a person presses the button; the draft stays a draft).
+  if (path === '/api/p365/session' && method === 'GET') return json(await sessionStatus(env));
+  if (path === '/api/order-notes/plan' && method === 'GET') {
+    const note = await loadNote(env.DB, url.searchParams.get('mid') ?? '');
+    if (!note) throw new BadRequest('ไม่พบบรรทัดสรุปนี้');
+    try { return json(await planFill(env, note)); } catch (err) { if (err instanceof P365Error) throw new BadRequest(err.message); throw err; }
+  }
+  if (path === '/api/order-notes/fill' && method === 'POST') {
+    const note = await loadNote(env.DB, String((await body())?.mid ?? ''));
+    if (!note) throw new BadRequest('ไม่พบบรรทัดสรุปนี้');
+    if (note.filled_at) throw new BadRequest(`ใส่ไปแล้วโดย ${note.filled_by} (#${note.fill_order_no})`);
+    try {
+      const r = await applyFill(env, note);
+      await markFill(env.DB, note.mid, { by: user, order_no: r.order.no, error: null });
+      await audit(env.DB, user, 'p365.fill', String(r.order.no), { mid: note.mid, lines: r.plan.lines.map((l) => `${l.sku}×${l.qty}`), total: r.order.total });
+      return json({ ok: true, order_no: r.order.no, total: r.order.total });
+    } catch (err: any) {
+      const msg = err?.message ?? String(err);
+      await markFill(env.DB, note.mid, { by: user, order_no: null, error: msg });
+      await audit(env.DB, user, 'p365.fill_failed', note.mid, { error: msg });
+      throw new BadRequest(msg);
+    }
+  }
   if (path === '/api/order-notes/days' && method === 'GET') return json({ days: await noteDays(env.DB, 14) });
   if (path === '/api/order-notes' && method === 'GET') {
     const date = url.searchParams.get('date') ?? '';

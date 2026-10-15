@@ -3,9 +3,10 @@
 // two agree often enough, the system can later fill the orders itself.
 
 import { useEffect, useState } from 'react';
-import { api, type NoteCheck } from './api.ts';
+import { api, type FillPlan, type NoteCheck } from './api.ts';
 import { thumb } from './catalog.ts';
-import { baht, num } from './fmt.ts';
+import { baht, num, when } from './fmt.ts';
+import { Modal, useUi } from './ui.tsx';
 
 const VERDICT: Record<NoteCheck['verdict'], [string, string]> = {
   same: ['ตรงกัน', 'on'],
@@ -39,8 +40,67 @@ export function OrderNotesPage() {
           </button>
         ))}
       </div>
+      <SessionBanner />
       <OrderNotesList date={date} dayLabel={date === todayBkk() ? 'วันนี้' : thaiDay(date)} refresh={tick} live={date === todayBkk()} />
     </>
+  );
+}
+
+/** Whether the Worker can reach Page365 with its stored login (needed for the fill button). */
+function SessionBanner() {
+  const [st, setSt] = useState<{ ok: boolean; error: string | null } | null>(null);
+  useEffect(() => { api.p365Session().then(setSt).catch(() => setSt(null)); }, []);
+  if (!st || st.ok) return null;
+  return <div className="banner">ปุ่ม "ใส่ใน Page365" ยังใช้ไม่ได้: {st.error}</div>;
+}
+
+/** The plan for one note (looked up live in Page365) and the button that puts the items into the draft. */
+function FillModal({ note, onClose, onDone }: { note: NoteCheck; onClose: () => void; onDone: () => void }) {
+  const { toast } = useUi();
+  const [plan, setPlan] = useState<FillPlan | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api.fillPlan(note.mid).then(setPlan).catch((e) => setError(e.message)); }, [note.mid]);
+  async function fill() {
+    setBusy(true);
+    try {
+      const r = await api.fillNote(note.mid);
+      toast(`ใส่สินค้าในร่าง #${r.order_no} แล้ว ยอด ${baht(r.total)} — เปิดใน Page365 แล้วกดบันทึกและส่งบิลได้เลย`, 'ok');
+      onDone();
+    } catch (e: any) { toast(e.message, 'bad'); setBusy(false); }
+  }
+  return (
+    <Modal title="ใส่สินค้าในร่างบิล Page365" onClose={onClose}>
+      <p className="small" style={{ whiteSpace: 'pre-line', fontFamily: 'ui-monospace, monospace' }}>{note.text}</p>
+      {error ? <p className="error">{error}</p> : !plan ? <div className="skeleton" style={{ height: 120 }} /> : (
+        <>
+          <p className="small">{plan.order ? <>ร่าง <b>#{plan.order.no}</b> ของลูกค้าคนนี้</> : <span className="bad">ไม่เจอร่างบิล</span>}</p>
+          <table className="data-table small">
+            <thead><tr><th>Page365</th><th className="num">ราคา</th><th className="num">จำนวน</th><th className="num">เหลือ</th></tr></thead>
+            <tbody>
+              {plan.lines.map((l, i) => (
+                <tr key={i}>
+                  <td>{l.sku ?? <span className="bad">{l.code} ไซส์ {l.size} — ไม่พบ</span>}</td>
+                  <td className="num">{l.price != null ? baht(l.price) : '–'}</td>
+                  <td className="num">{l.qty}</td>
+                  <td className="num">{l.available != null ? num(l.available) : '–'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="small">
+            สินค้า {baht(plan.subtotal)} + ค่าส่ง {baht(plan.shipping)} − ส่วนลดโปร {baht(plan.discount)} = <b>{plan.total != null ? baht(plan.total) : '–'}</b>
+            {' '}({plan.payment === 'cod' ? 'ปลายทาง' : 'โอน'})
+          </p>
+          {plan.problems.length > 0 && <ul className="small bad">{plan.problems.map((p, i) => <li key={i}>{p}</li>)}</ul>}
+          <p className="muted small">ระบบใส่สินค้า ไซส์ จำนวน ค่าส่ง และส่วนลดลงในร่างเท่านั้น — บิลยังเป็นร่าง ยังไม่ส่งหาลูกค้า · เปิดบิลใน Page365 แล้วกด "บันทึกและส่ง" เองเหมือนเดิม</p>
+          <div className="row gap">
+            <button disabled={busy || plan.problems.length > 0 || !plan.order} onClick={fill}>{busy ? 'กำลังใส่…' : `ใส่สินค้าในร่าง${plan.order ? ` #${plan.order.no}` : ''}`}</button>
+            <button className="ghost" onClick={onClose}>ปิด</button>
+          </div>
+        </>
+      )}
+    </Modal>
   );
 }
 
@@ -49,8 +109,10 @@ const time = (iso: string) => new Date(iso).toLocaleTimeString('th-TH', { hour: 
 export function OrderNotesList({ date, dayLabel, refresh = 0, live = false }: { date: string; dayLabel: string; refresh?: number; live?: boolean }) {
   const [res, setRes] = useState<Awaited<ReturnType<typeof api.orderNotes>> | null>(null);
   const [error, setError] = useState('');
+  const [filling, setFilling] = useState<NoteCheck | null>(null);
+  const [again, setAgain] = useState(0);
   useEffect(() => { setRes(null); setError(''); }, [date]);
-  useEffect(() => { api.orderNotes(date).then(setRes).catch((e) => setError(e.message)); }, [date, refresh]);
+  useEffect(() => { api.orderNotes(date).then(setRes).catch((e) => setError(e.message)); }, [date, refresh, again]);
   // Newest first, like a log.
   const notes = [...(res?.notes ?? [])].reverse();
   const count = (v: NoteCheck['verdict']) => notes.filter((n) => n.verdict === v).length;
@@ -84,7 +146,7 @@ export function OrderNotesList({ date, dayLabel, refresh = 0, live = false }: { 
       ) : (
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>เวลา</th><th>แอดมินพิมพ์</th><th>ระบบอ่านได้</th><th>Page365</th><th>ผล</th></tr></thead>
+            <thead><tr><th>เวลา</th><th>แอดมินพิมพ์</th><th>ระบบอ่านได้</th><th>Page365</th><th>ผล</th><th>เปิดบิล</th></tr></thead>
             <tbody>
               {notes.map((n, i) => {
                 const [label, tone] = n.verdict === 'no_order' && !res.uploaded ? ['รอไฟล์ Page365', ''] : VERDICT[n.verdict];
@@ -121,6 +183,13 @@ export function OrderNotesList({ date, dayLabel, refresh = 0, live = false }: { 
                       {n.missing.length > 0 && <div className="bad">ในแชทแต่ไม่อยู่ในบิล: {n.missing.join(', ')}</div>}
                       {n.extra.length > 0 && <div className="bad">ในบิลแต่ไม่อยู่ในแชท: {n.extra.join(', ')}</div>}
                     </td>
+                    <td className="small">
+                      {n.fill.at ? <span className="good">ใส่แล้ว #{n.fill.order_no}<div className="muted">{n.fill.by} · {when(n.fill.at)}</div></span>
+                        : <>
+                          <button className="ghost small" onClick={() => setFilling(n)}>ใส่ใน Page365</button>
+                          {n.fill.error && <div className="bad" title={n.fill.error}>ครั้งก่อนไม่สำเร็จ</div>}
+                        </>}
+                    </td>
                   </tr>
                 );
               })}
@@ -128,6 +197,7 @@ export function OrderNotesList({ date, dayLabel, refresh = 0, live = false }: { 
           </table>
         </div>
       )}
+      {filling && <FillModal note={filling} onClose={() => setFilling(null)} onDone={() => { setFilling(null); setAgain((x) => x + 1); }} />}
     </section>
   );
 }
