@@ -18,7 +18,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return j as T;
 }
 
-const MODE_LABEL: Record<Mode, string> = { off: 'ปิด', test: 'ทดสอบ (ไม่นับจริง)', live: 'ส่งจริง' };
+const MODE_LABEL: Record<Mode, string> = { off: 'ปิด', test: 'ปิด (ดูอย่างเดียว)', live: 'ส่งจริง' };
 
 export function MetaPurchasesCard() {
   const { toast, confirm } = useUi();
@@ -62,7 +62,6 @@ export function MetaPurchasesCard() {
           </div>
           <div className="row gap wrap" style={{ marginTop: 8 }}>
             <button className="ghost" disabled={!!busy} onClick={() => run(true)}>{busy === 'dry' ? 'กำลังดู…' : 'ดูว่าตอนนี้จะส่งอะไร (ไม่ส่งจริง)'}</button>
-            {cfg.mode !== 'test' && <button className="ghost" disabled={!!busy} onClick={() => save('test')}>เปิดโหมดทดสอบ</button>}
             {cfg.mode !== 'live' && <button className="warn" disabled={!!busy} onClick={() => save('live')}>เปิดส่งจริง</button>}
             {cfg.mode !== 'off' && <button className="ghost" disabled={!!busy} onClick={() => save('off')}>ปิด</button>}
             {cfg.mode !== 'off' && <button className="ghost" disabled={!!busy} onClick={() => run(false)}>{busy === 'sync' ? 'กำลังส่ง…' : 'ส่งตอนนี้'}</button>}

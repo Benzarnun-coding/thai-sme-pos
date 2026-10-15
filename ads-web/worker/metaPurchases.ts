@@ -82,7 +82,9 @@ export interface SyncResult { mode: CapiMode; dry: boolean; checked: number; met
  */
 export async function syncPurchases(env: CapiEnv, opts: { dry?: boolean } = {}): Promise<SyncResult> {
   const cfg = await loadCapi(env.DB);
-  const dry = opts.dry || cfg.mode === 'off';
+  // "test" never posts: on 2026-10-15 Meta processed "test" events as real ones because the test_event_code had
+  // no open Test Events session (87 duplicate purchases). Test = dry run only; only live sends.
+  const dry = opts.dry || cfg.mode !== 'live';
   const res: SyncResult = { mode: cfg.mode, dry, checked: 0, sent: [], skipped: [], error: null };
   const weekAgo = Date.now() - 7 * 86_400_000 + 3_600_000;
   const liveFrom = cfg.mode === 'live' && cfg.live_from ? Date.parse(cfg.live_from) : 0;
@@ -109,6 +111,7 @@ export async function syncPurchases(env: CapiEnv, opts: { dry?: boolean } = {}):
     const d = await call<DetailOrder>(env, `orders/${o.id}.json`);
     res.checked++;
     if (!counts(d)) continue; // a transfer not paid yet: next run
+    if (!(Number(d.total) > 0)) { res.skipped.push({ no: d.no, why: 'ยอด 0 (ใบเปลี่ยนของ)' }); continue; }
     if (!d.customer_fbid) {
       res.skipped.push({ no: d.no, why: 'ไม่ได้มาจากแชท Messenger (ไม่มีรหัสลูกค้า)' });
       rows.push({ order_id: d.id, order_no: d.no, psid: null, value: d.total, cod: d.cod ? 1 : 0, stage: d.stage, event_time: d.created_at, status: 'skipped', detail: 'no psid' });
@@ -148,7 +151,7 @@ export async function syncPurchases(env: CapiEnv, opts: { dry?: boolean } = {}):
 /** From the webhook: a pass at most every 10 minutes while the sender is on. Errors are logged, never thrown. */
 export async function maybeSyncPurchases(env: CapiEnv): Promise<void> {
   const cfg = await loadCapi(env.DB);
-  if (cfg.mode === 'off' || !cfg.dataset_id || !env.P365_COOKIE) return;
+  if (cfg.mode !== 'live' || !cfg.dataset_id || !env.P365_COOKIE) return;
   if (cfg.last_sync && Date.now() - Date.parse(cfg.last_sync) < SYNC_EVERY_MS) return;
   // Claim the slot first so overlapping deliveries don't both run.
   const claim = await env.DB.prepare('INSERT INTO meta_capi (key, value) VALUES (\'last_sync\', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1 WHERE value = ?2')
@@ -162,3 +165,4 @@ export async function recentPurchases(db: D1Database, days = 7): Promise<{ order
     .bind(new Date(Date.now() - days * 86_400_000).toISOString()).all<any>();
   return results;
 }
+
