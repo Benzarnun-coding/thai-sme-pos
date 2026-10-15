@@ -28,6 +28,7 @@ import { PRIVACY_HTML } from './privacy.ts';
 import { parseRange, salesData } from './sales.ts';
 import { listImportMaps, profitData, saveImportMap, saveMpOrders, validateMpOrders } from './mpOrders.ts';
 import { opsFacts, opsText } from './opsDigest.ts';
+import { deleteMove, gosellCut, saveMoves, stockData, syncRoundStock, validateMoves } from './stock.ts';
 import { deletePurchase, findOrders, ledger, listPurchases, orderTerms, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveAlias, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
@@ -929,16 +930,40 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
 
   // ---- order sheets (/catalog/orders) ----
+  // ---- stock (/catalog/stock): พี่เปีย (cut by the order sheets) and GoSell (cut after a GoSell file) ----
+  if (method === 'GET' && path === '/api/stock') return json(await stockData(env.DB));
+  if (method === 'POST' && path === '/api/stock/moves') {
+    const m = validateMoves(await body());
+    if (m.kind === 'open' && role !== 'owner' && role !== 'admin') throw new BadRequest('ตั้งยอดเริ่มได้เฉพาะเจ้าของและผู้ดูแล');
+    const saved = await saveMoves(env.DB, m, user);
+    await audit(env.DB, user, `stock.${m.kind}`, m.loc, { date: m.date, note: m.note, items: m.items });
+    return json({ saved });
+  }
+  if (method === 'DELETE' && path === '/api/stock/moves') {
+    const id = Number(url.searchParams.get('id'));
+    if (!(await deleteMove(env.DB, id))) return json({ error: 'ลบได้เฉพาะของเข้า ปรับยอด และยอดเริ่ม' }, 404);
+    await audit(env.DB, user, 'stock.delete', String(id), {});
+    return json({ ok: true });
+  }
+  if (method === 'POST' && path === '/api/stock/gosell') {
+    const input = await body();
+    const r = await gosellCut(env.DB, input, user);
+    if (!input?.dry) await audit(env.DB, user, 'stock.gosell', String(input?.file ?? ''), r);
+    return json(r);
+  }
+
   if (method === 'GET' && path === '/api/purchase') return json({ uploads: await listPurchases(env.DB) });
   if (method === 'GET' && path === '/api/purchase/lines') return json({ lines: await purchaseLines(env.DB, url.searchParams.get('id') ?? '') });
   if (method === 'PUT' && path === '/api/purchase') {
     const upload = await savePurchase(env.DB, validatePurchase(await body()), user);
+    await syncRoundStock(env.DB, upload.id, user);
     await audit(env.DB, user, 'purchase.save', upload.id, { pieces: upload.pieces, review: upload.review, file: upload.file });
     return json({ upload });
   }
   if (method === 'PUT' && path === '/api/purchase/missing') {
     const m = validateMissing(await body());
     const result = await setMissing(env.DB, m);
+    await syncRoundStock(env.DB, m.id, user);
     await audit(env.DB, user, 'purchase.missing', m.id, { items: m.items.slice(0, 50), total: result.missing });
     return json(result);
   }
@@ -961,6 +986,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (method === 'DELETE' && path === '/api/purchase') {
     const id = url.searchParams.get('id') ?? '';
     if (!(await deletePurchase(env.DB, id))) return json({ error: 'ไม่พบใบสั่งนี้' }, 404);
+    await syncRoundStock(env.DB, id, user);
     await audit(env.DB, user, 'purchase.delete', id, {});
     return json({ ok: true });
   }

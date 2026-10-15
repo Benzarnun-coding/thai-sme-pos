@@ -4,13 +4,13 @@
 // Who supplies a product can be changed right here; it is saved for that product and used every day after.
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { api, type CatalogAlias, type FoundOrder, type LedgerRow, type PurchaseUpload, type SavedPurchaseLine } from './api.ts';
+import { api, type CatalogAlias, type FoundOrder, type LedgerRow, type PurchaseUpload, type SavedPurchaseLine, type StockData } from './api.ts';
 import { SkuMatch } from './SkuMatch.tsx';
 import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from './catalog.ts';
 import { num } from './fmt.ts';
 import {
   applyMoves, buildLines, dateFromFileName, optionParts, saleItems, orderColumns, orderText, paymentWorkbook, PRICE_SOURCE_LABEL, supplierTotals, withPrices, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
-  orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
+  STOCK_GROUP, stockPlacer, orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
 } from './purchase.ts';
 import { orderPictureSheets, pictureSheets } from './pictureSheet.ts';
 import { Icon, Modal, useUi } from './ui.tsx';
@@ -81,9 +81,30 @@ export function OrdersApp() {
       return { key, code: r.code || spuOf(r.sku), color: r.color, image: imageMap.get(key)?.thumb || thumb(firstImage.get(key) ?? '') };
     };
   }, [allRows, lookup, imageMap]);
-  const warehouses = useMemo(() => new Set((meta?.tabs ?? []).map((t) => t.tab)), [meta?.tabs]);
+  // Our own stock at พี่เปีย's BB branch: its products go to the "พี่เปีย" sheet while the balance lasts (cut when the
+  // round is saved), from the day after the starting balance. /catalog/stock shows and corrects it.
+  const [stock, setStock] = useState<StockData | null>(null);
+  const loadStock = () => api.stock().then(setStock).catch(() => {});
+  useEffect(() => { loadStock(); }, []);
+  const newPlacer = useMemo(() => {
+    const skus = new Set((stock?.items ?? []).map((i) => i.sku));
+    const balance = new Map((stock?.balances ?? []).filter((b) => b.loc === 'pia').map((b) => [b.sku, b.qty]));
+    const cut = new Set((stock?.cut ?? []).filter((c) => c.loc === 'pia').map((c) => `${c.order_no}|${c.sku}`));
+    const active = !!stock?.start.pia && date > stock.start.pia;
+    return () => stockPlacer({ skus, balance, cut, active });
+  }, [stock, date]);
+  const warehouses = useMemo(() => new Set([...(meta?.tabs ?? []).map((t) => t.tab), ...(stock?.items.length ? [STOCK_GROUP] : [])]), [meta?.tabs, stock?.items.length]);
   // Moves (out of stock → another supplier, ตรวจสอบ rows …) apply to a new upload and to a round reopened from history.
-  const baseLines = useMemo(() => (viewing ? viewing.lines : data ? buildLines(data.items, lookup) : []), [viewing, data, lookup]);
+  const built = useMemo(() => {
+    if (viewing || !data) return null;
+    const p = newPlacer();
+    return { lines: buildLines(data.items, lookup, p.place), short: p.short };
+  }, [viewing, data, lookup, newPlacer]);
+  const baseLines = useMemo(() => (viewing ? viewing.lines : built?.lines ?? []), [viewing, built]);
+  const stockShort = useMemo(() => [...(built?.short ?? new Map<string, number>())].map(([sku, n]) => {
+    const it = stock?.items.find((i) => i.sku === sku);
+    return { sku, n, name: it ? `${it.code} #${it.size}` : sku };
+  }), [built, stock]);
   // Price per piece is always the current one (typed on the page > ทุน H); it is stored with the round when saved.
   // Names typed for rows that are not in the catalog (ตรวจสอบ) apply to this round only: Bigseller SKU → name.
   const [labelEdits, setLabelEdits] = useState<Map<string, string>>(new Map());
@@ -137,7 +158,7 @@ export function OrdersApp() {
       if (same) {
         // Bring back what was done on that round: rows moved by hand, and the out-of-stock ticks.
         const { lines: saved } = await api.purchaseLines(same.id);
-        const fresh = new Map(buildLines(items, lookup).map((l) => [l.sku, l.group]));
+        const fresh = new Map(buildLines(items, lookup, newPlacer().place).map((l) => [l.sku, l.group]));
         setMoves(new Map(saved.filter((l) => fresh.has(l.sku) && fresh.get(l.sku) !== l.grp).map((l) => [l.sku, l.grp])));
         // names typed for rows not in the catalog (catalog products get theirs from catalog_labels)
         setLabelEdits(new Map(saved.filter((l) => !l.tab && l.label && l.label !== '(ไม่มี SKU)' && l.label !== l.sku && !l.label.startsWith(spuOf(l.sku))).map((l) => [l.sku, l.label])));
@@ -157,6 +178,7 @@ export function OrdersApp() {
       const { upload } = await api.savePurchase({ date, round, file, lines: lines.map((l) => ({ ...l })), items });
       setHistory((h) => [upload, ...h.filter((x) => x.id !== upload.id)].sort((a, b) => b.date.localeCompare(a.date) || b.round - a.round));
       setSavedSig(sig);
+      loadStock();
       loadLedger();
       // Saving over a round that already had out-of-stock ticks keeps them; show them here too.
       if (upload.missing > 0) {
@@ -176,6 +198,7 @@ export function OrdersApp() {
     setMissingMap((m) => { const x = new Map(m); if (n > 0) x.set(lineKey(l), n); else x.delete(lineKey(l)); return x; });
     try {
       const { missing: total } = await api.setMissing(id, [{ grp: l.group, sku: l.sku, missing: n }]);
+      loadStock();
       setHistory((h) => h.map((u) => (u.id === id ? { ...u, missing: total } : u)));
     } catch (e: any) { setMissingMap(before); toast(e.message, 'bad'); }
   }
@@ -387,6 +410,12 @@ export function OrdersApp() {
             <div className="kpi"><span>โกดัง</span><b>{num(groups.filter((g) => g.kind === 'warehouse').length)}</b></div>
             <div className="kpi"><span>ต้องตรวจสอบ</span><b className={review || groups.some((g) => g.kind === 'unassigned') ? 'bad' : 'good'}>{num((review?.pieces ?? 0) + groups.filter((g) => g.kind === 'unassigned').reduce((n, g) => n + g.pieces, 0))}</b><small>ไม่มี SKU / ยังไม่ระบุร้าน · <a href="/catalog/todo">งานค้างทั้งหมด</a></small></div>
           </div>
+
+          {stockShort.length > 0 && (
+            <div className="card warn-card small">
+              <b>สต็อก{STOCK_GROUP}ไม่พอ</b> · {stockShort.map((x) => `${x.name} ${num(x.n)} ตัว`).join(' · ')} → อยู่ใบเดิม (ไม่ตัดสต็อก) · ย้ายไป {STOCK_GROUP} เองได้ถ้ามีของจริง · <a href="/catalog/stock">ดูสต็อก</a>
+            </div>
+          )}
 
           <section className="card po-actions">
             <div>

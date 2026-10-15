@@ -323,6 +323,18 @@ export interface ProfitData {
   mpFiles: { file: string; orders: number; updated_by: string; updated_at: string }[];
 }
 export interface ImportMap { signature: string; map: MoneyMap; platform: Platform | 'auto'; updated_by: string; updated_at: string }
+/** /catalog/stock: our own stock at พี่เปีย's BB branch ('pia') and in GoSell's warehouse ('gosell'). */
+export type StockLoc = 'pia' | 'gosell';
+export interface StockItem { sku: string; code: string; size: string; sort: number }
+export interface StockMove { id: number; loc: StockLoc; sku: string; qty: number; kind: 'open' | 'in' | 'out' | 'adjust'; ref: string; date: string; note: string; created_by: string; created_at: string }
+export interface StockData {
+  items: StockItem[];
+  balances: { loc: StockLoc; sku: string; qty: number }[];
+  start: Partial<Record<StockLoc, string>>;
+  moves: StockMove[];
+  cut: { loc: StockLoc; order_no: string; sku: string; ref: string }[];
+}
+export interface GosellCut { cut: { sku: string; qty: number }[]; orders: number; already: number; other: number }
 export type PurchaseKind = 'supplier' | 'warehouse' | 'unassigned' | 'review';
 export interface SalesData {
   from: string; to: string;
@@ -366,6 +378,11 @@ export const api = {
   purchaseLines: (id: string) => call<{ lines: SavedPurchaseLine[] }>('GET', `/api/purchase/lines?id=${encodeURIComponent(id)}`),
   savePurchase: (p: { date: string; round: number; file: string; lines: unknown[]; items?: unknown[] }) => call<{ upload: PurchaseUpload }>('PUT', '/api/purchase', p),
   setMissing: (id: string, items: { grp: string; sku: string; missing: number }[]) => call<{ missing: number }>('PUT', '/api/purchase/missing', { id, items }),
+  stock: () => call<StockData>('GET', '/api/stock'),
+  stockMoves: (loc: StockLoc, kind: 'in' | 'adjust' | 'open', date: string, note: string, items: { sku: string; qty: number }[]) =>
+    call<{ saved: number }>('POST', '/api/stock/moves', { loc, kind, date, note, items }),
+  deleteStockMove: (id: number) => call<{ ok: true }>('DELETE', `/api/stock/moves?id=${id}`),
+  gosellCut: (file: string, lines: { order_no: string; sku: string; qty: number }[], dry: boolean) => call<GosellCut>('POST', '/api/stock/gosell', { file, lines, dry }),
   profit: (from: string, to: string) => call<ProfitData>('GET', `/api/profit?from=${from}&to=${to}`),
   importMaps: () => call<{ maps: ImportMap[] }>('GET', '/api/mp-import-maps'),
   saveImportMap: (signature: string, map: MoneyMap, platform: Platform | 'auto') => call<{ ok: true }>('PUT', '/api/mp-import-map', { signature, map, platform }),

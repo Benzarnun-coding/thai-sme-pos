@@ -7,6 +7,7 @@ const PAGES = [
   ['/catalog/orders', 'สั่งของ'],
   ['/catalog/sales', 'ยอดขาย (ชิ้น)'],
   ['/catalog/profit', 'กำไร'],
+  ['/catalog/stock', 'สต็อก'],
   ['/catalog/todo', 'งานค้าง'],
   ['/gosell', 'GoSell'],
 ] as const;

@@ -1,6 +1,6 @@
 // Order sheet history (/catalog/orders). The page builds the sheets from Bigseller's file in the browser; what is
 // saved is the result per day + round: SKU, quantity, supplier group, the marketplace order numbers of each line, and
-// how many pieces a supplier later reported out of stock ("ของไม่มี" → the พี่เปีย file). Tracking numbers are not kept.
+// how many pieces a supplier later reported out of stock ("ของไม่มี" → the เก็บตกแทน file). Tracking numbers are not kept.
 // Saving the same day + round again replaces the lines but keeps the out-of-stock ticks.
 
 import { cleanText } from '../web/src/catalog.ts';
@@ -168,7 +168,7 @@ export async function deletePurchase(db: D1Database, id: string): Promise<boolea
 // ---- what was actually paid to each supplier (our side) ----
 
 /** Group name of the out-of-stock pieces bought elsewhere (same as the page's MISSING_GROUP). */
-const MISSING_GROUP = 'พี่เปีย';
+const MISSING_GROUP = 'เก็บตกแทน';
 
 export interface PaymentInput { grp: string; paid: number | null; done: boolean; note: string }
 export interface LedgerRow {
@@ -209,7 +209,7 @@ export async function savePayments(db: D1Database, p: ReturnType<typeof validate
 
 /**
  * Owed vs paid per round and supplier since `since` (YYYY-MM-DD): what each round's saved lines say is owed, the
- * พี่เปีย pieces of that round, and whatever was recorded as paid (also for groups whose lines are gone).
+ * เก็บตกแทน pieces of that round, and whatever was recorded as paid (also for groups whose lines are gone).
  */
 export async function ledger(db: D1Database, since: string, id?: string): Promise<LedgerRow[]> {
   const where = id ? 'u.id = ?1' : 'u.date >= ?1';
