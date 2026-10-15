@@ -629,6 +629,17 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     await audit(env.DB, user, 'meta.capi.send_one', String(no), r);
     return json(r);
   }
+  // Does a Purchase we send reach the ads? Meta's hourly purchases for a day now vs what we stored earlier (read-only).
+  if (path === '/api/meta/compare-day' && method === 'GET') {
+    const date = url.searchParams.get('date') ?? '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
+    const now = await metaFor(env).hourlyConversions(date);
+    const { results: stored } = await env.DB.prepare('SELECT campaign_id, SUM(purchases) purchases, SUM(value) value FROM conversion_hours WHERE date = ? GROUP BY campaign_id').bind(date).all<{ campaign_id: string; purchases: number; value: number }>();
+    const fetched = await env.DB.prepare('SELECT fetched_at FROM conversion_days WHERE date = ?').bind(date).first<{ fetched_at: string }>();
+    const sum = (xs: { purchases: number }[]) => xs.reduce((t, x) => t + Number(x.purchases), 0);
+    const val = (xs: { value?: number; purchase_value?: number }[]) => xs.reduce((t, x) => t + Number(x.value ?? x.purchase_value ?? 0), 0);
+    return json({ date, stored_at: fetched?.fetched_at ?? null, stored: { purchases: sum(stored), value: val(stored) }, meta_now: { purchases: sum(now), value: val(now as any) } });
+  }
   // When a sale is sent: at the admin's note (default) or when the bill is sent. Preview = today's notes, nothing sent.
   if (path === '/api/meta/purchases/source' && method === 'GET') return json({ source: await captureSource(env.DB) });
   if (path === '/api/meta/purchases/source' && method === 'PUT') {
