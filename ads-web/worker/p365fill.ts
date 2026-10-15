@@ -148,6 +148,8 @@ export interface FillPlan {
   payment: 'cod' | 'transfer' | null;
   /** the draft's shipping option to set (switches COD ↔ transfer) */
   shipping_id?: number | null;
+  /** its name: Page365 keeps the old one on the bill unless it is sent too */
+  shipping_option?: string | null;
   subtotal: number;
   shipping: number;
   discount: number;
@@ -232,10 +234,11 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   else if (allFound && discount > 0 && discount < 20) warnings.push(`ส่วนลดแค่ ${discount} บาท — ยอดพิมพ์ผิดหรือเปล่า`);
   // COD or transfer follows the note: a new draft starts as COD, so a transfer note switches its shipping option
   // (Ou Aumaporn #29373, 15 Oct). Only a draft without a matching option is stopped.
-  let shipping_id: number | null = draft?.shipping_id ?? null;
+  let shipping_id: number | null = null;
+  let shipping_option: string | null = null;
   if (draft && draft.cod !== (parsed.payment === 'cod')) {
     const opt = (draft.shipping_options ?? []).find((o) => o.cod === (parsed.payment === 'cod'));
-    if (opt) shipping_id = opt.id;
+    if (opt) { shipping_id = opt.id; shipping_option = opt.name; }
     else problems.push(`ร่างเป็น${draft.cod ? 'เก็บปลายทาง' : 'โอน'} แต่บรรทัดสรุปเป็น${parsed.payment === 'cod' ? 'ปลายทาง' : 'โอน'} และไม่มีตัวเลือกขนส่งแบบนั้น`);
   }
 
@@ -265,7 +268,7 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   if (lines.some((l) => GOSELL_CODES.test(l.code)) && !lines.every((l) => GOSELL_CODES.test(l.code))) warnings.push('บิลนี้มี 501/1–3 (ส่ง GoSell) ปนกับรุ่นอื่น — ตั้งชื่อเป็นคลังปกติ ช่วยดูว่าต้องแยกบิลไหม');
   // No recipient name in the chat: the customer's Facebook name (Page365's customer name) is used (Benz 15 Oct).
   const bill_name = draft ? billName(draft.no, lines[0]?.sku ?? null, address?.name || draft.customer_name || '', lines.map((l) => l.code)) : null;
-  return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, shipping_id, subtotal, shipping, discount: Math.max(0, discount), total, chat_total, bill_name, address, problems, warnings, said, notes };
+  return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, shipping_id, shipping_option, subtotal, shipping, discount: Math.max(0, discount), total, chat_total, bill_name, address, problems, warnings, said, notes };
 }
 
 /** A checked address from the screen (the admin may have corrected it), or null. */
@@ -313,7 +316,7 @@ export async function applyFill(env: FillEnv, note: { psid: string; at: string; 
     customer_address: addressLine(a),
     structural_address: { street: a.street, subdistrict: a.subdistrict, district: a.district, province: a.province, postal_code: a.postal_code },
   } : { customer_name: name };
-  await call(env, `orders/${orderId}.json`, { method: 'PUT', body: { order: { stage: 'draft', ...(plan.shipping_id ? { shipping_id: plan.shipping_id } : {}), shipping_cost: plan.shipping, discount: plan.discount, ...customer }, order_items: items } });
+  await call(env, `orders/${orderId}.json`, { method: 'PUT', body: { order: { stage: 'draft', ...(plan.shipping_id ? { shipping_id: plan.shipping_id, shipping_option: plan.shipping_option } : {}), shipping_cost: plan.shipping, discount: plan.discount, ...customer }, order_items: items } });
 
   // 3. Read it back: the right SKUs and the total from the note, or report it.
   const done = await call<P365Order>(env, `orders/${orderId}.json`);
