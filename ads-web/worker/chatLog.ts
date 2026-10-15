@@ -28,6 +28,9 @@ export function redactChat(text: string): string {
   const words = t.match(new RegExp(ADDRESS_WORD.source, 'g')) ?? [];
   if ((words.length >= 1 && /(^|\D)\d{5}(\D|$)/.test(t)) || (words.length >= 2 && /\d+\/\d+|\d{2,}/.test(t))) return '[ที่อยู่]';
   t = t.replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '[อีเมล]');
+  // Names the page (or its reply bot) uses for the customer: "คุณกนิการ", "คุณ Uthumporn", "พี่ Uthumporn".
+  t = t.replace(/(?<!ขอบ)คุณ\s?(?!ค่ะ|ครับ|คะ|นะ|ลูกค้า|ภาพ|สมบัติ)[A-Za-z\u0E01-\u0E2E\u0E30-\u0E4E]{2,24}/g, 'คุณ[ชื่อ]');
+  t = t.replace(/(พี่|น้อง|ลูกค้า)\s?[A-Za-z][A-Za-z.'-]{1,24}/g, '$1[ชื่อ]');
   // Tracking / order codes with letters ("PAGE02576305CE") go before the phone pattern, which would eat their digits.
   t = t.replace(/(?<![A-Za-z0-9])[A-Za-z]{0,6}\d[A-Za-z0-9]{6,}(?![A-Za-z0-9])/g, (m) => (m.replace(/\D/g, '').length >= 7 ? '[ตัวเลข]' : m));
   t = t.replace(/(?<![A-Za-z0-9])(\+?66|0)[\s-]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4}(?!\d)/g, '[เบอร์]');
@@ -190,4 +193,15 @@ export function chatDayText(d: ChatDay, title: string, nameOf: (id: string | nul
   lines.push('', '_โน้ตออเดอร์ = แอดมินพิมพ์ "รหัส ไซส์ cod ยอด" ในแชท · ข้อมูลแชทเริ่มเก็บ 15 ต.ค. 12:31 · เบอร์/ที่อยู่ถูกลบก่อนบันทึก_');
   const text = lines.join('\n');
   return text.length > 1990 ? `${text.slice(0, 1987)}…` : text;
+}
+
+/** Re-applies redactChat to stored rows (after the rules change); returns how many rows changed. */
+export async function reRedactChats(db: D1Database): Promise<number> {
+  const { results } = await db.prepare('SELECT mid, text FROM chat_messages WHERE text IS NOT NULL').all<{ mid: string; text: string }>();
+  const changed = results.map((r) => ({ mid: r.mid, text: redactChat(r.text) })).filter((r, i) => r.text !== results[i].text);
+  for (let i = 0; i < changed.length; i += 200) {
+    await db.prepare(`UPDATE chat_messages SET text = (SELECT value->>'text' FROM json_each(?1) WHERE value->>'mid' = chat_messages.mid)
+      WHERE mid IN (SELECT value->>'mid' FROM json_each(?1))`).bind(JSON.stringify(changed.slice(i, i + 200))).run();
+  }
+  return changed.length;
 }

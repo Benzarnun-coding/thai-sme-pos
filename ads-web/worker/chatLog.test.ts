@@ -12,6 +12,10 @@ test('chat text keeps the conversation and drops contact details', () => {
   assert.equal(redactChat('99/1 ซ.รามคำแหง 24 แขวงหัวหมาก'), '[ที่อยู่]');
   assert.equal(redactChat('501/1 32 cod 249'), '501/1 32 cod 249');
   assert.equal(redactChat('3 ตัว 549 ส่งฟรีไหม'), '3 ตัว 549 ส่งฟรีไหม');
+  assert.equal(redactChat('รับทราบค่ะคุณกนิการ รับ 2 ตัว'), 'รับทราบค่ะคุณ[ชื่อ] รับ 2 ตัว');
+  assert.equal(redactChat('ค่ะ พี่ Uthumporn อยากดูแบบไหน'), 'ค่ะ พี่[ชื่อ] อยากดูแบบไหน');
+  assert.equal(redactChat('ขอบคุณค่ะ พี่สอบถามมาได้เลย'), 'ขอบคุณค่ะ พี่สอบถามมาได้เลย');
+  assert.equal(redactChat('ขอบคุณที่สั่งกับทางร้านนะคะ'), 'ขอบคุณที่สั่งกับทางร้านนะคะ');
 });
 
 test('customer messages and page echoes become rows; reads and duplicates are skipped', () => {
