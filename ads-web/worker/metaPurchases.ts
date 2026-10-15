@@ -74,7 +74,7 @@ export function purchaseEvent(o: DetailOrder, pageId: string): PurchaseEvent {
   };
 }
 
-export interface SyncResult { mode: CapiMode; dry: boolean; checked: number; sent: { no: number; value: number; cod: boolean; stage: string }[]; skipped: { no: number; why: string }[]; error: string | null }
+export interface SyncResult { mode: CapiMode; dry: boolean; checked: number; meta?: unknown; sent: { no: number; value: number; cod: boolean; stage: string }[]; skipped: { no: number; why: string }[]; error: string | null }
 
 /**
  * One pass: recent Page365 orders (last 7 days — Meta refuses older events) that count and haven't been sent,
@@ -129,6 +129,8 @@ export async function syncPurchases(env: CapiEnv, opts: { dry?: boolean } = {}):
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       const b: any = await r.json().catch(() => ({}));
+      // events_received / messages / fbtrace_id: shown after a manual run, so a test can be checked against Events Manager.
+      res.meta = b;
       if (!r.ok || b.error) throw new Error(b?.error?.message ?? `Meta ${r.status}`);
     } catch (err: any) {
       res.error = err?.message ?? String(err);
