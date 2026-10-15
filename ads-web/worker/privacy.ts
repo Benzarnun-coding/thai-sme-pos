@@ -13,12 +13,13 @@ export const PRIVACY_HTML = `<!doctype html>
 <ul>
 <li>ข้อมูลผลโฆษณาจากบัญชีโฆษณาของร้าน (ค่าใช้จ่าย ยอดขาย จำนวนออเดอร์)</li>
 <li>เมื่อลูกค้าเปิดแชทจากโฆษณา: รหัสผู้ใช้เฉพาะเพจ (page-scoped id) รหัสโฆษณา และเวลา</li>
+<li>ข้อความแชทระหว่างลูกค้ากับเพจ โดยลบเบอร์โทร อีเมล ตัวเลขยาว (เช่น เลขพัสดุ เลขบัญชี) และข้อความที่เป็นที่อยู่ออกก่อนบันทึก</li>
 </ul>
-<p>แอปไม่เก็บชื่อ รูป เบอร์โทร ที่อยู่ หรือข้อความแชทของลูกค้า และไม่ส่งข้อความถึงลูกค้า</p>
+<p>แอปไม่เก็บชื่อ รูป เบอร์โทร หรือที่อยู่ของลูกค้า และไม่ส่งข้อความถึงลูกค้า</p>
 <h2>การใช้ข้อมูล</h2>
-<p>ใช้เพื่อวัดผลโฆษณาของร้านเท่านั้น ไม่ขาย ไม่แบ่งปันให้บุคคลภายนอก ข้อมูลเก็บไว้ไม่เกิน 90 วัน</p>
+<p>ใช้เพื่อวัดผลโฆษณาและปรับปรุงการตอบแชท/สินค้าของร้านเท่านั้น ไม่ขาย ไม่แบ่งปันให้บุคคลภายนอก ข้อความแชทเก็บไม่เกิน 30 วัน ข้อมูลอื่นเก็บไม่เกิน 90 วัน</p>
 <h2>การลบข้อมูล</h2>
 <p>ลูกค้าที่ต้องการให้ลบข้อมูลที่เกี่ยวกับตน ติดต่อเพจ "กางเกงยีนส์ไทย แด่คนล่าฝัน" ทาง Messenger ร้านจะลบภายใน 7 วัน</p>
 <hr>
-<p lang="en">"Stat" is an internal tool of the PkJeans shop (Facebook page "กางเกงยีนส์ไทย แด่คนล่าฝัน") used by shop staff to read Meta ad performance and to learn which ad a customer's chat came from. When a customer opens a chat from an ad, the app stores the page-scoped user id, the ad id and the time — no names, photos, phone numbers, addresses or message content. Data is used only to measure the shop's ads, is never sold or shared, and is kept for at most 90 days. To have your data deleted, message the page; it will be removed within 7 days.</p>
+<p lang="en">"Stat" is an internal tool of the PkJeans shop (Facebook page "กางเกงยีนส์ไทย แด่คนล่าฝัน") used by shop staff to read Meta ad performance and to learn which ad a customer's chat came from. When a customer opens a chat from an ad, the app stores the page-scoped user id, the ad id and the time. It also stores the text of messages between the customer and the page, with phone numbers, e-mail addresses, long numbers (tracking, bank) and addresses removed before storage; no names or photos. Data is used only to measure the shop's ads and improve its replies and products, is never sold or shared; message text is kept for at most 30 days, other data for at most 90 days. To have your data deleted, message the page; it will be removed within 7 days.</p>
 </body></html>`;

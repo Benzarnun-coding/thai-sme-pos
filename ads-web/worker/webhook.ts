@@ -1,12 +1,13 @@
 // Messenger webhook: Meta calls /webhook/meta the moment a customer opens a chat from an ad, with the
 // customer's page-scoped id and the ad id. That is the only way to learn which ad each customer came from
 // (the Graph API refuses to say afterwards), so we store it from the day the webhook is switched on.
-// We keep no names and no message text — only psid, time, ad, and the campaign the ad belongs to. The one
-// exception is the admins' own order note ("501/1/2 32 / cod 449", see orderNotes.ts): the page's messages come
-// back as echoes, and a message that is nothing but such a note is kept to check against Page365.
+// We keep psid, time, ad, and the campaign the ad belongs to; no names. The admins' own order note ("501/1/2 32 /
+// cod 449", see orderNotes.ts) is kept to check against Page365, and since 2026-10-15 every message's text is kept
+// for 30 days with phone numbers, e-mails, long numbers and addresses removed first (chatLog.ts).
 
 import { parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { hashName } from './p365.ts';
+import { extractChats, saveChats } from './chatLog.ts';
 
 export interface WebhookEnv {
   DB: D1Database;
@@ -62,6 +63,8 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
   const events = (body.entry ?? []).reduce((n, e) => n + (e.messaging?.length ?? 0) + (e.standby?.length ?? 0), 0);
   // Answer Meta right away; the writes finish in the background (Meta retries deliveries that get no 200).
   ctx.waitUntil(store(env, rows, events, notes, echoes).catch((err) => console.error('webhook store', err)));
+  const chats = extractChats(body.entry ?? []);
+  if (chats.length) ctx.waitUntil(saveChats(env.DB, chats).catch((err) => console.error('chat store', err)));
   return new Response('ok', { status: 200 });
 }
 
