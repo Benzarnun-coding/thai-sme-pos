@@ -46,3 +46,13 @@ test('an ABO campaign gets one budget rule per run, and an increase stops at the
   assert.equal(out2.filter((d) => d.entity.level === 'adset').length, 0);
   assert.match(out2[0].skipped_reason!, /เพดานต่อแคมเปญ/);
 });
+
+test('an ABO boost on cooldown on every ad set lets the next matching rule act, as on a CBO campaign', () => {
+  const boost: Rule = { id: 'win-boost', level: 'campaign', window: 'last_3d', metric: 'roas', op: '>', value: 3, action: { type: 'budget_pct', pct: 20 }, cooldown_hours: 11 } as Rule;
+  const up: Rule = { id: 'win-up', level: 'campaign', window: 'last_3d', metric: 'roas', op: '>', value: 2.5, action: { type: 'budget_pct', pct: 20 }, cooldown_hours: 24 } as Rule;
+  const entities = [ent({ metrics: { last_3d: m(4) } }), ent({ level: 'adset', id: 'a1', name: 'ชุด 1', daily_budget: 500 })];
+  const now = new Date('2026-10-14T13:00:00Z');
+  const state = { last_action: { 'win-boost:a1': '2026-10-14T08:00:00Z' } };
+  const out = withAdsetBudgets(evaluate(entities, [boost, up], { campaign_ids: [], campaign_name_prefixes: [] }, state, now), entities, [boost, up], state, now, 3200);
+  assert.deepEqual(out.filter((d) => d.entity.level === 'adset').map((d) => [d.rule_id, d.skipped_reason ?? 'act']), [['win-boost', 'cooldown'], ['win-up', 'act']]);
+});

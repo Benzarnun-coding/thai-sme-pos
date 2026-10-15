@@ -159,7 +159,8 @@ export function withAdsetBudgets(decisions: Decision[], entities: Entity[], rule
     const rule = rules.find((r) => r.id === d.rule_id);
     if (!adsets.length || !rule) continue;
     if (done.has(d.entity.id)) { d.skipped_reason = 'another rule already acted on this entity'; continue; }
-    done.add(d.entity.id);
+    // Like a CBO campaign, a rule still on cooldown (here: on every ad set) lets the next matching rule act.
+    if (!adsets.every((a) => onCooldown(rule, a.id, state, now))) done.add(d.entity.id);
     let pct = d.action.pct ?? 0;
     const total = adsets.reduce((t, a) => t + a.daily_budget!, 0);
     if (pct > 0 && total * (1 + pct / 100) > maxCampaignBudget) {
