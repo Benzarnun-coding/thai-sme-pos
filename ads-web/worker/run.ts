@@ -216,7 +216,7 @@ function discordRunText(report: WebRunReport, dryRun: boolean, trigger = ''): st
   if (!acted.length && !moves.length) lines.push('ไม่มีกฎไหนตรงเงื่อนไข — ไม่มีการปรับ');
   for (const d of acted) {
     const tail = d.error ? ` ❌ ${d.error}` : d.after?.daily_budget !== undefined && d.after.daily_budget !== d.before?.daily_budget ? ` → ${d.after.daily_budget}/วัน` : '';
-    lines.push(`${d.action.type === 'pause' ? '⏸ **หยุดแล้ว**' : '•'} \`${d.rule_id}\` ${d.plan}${tail}`);
+    lines.push(`${d.action.type === 'pause' ? (dryRun ? '⏸ **จะหยุด**' : '⏸ **หยุดแล้ว**') : '•'} \`${d.rule_id}\` ${d.plan}${tail}`);
   }
   const waiting = report.decisions.filter((d) => d.skipped_reason === 'รออนุมัติใน Discord').length + report.moves.filter((m) => m.skipped_reason === 'รออนุมัติใน Discord').length;
   if (waiting) lines.push(`❓ รออนุมัติ ${waiting} รายการ — ดูข้อความถัดไปแล้วกดปุ่ม`);
