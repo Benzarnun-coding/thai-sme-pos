@@ -104,11 +104,20 @@ export function sizeLines(messages: { own?: boolean; message?: string | null }[]
 
 /** The amount the chat agreed on: the last "ยอด/รวม … N" the shop wrote (Meta AI or an admin), not counting the order note. */
 export function chatTotal(messages: ChatMessage[], until?: string): number | null {
+  // Only this order's talk: after the shop's previous order note for this customer (a repeat customer's old
+  // "ยอดรวม 398" is not today's price, 15 Oct), at most 2 days back, and up to 10 minutes after the note.
   let last: number | null = null;
   const end = until ? Date.parse(until) + 10 * 60_000 : Infinity;
+  const start = until ? Date.parse(until) - 2 * 86_400_000 : -Infinity;
+  const noteAt = until ? Date.parse(until) : Infinity;
   for (const m of messages) {
-    if (m.created_at && Date.parse(m.created_at) > end) continue;
-    if (!m.own || m.auto || !m.message || parseOrderNote(m.message)) continue;
+    const t = m.created_at ? Date.parse(m.created_at) : NaN;
+    if (!Number.isNaN(t) && (t > end || t < start)) continue;
+    if (m.own && m.message && parseOrderNote(m.message)) {
+      if (Number.isNaN(t) || t < noteAt - 60_000) last = null; // an earlier order closed: start over
+      continue;
+    }
+    if (!m.own || m.auto || !m.message) continue;
     for (const x of m.message.replace(/[*,]/g, '').matchAll(/(?:ยอดรวม|ยอดชำระ|ยอดโอน|รวมทั้งหมด|รวม|ยอด)[^\d\n]{0,25}(\d{3,5})(?!\d)/g)) {
       // Five-digit amounts are other things ("ยอดสั่งเกิน 15000", a postcode after รวม…), not a bill of jeans.
       if (Number(x[1]) < 10000) last = Number(x[1]);
