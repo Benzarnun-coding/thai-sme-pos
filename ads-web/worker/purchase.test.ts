@@ -63,7 +63,7 @@ test('suppliers for BB, warehouses for the rest, ตรวจสอบ for unkno
   assert.deepEqual(by.PK.lines.map((l) => [l.label, l.size, l.qty]), [['200/3 มิดไนท์ย้อมสนิม', '32', 3], ['501/1 มิดไนท์', '30', 3], ['501/1 มิดไนท์', '32', 1]]);
   const order = ['ดำJ-013', '501/1', '1306-4', '1306-36', '2003', 'L68ดำ(ซิป)'].sort(textOrder);
   assert.deepEqual(order, ['1306-36', '1306-4', '2003', '501/1', 'L68ดำ(ซิป)', 'ดำJ-013'], 'same order as the printed J.BIG sheet');
-  assert.equal(by['J.BIG'].lines[0].label, '1306-4', 'supplier code when ordering from a supplier');
+  assert.equal(by['J.BIG'].lines[0].label, '1306-4 โอวัลติน', 'our code + colour (the supplier code 1306-4 is the same, so not repeated)');
   assert.equal(by['แพลนเนท'].lines[0].label, 'J41-2 ดำ');
   assert.equal(by['BB · ยังไม่ระบุร้าน'].lines.find((l) => l.sku === 'OLD-BB-BL-30')!.note, 'ชีต: เลิกผลิต');
   const review = by['ตรวจสอบ'];
@@ -75,7 +75,7 @@ test('a supplier set on the page moves a PK model to that supplier', () => {
   const groups = groupLines(buildLines(readOrderItems(RAW), makeLookup(CATALOG, new Map([['PK|5011-PK-MD', 'J.BIG']]))));
   const jbig = groups.find((g) => g.name === 'J.BIG')!;
   assert.equal(jbig.pieces, 5);
-  assert.deepEqual(sheetRows(jbig).map((r) => `${r.label}/${r.size}×${r.qty}`), ['1306-4/30×1', '501/1 มิดไนท์/30×3', '501/1 มิดไนท์/32×1']);
+  assert.deepEqual(sheetRows(jbig).map((r) => `${r.label}/${r.size}×${r.qty}`), ['1306-4 โอวัลติน/30×1', '501/1 มิดไนท์/30×3', '501/1 มิดไนท์/32×1']);
   assert.equal(groups.find((g) => g.name === 'PK')!.pieces, 3);
 });
 
@@ -265,7 +265,7 @@ test('sales store of each order: TikTok / Shopee from the shipping name, store f
   assert.ok(new TextDecoder().decode(files.get('xl/worksheets/sheet1.xml')).includes('TikTok · STM-SHOP 586549, Shopee · Sup-store17 261012E'));
 });
 
-test('what we pay: web price > ราคาร้านค้า > ทุน; out-of-stock pieces are not paid', async () => {
+test('what we pay: ทุน H only (ราคาร้านค้า ignored), typed price fills/corrects it; out-of-stock pieces are not paid', async () => {
   const { priceOf, withPrices, supplierTotals, missingGroup, paymentWorkbook } = await import('../web/src/purchase.ts');
   const rows = [
     row({ tab: 'BB', sku: 'J41-BB-BL-34', code: 'J41-2', color: 'BL', size: '34', shop: 'แพลนเนท', cost: 150, shop_price: 145 }),
@@ -274,7 +274,7 @@ test('what we pay: web price > ราคาร้านค้า > ทุน; ou
     row({ tab: 'PK', sku: '5011-PK-MD-30', code: '501/1', color: 'MD', size: '30', cost: 110 }),
   ];
   const lookup = makeLookup(rows, new Map());
-  assert.deepEqual(priceOf('J41-BB-BL-34', lookup), { price: 145, source: 'shop' });
+  assert.deepEqual(priceOf('J41-BB-BL-34', lookup), { price: 150, source: 'cost' }, 'ราคาร้านค้า 145 is not used');
   assert.deepEqual(priceOf('J41-BB-BL-38', lookup), { price: 150, source: 'cost' });
   assert.deepEqual(priceOf('X-BB-BL-30', lookup), { price: null, source: '' });
   assert.deepEqual(priceOf('nope', lookup), { price: null, source: '' });
@@ -287,19 +287,37 @@ test('what we pay: web price > ราคาร้านค้า > ทุน; ou
   const pia = missingGroup(lines, missing, lookup)!;
   const totals = supplierTotals([...groupLines(lines), pia], missing);
   assert.deepEqual(totals.map((t) => [t.name, t.ordered, t.missing, t.received, t.amount, t.unpriced]), [
-    ['แพลนเนท', 6, 1, 5, 2 * 145 + 150, 2],
+    ['แพลนเนท', 6, 1, 5, 2 * 150 + 150, 2],
     ['PK', 2, 0, 2, 220, 0],
-    ['พี่เปีย', 1, 0, 1, 145, 0],
+    ['พี่เปีย', 1, 0, 1, 150, 0],
   ]);
   const files = await unzip(await paymentWorkbook([...groupLines(lines), pia], missing, '2026-10-15', 1));
   const wb = new TextDecoder().decode(files.get('xl/workbook.xml'));
   assert.deepEqual([...wb.matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1]), ['สรุปจ่ายร้าน', 'แพลนเนท', 'PK', 'พี่เปีย']);
   const summary = new TextDecoder().decode(files.get('xl/worksheets/sheet1.xml'));
-  assert.ok(summary.includes('<v>440</v>') && summary.includes('ภายใน ไม่ส่งร้าน'));
+  assert.ok(summary.includes('<v>450</v>') && summary.includes('ภายใน ไม่ส่งร้าน'));
   const supplierSheet = new TextDecoder().decode((await unzip(await orderWorkbook(groupLines(lines), '2026-10-15', 1))).get('xl/worksheets/sheet2.xml'));
-  assert.ok(!supplierSheet.includes('145') && !supplierSheet.includes('ราคา'), 'the sheet sent to the supplier has no prices');
+  assert.ok(!supplierSheet.includes('150') && !supplierSheet.includes('ทุน'), 'the sheet sent to the supplier has no money');
 
   const saved = validatePurchase({ date: '2026-10-15', round: 1, lines: lines.map((l) => ({ ...l, stores: { x: 'y' } })) });
-  assert.deepEqual(saved.lines.map((l) => [l.sku, l.price, l.price_source]), [['J41-BB-BL-34', 145, 'shop'], ['J41-BB-BL-38', 150, 'cost'], ['X-BB-BL-30', null, ''], ['5011-PK-MD-30', 110, 'cost']]);
+  assert.deepEqual(saved.lines.map((l) => [l.sku, l.price, l.price_source]), [['J41-BB-BL-34', 150, 'cost'], ['J41-BB-BL-38', 150, 'cost'], ['X-BB-BL-30', null, ''], ['5011-PK-MD-30', 110, 'cost']]);
   assert.deepEqual(saved.lines[0].stores, {}, 'stores only for the line\'s own order numbers');
+});
+
+test('column M: a supplier code goes in brackets, a note like "ร้าน ส." is never printed', async () => {
+  const { labelOf, supplierCodeOf, sheetNoteOf, withPrices } = await import('../web/src/purchase.ts');
+  const r = (alias: string) => row({ tab: 'BB', sku: '4821-BB-MR-28', code: '482/1', color: 'MR', size: '28', shop: 'NBG', alias });
+  assert.equal(labelOf(r('ร้าน ส.'), 'supplier'), '482/1 มิดไนท์ย้อมสนิม', 'the NBG sheet of 13/10 printed "ร้าน ส." here');
+  assert.equal(labelOf(r('1306-2 สีดำ'), 'supplier'), '482/1 มิดไนท์ย้อมสนิม (1306-2 สีดำ)');
+  assert.equal(labelOf(r('1306-2 สีดำ'), 'warehouse'), '482/1 มิดไนท์ย้อมสนิม');
+  for (const note of ['มีทุกร้าน', '**ต้องสั่งโรงงานอย่างเดียว คืนของไม่ได้', 'PN', '401/1 มิดไนท์ เขียนสีไปให้ร้านค้าด้วย', 'เลิกผลิต', 'แทน 221', 'มีทุกร้าน ลดให้ 2 บาท']) {
+    assert.equal(supplierCodeOf(note), '', note);
+    assert.equal(sheetNoteOf(note), note);
+  }
+  for (const code of ['M700/6', '1606-ดำ', 'Le6']) assert.equal(supplierCodeOf(code), code);
+  // a round saved with the old label is relabelled when reopened
+  const lookup = makeLookup([r('ร้าน ส.')], new Map());
+  const old = { group: 'NBG', kind: 'supplier' as const, sku: '4821-BB-MR-28', tab: 'BB', product: '', label: 'ร้าน ส.', size: '28', qty: 1, note: '', orders: [] };
+  const [fixed] = withPrices([old], lookup);
+  assert.deepEqual([fixed.label, fixed.sheetNote], ['482/1 มิดไนท์ย้อมสนิม', 'ร้าน ส.']);
 });

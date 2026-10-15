@@ -32,7 +32,9 @@ export interface PurchaseLine {
   orders: string[];
   /** the sales store of each order number: {"5865…": "TikTok · STM-SHOP"} */
   stores?: Record<string, string>;
-  /** what we pay per piece (web price > ราคาร้านค้า > ทุน H), filled by withPrices; null = unknown */
+  /** a note from the sheet's column M (for the team, not printed), filled by withPrices */
+  sheetNote?: string;
+  /** what we pay per piece (ทุน H from the sheet, or typed on the page), filled by withPrices; null = unknown */
   price?: number | null;
   priceSource?: PriceSource;
   /** pieces the supplier reported out of stock (ticked on the page; goes to the พี่เปีย file) */
@@ -174,10 +176,33 @@ export function groupOf(r: CatalogRow, lookup: Lookup): { group: string; kind: G
 }
 
 /** What the sheet calls the product: the supplier's own code when ordering from a supplier, else code + colour. */
+/**
+ * Words that mark the รหัสแทน column (M) as a note rather than the supplier's code: in BB it is mostly notes —
+ * "มีทุกร้าน", "**ต้องสั่งโรงงานอย่างเดียว คืนของไม่ได้", "ร้าน ส.", "เลิกผลิต", "เวลาสั่งใส่รหัสด้วย" … (2026-10-15).
+ */
+const NOTE_WORDS = /ร้าน|สั่ง|เลิก|มีทุก|ไม่มี|เขียน|แทน|เวลา|คืน|ลดให้|ทวง|โรงงาน|ขาย|\*/;
+
+/** The supplier's own code from column M when it looks like one ("1306-2 สีดำ", "M700/6"); '' for notes. */
+export function supplierCodeOf(alias: string): string {
+  const a = alias.trim();
+  return a && a.length <= 30 && /\d/.test(a) && !NOTE_WORDS.test(a) ? a : '';
+}
+
+/** A note left in column M (not a code), shown to the team on screen, never printed for the supplier. */
+export function sheetNoteOf(alias: string): string {
+  const a = alias.trim();
+  return a && !supplierCodeOf(a) ? a : '';
+}
+
+/**
+ * What the sheet calls the product: always our code + colour, so whoever reads it knows the product; when ordering
+ * from a supplier, its own code from column M is added in brackets (only when it is a code, not a note).
+ */
 export function labelOf(r: CatalogRow, kind: GroupKind): string {
-  if (kind === 'supplier' && r.alias) return r.alias;
   const color = COLOR_NAMES[r.color.toUpperCase()];
-  return `${r.code || spuOf(r.sku)}${color ? ` ${color}` : r.color ? ` ${r.color}` : ''}`;
+  const ours = `${r.code || spuOf(r.sku)}${color ? ` ${color}` : r.color ? ` ${r.color}` : ''}`;
+  const theirs = kind === 'supplier' ? supplierCodeOf(r.alias) : '';
+  return theirs && !ours.startsWith(theirs) ? `${ours} (${theirs})` : ours;
 }
 
 /** Bigseller items → one line per (group, SKU) with quantities added up. */
@@ -392,23 +417,31 @@ export function missingGroup(lines: PurchaseLine[], missing: Map<string, number>
 
 // ---- what we pay suppliers (internal: never on the sheets sent to them) ----
 
-/** web = typed on the page · shop = ราคาร้านค้า (column N) · cost = ทุน (column H, own warehouses) */
-export type PriceSource = 'web' | 'shop' | 'cost' | '';
-export const PRICE_SOURCE_LABEL: Record<PriceSource, string> = { web: 'กรอกในเว็บ', shop: 'ราคาร้านค้า', cost: 'ทุนในชีต', '': 'ยังไม่มีราคา' };
+/** cost = ทุน, column H of the sheet (the only sheet column used, agreed 2026-10-15) · web = typed on the page */
+export type PriceSource = 'web' | 'cost' | '';
+export const PRICE_SOURCE_LABEL: Record<PriceSource, string> = { web: 'กรอกในเว็บ', cost: 'ทุนในชีต (H)', '': 'ยังไม่มีทุน' };
 
-/** Price per piece of a catalog SKU: typed on the page > ราคาร้านค้า > ทุน H. */
+/** Price per piece of a catalog SKU: typed on the page (fills or corrects a missing ทุน) > ทุน, column H. ราคาร้านค้า (N) is not used. */
 export function priceOf(sku: string, lookup: Lookup): { price: number | null; source: PriceSource } {
   const r = lookup.rows.get(skuKey(sku));
   if (!r) return { price: null, source: '' };
   const typed = lookup.prices.get(`${r.tab}|${spuOf(r.sku)}`);
   if (typed !== undefined) return { price: typed, source: 'web' };
-  if (r.shop_price !== null && r.shop_price > 0) return { price: r.shop_price, source: 'shop' };
   if (r.cost !== null && r.cost > 0) return { price: r.cost, source: 'cost' };
   return { price: null, source: '' };
 }
 
+/**
+ * Current price per piece and current label for every catalog line — also for rounds reopened from history, so a
+ * sheet saved with an old label (e.g. "ร้าน ส." from column M) prints the product's code when printed again.
+ */
 export function withPrices(lines: PurchaseLine[], lookup: Lookup): PurchaseLine[] {
-  return lines.map((l) => { const p = priceOf(l.sku, lookup); return { ...l, price: p.price, priceSource: p.source }; });
+  return lines.map((l) => {
+    const p = priceOf(l.sku, lookup);
+    const r = l.kind === 'review' ? undefined : lookup.rows.get(skuKey(l.sku));
+    const label = r ? labelOf(r, l.moved ? 'warehouse' : l.kind) : l.label;
+    return { ...l, label, sheetNote: r ? sheetNoteOf(r.alias) : '', price: p.price, priceSource: p.source };
+  });
 }
 
 export interface SupplierTotal { name: string; kind: GroupKind; ordered: number; missing: number; received: number; amount: number; unpriced: number }
@@ -438,7 +471,7 @@ export async function paymentWorkbook(groups: PurchaseGroup[], missing: Map<stri
     rows: [
       [{ v: `สรุปยอดจ่ายร้าน ${thaiShortDate(date)} รอบ ${round} (ภายใน ไม่ส่งร้าน)`, s: S.bold }],
       [],
-      ['ร้าน / โกดัง', 'ประเภท', 'สั่ง', 'ของไม่มี', 'ได้จริง', 'ยอดเงิน', 'ยังไม่มีราคา (ชิ้น)'].map((v) => ({ v, s: S.head })),
+      ['ร้าน / โกดัง', 'ประเภท', 'สั่ง', 'ของไม่มี', 'ได้จริง', 'ยอดเงิน', 'ยังไม่มีทุน (ชิ้น)'].map((v) => ({ v, s: S.head })),
       ...totals.map((t) => [{ v: t.name, s: S.boxLeft }, { v: t.name === MISSING_GROUP ? 'สั่งข้างนอก' : KIND_LABEL[t.kind], s: S.box }, { v: t.ordered, s: S.box }, { v: t.missing, s: S.box }, { v: t.received, s: S.box }, { v: money(t.amount), s: S.box }, { v: t.unpriced || '', s: S.box }]),
       [{ v: 'รวม', s: S.boxBold }, { v: '', s: S.box }, { v: sum('ordered'), s: S.boxBold }, { v: sum('missing'), s: S.boxBold }, { v: sum('received'), s: S.boxBold }, { v: money(sum('amount')), s: S.boxBold }, { v: sum('unpriced') || '', s: S.boxBold }],
     ],
@@ -450,7 +483,7 @@ export async function paymentWorkbook(groups: PurchaseGroup[], missing: Map<stri
     const rows: (Cell | string | number | null)[][] = [
       [{ v: `${g.name} · ${thaiShortDate(date)} รอบ ${round} (ภายใน)`, s: S.bold }],
       [],
-      ['รหัสสินค้า', 'ไซส์', 'SKU', 'สั่ง', 'ของไม่มี', 'ได้จริง', 'ราคา/ตัว', 'ที่มาราคา', 'ยอดเงิน', 'ร้านขาย · เลขคำสั่งซื้อ'].map((v) => ({ v, s: S.head })),
+      ['รหัสสินค้า', 'ไซส์', 'SKU', 'สั่ง', 'ของไม่มี', 'ได้จริง', 'ทุน/ตัว', 'ที่มา', 'ยอดเงิน', 'ร้านขาย · เลขคำสั่งซื้อ'].map((v) => ({ v, s: S.head })),
     ];
     let amount = 0;
     for (const l of g.lines) {

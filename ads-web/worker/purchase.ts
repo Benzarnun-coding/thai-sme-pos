@@ -20,7 +20,7 @@ export interface SavedLine {
   price: number | null;
   price_source: string;
 }
-const PRICE_SOURCES = new Set(['web', 'shop', 'cost', '']);
+const PRICE_SOURCES = new Set(['web', 'cost', '']);
 
 export function validatePurchase(input: any): { date: string; round: number; file: string; lines: SavedLine[] } {
   const date = String(input?.date ?? '');

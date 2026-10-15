@@ -345,7 +345,7 @@ export async function proxyImage(raw: string): Promise<Response> {
   return new Response(res.body, { headers: { 'Content-Type': type, 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' } });
 }
 
-// ---- price per piece typed on the order page (what we pay; wins over ราคาร้านค้า and ทุน) ----
+// ---- cost per piece typed on the order page (fills or corrects ทุน, column H, which is what we pay) ----
 
 export interface CatalogPrice { key: string; tab: string; spu: string; price: number; updated_by: string; updated_at: string }
 

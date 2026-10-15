@@ -76,7 +76,7 @@ export function OrdersApp() {
   const warehouses = useMemo(() => new Set((meta?.tabs ?? []).map((t) => t.tab)), [meta?.tabs]);
   // Moves (out of stock → another supplier, ตรวจสอบ rows …) apply to a new upload and to a round reopened from history.
   const baseLines = useMemo(() => (viewing ? viewing.lines : data ? buildLines(data.items, lookup) : []), [viewing, data, lookup]);
-  // Price per piece is always the current one (web > ราคาร้านค้า > ทุน); it is stored with the round when saved.
+  // Price per piece is always the current one (typed on the page > ทุน H); it is stored with the round when saved.
   const lines = useMemo(() => withPrices(applyMoves(baseLines, moves, warehouses, lookup), lookup), [baseLines, moves, warehouses, lookup]);
   const groups = useMemo(() => groupLines(lines), [lines]);
   const pieces = groups.reduce((n, g) => n + g.pieces, 0);
@@ -185,7 +185,7 @@ export function OrdersApp() {
     return () => { clearTimeout(t); window.removeEventListener('afterprint', done); };
   }, [printing]);
 
-  /** Price per piece for a product (every size), remembered; empty = back to ราคาร้านค้า / ทุน from the sheet. */
+  /** Cost per piece for a product (every size), remembered; empty = back to ทุน (H) from the sheet. */
   async function setPrice(l: PurchaseLine, price: number | null) {
     if (!l.tab || l.sku.startsWith('?')) return;
     const spu = spuOf(l.sku), key = `${l.tab}|${spu}`;
@@ -193,7 +193,7 @@ export function OrdersApp() {
       await api.setPrices([{ tab: l.tab, spu, price }]);
       const now = new Date().toISOString();
       setMeta((m) => (m ? { ...m, prices: [...m.prices.filter((p) => p.key !== key), ...(price === null ? [] : [{ key, tab: l.tab, spu, price, updated_by: '', updated_at: now }])] } : m));
-      toast(price === null ? `${l.label} กลับไปใช้ราคาจากชีต` : `${l.label} ราคา ${num(price)} บาท/ตัว · จำไว้ใช้ทุกวัน`, 'ok');
+      toast(price === null ? `${l.label} กลับไปใช้ทุนจากชีต (H)` : `${l.label} ทุน ${num(price)} บาท/ตัว · จำไว้ใช้ทุกวัน`, 'ok');
     } catch (e: any) { toast(e.message, 'bad'); }
   }
 
@@ -326,7 +326,7 @@ export function OrdersApp() {
           <section className="card po-actions">
             <div>
               <h2>ใบสั่ง · ส่งร้าน</h2>
-              <p className="muted small">ไม่มีราคา/ยอดเงิน · Excel = ชีตสรุป + ชีตละร้าน · พิมพ์ = หน้าละร้าน เลือก "บันทึกเป็น PDF" เพื่อส่งทาง Line ได้{!viewing && canEdit ? ' · ระบบบันทึกประวัติให้เมื่อดาวน์โหลดหรือพิมพ์' : ''}</p>
+              <p className="muted small">ไม่มีทุน/ยอดเงิน · Excel = ชีตสรุป + ชีตละร้าน · พิมพ์ = หน้าละร้าน เลือก "บันทึกเป็น PDF" เพื่อส่งทาง Line ได้{!viewing && canEdit ? ' · ระบบบันทึกประวัติให้เมื่อดาวน์โหลดหรือพิมพ์' : ''}</p>
             </div>
             <div className="row-actions">
               <button onClick={() => print()} disabled={!!busy}><Icon name="down" size={14} /> พิมพ์ / PDF ทุกใบ</button>
@@ -452,7 +452,7 @@ function GroupCard({ group: g, open, onToggle, missing, onMissing, onPrice, canR
           <span className={`pill ${g.kind === 'review' || g.kind === 'unassigned' ? 'bad' : g.kind === 'supplier' ? 'on' : ''}`}>{KIND_LABEL[g.kind]}</span>
           <span className="muted small">{num(g.pieces)} ชิ้น · {num(rowsOnSheet)} รายการ</span>
           {missingHere > 0 && <span className="pill warn">ของไม่มี {num(missingHere)}</span>}
-          {total && <span className="pill po-money" title="ยอดเงินของที่ได้จริง (ภายใน ไม่ส่งร้าน)">฿{num(total.amount)}{total.unpriced ? ` · ขาดราคา ${num(total.unpriced)} ชิ้น` : ''}</span>}
+          {total && <span className="pill po-money" title="ยอดเงินของที่ได้จริง (ภายใน ไม่ส่งร้าน)">฿{num(total.amount)}{total.unpriced ? ` · ยังไม่มีทุน ${num(total.unpriced)} ชิ้น` : ''}</span>}
         </button>
         {g.kind !== 'review' && (
           <div className="row-actions">
@@ -491,7 +491,7 @@ function GroupCard({ group: g, open, onToggle, missing, onMissing, onPrice, canR
                   <th>{g.kind === 'review' ? 'SKU ใน Bigseller' : 'รหัสสินค้า'}</th><th>ไซส์</th><th className="num">จำนวน</th>
                   <th>{g.kind === 'review' ? 'ปัญหา / ตัวเลือกสินค้า' : 'SKU'}</th><th>ร้านขาย · เลขคำสั่งซื้อ</th>
                   {g.kind !== 'review' && <th className="center">ของไม่มี</th>}
-                  {g.kind !== 'review' && <th className="num po-internal" title="ภายใน ไม่ส่งร้าน">ราคา/ตัว</th>}
+                  {g.kind !== 'review' && <th className="num po-internal" title="ภายใน ไม่ส่งร้าน">ทุน/ตัว</th>}
                   {g.kind !== 'review' && <th className="num po-internal" title="ภายใน ไม่ส่งร้าน">ยอด</th>}
                   {movable && <th>ย้ายไป (รอบนี้)</th>}
                 </tr>
@@ -510,6 +510,7 @@ function GroupCard({ group: g, open, onToggle, missing, onMissing, onPrice, canR
                           <code>{l.sku.startsWith('?') ? '(ไม่มี SKU)' : l.sku}</code>
                           {l.moved && <> <span className="pill warn">ย้ายมาจาก {l.from}</span></>}
                           {!l.moved && l.note && <span className="muted"> · {l.note}</span>}
+                          {l.sheetNote && <div className="po-sheet-note" title="ข้อความในคอลัมน์ รหัสแทน (M) ของชีต · แสดงให้ทีมเห็นเท่านั้น ไม่พิมพ์ในใบสั่ง">หมายเหตุชีต: {l.sheetNote}</div>}
                         </>}
                       </td>
                       <td className="small"><OrderNumbers orders={l.orders} stores={l.stores} /></td>
@@ -557,7 +558,7 @@ function PriceCell({ line: l, onSave }: { line: PurchaseLine; onSave: ((price: n
     return (
       <span className="po-price-edit">
         <input inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value.replace(/[^\d.]/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter') save(value); if (e.key === 'Escape') setEditing(false); }}
-          placeholder={l.price != null ? String(l.price) : 'ใส่ราคา'} aria-label="ราคาต่อตัว" autoFocus={editing} />
+          placeholder={l.price != null ? String(l.price) : 'ใส่ทุน'} aria-label="ทุนต่อตัว" autoFocus={editing} />
         <button className="small" disabled={busy || (!value.trim() && l.priceSource !== 'web')} onClick={() => save(value)}>บันทึก</button>
         {editing && <button className="link small" onClick={() => setEditing(false)}>ยกเลิก</button>}
       </span>
@@ -586,14 +587,14 @@ function PaymentCard({ totals, onExport, busy }: { totals: ReturnType<typeof sup
           <b>ยอดจ่ายร้าน</b>
           <span className="pill">ภายใน · ไม่ส่งร้าน</span>
           <span className="muted small">ร้านค้า ฿{num(suppliers.reduce((n, t) => n + t.amount, 0))} · ทุกกลุ่ม ฿{num(sum('amount'))} · ได้จริง {num(sum('received'))} ชิ้น</span>
-          {sum('unpriced') > 0 && <span className="pill warn">ขาดราคา {num(sum('unpriced'))} ชิ้น</span>}
+          {sum('unpriced') > 0 && <span className="pill warn">ยังไม่มีทุน {num(sum('unpriced'))} ชิ้น</span>}
         </button>
         <button className="small primary" onClick={onExport} disabled={busy}><Icon name="down" size={14} /> Excel สรุปจ่ายร้าน (ภายใน)</button>
       </div>
       {open && (
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>ร้าน / โกดัง</th><th>ประเภท</th><th className="num">สั่ง</th><th className="num">ของไม่มี</th><th className="num">ได้จริง</th><th className="num">ยอดเงิน</th><th className="num">ขาดราคา</th></tr></thead>
+            <thead><tr><th>ร้าน / โกดัง</th><th>ประเภท</th><th className="num">สั่ง</th><th className="num">ของไม่มี</th><th className="num">ได้จริง</th><th className="num">ยอดเงิน</th><th className="num">ขาดทุน</th></tr></thead>
             <tbody>
               {totals.map((t) => (
                 <tr key={t.name}>
@@ -612,7 +613,7 @@ function PaymentCard({ totals, onExport, busy }: { totals: ReturnType<typeof sup
               </tr>
             </tbody>
           </table>
-          <p className="small muted po-hint" style={{ paddingTop: 8 }}>ยอดเงิน = (สั่ง − ของไม่มี) × ราคา/ตัว · ราคา: กรอกในเว็บ › ราคาร้านค้า (ชีต) › ทุนในชีต (โกดังของเรา) · ใส่ราคาที่ขาดได้ในช่อง "ราคา/ตัว" ของแต่ละรายการ จำไว้ใช้ทุกวัน</p>
+          <p className="small muted po-hint" style={{ paddingTop: 8 }}>ยอดเงิน = (สั่ง − ของไม่มี) × ทุน/ตัว · ทุน: คอลัมน์ H ของชีต · ถ้าในชีตไม่มี หรือต้องการแก้ ใส่ในช่อง "ทุน/ตัว" ของแต่ละรายการ จำไว้ใช้ทุกวัน</p>
         </div>
       )}
     </section>
