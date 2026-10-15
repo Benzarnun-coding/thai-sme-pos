@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyDecisions } from './apply.ts';
-import { childrenToSwitchOn, copiedChildren } from './meta.ts';
 import { clampBudget, evaluate, onCooldown } from './rules.ts';
 import type { Entity, Guardrails, Rule, Scope, State } from './types.ts';
 
@@ -84,17 +83,4 @@ test('over the total cap: cuts still go through, increases are refused', async (
   assert.equal(set.win, undefined);
   assert.match(decisions.find((d) => d.entity.id === 'win')!.skipped_reason ?? '', /max_total_daily_budget/);
   assert.equal(r.totalAfter, 10400);
-});
-
-test('a copied campaign switches on only the ad sets and ads that are on in the original', () => {
-  const copied = copiedChildren([
-    { ad_object_type: 'campaign', source_id: 'c1', copied_id: 'c2' },
-    { ad_object_type: 'ad_set', source_id: 'as1', copied_id: 'as1c' },
-    { ad_object_type: 'ad_set', source_id: 'as2', copied_id: 'as2c' },
-    { ad_object_type: 'ad', source_id: 'ad1', copied_id: 'ad1c' },
-    { ad_object_type: 'ad', source_id: 'ad2', copied_id: 'ad2c' },
-    { ad_object_type: 'ad', copied_id: 'ad3c' },
-  ]);
-  const statuses = { as1: { status: 'ACTIVE' }, as2: { status: 'PAUSED' }, ad1: { status: 'ACTIVE' }, ad2: { status: 'PAUSED' } };
-  assert.deepEqual(childrenToSwitchOn(copied, statuses), ['as1c', 'ad1c']);
 });

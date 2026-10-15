@@ -1791,9 +1791,7 @@ async function copyWinner(env: Env, p: Proposal, d: { new_budget: number }, who:
     const at = new Date().toISOString();
     await applyMoves(env.DB, [{ campaign_id: copy.id, name: `${p.entity_name} (คัดลอก)`, from: null, to: 'testing' }], at);
     await audit(env.DB, `discord:${who}`, 'campaign.copy', p.entity_id, { copy: copy.id, budget: d.new_budget, children: copy.children.length });
-    // Only the ad sets/ads that are on in the original are switched on (copyCampaign); none = nothing would spend.
-    const none = copy.children.length === 0 ? `\n⚠️ ไม่พบชุดโฆษณา/โฆษณาที่เปิดอยู่ในตัวต้นฉบับ — แคมเปญใหม่ยังไม่ใช้เงิน เปิดชุดที่ต้องการเองใน Ads Manager นะคะ` : '';
-    await done('approved', `🧬 **คัดลอกแล้วค่ะ** "${p.entity_name}" → แคมเปญใหม่ "${p.entity_name} (คัดลอก)" งบ **${d.new_budget}/วัน** เปิดแล้ว (เปิด ${copy.children.length} ชุดโฆษณา/โฆษณาตามต้นฉบับ) อยู่กลุ่มทดสอบ — ${who} อนุมัติ ขอบคุณค่ะ 🙏${none}`);
+    await done('approved', `🧬 **คัดลอกแล้วค่ะ** "${p.entity_name}" → แคมเปญใหม่ "${p.entity_name} (คัดลอก)" งบ **${d.new_budget}/วัน** เปิดแล้ว อยู่กลุ่มทดสอบ — ${who} อนุมัติ ขอบคุณค่ะ 🙏`);
   } catch (err: any) {
     await done('failed', `❌ คัดลอก "${p.entity_name}" ไม่สำเร็จค่ะ: ${err?.message ?? err} — ถ้ามีแคมเปญ "(คัดลอก)" ค้างอยู่ใน Ads Manager (หยุดอยู่) ลบหรือเปิดเองได้เลยค่ะ`);
   }
