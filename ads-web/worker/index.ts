@@ -40,7 +40,7 @@ import { approvalsEnabled, editMessage, expireOld, idList, postToDeciders, recen
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
-import { autoFillNote, autoFillOn, cronSweep, customerFor, loadMisses, setAutoFill, sweepNotes, tell } from './autoFill.ts';
+import { autoFillNote, autoFillOn, cronSweep, customerFor, loadMisses, setAutoFill, sweepNotes, tell, tellMiss } from './autoFill.ts';
 import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './metaPurchases.ts';
 import { captureSource, planNotePurchases } from './notePurchases.ts';
 import { dayOrders, reconcile } from './orderDay.ts';
@@ -492,7 +492,8 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   // A sample "needs a person" message into the order-problems channel, so the team sees what it looks like.
   if (path === '/api/order-notes/test-discord' && method === 'POST') {
     if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
-    await tell(env, { mid: 'test', psid: '', at: new Date().toISOString(), text: '501/1 31\ncod 249', name_hash: null }, null, 'ข้อความทดสอบ (ไม่ใช่ลูกค้าจริง)', ['ตัวอย่าง: 501/1 ไม่มีไซส์ 31 — รุ่นนี้มี 28, 29, 30, 32, 34, 36 · ต้องถามลูกค้าใหม่']);
+    if (url.searchParams.get('kind') === 'miss') await tellMiss(env, { mid: 'test', psid: '', at: new Date().toISOString(), text: 'โอน349 ธนชาต\n301/1 เอวสามสี่ สองตัว', name_hash: null }, 'ข้อความทดสอบ (ไม่ใช่ลูกค้าจริง)');
+    else await tell(env, { mid: 'test', psid: '', at: new Date().toISOString(), text: '501/1 31\ncod 249', name_hash: null }, null, 'ข้อความทดสอบ (ไม่ใช่ลูกค้าจริง)', ['ตัวอย่าง: 501/1 ไม่มีไซส์ 31 — รุ่นนี้มี 28, 29, 30, 32, 34, 36 · ต้องถามลูกค้าใหม่']);
     await audit(env.DB, user, 'p365.test_discord', 'order-problems', {});
     return json({ ok: true, channel: env.DISCORD_ORDER_WEBHOOK_URL ? 'ห้องออเดอร์มีปัญหา' : 'ห้องรายงานแอด (ยังไม่ได้ตั้งห้องใหม่)' });
   }

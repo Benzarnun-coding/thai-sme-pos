@@ -267,15 +267,19 @@ export async function recordMisses(env: AutoEnv, misses: StoredNote[]): Promise<
     SELECT value->>'mid', value->>'psid', value->>'at', value->>'text', ? FROM json_each(?)`).bind(now, JSON.stringify(fresh)).run();
   for (const m of fresh.slice(0, 3)) {
     const who = await customerFor(env, m.psid, 2).catch(() => null);
-    await postOrderChannel(env, (mention) => [
+    await tellMiss(env, m, who?.name ?? '').catch((err) => console.error('miss post', err));
+  }
+  return fresh.length;
+}
+
+export async function tellMiss(env: AutoEnv, m: StoredNote, name: string): Promise<void> {
+  await postOrderChannel(env, (mention) => [
       `❓ ข้อความนี้เหมือนสรุปออเดอร์ แต่ระบบอ่านไม่ออก ${mention}`.trim(),
-      `ลูกค้า: **${who?.name || 'ไม่ทราบชื่อ'}** · พิมพ์ตอน ${bkk(m.at)} น.`,
+      `ลูกค้า: **${name || 'ไม่ทราบชื่อ'}** · พิมพ์ตอน ${bkk(m.at)} น.`,
       `ข้อความ: \`${m.text.replace(/\s+/g, ' ').slice(0, 200)}\``,
       '• ระบบยังไม่เปิดร่าง/ไม่ส่งยอดให้ Meta — เปิดบิลเองไปก่อน',
       '• ส่งรูปแบบนี้ให้เบนซ์/Claude เพิ่มเข้าระบบ (ดูได้ที่แท็บ Log ออเดอร์แชท → "สรุปที่อ่านไม่ออก")',
-    ].join('\n').slice(0, 2000)).catch((err) => console.error('miss post', err));
-  }
-  return fresh.length;
+    ].join('\n').slice(0, 2000));
 }
 
 export interface NoteMiss { mid: string; at: string; text: string; alerted_at: string | null; resolved_at: string | null }
