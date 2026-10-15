@@ -310,6 +310,7 @@ export interface SalesData {
   bigsellerDays: string[];
   page365Days: string[];
 }
+export interface FoundOrder { upload_id: string; date: string; round: number; grp: string; kind: string; label: string; size: string; qty: number; sku: string; order_no: string; store: string | null; term: string }
 export interface LedgerRow { upload_id: string; date: string; round: number; grp: string; kind: string; due: number; unpriced: number; paid: number | null; done: boolean; note: string; updated_by: string | null; updated_at: string | null }
 export interface PurchaseUpload { id: string; date: string; round: number; file: string; pieces: number; review: number; missing: number; groups: { name: string; kind: PurchaseKind; pieces: number }[]; saved_by: string; saved_at: string }
 export interface SavedPurchaseLine { grp: string; kind: PurchaseKind; sku: string; tab: string; label: string; size: string; qty: number; note: string; orders: string[]; missing: number; stores: Record<string, string>; price: number | null; price_source: string }
@@ -341,6 +342,7 @@ export const api = {
   savePurchase: (p: { date: string; round: number; file: string; lines: unknown[]; items?: unknown[] }) => call<{ upload: PurchaseUpload }>('PUT', '/api/purchase', p),
   setMissing: (id: string, items: { grp: string; sku: string; missing: number }[]) => call<{ missing: number }>('PUT', '/api/purchase/missing', { id, items }),
   sales: (from: string, to: string) => call<SalesData>('GET', `/api/sales?from=${from}&to=${to}`),
+  findOrders: (q: string) => call<{ terms: string[]; rows: FoundOrder[] }>('GET', `/api/purchase/find?q=${encodeURIComponent(q)}`),
   ledger: (days = 60) => call<{ since: string; rows: LedgerRow[] }>('GET', `/api/purchase/ledger?days=${days}`),
   savePayments: (id: string, items: { grp: string; paid: number | null; done: boolean; note: string }[]) => call<{ ok: true }>('PUT', '/api/purchase/payments', { id, items }),
   deletePurchase: (id: string) => call<{ ok: true }>('DELETE', `/api/purchase?id=${encodeURIComponent(id)}`),

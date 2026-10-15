@@ -242,3 +242,25 @@ export async function ledger(db: D1Database, since: string, id?: string): Promis
   }
   return [...rows.values()].sort((a, b) => b.date.localeCompare(a.date) || b.round - a.round || a.grp.localeCompare(b.grp));
 }
+
+// ---- find order numbers in saved rounds ----
+
+export interface FoundOrder { upload_id: string; date: string; round: number; grp: string; kind: string; label: string; size: string; qty: number; sku: string; order_no: string; store: string | null; term: string }
+
+/** Order numbers (or parts of them, 4+ characters) from a pasted list: spaces, commas, new lines. */
+export function orderTerms(q: string): string[] {
+  return [...new Set(String(q ?? '').split(/[\s,;]+/).map((t) => t.trim()).filter((t) => t.length >= 4))].slice(0, 30);
+}
+
+/** Every saved line whose order numbers contain one of the terms, newest round first (≤ 300 rows). */
+export async function findOrders(db: D1Database, terms: string[]): Promise<FoundOrder[]> {
+  if (!terms.length) return [];
+  const results = await db.batch(terms.map((t) => db.prepare(
+    `SELECT u.id AS upload_id, u.date, u.round, l.grp, l.kind, l.label, l.size, l.qty, l.sku, j.value AS order_no,
+            json_extract(l.stores, '$."' || j.value || '"') AS store, ?1 AS term
+     FROM purchase_lines l JOIN purchase_uploads u ON u.id = l.upload_id, json_each(l.orders) j
+     WHERE instr(j.value, ?1) > 0
+     ORDER BY u.date DESC, u.round DESC LIMIT 300`,
+  ).bind(t)));
+  return results.flatMap((r) => r.results as FoundOrder[]).sort((a, b) => b.date.localeCompare(a.date) || b.round - a.round).slice(0, 300);
+}

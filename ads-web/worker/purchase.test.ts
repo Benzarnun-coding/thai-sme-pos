@@ -383,3 +383,10 @@ test('a Lazada SKU moved out of ตรวจสอบ is named by what the custo
   const [ours] = buildLines(readOrderItems([{ SKU: '2004-BB-BI-38', 'ชื่อตัวเลือก': '200/4, 38', 'จำนวน': '1' }]), makeLookup(CATALOG, new Map()));
   assert.equal(applyMoves([ours], new Map([[ours.sku, 'J.BIG']]), new Set())[0].label, '2004-BB-BI');
 });
+
+test('order search terms: pasted lists split on spaces, commas and new lines; 4+ characters', async () => {
+  const { orderTerms } = await import('./purchase.ts');
+  assert.deepEqual(orderTerms('586598299988231915\n261015N4H9UD8D, 1123544675508045  abc 5865'), ['586598299988231915', '261015N4H9UD8D', '1123544675508045', '5865']);
+  assert.deepEqual(orderTerms(' '), []);
+  assert.equal(orderTerms(Array.from({ length: 50 }, (_, i) => `order${i}`).join(' ')).length, 30, 'at most 30 at a time');
+});
