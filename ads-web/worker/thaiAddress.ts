@@ -70,7 +70,31 @@ export function completeAddress(a: AddressParts): { parts: AddressParts; doubt: 
   }
   // Subdistrict not found: still fill the postcode when the district has only one.
   const inDist = all().filter((r) => (!prov || r.prov === prov) && a.district && districtMatches(r.dist, a.district, r.prov));
+  // A typo in the subdistrict ("ตลาดตะเคียน" for ลาดตะเคียน, อ.กบินทร์บุรี): the one closest by spelling in that
+  // district, if it is the only one within 2 letters — filled, and said so for a person to check.
+  if (sub && inDist.length) {
+    const scored = inDist.map((r) => ({ r, d: editDistance(r.sub, sub) })).sort((x, y) => x.d - y.d);
+    const best = scored[0];
+    if (best.d <= 2 && (scored.length === 1 || scored[1].d > best.d || scored[1].r.sub === best.r.sub)) {
+      const r = best.r;
+      return { parts: { subdistrict: r.sub, district: r.dist, province: r.prov, postal_code: zip || r.zip }, doubt: `ไม่มี ต.${sub} — ใช้ ต.${r.sub} อ.${r.dist} (สะกดใกล้สุด) ช่วยเช็ก` };
+    }
+  }
   const distZips = [...new Set(inDist.map((r) => r.zip))];
   if (!zip && distZips.length === 1) return { parts: { ...a, district: inDist[0].dist, province: inDist[0].prov, postal_code: distZips[0] }, doubt: sub ? `ไม่พบ ต.${sub} ใน อ.${inDist[0].dist} — เช็กชื่อตำบล` : null };
   return { parts: { ...a, province: prov || a.province, postal_code: zip }, doubt: sub ? `ไม่พบ ต.${sub}${a.district ? ` อ.${bare(a.district)}` : ''}${prov ? ` จ.${prov}` : ''} ในฐานข้อมูลตำบล` : null };
+}
+
+function editDistance(a: string, b: string): number {
+  const prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let diag = prev[0];
+    prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const up = prev[j];
+      prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diag = up;
+    }
+  }
+  return prev[b.length];
 }

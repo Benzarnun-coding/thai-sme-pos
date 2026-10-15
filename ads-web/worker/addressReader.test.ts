@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { addressLine, cleanAddress } from './addressReader.ts';
 
-const base = { found: true, name: 'สมพร ใจดี', phone: '+66 81 234 5678', street: '12 ม.3', subdistrict: 'พรุดินนา', district: 'คลองท่อม', province: 'กระบี่', postal_code: '', from_image: false, doubt: '' };
+const base = { found: true, name: 'สมพร ใจดี', phone: '+66 81 234 5678', street: '12 ม.3', subdistrict: 'พรุดินนา', district: 'คลองท่อม', province: 'กระบี่', postal_code: '', from_image: false, doubt: '', cancelled: false, size_mismatch: '' };
 
 test('a postcode the customer left out is filled, and the model\'s note about it no longer counts', () => {
   const a = cleanAddress({ ...base, doubt: 'ลูกค้าไม่ได้ให้รหัสไปรษณีย์' });
