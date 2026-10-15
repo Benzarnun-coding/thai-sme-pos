@@ -10,6 +10,7 @@ const PAGES = [
   ['/catalog/stock', 'สต็อก'],
   ['/catalog/todo', 'งานค้าง'],
   ['/gosell', 'GoSell'],
+  ['/botkb', 'คลังคำตอบบอท'],
 ] as const;
 
 export type SitePath = (typeof PAGES)[number][0];
