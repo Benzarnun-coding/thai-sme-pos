@@ -111,3 +111,83 @@ export async function chatSummary(db: D1Database, days = 7, now = new Date()): P
     campaigns: [...camp].map(([campaign_id, c]) => ({ campaign_id, chats: c.chats, answered: c.answered, ordered: c.ordered, median_reply_min: median(c.waits) })).sort((a, b) => b.chats - a.chats),
   };
 }
+
+// ---- daily chat report for #meta-chat (Discord webhook DISCORD_CHAT_WEBHOOK_URL) ----
+
+export interface ChatDay {
+  from: string; to: string;
+  threads: number; customer: number; page: number;
+  /** first reply of the page to each customer's first message in the window, minutes */
+  replies: number[];
+  /** customers whose last message got no page reply within 30 minutes (and none after) */
+  unanswered: number;
+  /** first-reply minutes by Bangkok time band of the customer's first message */
+  bands: { band: string; replies: number[]; unanswered: number }[];
+  campaigns: { campaign_id: string | null; chats: number; answered: number; ordered: number }[];
+  addresses: number;
+}
+
+const BANDS: [string, number, number][] = [['00–08', 0, 8], ['08–12', 8, 12], ['12–18', 12, 18], ['18–24', 18, 24]];
+const bkkHour = (iso: string) => (new Date(iso).getUTCHours() + 7) % 24;
+
+/** One window (e.g. yesterday in Bangkok time) of chats: replies, unanswered customers, chats per ad campaign. */
+export async function chatDay(db: D1Database, from: string, to: string, now = new Date()): Promise<ChatDay> {
+  const [msgs, refs, notes] = await Promise.all([
+    db.prepare(`SELECT psid, at, from_page, text FROM chat_messages WHERE at >= ? AND at < ? ORDER BY at`).bind(from, to).all<{ psid: string; at: string; from_page: number; text: string | null }>(),
+    db.prepare(`SELECT psid, min(at) at, campaign_id FROM ad_referrals WHERE at >= ? AND at < ? GROUP BY psid`).bind(from, to).all<{ psid: string; at: string; campaign_id: string | null }>(),
+    db.prepare(`SELECT psid, min(at) at FROM order_notes WHERE at >= ? GROUP BY psid`).bind(from).all<{ psid: string; at: string }>().catch(() => ({ results: [] as { psid: string; at: string }[] })),
+  ]);
+  const byPsid = new Map<string, { at: string; from_page: number }[]>();
+  for (const m of msgs.results) byPsid.set(m.psid, [...(byPsid.get(m.psid) ?? []), m]);
+  const replies: number[] = [];
+  let unanswered = 0;
+  const bands = BANDS.map(([band]) => ({ band, replies: [] as number[], unanswered: 0 }));
+  const bandOf = (iso: string) => bands[BANDS.findIndex(([, a, b]) => bkkHour(iso) >= a && bkkHour(iso) < b)];
+  for (const list of byPsid.values()) {
+    const first = list.find((m) => !m.from_page);
+    if (!first) continue;
+    const reply = list.find((m) => m.from_page && m.at >= first.at);
+    if (reply) { const w = (Date.parse(reply.at) - Date.parse(first.at)) / 60_000; replies.push(w); bandOf(first.at).replies.push(w); }
+    const lastCustomer = [...list].reverse().find((m) => !m.from_page)!;
+    const answeredAfter = list.some((m) => m.from_page && m.at >= lastCustomer.at);
+    if (!answeredAfter && now.getTime() - Date.parse(lastCustomer.at) > 30 * 60_000) { unanswered++; bandOf(lastCustomer.at).unanswered++; }
+  }
+  const noteAt = new Map(notes.results.map((n) => [n.psid, n.at]));
+  const camp = new Map<string | null, { chats: number; answered: number; ordered: number }>();
+  for (const r of refs.results) {
+    const c = camp.get(r.campaign_id) ?? { chats: 0, answered: 0, ordered: 0 };
+    c.chats++;
+    if ((byPsid.get(r.psid) ?? []).some((m) => m.from_page && m.at >= r.at)) c.answered++;
+    if ((noteAt.get(r.psid) ?? '') >= r.at) c.ordered++;
+    camp.set(r.campaign_id, c);
+  }
+  const page = msgs.results.filter((m) => m.from_page).length;
+  return {
+    from, to, threads: byPsid.size, customer: msgs.results.length - page, page, replies, unanswered, bands,
+    campaigns: [...camp].map(([campaign_id, c]) => ({ campaign_id, ...c })).sort((a, b) => b.chats - a.chats),
+    addresses: msgs.results.filter((m) => m.text === '[ที่อยู่]').length,
+  };
+}
+
+/** The #meta-chat message (≤ 2,000 characters). Campaign names come from the caller. */
+export function chatDayText(d: ChatDay, title: string, nameOf: (id: string | null) => string): string {
+  const med = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] : null);
+  const p90 = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[Math.floor(xs.length * 0.9)] : null);
+  const mins = (x: number | null) => (x === null ? '–' : x < 1 ? '<1 นาที' : x < 60 ? `${Math.round(x)} นาที` : `${(x / 60).toFixed(1)} ชม.`);
+  const lines = [
+    `💬 **${title}** — น้องจิบิสรุปแชทค่ะ`,
+    `ลูกค้า ${d.threads} คน · ข้อความลูกค้า ${d.customer} · เพจตอบ ${d.page} · ส่งที่อยู่ ${d.addresses} ครั้ง (ประมาณคนที่ตกลงซื้อ)`,
+    `⏱ ตอบครั้งแรกเฉลี่ย (มัธยฐาน) **${mins(med(d.replies))}** · ช้าสุด 10% ${mins(p90(d.replies))} · ${d.unanswered ? `⚠️ ยังไม่มีคนตอบ **${d.unanswered} คน**` : '✅ ตอบครบทุกคน'}`,
+    `ตามช่วงเวลา: ${d.bands.filter((b) => b.replies.length || b.unanswered).map((b) => `${b.band} น. ${mins(med(b.replies))}${b.unanswered ? ` (ไม่ได้ตอบ ${b.unanswered})` : ''}`).join(' · ') || '–'}`,
+  ];
+  const camps = d.campaigns.filter((c) => c.campaign_id).slice(0, 8);
+  if (camps.length) {
+    lines.push('', '**แชทจากแอด** (คนทัก → เพจตอบ → มีโน้ตออเดอร์)');
+    for (const c of camps) lines.push(`• ${nameOf(c.campaign_id).slice(0, 48)}: ${c.chats} → ${c.answered} → ${c.ordered}${c.chats >= 5 && c.ordered === 0 ? ' ⚠️' : ''}`);
+    const other = d.campaigns.filter((c) => !c.campaign_id).reduce((t, c) => t + c.chats, 0);
+    if (other) lines.push(`• ไม่ระบุแอด (ลิงก์ m.me / โพสต์): ${other} คน`);
+  }
+  lines.push('', '_โน้ตออเดอร์ = แอดมินพิมพ์ "รหัส ไซส์ cod ยอด" ในแชท · ข้อมูลแชทเริ่มเก็บ 15 ต.ค. 12:31 · เบอร์/ที่อยู่ถูกลบก่อนบันทึก_');
+  const text = lines.join('\n');
+  return text.length > 1990 ? `${text.slice(0, 1987)}…` : text;
+}

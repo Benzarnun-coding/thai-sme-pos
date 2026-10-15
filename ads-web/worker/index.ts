@@ -29,7 +29,7 @@ import { parseRange, salesData } from './sales.ts';
 import { deletePurchase, findOrders, ledger, listPurchases, orderTerms, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveAlias, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
-import { chatSummary, purgeChats } from './chatLog.ts';
+import { chatDay, chatDayText, chatSummary, purgeChats } from './chatLog.ts';
 import { familyStats, postIdeas, postIdeasText } from './postIdeas.ts';
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
 import { approvalsEnabled, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
@@ -54,6 +54,8 @@ export interface Env {
   DISCORD_APP_PUBLIC_KEY?: string;
   DISCORD_CHANNEL_ID?: string;
   DISCORD_DECIDER_IDS?: string;
+  /** #meta-chat channel webhook: the daily chat report */
+  DISCORD_CHAT_WEBHOOK_URL?: string;
   /** Discord user IDs allowed to press the buttons (comma separated); empty = anyone in the channel */
   DISCORD_APPROVER_IDS?: string;
   /** Discord user IDs who upload Page365 (มอส); tagged at 10:00 if the file is missing, may press the upload buttons */
@@ -126,7 +128,7 @@ export default {
 
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     if (event.cron === COSTS_CRON) {
-      ctx.waitUntil(purgeChats(env.DB).catch((err) => console.error('chat purge', err)));
+      ctx.waitUntil(purgeChats(env.DB).then(() => sendChatReport(env, 'yesterday')).catch((err) => console.error('chat report', err)));
       ctx.waitUntil(loadSettings(env.DB).then((s) => Promise.all([
         s.sheet_id ? syncCosts(env.DB, s) : [],
         s.ads_cost_sheet_id ? syncCampaignCosts(env.DB, s) : null,
@@ -508,6 +510,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
 
   // ---- Messenger webhook: who came from which ad ----
   if (path === '/api/webhook' && method === 'GET') return json(await webhookStatus(env, `${url.origin}/webhook/meta`));
+  if (path === '/api/chats/report' && method === 'POST') return json(await sendChatReport(env, url.searchParams.get('scope') === 'yesterday' ? 'yesterday' : 'today'));
   if (path === '/api/chats/summary' && method === 'GET') return json(await chatSummary(env.DB, Math.min(30, Math.max(1, Number(url.searchParams.get('days') ?? 7)))));
   if (path === '/api/webhook/setup' && method === 'POST') {
     const r = await setupWebhook(env, `${url.origin}/webhook/meta`).catch((err) => { throw new BadRequest(err.message); });
@@ -1195,6 +1198,21 @@ function finite<T extends object | undefined>(m: T): T {
 }
 
 /** 07:30 Discord note: yesterday's real numbers (Page365) when the file is in; the reminder waits until 10:00. */
+/** น้องจิบิ's chat report to #meta-chat: yesterday (07:30) or today so far (button). */
+async function sendChatReport(env: Env, scope: 'yesterday' | 'today'): Promise<{ sent: boolean; threads: number }> {
+  if (!env.DISCORD_CHAT_WEBHOOK_URL) throw new BadRequest('ยังไม่ได้ตั้ง DISCORD_CHAT_WEBHOOK_URL');
+  const day = scope === 'yesterday' ? bkkDate(1) : bkkDate(0);
+  const from = new Date(`${day}T00:00:00+07:00`).toISOString();
+  const to = scope === 'yesterday' ? new Date(`${bkkDate(0)}T00:00:00+07:00`).toISOString() : new Date().toISOString();
+  const d = await chatDay(env.DB, from, to);
+  const names = new Map<string, string>();
+  try { for (const e of (await metaData(env)).data.entities) if (e.level === 'campaign') names.set(e.id, e.name); } catch { /* names are a nicety */ }
+  const thai = new Date(`${day}T00:00:00+07:00`).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' });
+  const title = scope === 'yesterday' ? `แชท ${thai}` : `แชทวันนี้ ${thai} ถึง ${new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}`;
+  const sent = await pushDiscord(chatDayText(d, title, (id) => (id ? names.get(id) ?? `แคมเปญ ${id}` : 'ไม่ระบุแอด')), env.DISCORD_CHAT_WEBHOOK_URL).catch(() => false);
+  return { sent: !!sent, threads: d.threads };
+}
+
 async function dailyDigest(env: Env): Promise<void> {
   await salesDigest(env, bkkDate(1));
   if (!env.DISCORD_WEBHOOK_URL) return;
