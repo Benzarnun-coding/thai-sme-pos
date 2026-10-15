@@ -26,9 +26,18 @@ function readWindow(): Window {
   try { const w = localStorage.getItem('window') as Window | null; return w && !w.startsWith('range:') ? w : 'last_7d'; } catch { return 'last_7d'; }
 }
 
+const TAB_IDS: Tab[] = ['overview', 'sales', 'chatlog', 'ideas', 'competitors', 'rules', 'products', 'history', 'settings', 'users'];
+/** The tab is in the URL (#sales, #settings…) so a link opens it and the browser's back/forward moves between tabs. */
+const tabFromHash = (): Tab => { const h = location.hash.slice(1) as Tab; return TAB_IDS.includes(h) ? h : 'overview'; };
+
 export function App() {
   const { toast } = useUi();
-  const [tab, setTab] = useState<Tab>('overview');
+  const [tab, setTab] = useState<Tab>(tabFromHash);
+  useEffect(() => {
+    const sync = () => setTab(tabFromHash());
+    addEventListener('popstate', sync);
+    return () => removeEventListener('popstate', sync);
+  }, []);
   const [window, setWindow] = useState<Window>(readWindow);
   const [data, setData] = useState<OverviewData | null>(null);
   const [me, setMe] = useState<{ email: string; role: Role; mock: boolean } | null>(null);
@@ -87,7 +96,7 @@ export function App() {
   async function actOnIdea(i: Idea) {
     const a = i.action;
     if (!a || !data) return;
-    if (a.type === 'open_stage_tab') { setStageTab(a.tab); setTab('overview'); scrollTo({ top: 0 }); return; }
+    if (a.type === 'open_stage_tab') { setStageTab(a.tab); go('overview'); return; }
     const c = data.campaigns.find((x) => x.id === i.campaign_id);
     if (!c) { toast('ไม่พบแคมเปญนี้ในข้อมูลปัจจุบัน — ลองรีเฟรช', 'bad'); return; }
     if (a.type === 'move') await actions.moveStage([c], a.to);
@@ -107,7 +116,11 @@ export function App() {
     }
   }
 
-  const go = (t: Tab) => { setTab(t); scrollTo({ top: 0 }); };
+  const go = (t: Tab) => {
+    if (t !== tabFromHash()) history.pushState(null, '', t === 'overview' ? location.pathname + location.search : `#${t}`);
+    setTab(t);
+    scrollTo({ top: 0 });
+  };
   const editingSection = data?.sections.find((s) => s.id === editing);
   const openCampaign = data?.campaigns.find((c) => c.id === openId);
   const openRules = (t: RulesTarget) => {

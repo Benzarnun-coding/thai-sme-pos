@@ -4,7 +4,8 @@
 // Received stock ("รับของเข้า") and count corrections ("ปรับยอด") are typed here. Replaces the "Stock BB" sheet.
 
 import { useEffect, useMemo, useState } from 'react';
-import { api, type GosellCut, type Role, type StockData, type StockLoc, type StockMove } from './api.ts';
+import { api, type GosellCut, type Role, type SalesData, type StockData, type StockItem, type StockLoc, type StockMove } from './api.ts';
+import { coverDays, forecast, refill, sizeShares, type Forecast } from './forecast.ts';
 import { num } from './fmt.ts';
 import { thaiShortDate } from './purchase.ts';
 import { HomeLogo, SiteNav } from './SiteNav.tsx';
@@ -14,6 +15,55 @@ const LOC_LABEL: Record<StockLoc, string> = { pia: 'พี่เปีย (BB)',
 const KIND_LABEL: Record<StockMove['kind'], string> = { open: 'ยอดเริ่ม', in: 'ของเข้า', out: 'ออก', adjust: 'ปรับยอด' };
 const LOW = 5;
 const todayBkk = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
+const minusDays = (iso: string, d: number) => new Date(Date.parse(iso) - d * 86400_000).toISOString().slice(0, 10);
+const TARGET_KEY = 'stock.targetDays';
+const HISTORY_DAYS = 28;
+
+/** Forecast per model and days of cover per SKU, for one place (see forecast.ts for the method). */
+interface Plan {
+  models: Map<string, { f: Forecast; pieces: number }>;
+  sku: Map<string, { rate: number; days: number | null; share: number }>;
+  source: string;
+}
+
+function makePlan(items: StockItem[], sales: SalesData, loc: StockLoc, balance: Map<string, number>): Plan {
+  const today = todayBkk();
+  const age = (d: string) => Math.round((Date.parse(today) - Date.parse(d)) / 86400_000);
+  const bySku = new Map(items.map((i) => [i.sku, i]));
+  // พี่เปีย sells what TikTok/Shopee orders (order-sheet rounds); GoSell what Facebook orders (Page365).
+  const rows = loc === 'pia' ? sales.bigseller.map((r) => ({ date: r.date, sku: r.sku, qty: Number(r.qty) || 0 })) : sales.page365.map((r) => ({ date: r.date, sku: r.sku, qty: Number(r.qty) || 0 }));
+  const dataDays = (loc === 'pia' ? sales.bigsellerDays : sales.page365Days).filter((d) => d < today);
+  const perDay = new Map<string, Map<string, number>>(); // model → date → pieces
+  const perSize = new Map<string, Map<string, number>>(); // model → size → pieces
+  for (const r of rows) {
+    const it = bySku.get(r.sku.toUpperCase()) ?? bySku.get(r.sku);
+    if (!it || r.date >= today) continue;
+    const d = perDay.get(it.code) ?? new Map<string, number>();
+    d.set(r.date, (d.get(r.date) ?? 0) + r.qty);
+    perDay.set(it.code, d);
+    const z = perSize.get(it.code) ?? new Map<string, number>();
+    z.set(it.size, (z.get(it.size) ?? 0) + r.qty);
+    perSize.set(it.code, z);
+  }
+  const models = new Map<string, { f: Forecast; pieces: number }>();
+  const sku = new Map<string, { rate: number; days: number | null; share: number }>();
+  for (const code of [...new Set(items.map((i) => i.code))]) {
+    const d = perDay.get(code) ?? new Map<string, number>();
+    const f = forecast(dataDays.map((day) => ({ age: age(day), qty: d.get(day) ?? 0 })));
+    models.set(code, { f, pieces: [...d.values()].reduce((a, b) => a + b, 0) });
+    const sizes = items.filter((i) => i.code === code).map((i) => i.size);
+    const shares = sizeShares(perSize.get(code) ?? new Map(), sizes);
+    for (const i of items.filter((x) => x.code === code)) {
+      if (!balance.has(i.sku)) continue;
+      const share = shares.get(i.size) ?? 0;
+      sku.set(i.sku, { rate: f.at(1) * share, days: f.method === 'none' ? null : coverDays(balance.get(i.sku) ?? 0, f, share), share });
+    }
+  }
+  return { models, sku, source: loc === 'pia' ? 'TikTok/Shopee จากรอบใบสั่ง' : 'Facebook จาก Page365' };
+}
+
+const daysText = (d: number | null) => (d === null ? '> 90 วัน' : d < 1 ? '< 1 วัน' : `~${Math.floor(d)} วัน`);
+const daysClass = (d: number | null, target: number) => (d === null ? '' : d < 7 ? 'bad' : d < target ? 'warn' : 'good');
 /** What the GoSell page hands over (same browser): the orders of the file it just made. */
 export const GOSELL_HANDOFF = 'gosell.stockCut';
 export interface GosellHandoff { file: string; at: string; lines: { order_no: string; sku: string; qty: number }[] }
@@ -28,6 +78,10 @@ export function StockApp() {
   const [loc, setLoc] = useState<StockLoc>(() => (new URLSearchParams(location.search).get('gosell') ? 'gosell' : 'pia'));
   const [mode, setMode] = useState<Mode>(null);
   const load = () => api.stock().then(setData).catch((e) => toast(e.message, 'bad'));
+  const [sales, setSales] = useState<SalesData | null>(null);
+  useEffect(() => { api.sales(minusDays(todayBkk(), HISTORY_DAYS), minusDays(todayBkk(), 1)).then(setSales).catch(() => {}); }, []);
+  const [target, setTarget] = useState(() => { try { return Number(localStorage.getItem(TARGET_KEY)) || 14; } catch { return 14; } });
+  useEffect(() => { try { localStorage.setItem(TARGET_KEY, String(target)); } catch { /* private mode */ } }, [target]);
   useEffect(() => { load(); api.me().then((m) => setRole(m.role)).catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const canEdit = role === 'owner' || role === 'admin' || role === 'costs';
   const canOpen = role === 'owner' || role === 'admin';
@@ -41,6 +95,7 @@ export function StockApp() {
   const total = [...balance.values()].reduce((a, b) => a + b, 0);
   // A size with no entry at all is not kept at this place (e.g. 701/1 at พี่เปีย): shown as — rather than as sold out.
   const lowCount = items.filter((i) => balance.has(i.sku) && (balance.get(i.sku) ?? 0) <= LOW).length;
+  const plan = useMemo(() => (data && sales ? makePlan(items, sales, loc, balance) : null), [data, sales, items, loc, balance]);
 
   return (
     <div className="app stock">
@@ -89,7 +144,15 @@ export function StockApp() {
                     return (
                       <tr key={m}>
                         <td><b>{m}</b></td>
-                        {row.map((q, i) => <td key={sizes[i]} className={q === null ? 'muted' : q <= 0 ? 'out' : q <= LOW ? 'low' : ''}>{q === null ? '—' : num(q)}</td>)}
+                        {row.map((q, i) => {
+                          const p = plan?.sku.get(skuOf(m, sizes[i]) ?? '');
+                          return (
+                            <td key={sizes[i]} className={q === null ? 'muted' : q <= 0 ? 'out' : q <= LOW ? 'low' : ''}>
+                              {q === null ? '—' : num(q)}
+                              {q !== null && p && <div className={`stock-days ${daysClass(p.days, target)}`}>{daysText(p.days)}</div>}
+                            </td>
+                          );
+                        })}
                         <td><b>{num(row.reduce<number>((a, b) => a + (b ?? 0), 0))}</b></td>
                       </tr>
                     );
@@ -102,6 +165,8 @@ export function StockApp() {
         </section>
       )}
 
+      {data && plan && <ForecastCard plan={plan} items={items} balance={balance} target={target} setTarget={setTarget} />}
+
       {data && <History data={data} loc={loc} canEdit={canEdit} onDelete={async (ids) => {
         if (!(await confirm({ title: 'ลบรายการนี้?', body: 'ยอดคงเหลือจะคำนวณใหม่โดยไม่มีรายการนี้', confirmLabel: 'ลบ', tone: 'danger' }))) return;
         try { for (const id of ids) await api.deleteStockMove(id); toast('ลบแล้ว', 'ok'); load(); } catch (e: any) { toast(e.message, 'bad'); load(); }
@@ -111,6 +176,76 @@ export function StockApp() {
 }
 
 const nextDay = (d: string) => new Date(Date.parse(d) + 86400_000).toISOString().slice(0, 10);
+
+/** Per model: recent sales, trend and forecast; per size: what runs out before `target` days and how much to add. */
+function ForecastCard({ plan, items, balance, target, setTarget }: {
+  plan: Plan; items: StockItem[]; balance: Map<string, number>; target: number; setTarget: (n: number) => void;
+}) {
+  const today = todayBkk();
+  const soon = items.filter((i) => plan.sku.has(i.sku)).map((i) => {
+    const p = plan.sku.get(i.sku)!, f = plan.models.get(i.code)!.f, stock = balance.get(i.sku) ?? 0;
+    return { i, p, stock, add: refill(stock, f, p.share, target) };
+  }).filter((x) => x.add > 0 && plan.models.get(x.i.code)!.f.method !== 'none').sort((a, b) => (a.p.days ?? 999) - (b.p.days ?? 999));
+  const out = (d: number | null) => (d === null ? '' : thaiShortDate(new Date(Date.parse(today) + Math.floor(d) * 86400_000).toISOString().slice(0, 10)));
+  const trend = (f: Forecast) => (f.prev7 === null || !f.prev7 ? null : (f.last7 - f.prev7) / f.prev7);
+  return (
+    <section className="card table-card">
+      <div className="table-card-head">
+        <h2>คาดการณ์ตามเทรนด์</h2>
+        <label className="small">เติมให้พอ
+          <select value={target} onChange={(e) => setTarget(Number(e.target.value))} style={{ marginLeft: 6 }}>
+            {[7, 14, 21, 30].map((d) => <option key={d} value={d}>{d} วัน</option>)}
+          </select>
+        </label>
+      </div>
+      <p className="small muted po-hint">
+        จากยอดขาย {HISTORY_DAYS} วันล่าสุด ({plan.source}) ไม่นับวันนี้ · ข้อมูลตั้งแต่ 7 วัน = เส้นเทรนด์ที่ให้น้ำหนักวันล่าสุดมากกว่า น้อยกว่านั้น = ค่าเฉลี่ย · คิดทั้งรุ่นแล้วแบ่งตามสัดส่วนไซส์ที่ขายได้
+      </p>
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead><tr><th>รุ่น</th><th className="num">ขาย/วัน (7 วัน)</th><th className="num">เทรนด์</th><th className="num">คาดพรุ่งนี้</th><th className="num">คาด {target} วัน</th><th>ข้อมูล</th></tr></thead>
+          <tbody>
+            {[...plan.models].filter(([code]) => items.some((i) => i.code === code && plan.sku.has(i.sku))).map(([code, { f }]) => {
+              const t = trend(f);
+              let next = 0;
+              for (let d = 1; d <= target; d++) next += f.at(d);
+              return (
+                <tr key={code}>
+                  <td><b>{code}</b></td>
+                  <td className="num">{f.method === 'none' ? '—' : num(f.last7, 1)}</td>
+                  <td className={`num ${t === null ? 'muted' : t > 0.05 ? 'good' : t < -0.05 ? 'bad' : ''}`}>{t === null ? '—' : `${t > 0 ? '↑' : t < 0 ? '↓' : ''} ${num(Math.abs(t) * 100, 0)}%`}</td>
+                  <td className="num">{f.method === 'none' ? '—' : num(f.at(1), 1)}</td>
+                  <td className="num">{f.method === 'none' ? '—' : num(Math.round(next))}</td>
+                  <td className="small muted">{f.method === 'none' ? 'ยังไม่มีข้อมูลขาย' : f.mean === 0 ? `ไม่มียอดขาย ${f.days} วัน` : `${f.days} วัน · ${f.method === 'trend' ? 'ตามเทรนด์' : 'ค่าเฉลี่ย (ข้อมูลน้อย)'}`}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <h3 className="po-hint" style={{ marginTop: 14 }}>ไซส์ที่ไม่พอ {target} วัน {soon.length ? <span className="muted small">({soon.length})</span> : null}</h3>
+      {soon.length ? (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead><tr><th>ไซส์</th><th className="num">คงเหลือ</th><th className="num">คาดขาย/วัน</th><th className="num">พออีก</th><th>หมดราว</th><th className="num">ควรเติม</th></tr></thead>
+            <tbody>
+              {soon.map(({ i, p, stock, add }) => (
+                <tr key={i.sku}>
+                  <td><b>{i.code} #{i.size}</b></td>
+                  <td className="num">{num(stock)}</td>
+                  <td className="num">{num(p.rate, 1)}</td>
+                  <td className={`num ${daysClass(p.days, target)}`}>{daysText(p.days)}</td>
+                  <td className="small">{p.days !== null && p.days > 0 ? out(p.days) : stock <= 0 ? 'หมดแล้ว' : ''}</td>
+                  <td className="num"><b>{num(add)}</b></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <p className="small muted po-hint">ทุกไซส์พอขายเกิน {target} วัน</p>}
+    </section>
+  );
+}
 
 /** Grid of inputs: received pieces (in), counted pieces (adjust → difference saved) or the starting balance (open). */
 function StockForm({ mode, loc, models, sizes, skuOf, balance, onCancel, onSaved }: {

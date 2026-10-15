@@ -126,6 +126,13 @@ rules, the monthly goal or the sheet.
   themselves; a starting balance is owner/admin only.
 - Starting balance: the sheet's "Stock คงเหลือ" on 2026-10-15 after the noon round (pia 540, gosell 811; sizes at 0
   left out), loaded once; cutting from the order sheets starts with rounds of 2026-10-16. The sheet is retired after that.
+- Forecast (`web/src/forecast.ts`, Benz 2026-10-15 "ตาม trend"): each cell shows how many days the balance lasts, and a
+  card lists per model the last-7-day sales, trend vs the 7 days before, tomorrow's forecast, and the sizes that won't
+  last the chosen 7/14/21/30 days with how much to add. Demand: พี่เปีย = TikTok/Shopee pieces from the order-sheet
+  rounds, GoSell = Facebook pieces from Page365; last 28 days with data, today left out. Per model: ≥ 7 data days → a
+  weighted straight line (recent days count more, 0.9 per day back), kept between ¼ and 3× the average; fewer → the
+  average. Split over sizes by their share of the model's pieces (+½ piece per size). พี่เปีย has little history until
+  the order rounds build up (only rounds saved with order rows count).
 - 07:30 #report lists sizes at ≤ 5 pieces.
 
 ## งานค้าง `/catalog/todo`

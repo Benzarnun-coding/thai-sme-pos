@@ -3,6 +3,7 @@
 // on Monday and presses "ใส่บอทแล้ว". Meta has no API for the bot's settings, so pasting stays a person's job.
 
 import { useEffect, useState } from 'react';
+import { HomeLogo, SiteNav } from './SiteNav.tsx';
 import { useUi } from './ui.tsx';
 
 interface KbItem {
@@ -43,9 +44,9 @@ export function BotKbApp() {
 
   return (
     <div className="kb-page">
+      <SiteNav current="/botkb" />
       <header className="kb-head">
-        <a href="/" className="ghost small">← แดชบอร์ด</a>
-        <h1>คลังคำตอบบอท Business AI</h1>
+        <div className="row"><HomeLogo text="AI" /><h1>คลังคำตอบบอท Business AI</h1></div>
         <p className="muted small">น้องจิบิเสนอจากแชทจริง (จันทร์/พฤหัส) · เบ้น/แม็กซ์อนุมัติ · เฟียร์คัดลอกไปใส่ Meta Business Suite → Business AI ทุกวันจันทร์ แล้วกด "ใส่บอทแล้ว"</p>
       </header>
 
