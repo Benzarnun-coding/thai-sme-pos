@@ -380,6 +380,7 @@ export function OrdersApp() {
               <p className="muted small">ไม่มีทุน/ยอดเงิน · Excel = ชีตสรุป + ชีตละร้าน · พิมพ์ = หน้าละร้าน เลือก "บันทึกเป็น PDF" เพื่อส่งทาง Line ได้{!viewing && canEdit ? ' · ระบบบันทึกประวัติให้เมื่อดาวน์โหลดหรือพิมพ์' : ''}</p>
             </div>
             <div className="row-actions">
+              <CopyOrdersButton orders={orderNumbersOf(lines)} label="คัดลอกเลขคำสั่งซื้อทั้งหมด" />
               <button onClick={() => print()} disabled={!!busy}><Icon name="down" size={14} /> พิมพ์ / PDF ทุกใบ</button>
               <button className="primary" onClick={() => exportExcel()} disabled={!!busy}><Icon name="down" size={14} /> Excel ทุกใบ</button>
             </div>
@@ -514,13 +515,14 @@ function GroupCard({ group: g, open, onToggle, missing, onMissing, onPrice, onLa
           {missingHere > 0 && <span className="pill warn">ของไม่มี {num(missingHere)}</span>}
           {total && <span className="pill po-money" title="ยอดเงินของที่ได้จริง (ภายใน ไม่ส่งร้าน)">฿{num(total.amount)}{total.unpriced ? ` · ยังไม่มีทุน ${num(total.unpriced)} ชิ้น` : ''}</span>}
         </button>
-        {g.kind !== 'review' && (
-          <div className="row-actions">
+        <div className="row-actions">
+          <CopyOrdersButton orders={orderNumbersOf(g.lines)} />
+          {g.kind !== 'review' && <>
             <button className={`small ${wantsPictures(g) ? 'primary' : ''}`} onClick={onPictures} disabled={busy} title="ใบสั่งเป็นรูป: รูปสินค้า + SKU + จำนวน (แยกตามออเดอร์ได้ สำหรับโกดังจีน)">รูปภาพ</button>
             <button className="small" onClick={onPrint} disabled={busy}>พิมพ์</button>
             <button className="small" onClick={onExcel} disabled={busy}>Excel</button>
-          </div>
-        )}
+          </>}
+        </div>
       </div>
       {open && (
         <>
@@ -569,6 +571,7 @@ function GroupCard({ group: g, open, onToggle, missing, onMissing, onPrice, onLa
                         {g.kind === 'review' ? l.note : <>
                           <code>{l.sku.startsWith('?') ? '(ไม่มี SKU)' : l.sku}</code>
                           {l.moved && <> <span className="pill warn">ย้ายมาจาก {l.from}</span></>}
+                          {l.moved && l.option && <div className="muted small">Bigseller: {l.option}</div>}
                           {!l.moved && l.note && <span className="muted"> · {l.note}</span>}
                           {l.sheetNote && <div className="po-sheet-note" title="ข้อความในคอลัมน์ รหัสแทน (M) ของชีต · แสดงให้ทีมเห็นเท่านั้น ไม่พิมพ์ในใบสั่ง">หมายเหตุชีต: {l.sheetNote}</div>}
                         </>}
@@ -843,13 +846,47 @@ function LedgerCard({ rows, history, onOpen }: { rows: LedgerRow[]; history: Pur
 }
 
 /** Order numbers of a line with the store each came from: the first two, the rest behind "+N". */
+/** Order numbers of lines, each once, in the order they appear (the ones the file had; none are made up). */
+function orderNumbersOf(lines: PurchaseLine[]): string[] {
+  const seen = new Set<string>();
+  for (const l of lines) for (const o of l.orders ?? []) if (o && !o.startsWith('?')) seen.add(o);
+  return [...seen];
+}
+
+/** Puts text on the clipboard; falls back to a hidden textarea where the Clipboard API is not allowed. */
+async function copyText(text: string): Promise<boolean> {
+  try { await navigator.clipboard.writeText(text); return true; } catch { /* fall back */ }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  const ok = document.execCommand('copy');
+  ta.remove();
+  return ok;
+}
+
+/** Copies every order number given, one per line (pastes straight into Bigseller's search or a sheet). */
+function CopyOrdersButton({ orders, label = 'คัดลอกเลขคำสั่งซื้อ' }: { orders: string[]; label?: string }) {
+  const { toast } = useUi();
+  if (!orders.length) return null;
+  return (
+    <button className="small" title="คัดลอกเลขคำสั่งซื้อทั้งหมด บรรทัดละเลข" onClick={async () => {
+      toast((await copyText(orders.join('\n'))) ? `คัดลอกเลขคำสั่งซื้อ ${num(orders.length)} เลขแล้ว` : 'คัดลอกไม่ได้ในเบราว์เซอร์นี้', 'ok');
+    }}>{label} ({num(orders.length)})</button>
+  );
+}
+
 function OrderNumbers({ orders, stores }: { orders: string[]; stores?: Record<string, string> }) {
+  const { toast } = useUi();
   const [all, setAll] = useState(false);
   if (!orders?.length) return <span className="muted">—</span>;
   const shown = all ? orders : orders.slice(0, 2);
+  const copyOne = async (o: string) => toast((await copyText(o)) ? `คัดลอก ${o} แล้ว` : 'คัดลอกไม่ได้', 'ok');
   return (
     <span className="po-orders">
-      {shown.map((o) => <span key={o}>{stores?.[o] && <span className="po-store">{stores[o]}</span>} <code>{o}</code></span>)}
+      {shown.map((o) => <span key={o}>{stores?.[o] && <span className="po-store">{stores[o]}</span>} <button className="po-copy" title="คลิกเพื่อคัดลอก" onClick={() => copyOne(o)}><code>{o}</code></button></span>)}
       {orders.length > 2 && <button className="link small" onClick={() => setAll(!all)}>{all ? 'ย่อ' : `+${orders.length - 2}`}</button>}
     </span>
   );

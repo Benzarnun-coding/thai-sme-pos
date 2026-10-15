@@ -4,6 +4,7 @@ import { useCampaignActions } from './actions.tsx';
 import { CampaignDrawer } from './CampaignDrawer.tsx';
 import { CompetitorsPage } from './CompetitorsPage.tsx';
 import { SalesPage } from './SalesPage.tsx';
+import { OrderNotesPage } from './OrderNotes.tsx';
 import { History, RunResult } from './History.tsx';
 import { IdeasPage } from './IdeasPage.tsx';
 import { when } from './fmt.ts';
@@ -16,8 +17,8 @@ import { SettingsPage } from './SettingsPage.tsx';
 import { UsersPage } from './UsersPage.tsx';
 import { Icon, Modal, useUi } from './ui.tsx';
 
-type Tab = 'overview' | 'sales' | 'ideas' | 'competitors' | 'rules' | 'products' | 'history' | 'settings' | 'users';
-const TABS: [Tab, string][] = [['overview', 'ภาพรวม'], ['sales', 'ยอดขายรายวัน'], ['ideas', 'ไอเดีย'], ['competitors', 'คู่แข่ง'], ['rules', 'กฎ'], ['products', 'สินค้า/ต้นทุน'], ['history', 'ประวัติ'], ['settings', 'ตั้งค่า']];
+type Tab = 'overview' | 'sales' | 'chatlog' | 'ideas' | 'competitors' | 'rules' | 'products' | 'history' | 'settings' | 'users';
+const TABS: [Tab, string][] = [['overview', 'ภาพรวม'], ['sales', 'ยอดขายรายวัน'], ['chatlog', 'Log ออเดอร์แชท'], ['ideas', 'ไอเดีย'], ['competitors', 'คู่แข่ง'], ['rules', 'กฎ'], ['products', 'สินค้า/ต้นทุน'], ['history', 'ประวัติ'], ['settings', 'ตั้งค่า']];
 
 function readWindow(): Window {
   // A custom range is for this visit only: reopening the site starts from 7 days, so a heavy range can't get stuck.
@@ -161,7 +162,7 @@ export function App() {
       <main>
         {error && <div className="error">{error} <button className="ghost small" onClick={refresh}>ลองใหม่</button></div>}
         {data?.meta_warning && <div className="banner">{data.meta_warning} · กำลังแสดงข้อมูลเมื่อ {when(data.meta_fetched_at)}</div>}
-        {!data && !error && tab !== 'history' && tab !== 'settings' && <Skeleton />}
+        {!data && !error && tab !== 'history' && tab !== 'settings' && tab !== 'chatlog' && <Skeleton />}
         {tab === 'overview' && data && (
           <div className={loading ? 'loading' : ''}>
             <Overview
@@ -177,6 +178,7 @@ export function App() {
           />
         )}
         {tab === 'sales' && data && <SalesPage data={data} onOpenCampaign={setOpenId} />}
+        {tab === 'chatlog' && <OrderNotesPage />}
         {tab === 'competitors' && data && <CompetitorsPage data={data} />}
         {tab === 'rules' && data && <RulesPage data={data} target={rulesTarget} onTarget={(t) => { setRulesTarget(t); scrollTo({ top: 0 }); }} stageTab={currentStageTab === ALL ? NONE : currentStageTab} onStageTab={setStageTab} onReload={load} />}
         {tab === 'products' && data && <ProductsPage data={data} onEdit={setEditing} onReload={load} onOpenCampaign={setOpenId} />}

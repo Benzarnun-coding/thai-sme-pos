@@ -43,6 +43,8 @@ export interface PurchaseLine {
   moved?: boolean;
   /** the group it was in before the move */
   from?: string;
+  /** Bigseller's option text of a moved ตรวจสอบ row (what the customer ordered), shown on screen */
+  option?: string;
 }
 
 export interface PurchaseGroup { name: string; kind: GroupKind; lines: PurchaseLine[]; pieces: number }
@@ -216,6 +218,14 @@ export function optionParts(option: string): { model: string; size: string } {
   if (cut < 0) return { model: option.trim(), size: '' };
   const size = option.slice(cut + 1).trim().match(/^(free\s*size|freesize|\d{1,3}(?:-\d{1,3})?|\d?x{0,3}[sml]|\dxl|fe)\b/i)?.[0] ?? '';
   return { model: option.slice(0, cut).trim(), size: size.replace(/\s+/g, '') };
+}
+
+/**
+ * Our SKU format: [code]-[warehouse]-[colour]-[size] with letters in the warehouse and colour parts ("2004-BB-BI-38",
+ * "PK004-CN-BL-L"). A marketplace's own id ("5409161349-1729665190325-32" from Lazada) is not.
+ */
+export function isOurSku(sku: string): boolean {
+  return /^[A-Za-z0-9.]+-[A-Za-z]{2,4}-[A-Za-z]{2,6}(-|$)/.test(sku);
 }
 
 /** The size part of a SKU that is not in the catalog ("200-BB-MD-38" → 38); '' when it has no such part. */
@@ -407,10 +417,12 @@ export function applyMoves(lines: PurchaseLine[], moves: Map<string, string>, wa
       const sized = parts.length >= 3;
       const what = l.note.split(' · ').slice(1).join(' · ');
       const opt = optionParts(what);
-      return {
-        ...l, group: to, kind, label: raw ? (sized ? parts.slice(0, -1).join('-') : raw) : (opt.size ? opt.model : what) || l.label,
-        size: raw ? (sized ? parts[parts.length - 1] : '') : opt.size || l.size, note: '', moved: true, from: l.group,
-      };
+      // Our own SKU format names the product; a marketplace's id (Lazada "5409161349-1729665190325-32") does not,
+      // so the sheet uses what the customer ordered (Bigseller's option) instead.
+      const label = raw && isOurSku(raw) ? (sized ? parts.slice(0, -1).join('-') : raw)
+        : (opt.size ? opt.model : what) || (raw ? (sized ? parts.slice(0, -1).join('-') : raw) : l.label);
+      const size = opt.size || (raw && sized ? parts[parts.length - 1] : '') || l.size;
+      return { ...l, group: to, kind, label, size, note: '', option: what, moved: true, from: l.group };
     }
     const r = lookup?.rows.get(skuKey(l.sku));
     return { ...l, group: to, kind, label: r ? labelFor(r, 'warehouse', lookup) : l.label, note: '', moved: true, from: l.group };
