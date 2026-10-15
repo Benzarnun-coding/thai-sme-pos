@@ -10,6 +10,7 @@ Direction: e-commerce system for Thai SMEs. The React app in `src/` is an early 
 - **Anything that writes outside ships switched off.** Meta (budgets, statuses, conversions), Page365, messages to customers or a new Discord channel: build it with a dry run, show Benz the dry-run output, and let Benz switch it on. (15 Oct 2026: "test" purchases sent to Meta were counted as real and can't be deleted.)
 - **Discord channels.** Ads channel (`DISCORD_WEBHOOK_URL`): rule runs, approval buttons, Page365 daily numbers, goal. #report (`DISCORD_REPORT_WEBHOOK_URL`): the 07:30 back-office report. #meta-chat (`DISCORD_CHAT_WEBHOOK_URL`): chat reports and the bot answer bank. Don't add a channel or a new daily post without Benz.
 - **Docs.** Keep this file short: one bullet per area, details in `ads-web/docs/<area>.md`.
+- **Cloud sessions** (claude.ai/code): `.claude/settings.json` installs `ads-web` dependencies on start; environment setup (Node 24, network, Cloudflare token) and what isn't there: `ads-web/docs/cloud.md`.
 
 ## ads-web (dashboard + scheduler on Cloudflare, free plan)
 
