@@ -24,15 +24,20 @@ export async function askAI(env: AIEnv, system: string, user: string, maxTokens 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', ...(env.ANTHROPIC_WORKSPACE_ID ? { 'anthropic-workspace-id': env.ANTHROPIC_WORKSPACE_ID } : {}) },
-    body: JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }] }),
+    // No thinking: the summary is short and thinking tokens would use up max_tokens before any text is written.
+    body: JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }], thinking: { type: 'disabled' } }),
   });
   const body: any = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(`AI ${res.status}: ${body?.error?.message ?? res.statusText}`);
   const text = (body.content ?? []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n').trim();
+  if (!text) throw new Error(`AI ตอบกลับไม่มีข้อความ (stop: ${body.stop_reason ?? '?'}, ชนิด: ${(body.content ?? []).map((c: any) => c.type).join(',') || '-'})`);
   return { text, input_tokens: body.usage?.input_tokens ?? 0, output_tokens: body.usage?.output_tokens ?? 0, model };
 }
 
-export interface Conversation { psid: string; campaign: string | null; ordered: boolean; messages: { from_page: number; text: string | null; attachments: string | null }[] }
+export interface Conversation { psid: string; campaign: string | null; ordered: boolean; messages: { from_page: number; text: string | null; attachments: string | null; at?: string }[] }
+
+/** "14:05" Bangkok time of an ISO timestamp — lets the team find a chat in the inbox. */
+const bkkTime = (iso?: string) => (iso ? new Date(Date.parse(iso) + 7 * 3_600_000).toISOString().slice(11, 16) : '');
 
 const MAX_CHARS = 60_000, MAX_MSGS = 30, MAX_MSG_CHARS = 200;
 
@@ -41,7 +46,8 @@ export function transcript(convs: Conversation[]): { text: string; used: number 
   const blocks: string[] = [];
   let total = 0, used = 0;
   for (const [i, c] of convs.entries()) {
-    const lines = [`### ลูกค้า ${i + 1} · แอด: ${c.campaign ?? 'ไม่ระบุ'} · มีโน้ตออเดอร์: ${c.ordered ? 'ใช่' : 'ไม่'}`];
+    const first = c.messages.find((m) => !m.from_page) ?? c.messages[0];
+    const lines = [`### ลูกค้า ${i + 1} · ทักครั้งแรก ${bkkTime(first?.at)} น. · แอด: ${c.campaign ?? 'ไม่ระบุ'} · มีโน้ตออเดอร์: ${c.ordered ? 'ใช่' : 'ไม่'}`];
     for (const m of c.messages.slice(0, MAX_MSGS)) {
       const t = m.text ? m.text.replace(/\s+/g, ' ').slice(0, MAX_MSG_CHARS) : `[ส่ง${m.attachments === 'image' || m.attachments?.startsWith('image') ? 'รูป' : 'ไฟล์'}]`;
       lines.push(`${m.from_page ? 'เพจ' : 'ลูกค้า'}: ${t}`);
@@ -58,12 +64,14 @@ export const INSIGHT_SYSTEM = `คุณคือ "น้องจิบิ" ผ
 กติกา:
 - ตอบเป็นข้อความ Discord markdown ไม่เกิน 1,700 ตัวอักษร ห้ามมีชื่อ เบอร์ ที่อยู่ของลูกค้า
 - ใช้ตัวเลขจากแชทจริง (เช่น "12 จาก 40 คน") อย่าเดา ถ้าข้อมูลน้อยให้บอกตรงๆ
+- ห้ามแต่งข้อมูลสินค้า (ไซส์ที่มี เนื้อผ้า สีตก ราคา) เอง ใช้เฉพาะที่แอดมินตอบในแชทจริง ถ้าไม่มีในแชทให้เขียน "(ทีมต้องยืนยัน)"
+- อ้างแชทเป็น "ลูกค้า N (HH:MM น., แอด …)" ตามหัวข้อของแชทนั้น เพื่อให้ทีมค้นเจอใน inbox
 - หัวข้อ (ใช้ตามนี้):
 **❓ ลูกค้าถามบ่อย** 3–5 ข้อ พร้อมจำนวนคน
 **🚫 ทำไมไม่ซื้อ** 3–5 สาเหตุที่เห็นในแชทที่ไม่มีโน้ตออเดอร์ พร้อมจำนวน
 **🛍 ชวนเป็นเซ็ต** ในแชทที่ลูกค้าเอา 1 ตัว แอดมินเสนอเซ็ต/เพิ่มตัวกี่ครั้ง และได้ผลกี่ครั้ง
 **📣 ไอเดียโพสต์/แอด** 2–3 ข้อ จากสิ่งที่ลูกค้าถามหรือติดใจ
-**🤖 ข้อมูลที่ควรใส่ให้ Business AI** 2–3 ข้อ (คำถาม → คำตอบที่แอดมินใช้จริง)
+**🤖 ข้อมูลที่ควรใส่ให้ Business AI** 2–3 ข้อ (คำถาม → คำตอบที่แอดมินพิมพ์จริงในแชท ไม่ใช่คำตอบที่คิดเอง)
 **⚠️ ต้องดู** แชทที่ตอบผิด/ตอบช้า/ลูกค้าไม่พอใจ (อ้าง "ลูกค้า N")`;
 
 export function insightPrompt(dayLabel: string, t: { text: string; used: number }, total: number): string {

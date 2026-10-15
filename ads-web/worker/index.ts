@@ -1247,7 +1247,7 @@ async function sendChatInsights(env: Env, scope: 'yesterday' | 'today'): Promise
   const ai = await askAI(env, INSIGHT_SYSTEM, insightPrompt(thai, t, list.length));
   const head = `🧠 **น้องจิบิอ่านแชท ${scope === 'yesterday' ? thai : `วันนี้ ${thai} (ถึงตอนนี้)`}** · ${list.length} คน${t.used < list.length ? ` (อ่าน ${t.used})` : ''}\n`;
   const sent = await pushDiscord(head + ai.text, env.DISCORD_CHAT_WEBHOOK_URL).catch(() => false);
-  await audit(env.DB, 'ai', 'chat.insights', day, { model: ai.model, input_tokens: ai.input_tokens, output_tokens: ai.output_tokens, customers: list.length, read: t.used }).catch(() => null);
+  await audit(env.DB, 'ai', 'chat.insights', day, { model: ai.model, input_tokens: ai.input_tokens, output_tokens: ai.output_tokens, customers: list.length, read: t.used, sent: !!sent, text: ai.text.slice(0, 4000) }).catch(() => null);
   return { sent: !!sent, customers: list.length, read: t.used, input_tokens: ai.input_tokens, output_tokens: ai.output_tokens };
 }
 
