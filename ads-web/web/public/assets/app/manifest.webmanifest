@@ -1,0 +1,17 @@
+{
+  "name": "PkJeans Ads",
+  "short_name": "PkJeans",
+  "description": "แอด ยอดขาย กำไร แคตตาล็อก และสั่งของของร้าน PkJeans",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffd21f",
+  "theme_color": "#0e1116",
+  "lang": "th",
+  "icons": [
+    { "src": "/assets/app/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/app/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/app/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
