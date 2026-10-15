@@ -235,7 +235,8 @@ export class MetaClient {
 
   /**
    * Deep copy of a campaign (ad sets + ads), everything PAUSED so the caller can set the budget before anything
-   * spends; returns the new campaign id and the ids of every copied ad set and ad (to switch on afterwards).
+   * spends; returns the new campaign id and the copied ad sets and ads to switch on afterwards — only those whose
+   * original is switched on (a paused weak ad in the winner stays paused in the copy).
    */
   async copyCampaign(campaignId: string, suffix: string): Promise<{ id: string; children: string[] }> {
     const b = await this.post(`${campaignId}/copies`, {
@@ -244,8 +245,10 @@ export class MetaClient {
       rename_options: JSON.stringify({ rename_strategy: 'ONLY_TOP_LEVEL_RENAME', rename_suffix: suffix }),
     });
     if (!b.copied_campaign_id) throw new Error('Meta ไม่ได้ส่ง id แคมเปญใหม่กลับมา');
-    const children = (b.ad_object_ids ?? []).filter((o: any) => o.ad_object_type === 'ad_set' || o.ad_object_type === 'ad').map((o: any) => String(o.copied_id));
-    return { id: String(b.copied_campaign_id), children };
+    const copied = copiedChildren(b.ad_object_ids);
+    const sources = copied.map((c) => c.source_id).filter(Boolean);
+    const statuses: Record<string, { status?: string }> = sources.length ? await this.get('', { ids: sources.join(','), fields: 'status' }) : {};
+    return { id: String(b.copied_campaign_id), children: childrenToSwitchOn(copied, statuses) };
   }
 
   /** amount in account currency; Meta wants minor units */
@@ -276,4 +279,17 @@ function sumMessages(list?: ActionRow[]): number {
   if (!list) return 0;
   const row = list.find((a) => a.action_type === 'onsite_conversion.messaging_conversation_started_7d');
   return row ? num(row.value) : 0;
+}
+
+type CopiedObject = { ad_object_type?: string; source_id?: string | number; copied_id?: string | number };
+
+/** The copied ad sets and ads from Meta's /copies reply, with the id of the object each was copied from. */
+export function copiedChildren(ids: CopiedObject[] | undefined): { source_id: string; copied_id: string }[] {
+  return (ids ?? []).filter((o) => o.ad_object_type === 'ad_set' || o.ad_object_type === 'ad')
+    .map((o) => ({ source_id: o.source_id === undefined ? '' : String(o.source_id), copied_id: String(o.copied_id) }));
+}
+
+/** Copies whose original is ACTIVE; an original we can't see (no source id, not returned) stays off. */
+export function childrenToSwitchOn(copied: { source_id: string; copied_id: string }[], statuses: Record<string, { status?: string }>): string[] {
+  return copied.filter((c) => c.source_id && statuses[c.source_id]?.status === 'ACTIVE').map((c) => c.copied_id);
 }
