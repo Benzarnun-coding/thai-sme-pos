@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyFill, planFill, sizeLines } from './p365fill.ts';
+import { applyFill, billName, chatTotal, planFill, sizeLines, validAddress } from './p365fill.ts';
 
 // A fake Page365 with the shapes its web app sees (read 15 Oct 2026): one draft for customer "u1".
 function fakePage365() {
@@ -22,6 +22,7 @@ function fakePage365() {
       const b = JSON.parse(init.body);
       order.items = b.order_items.map((i: any) => ({ ...order.items.find((x: any) => x.id === i.id), price: i.price, quantity: i.quantity, variant: { ...variantById(i.product_id) } }));
       order.shipping_cost = b.order.shipping_cost; order.discount = b.order.discount;
+      for (const k of ['customer_name', 'customer_phone', 'customer_address']) if (b.order[k] !== undefined) order[k] = b.order[k];
       order.subtotal = order.items.reduce((t: number, i: any) => t + i.price * i.quantity, 0);
       order.total = order.subtotal + order.shipping_cost - order.discount;
       return ok(order);
@@ -54,21 +55,22 @@ test('plan: finds the customer\'s draft, prices from Page365, the promo gap as d
 test('plan: out of stock, unknown size, a total above list price and a transfer note on a COD draft all stop it', async () => {
   fakePage365();
   const plan = await planFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/1 32\n501/2 36\nโอน 999' });
-  assert.equal(plan.problems.length, 4, plan.problems.join(' | '));
+  // out of stock, size not made, COD mismatch — the total isn't judged while a line is missing
+  assert.equal(plan.problems.length, 3, plan.problems.join(' | '));
   const none = await planFill(env, { psid: 'nobody', at: '2026-10-15T05:01:00.000Z', text: '501/1 30\ncod 249' });
   assert.equal(none.order, null);
 });
 
 test('apply: adds the products, sets sizes, shipping and discount, and checks the total read back', async () => {
   const { calls, order } = fakePage365();
-  const r = await applyFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/1 30 2\ncod 349' });
+  const r = await applyFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/1 30 2\ncod 349' }, { allowWarnings: true });
   assert.equal(r.order.total, 349);
   assert.equal(order.stage, 'draft', 'stays a draft — a person sends the bill');
   assert.deepEqual(order.items.map((i: any) => [i.variant.code, i.quantity]), [['5011-PK-MD-30', 2]]);
   assert.equal(order.discount, 99);
   assert.ok(calls.includes('POST order_items.json') && calls.includes('PUT orders/900.json'));
   assert.ok(!calls.some((c) => /advance|change_stage/.test(c)), 'never moves the stage');
-  await assert.rejects(applyFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/1 30\ncod 249' }), /มีสินค้าอยู่แล้ว/);
+  await assert.rejects(applyFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/1 30\ncod 249' }, { allowWarnings: true }), /มีสินค้าอยู่แล้ว/);
 });
 
 test('no stored login → a clear message, no calls', async () => {
@@ -85,4 +87,33 @@ test('a size that isn\'t made lists the sizes there are, and the customer\'s own
     { own: false, message: 'นาง ก 114 ม.5 เลย 42150 โทร 0928040924' },
     { own: false, message: 'เก็บปลายทาง' },
   ]), ['ดำ1ตัว กรม1ตัว เทา1ตัว เอว31ทุกตัวนะค่ะ']);
+});
+
+test('the bill name and the address the team writes; a missing address is a warning, not a stop', async () => {
+  const { order } = fakePage365();
+  assert.equal(billName(29349, 'D01-PK-NV-32', 'สมชาย ใจดี'), 'PK-9349 สมชาย ใจดี');
+  assert.equal(billName(29287, 'KZ071-CN-KH-XL', 'สุธน'), 'C-9287 สุธน');
+  assert.equal(billName(29296, 'NI93-PK-BR-32', 'PK-9296 สุพัตรา'), 'PK-9296 สุพัตรา', 'no double prefix');
+  const plan = await planFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/1 30\ncod 249' });
+  assert.deepEqual(plan.problems, []);
+  assert.match(plan.warnings.join(' '), /ANTHROPIC_API_KEY/);
+  await assert.rejects(applyFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/1 30\ncod 249' }), /ANTHROPIC_API_KEY/, '"fill all" skips it');
+  const address = { name: 'สุพัตรา รัตนคช', phone: '085-814-1351', street: '22/6 ม.1', subdistrict: 'พรุดินนา', district: 'คลองท่อม', province: 'กระบี่', postal_code: '81120' };
+  await applyFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/1 30\ncod 249' }, { address });
+  assert.equal(order.customer_name, 'PK-9400 สุพัตรา รัตนคช');
+  assert.equal(order.customer_address, '22/6 ม.1 ต.พรุดินนา อ.คลองท่อม จ.กระบี่ 81120');
+  assert.equal(order.customer_phone, '0858141351');
+  assert.equal(validAddress({ ...address, postal_code: '8112' }), null);
+});
+
+test('the total the chat agreed on: the shop\'s last "ยอด…", not the order note, not after the note', () => {
+  const msgs = [
+    { own: true, message: 'โปร 3 ตัว **499.-**', created_at: '2026-10-15T02:10:00Z' },
+    { own: true, message: 'ยืนยันอีกครั้ง ยอดรวม **549 บาท** เก็บเงินปลายทาง', created_at: '2026-10-15T02:12:00Z' },
+    { own: true, message: 'Ni9-1-2-5 31 cod 549', created_at: '2026-10-15T02:17:00Z' },
+    { own: true, auto: true, message: 'คอนเฟิร์มออเดอร์ ยอดรวม 239.00 บาท', created_at: '2026-10-15T02:18:00Z' },
+    { own: true, message: 'ยอดรวม 999', created_at: '2026-10-16T02:18:00Z' },
+  ];
+  assert.equal(chatTotal(msgs, '2026-10-15T02:17:00Z'), 549);
+  assert.equal(chatTotal([{ own: true, message: 'รวม 3 ตัว ราคาโปร' }]), null);
 });

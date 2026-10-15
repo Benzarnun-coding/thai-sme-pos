@@ -67,6 +67,8 @@ export interface Env {
   /** Page365 login the Worker uses to fill drafts (secret; see worker/p365fill.ts) and the shop's page id */
   P365_COOKIE?: string;
   P365_PAGE_ID?: string;
+  /** model that reads shipping addresses out of the chat (worker/addressReader.ts; key: ANTHROPIC_API_KEY below) */
+  ADDRESS_MODEL?: string;
   /** Messenger webhook (see worker/webhook.ts): app id is a var, the other two are secrets */
   META_APP_ID?: string;
   META_APP_SECRET?: string;
@@ -436,11 +438,13 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     try { return json(await planFill(env, note)); } catch (err) { if (err instanceof P365Error) throw new BadRequest(err.message); throw err; }
   }
   if (path === '/api/order-notes/fill' && method === 'POST') {
-    const note = await loadNote(env.DB, String((await body())?.mid ?? ''));
+    const input = await body();
+    const note = await loadNote(env.DB, String(input?.mid ?? ''));
     if (!note) throw new BadRequest('ไม่พบบรรทัดสรุปนี้');
     if (note.filled_at) throw new BadRequest(`ใส่ไปแล้วโดย ${note.filled_by} (#${note.fill_order_no})`);
     try {
-      const r = await applyFill(env, note);
+      // One bill pressed by a person may go ahead with warnings it was shown; "fill all" may not.
+      const r = await applyFill(env, note, { address: input?.address, allowWarnings: input?.allow_warnings === true });
       await markFill(env.DB, note.mid, { by: user, order_no: r.order.no, error: null });
       await audit(env.DB, user, 'p365.fill', String(r.order.no), { mid: note.mid, lines: r.plan.lines.map((l) => `${l.sku}×${l.qty}`), total: r.order.total });
       return json({ ok: true, order_no: r.order.no, total: r.order.total });

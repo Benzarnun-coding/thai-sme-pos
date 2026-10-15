@@ -266,7 +266,9 @@ export interface FillPlan {
   order: { id: number; no: number; stage: string } | null;
   lines: { code: string; size: string; qty: number; product_id: number | null; variant_id: number | null; sku: string | null; price: number | null; available: number | null }[];
   payment: 'cod' | 'transfer' | null; subtotal: number; shipping: number; discount: number; total: number | null; problems: string[]; said: string[];
+  chat_total: number | null; bill_name: string | null; address: PlanAddress | null; warnings: string[];
 }
+export interface PlanAddress { name: string; phone: string; street: string; subdistrict: string; district: string; province: string; postal_code: string; from_image: boolean; source: 'page365' | 'chat' }
 export interface NoteCheck {
   mid: string;
   fill: { at: string | null; by: string | null; order_no: number | null; error: string | null };
@@ -407,7 +409,7 @@ export const api = {
   orderNoteDays: () => call<{ days: { date: string; notes: number }[] }>('GET', '/api/order-notes/days'),
   p365Session: () => call<{ ok: boolean; error: string | null }>('GET', '/api/p365/session'),
   fillPlan: (mid: string) => call<FillPlan>('GET', `/api/order-notes/plan?mid=${encodeURIComponent(mid)}`),
-  fillNote: (mid: string) => call<{ ok: true; order_no: number; total: number }>('POST', '/api/order-notes/fill', { mid }),
+  fillNote: (mid: string, opts: { address?: PlanAddress | null; allow_warnings?: boolean } = {}) => call<{ ok: true; order_no: number; total: number }>('POST', '/api/order-notes/fill', { mid, ...opts }),
   orderNotes: (date: string) => call<{ date: string; uploaded: boolean; orders: number; orders_without_note: number; notes: NoteCheck[] }>('GET', `/api/order-notes?date=${date}`),
   sendPostIdeas: () => call<{ sent: boolean; ideas: number }>('POST', '/api/post-ideas/send'),
   goal: () => call<GoalStatus>('GET', '/api/goal'),

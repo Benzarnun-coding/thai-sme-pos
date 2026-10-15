@@ -9,6 +9,7 @@
 // request shapes were read from the app's code on 15 Oct 2026; if Page365 changes them, every call here fails
 // safely (nothing half-written is left as "done", and the draft is untouched or only has items added).
 
+import { addressLine, readAddress, type ChatMessage } from './addressReader.ts';
 import { parseOrderNote, type NoteItem } from './orderNotes.ts';
 
 export interface P365Env { P365_COOKIE?: string; P365_PAGE_ID?: string }
@@ -53,6 +54,8 @@ interface Variant { id: number; name: string; code: string | null; price: number
 export interface P365Order {
   id: number; no: number; stage: string; customer_fbid: string | null; conversation_id: number | null; created_at: string; cod: boolean;
   subtotal: number; total: number; shipping_cost: number | null; discount: number | null;
+  customer_name: string | null; customer_phone: string | null; customer_address: string | null;
+  structural_address: { street: string | null; subdistrict: string | null; district: string | null; province: string | null; postal_code: string | null } | null;
   items: { id: number; name: string; note: string | null; price: number; quantity: number; variant: { id: number; code: string | null; product_id: number } | null }[];
 }
 
@@ -98,13 +101,28 @@ export function sizeLines(messages: { own?: boolean; message?: string | null }[]
     .slice(-5);
 }
 
-async function customerSizeLines(env: P365Env, conversationId: number): Promise<string[]> {
-  const c = await call<{ messages: { own?: boolean; message?: string | null }[] }>(env, `conversations/${conversationId}.json`);
-  return sizeLines(c.messages ?? []);
+/** The amount the chat agreed on: the last "ยอด/รวม … N" the shop wrote (Meta AI or an admin), not counting the order note. */
+export function chatTotal(messages: ChatMessage[], until?: string): number | null {
+  let last: number | null = null;
+  const end = until ? Date.parse(until) + 10 * 60_000 : Infinity;
+  for (const m of messages) {
+    if (m.created_at && Date.parse(m.created_at) > end) continue;
+    if (!m.own || m.auto || !m.message || parseOrderNote(m.message)) continue;
+    for (const x of m.message.replace(/[*,]/g, '').matchAll(/(?:ยอดรวม|ยอดชำระ|ยอดโอน|รวมทั้งหมด|รวม|ยอด)[^\d\n]{0,25}(\d{3,5})(?!\d)/g)) last = Number(x[1]);
+  }
+  return last;
+}
+
+/** "PK-9349 สมชาย ใจดี": the warehouse of the first item, the order number's last 4 digits, the recipient (team convention). */
+export function billName(no: number, firstSku: string | null, name: string): string {
+  const wh = (firstSku ?? '').split('-')[1]?.toUpperCase() ?? '';
+  const prefix = wh ? `${wh === 'CN' ? 'C' : wh}-${String(no).slice(-4)} ` : '';
+  return `${prefix}${name.replace(/^[A-Z]{1,3}-\d{4}\s+/, '').trim()}`;
 }
 
 // ---- the plan ----
 
+export interface PlanAddress { name: string; phone: string; street: string; subdistrict: string; district: string; province: string; postal_code: string; from_image: boolean; source: 'page365' | 'chat' }
 export interface PlanLine { code: string; size: string; qty: number; product_id: number | null; variant_id: number | null; sku: string | null; price: number | null; available: number | null }
 export interface FillPlan {
   order: { id: number; no: number; stage: string } | null;
@@ -114,23 +132,45 @@ export interface FillPlan {
   shipping: number;
   discount: number;
   total: number | null;
+  /** the amount the chat agreed on, if the shop wrote one */
+  chat_total: number | null;
+  /** the bill's customer name as it will be ("PK-9349 …") */
+  bill_name: string | null;
+  /** the shipping address the bill will carry: Page365's own if complete, else read from the chat (text or photo) */
+  address: PlanAddress | null;
+  /** stop everything */
   problems: string[];
+  /** fine for one bill after a look, but not for "fill all" */
+  warnings: string[];
   /** the customer's own messages about size, when a line's size isn't made */
   said: string[];
 }
 
+export interface FillEnv extends P365Env { ANTHROPIC_API_KEY?: string; ANTHROPIC_WORKSPACE_ID?: string; ADDRESS_MODEL?: string }
+
+/** Is the address Page365 already put on the draft complete and clean (it sometimes copies chat text into it)? */
+function draftAddress(d: P365Order): PlanAddress | null {
+  const s = d.structural_address;
+  if (!s || !/^\d{5}$/.test(s.postal_code ?? '') || !s.province || !s.district || !/^0\d{8,9}$/.test((d.customer_phone ?? '').replace(/\D/g, ''))) return null;
+  if (/ไซส์|เอว|ตัว|สี|ราคา|โปร|ปลายทาง|โอน|ค่ะ|ครับ|คับ/.test(s.street ?? '')) return null;
+  return { name: d.customer_name ?? '', phone: (d.customer_phone ?? '').replace(/\D/g, ''), street: s.street ?? '', subdistrict: s.subdistrict ?? '', district: s.district ?? '', province: s.province ?? '', postal_code: s.postal_code ?? '', from_image: false, source: 'page365' };
+}
+
 /**
  * What would be put into the draft, and every reason not to. Prices are Page365's own variant prices; the gap to
- * the note's total goes into the bill's discount, the way the team writes promos (3 × 199 + 50 − 98 = 549).
+ * the note's total goes into the bill's discount, the way the team writes promos (3 × 199 + 50 − 98 = 549). The
+ * note's total must match what the chat agreed. The address comes from Page365 if complete, else from the chat.
  */
-export async function planFill(env: P365Env, note: { psid: string; at: string; text: string }): Promise<FillPlan> {
+export async function planFill(env: FillEnv, note: { psid: string; at: string; text: string }, opts: { readAddress?: boolean } = {}): Promise<FillPlan> {
   const parsed = parseOrderNote(note.text);
   const problems: string[] = [];
+  const warnings: string[] = [];
   if (!parsed) throw new P365Error('อ่านบรรทัดสรุปนี้ไม่ได้', 'check');
   if (parsed.unknown.length) problems.push(`อ่านไม่ออก: ${parsed.unknown.join(' / ')}`);
   const draft = await findDraft(env, note.psid, note.at);
   if (!draft) problems.push('ไม่เจอร่างบิลของลูกค้าคนนี้ใน Page365 (ยังไม่ได้เปิดร่าง หรือเปิดไปแล้ว)');
   else if (draft.items.length) problems.push(`ร่าง #${draft.no} มีสินค้าอยู่แล้ว ${draft.items.length} รายการ — ไม่ใส่ซ้ำ`);
+  const chat = draft?.conversation_id ? (await call<{ messages: ChatMessage[] }>(env, `conversations/${draft.conversation_id}.json`).catch(() => null))?.messages ?? [] : [];
 
   const cache = new Map<string, { productId: number; variants: Variant[] } | null>();
   const lines: PlanLine[] = [];
@@ -144,25 +184,64 @@ export async function planFill(env: P365Env, note: { psid: string; at: string; t
     lines.push({ code: it.code, size: it.size, qty: it.qty, product_id: hit?.productId ?? null, variant_id: hit?.variant.id ?? null, sku: hit?.variant.code ?? null, price: hit?.variant.price ?? null, available: hit?.variant.available ?? null });
   }
   // A size that isn't made: show what the customer actually wrote about size, so the admin can ask them again.
-  const said = missingSize && draft?.conversation_id ? await customerSizeLines(env, draft.conversation_id).catch(() => []) : [];
+  const said = missingSize ? sizeLines(chat) : [];
   const ids = lines.map((l) => l.product_id).filter((x) => x != null);
   if (new Set(ids).size !== ids.length) problems.push('มีรุ่นเดียวกันหลายไซส์ในใบเดียว — ตอนนี้ยังให้คนใส่เอง');
+
+  const allFound = lines.every((l) => l.price != null);
   const subtotal = lines.reduce((t, l) => t + (l.price ?? 0) * l.qty, 0);
   const shipping = parsed.payment === 'cod' ? COD_FEE : 0;
   const total = parsed.total;
   const discount = total == null ? 0 : subtotal + shipping - total;
   if (total == null) problems.push('ไม่มียอดรวมในบรรทัดสรุป');
-  else if (discount < 0) problems.push(`ยอด ${total} สูงกว่าราคาสินค้า + ค่าส่ง (${subtotal + shipping}) — ราคาไม่ตรงโปร`);
+  else if (allFound && discount < 0) problems.push(`ยอด ${total} สูงกว่าราคาสินค้า + ค่าส่ง (${subtotal + shipping}) — ราคาไม่ตรงโปร`);
   // Promos at list price run to ~60% off (1 × 369 for 199 COD, 3 × 369 for 549); beyond 70% the total is likely mistyped.
-  else if (discount > subtotal * 0.7) problems.push(`ส่วนลด ${discount} เกิน 70% ของราคาสินค้า — เช็กยอดอีกครั้ง`);
+  else if (allFound && discount > subtotal * 0.7) problems.push(`ส่วนลด ${discount} เกิน 70% ของราคาสินค้า — เช็กยอดอีกครั้ง`);
+  else if (allFound && discount > 0 && discount < 20) warnings.push(`ส่วนลดแค่ ${discount} บาท — ยอดพิมพ์ผิดหรือเปล่า`);
   if (draft && draft.cod !== (parsed.payment === 'cod')) problems.push(`ร่างเป็น${draft.cod ? 'เก็บปลายทาง' : 'โอน'} แต่บรรทัดสรุปเป็น${parsed.payment === 'cod' ? 'ปลายทาง' : 'โอน'}`);
-  return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, subtotal, shipping, discount: Math.max(0, discount), total, problems, said };
+
+  // The price agreed in the chat wins: a note whose total differs (other than by the COD fee) is not filled.
+  const chat_total = chatTotal(chat, note.at);
+  if (total != null && chat_total != null && chat_total !== total && chat_total + shipping !== total) problems.push(`ในแชทตกลงยอด ${chat_total} แต่สรุปไว้ ${total} — เช็กกับลูกค้า/แอดมิน`);
+  else if (total != null && chat_total == null && chat.length) warnings.push('ไม่เจอยอดที่ตกลงในแชท — เช็กราคาเอง');
+
+  // Address: Page365's own when complete, else read from the chat (typed or a photo).
+  let address: PlanAddress | null = draft ? draftAddress(draft) : null;
+  if (draft && !address) {
+    if (opts.readAddress === false) warnings.push('ยังไม่ได้อ่านที่อยู่จากแชท');
+    else if (!env.ANTHROPIC_API_KEY) warnings.push('ร่างยังไม่มีที่อยู่ครบ และยังไม่ได้ตั้ง ANTHROPIC_API_KEY ให้ระบบอ่านที่อยู่จากแชท — แอดมินกรอกเอง');
+    else {
+      const read = await readAddress(env.ANTHROPIC_API_KEY, chat, env.ADDRESS_MODEL, env.ANTHROPIC_WORKSPACE_ID).catch((err) => ({ problems: [`อ่านที่อยู่ไม่สำเร็จ: ${err?.message ?? err}`] } as { problems: string[] } & Partial<PlanAddress>));
+      if (read.problems.length) warnings.push(...read.problems.map((p) => `ที่อยู่: ${p}`));
+      else address = { name: read.name || draft.customer_name || '', phone: read.phone!, street: read.street!, subdistrict: read.subdistrict!, district: read.district!, province: read.province!, postal_code: read.postal_code!, from_image: !!read.from_image, source: 'chat' };
+    }
+  }
+  const bill_name = draft ? billName(draft.no, lines[0]?.sku ?? null, address?.name || draft.customer_name || '') : null;
+  return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, subtotal, shipping, discount: Math.max(0, discount), total, chat_total, bill_name, address, problems, warnings, said };
 }
 
-/** Puts the planned items into the draft (still a draft afterwards), then reads it back and checks the total. */
-export async function applyFill(env: P365Env, note: { psid: string; at: string; text: string }): Promise<{ plan: FillPlan; order: P365Order }> {
-  const plan = await planFill(env, note);
+/** A checked address from the screen (the admin may have corrected it), or null. */
+export function validAddress(a: unknown): PlanAddress | null {
+  if (!a || typeof a !== 'object') return null;
+  const x = a as Record<string, unknown>;
+  const str = (k: string) => (typeof x[k] === 'string' ? (x[k] as string).trim().slice(0, 200) : '');
+  const out: PlanAddress = { name: str('name'), phone: str('phone').replace(/\D/g, ''), street: str('street'), subdistrict: str('subdistrict'), district: str('district'), province: str('province'), postal_code: str('postal_code'), from_image: x.from_image === true, source: x.source === 'page365' ? 'page365' : 'chat' };
+  if (!/^\d{5}$/.test(out.postal_code) || !/^0\d{8,9}$/.test(out.phone) || !out.province || !out.district || !out.street) return null;
+  return out;
+}
+
+/**
+ * Puts the planned items, shipping, discount, name and address into the draft (still a draft afterwards), then
+ * reads it back and checks the items and total. `address` is what the admin saw (and may have corrected) on screen;
+ * without it the address is read again. Warnings don't stop a single fill — the person has seen them.
+ */
+export async function applyFill(env: FillEnv, note: { psid: string; at: string; text: string }, opts: { address?: unknown; allowWarnings?: boolean } = {}): Promise<{ plan: FillPlan; order: P365Order }> {
+  const given = validAddress(opts.address);
+  const plan = await planFill(env, note, { readAddress: !given });
+  if (given) plan.address = given;
   if (plan.problems.length || !plan.order) throw new P365Error(plan.problems.join(' · ') || 'ไม่เจอร่างบิล', 'check');
+  const warnings = plan.warnings.filter((w) => !(given && w.startsWith('ยังไม่ได้อ่านที่อยู่')));
+  if (warnings.length && !opts.allowWarnings) throw new P365Error(warnings.join(' · '), 'check');
   const orderId = plan.order.id;
 
   // 1. Add one item per line (Page365 adds each product with its first size)…
@@ -170,15 +249,23 @@ export async function applyFill(env: P365Env, note: { psid: string; at: string; 
   const added = await call<P365Order>(env, `orders/${orderId}.json`);
   if (added.items.length !== plan.lines.length) throw new P365Error(`ใส่สินค้าแล้วได้ ${added.items.length} รายการ แทนที่จะเป็น ${plan.lines.length} — เปิดร่าง #${plan.order.no} ใน Page365 เพื่อแก้เอง`);
 
-  // 2. …then set each item's size, price and quantity, plus the shipping fee and the promo discount, as the
-  // app's own "save" does (order fields not sent stay as they are).
+  // 2. …then set each item's size, price and quantity, the shipping fee, the promo discount, the bill name and the
+  // address, as the app's own "save" does (order fields not sent stay as they are).
   const pool = [...added.items];
   const items = plan.lines.map((l) => {
     const i = pool.findIndex((x) => x.variant?.product_id === l.product_id);
     const it = pool.splice(i >= 0 ? i : 0, 1)[0];
     return { id: it.id, name: it.name, note: it.note, price: l.price ?? 0, quantity: l.qty, product_id: l.variant_id };
   });
-  await call(env, `orders/${orderId}.json`, { method: 'PUT', body: { order: { stage: 'draft', shipping_cost: plan.shipping, discount: plan.discount }, order_items: items } });
+  const a = plan.address;
+  const name = billName(plan.order.no, plan.lines[0]?.sku ?? null, a?.name || added.customer_name || '');
+  const customer = a ? {
+    customer_name: name,
+    customer_phone: a.phone,
+    customer_address: addressLine(a),
+    structural_address: { street: a.street, subdistrict: a.subdistrict, district: a.district, province: a.province, postal_code: a.postal_code },
+  } : { customer_name: name };
+  await call(env, `orders/${orderId}.json`, { method: 'PUT', body: { order: { stage: 'draft', shipping_cost: plan.shipping, discount: plan.discount, ...customer }, order_items: items } });
 
   // 3. Read it back: the right SKUs and the total from the note, or report it.
   const done = await call<P365Order>(env, `orders/${orderId}.json`);
