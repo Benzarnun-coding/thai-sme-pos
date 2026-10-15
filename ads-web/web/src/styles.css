@@ -945,3 +945,12 @@ tr:hover .po-label-btn { opacity: 1; }
 .cat-price-edit .cat-price-all td { background: var(--surface-2); }
 .cat-price-fill { display: inline-flex; gap: 4px; align-items: center; }
 .cat-price-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+
+/* /botkb — answer bank for Meta's Business AI */
+.kb-page { max-width: 880px; margin: 0 auto; padding: 24px 16px 64px; display: grid; gap: 16px; }
+.kb-head h1 { margin: 6px 0 4px; font-size: 24px; }
+.kb-paste textarea { width: 100%; font: 13px/1.5 ui-monospace, Menlo, monospace; margin-top: 10px; }
+.kb-list { display: grid; gap: 10px; }
+.kb-item { display: grid; gap: 6px; }
+.kb-item p { margin: 0; }
+.warn-badge { background: var(--bad-bg); color: var(--bad); }

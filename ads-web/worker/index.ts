@@ -31,6 +31,7 @@ import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, del
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './chatLog.ts';
 import { aiEnabled, askAI, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
+import { kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, setKbStatus, speaker } from './botKb.ts';
 import { familyStats, postIdeas, postIdeasText } from './postIdeas.ts';
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
 import { approvalsEnabled, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
@@ -59,6 +60,11 @@ export interface Env {
   DISCORD_CHAT_WEBHOOK_URL?: string;
   /** AI read of the chats (chatInsights.ts); company Anthropic account */
   ANTHROPIC_API_KEY?: string;
+  /** Messenger echo app ids: admins (Meta inbox, Page365) vs Meta's Business AI — labels in the chat reads */
+  CHAT_HUMAN_APP_IDS?: string;
+  CHAT_BOT_APP_IDS?: string;
+  /** Who pastes the approved answers into Business AI each Monday (Fear); tagged and may press "ใส่บอทแล้ว" */
+  DISCORD_KB_UPDATER_IDS?: string;
   CHAT_AI_MODEL?: string;
   /** Discord user IDs allowed to press the buttons (comma separated); empty = anyone in the channel */
   DISCORD_APPROVER_IDS?: string;
@@ -144,6 +150,7 @@ export default {
         .then(() => dailyDigest(env).catch((err) => console.error('digest', err)))));
     } else if (event.cron === REMIND_CRON) {
       ctx.waitUntil(uploadReminder(env).catch((err) => console.error('reminder', err)));
+      ctx.waitUntil(kbReminder(env).catch((err) => console.error('kb reminder', err)));
     } else if (event.cron === RULES_CRON) {
       let meta: MetaLike;
       try {
@@ -160,6 +167,8 @@ export default {
       ctx.waitUntil(runAutomation(env, meta, { trigger: 'schedule' })
         .then(() => (morning && day === 1 ? scaleCheck(env).catch((err) => console.error('scale', err)) : null))
         .then(() => (morning && (day === 1 || day === 4) ? sendPostIdeas(env).catch((err) => console.error('ideas', err)) : null))
+        // Monday and Thursday: น้องจิบิ's fixes for Meta's Business AI, each with approve / reject buttons (botKb.ts).
+        .then(() => (morning && (day === 1 || day === 4) && aiEnabled(env) ? kbRound(env, 'fix').catch((err) => console.error('kb', err)) : null))
         // 20:00: how today is doing against the goal's daily pace.
         .then(() => (!morning ? eveningPace(env).catch((err) => console.error('pace', err)) : null)));
     }
@@ -518,6 +527,16 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
 
   // ---- Messenger webhook: who came from which ad ----
   if (path === '/api/webhook' && method === 'GET') return json(await webhookStatus(env, `${url.origin}/webhook/meta`));
+  // ---- answer bank for Meta's Business AI ----
+  if (path === '/api/botkb' && method === 'GET') { const items = await listKb(env.DB); return json({ items, paste: kbPasteText(items.filter((x) => x.status === 'approved')) }); }
+  if (path === '/api/botkb/applied' && method === 'POST') { const n = await markApplied(env.DB); await audit(env.DB, user, 'botkb.applied', 'bot_kb', { n }); return json({ applied: n }); }
+  if (path === '/api/botkb/generate' && method === 'POST') return json(await kbRound(env, url.searchParams.get('mode') === 'faq' ? 'faq' : 'fix'));
+  const kbm = /^\/api\/botkb\/(\d+)$/.exec(path);
+  if (kbm && method === 'POST') {
+    const st = String((await body())?.status ?? '');
+    if (!['approved', 'rejected', 'proposed'].includes(st)) throw new BadRequest('status ต้องเป็น approved / rejected / proposed');
+    return json(await setKbStatus(env.DB, Number(kbm[1]), st as 'approved', user));
+  }
   if (path === '/api/chats/reredact' && method === 'POST') {
     if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
     return json({ changed: await reRedactChats(env.DB) });
@@ -1231,15 +1250,10 @@ async function sendChatReport(env: Env, scope: 'yesterday' | 'today'): Promise<{
   return { sent: !!sent, threads: d.threads };
 }
 
-/** น้องจิบิ's AI read of a day's chats → #meta-chat. One model call per day; tokens are logged in audit. */
-async function sendChatInsights(env: Env, scope: 'yesterday' | 'today'): Promise<{ sent: boolean; customers: number; read: number; input_tokens: number; output_tokens: number }> {
-  if (!aiEnabled(env)) throw new BadRequest('ยังไม่ได้ตั้ง ANTHROPIC_API_KEY');
-  if (!env.DISCORD_CHAT_WEBHOOK_URL) throw new BadRequest('ยังไม่ได้ตั้ง DISCORD_CHAT_WEBHOOK_URL');
-  const day = scope === 'yesterday' ? bkkDate(1) : bkkDate(0);
-  const from = new Date(`${day}T00:00:00+07:00`).toISOString();
-  const to = scope === 'yesterday' ? new Date(`${bkkDate(0)}T00:00:00+07:00`).toISOString() : new Date().toISOString();
+/** Conversations in a window, customers who wrote first and longest first, each line labelled by who wrote it. */
+async function loadConversations(env: Env, from: string, to: string): Promise<Conversation[]> {
   const [msgs, refs, notes] = await Promise.all([
-    env.DB.prepare('SELECT psid, at, from_page, text, attachments FROM chat_messages WHERE at >= ? AND at < ? ORDER BY at').bind(from, to).all<{ psid: string; at: string; from_page: number; text: string | null; attachments: string | null }>(),
+    env.DB.prepare('SELECT psid, at, from_page, text, attachments, sender_app FROM chat_messages WHERE at >= ? AND at < ? ORDER BY at').bind(from, to).all<{ psid: string; at: string; from_page: number; text: string | null; attachments: string | null; sender_app: string | null }>(),
     env.DB.prepare('SELECT psid, campaign_id FROM ad_referrals WHERE at >= ? AND at < ? GROUP BY psid').bind(new Date(Date.parse(from) - 7 * 86_400_000).toISOString(), to).all<{ psid: string; campaign_id: string | null }>(),
     env.DB.prepare('SELECT DISTINCT psid FROM order_notes WHERE at >= ? AND at < ?').bind(from, to).all<{ psid: string }>().catch(() => ({ results: [] as { psid: string }[] })),
   ]);
@@ -1250,10 +1264,66 @@ async function sendChatInsights(env: Env, scope: 'yesterday' | 'today'): Promise
   const convs = new Map<string, Conversation>();
   for (const m of msgs.results) {
     const c = convs.get(m.psid) ?? { psid: m.psid, campaign: (() => { const id = campOf.get(m.psid); return id ? names.get(id) ?? 'แอดอื่น' : null; })(), ordered: ordered.has(m.psid), messages: [] };
-    c.messages.push(m); convs.set(m.psid, c);
+    c.messages.push({ ...m, who: speaker(m.from_page, m.sender_app, env) }); convs.set(m.psid, c);
   }
-  // Conversations where the customer actually wrote come first, longest first (most to learn from).
-  const list = [...convs.values()].filter((c) => c.messages.some((m) => !m.from_page)).sort((a, b) => b.messages.length - a.messages.length);
+  return [...convs.values()].filter((c) => c.messages.some((m) => !m.from_page)).sort((a, b) => b.messages.length - a.messages.length);
+}
+
+/**
+ * One round of the answer bank: 'fix' reads the chats since the last round (Mon/Thu) and posts each proposed fix to
+ * Discord with buttons; 'faq' builds the first bank from every stored chat and asks for a review on /botkb.
+ */
+async function kbRound(env: Env, mode: 'fix' | 'faq'): Promise<{ proposed: number; customers: number; input_tokens: number; output_tokens: number }> {
+  if (!aiEnabled(env)) throw new BadRequest('ยังไม่ได้ตั้ง ANTHROPIC_API_KEY');
+  const last = await env.DB.prepare(`SELECT max(at) at FROM audit WHERE action = 'botkb.round'`).first<{ at: string | null }>();
+  const from = mode === 'faq' || !last?.at ? new Date(Date.now() - 30 * 86_400_000).toISOString() : last.at;
+  const list = await loadConversations(env, from, new Date().toISOString());
+  if (!list.length) return { proposed: 0, customers: 0, input_tokens: 0, output_tokens: 0 };
+  const t = transcript(list);
+  const r = await proposeItems(env, mode, t.text, list.length);
+  await audit(env.DB, 'ai', 'botkb.round', mode, { proposed: r.items.length, customers: list.length, read: t.used, input_tokens: r.input_tokens, output_tokens: r.output_tokens });
+  if (approvalsEnabled(env)) {
+    const mention = idList(env.DISCORD_DECIDER_IDS).map((id) => `<@${id}>`).join(' ');
+    if (mode === 'faq') {
+      await postBot(env, { content: `📚 น้องจิบิทำ **คลังคำตอบบอทชุดแรก ${r.items.length} ข้อ** จากแชทจริงแล้วค่ะ ${mention ? `คุณ ${mention} ` : ''}รบกวนตรวจและกดอนุมัติที่หน้า https://pkjeans-ads.ads-web.workers.dev/botkb นะคะ 🙏` }, true);
+    } else if (r.items.length) {
+      await postBot(env, { content: `🛠 น้องจิบิตรวจคำตอบบอท Meta AI (${list.length} แชทตั้งแต่รอบก่อน) เจอ **${r.items.length} เรื่องที่ควรแก้** ค่ะ ${mention ? `คุณ ${mention} ` : ''}กดทีละข้อได้เลยนะคะ 🙏` }, true);
+      for (const it of r.items) {
+        const id = await postBot(env, kbMessage(it, ''));
+        if (id) await env.DB.prepare('UPDATE bot_kb SET message_id = ? WHERE id = ?').bind(id, it.id).run();
+      }
+    }
+  }
+  return { proposed: r.items.length, customers: list.length, input_tokens: r.input_tokens, output_tokens: r.output_tokens };
+}
+
+/** Monday 10:00 (and Tuesday again if still waiting): approved answers to paste into Business AI → tag the updater. */
+async function kbReminder(env: Env): Promise<void> {
+  const day = new Date(Date.now() + 7 * 3_600_000).getUTCDay();
+  if (day !== 1 && day !== 2) return;
+  const n = (await env.DB.prepare(`SELECT count(*) n FROM bot_kb WHERE status = 'approved'`).first<{ n: number }>())?.n ?? 0;
+  if (!n || !approvalsEnabled(env)) return;
+  const ids = idList(env.DISCORD_KB_UPDATER_IDS).length ? idList(env.DISCORD_KB_UPDATER_IDS) : idList(env.DISCORD_DECIDER_IDS);
+  const mention = ids.map((id) => `<@${id}>`).join(' ');
+  await fetch(`https://discord.com/api/v10/channels/${env.DISCORD_CHANNEL_ID}/messages`, {
+    method: 'POST',
+    headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      content: `📌 ${day === 2 ? 'น้องจิบิเตือนอีกรอบค่ะ' : 'ถึงรอบอัปเดตบอทแล้วค่ะ'} คุณ ${mention || 'ทีม'} 🙏 มี **คำตอบที่แม็กซ์อนุมัติแล้ว ${n} ข้อ** รอใส่ในบอท Business AI\n1) เปิด https://pkjeans-ads.ads-web.workers.dev/botkb แล้วกด "คัดลอกทั้งหมด"\n2) Meta Business Suite → Business AI → วางในส่วนคำถาม-คำตอบ / คำแนะนำ\n3) กดปุ่ม **ใส่บอทแล้ว** ด้านล่าง น้องจะจดวันที่ไว้วัดผลค่ะ`,
+      components: [{ type: 1, components: [{ type: 2, style: 3, label: '✅ ใส่บอทแล้ว', custom_id: 'kbapplied:all' }] }],
+      allowed_mentions: { users: ids },
+    }),
+  }).then(async (res) => { if (!res.ok) console.error('kb reminder', res.status, await res.text()); });
+}
+
+/** น้องจิบิ's AI read of a day's chats → #meta-chat. One model call per day; tokens are logged in audit. */
+async function sendChatInsights(env: Env, scope: 'yesterday' | 'today'): Promise<{ sent: boolean; customers: number; read: number; input_tokens: number; output_tokens: number }> {
+  if (!aiEnabled(env)) throw new BadRequest('ยังไม่ได้ตั้ง ANTHROPIC_API_KEY');
+  if (!env.DISCORD_CHAT_WEBHOOK_URL) throw new BadRequest('ยังไม่ได้ตั้ง DISCORD_CHAT_WEBHOOK_URL');
+  const day = scope === 'yesterday' ? bkkDate(1) : bkkDate(0);
+  const from = new Date(`${day}T00:00:00+07:00`).toISOString();
+  const to = scope === 'yesterday' ? new Date(`${bkkDate(0)}T00:00:00+07:00`).toISOString() : new Date().toISOString();
+  const list = await loadConversations(env, from, to);
   const thai = new Date(`${day}T00:00:00+07:00`).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' });
   if (!list.length) return { sent: false, customers: 0, read: 0, input_tokens: 0, output_tokens: 0 };
   const t = transcript(list);
@@ -1487,6 +1557,20 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
   const userId = String(i.member?.user?.id ?? i.user?.id ?? '');
   const approvers = idList(env.DISCORD_APPROVER_IDS);
   const [verb0, arg0] = String(i.data?.custom_id ?? '').split(':');
+  if (verb0 === 'kbapplied') {
+    const allowed = [...approvers, ...idList(env.DISCORD_KB_UPDATER_IDS)];
+    if (allowed.length && !allowed.includes(userId)) return json({ type: 4, data: { content: `ปุ่มนี้สำหรับคนอัปเดตบอทค่ะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
+    const n = await markApplied(env.DB);
+    await audit(env.DB, `discord:${who}`, 'botkb.applied', 'bot_kb', { n });
+    return json({ type: 7, data: { content: `✅ **ใส่บอทแล้วค่ะ** ${n} ข้อ — ${who} อัปเดต ${new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' })} ขอบคุณค่ะ 🙏 น้องจะเทียบให้ว่าหลังแก้บอทตอบผิดน้อยลงไหมนะคะ`, components: [] } });
+  }
+  if (verb0 === 'kbok' || verb0 === 'kbno') {
+    if (approvers.length && !approvers.includes(userId)) return json({ type: 4, data: { content: `ขอโทษค่ะ ปุ่มนี้ให้กดได้เฉพาะคุณเบ้นกับคุณแม็กซ์นะคะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
+    const it = await setKbStatus(env.DB, Number(arg0), verb0 === 'kbok' ? 'approved' : 'rejected', `discord:${who}`);
+    if (!it) return json({ type: 7, data: { content: 'ข้อนี้ใส่บอทไปแล้ว หรือไม่พบแล้วค่ะ', components: [] } });
+    const m = kbMessage(it, '');
+    return json({ type: 7, data: { content: `${m.content}\n${verb0 === 'kbok' ? '✅ **เข้าคลังคำตอบแล้วค่ะ**' : '❌ **ไม่ใช้ข้อนี้**'} — ${who}`, components: [] } });
+  }
   if (verb0 === 'p365done' || verb0 === 'p365later') {
     const allowed = [...approvers, ...idList(env.DISCORD_UPLOADER_IDS)];
     if (allowed.length && !allowed.includes(userId)) return json({ type: 4, data: { content: `ปุ่มนี้สำหรับคนอัปโหลดไฟล์ Page365 ค่ะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
