@@ -8,7 +8,7 @@ import { postToDeciders, type DiscordEnv } from './discord.ts';
 import { markFill, type StoredNote } from './orderNotes.ts';
 import { applyFill, call, findDraft, planFill, type FillEnv, type P365Order } from './p365fill.ts';
 
-export interface AutoEnv extends FillEnv, DiscordEnv { DB: D1Database; /** #ออเดอร์มีปัญหา (Benz 15 Oct); falls back to the ads channel via the bot */ DISCORD_ORDER_WEBHOOK_URL?: string }
+export interface AutoEnv extends FillEnv, DiscordEnv { DB: D1Database; /** #ออเดอร์มีปัญหา (Benz 15 Oct); falls back to the ads channel via the bot */ DISCORD_ORDER_WEBHOOK_URL?: string; /** who answers for problem bills (เนย, Benz 15 Oct); empty = the deciders */ DISCORD_ORDER_OWNER_IDS?: string }
 
 const PAGE = (env: FillEnv) => env.P365_PAGE_ID ?? '115748303500549';
 const orderLink = (env: FillEnv, id: number) => `https://app.page365.net/${PAGE(env)}/orders/${id}`;
@@ -84,7 +84,7 @@ export async function tell(env: AutoEnv, note: StoredNote, draft: P365Order | nu
     ...reasons.slice(0, 6).map((r) => `• ${r}`),
   ].join('\n').slice(0, 2000);
   if (env.DISCORD_ORDER_WEBHOOK_URL) {
-    const ids = (env.DISCORD_DECIDER_IDS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+    const ids = (env.DISCORD_ORDER_OWNER_IDS || env.DISCORD_DECIDER_IDS || '').split(',').map((x) => x.trim()).filter(Boolean);
     const r = await fetch(env.DISCORD_ORDER_WEBHOOK_URL, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: 'น้องจิบิ', content: body(ids.map((id) => `<@${id}>`).join(' ')), allowed_mentions: { users: ids } }),
