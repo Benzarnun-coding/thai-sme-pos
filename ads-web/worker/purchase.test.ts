@@ -195,7 +195,7 @@ test('any row can be moved to any supplier or warehouse for the round, typed or 
   const moved = jbig.lines.find((l) => l.moved)!;
   assert.deepEqual([moved.label, moved.size, moved.qty, moved.kind], ['2004-BB-BI', '38', 2, 'supplier']);
   const typed = groups.find((g) => g.name === 'ร้านใหม่')!;
-  assert.deepEqual([typed.kind, typed.lines[0].label, typed.lines[0].size], ['supplier', 'L712/2 (มิดไนท์), 30 (ซิป)', '']);
+  assert.deepEqual([typed.kind, typed.lines[0].label, typed.lines[0].size], ['supplier', 'L712/2 (มิดไนท์)', '30'], 'model + size from the option text');
   assert.equal(groups.find((g) => g.name === 'ตรวจสอบ')!.pieces, 1, 'one row left');
   assert.equal(groups.find((g) => g.name === 'PK')!.pieces, 4, 'a matched row moves too (out of stock → another supplier)');
   const x = groups.find((g) => g.name === 'X')!;
@@ -329,4 +329,30 @@ test('payments: amounts and ticks are validated', async () => {
   assert.throws(() => validatePayments({ id: '2026-10-15#1', items: [{ grp: 'NBG', paid: -5 }] }), /ยอดจ่าย/);
   assert.throws(() => validatePayments({ id: '2026-10-15#1', items: [{ grp: '', paid: 5 }] }), /ชื่อร้าน/);
   assert.throws(() => validatePayments({ id: 'x', items: [{ grp: 'NBG' }] }), /รอบไหน/);
+});
+
+test('ตรวจสอบ rows get their size: from Bigseller\'s option text when there is no SKU, else from the SKU', async () => {
+  const { optionParts, sizeFromSku, applyMoves } = await import('../web/src/purchase.ts');
+  const cases: [string, string, string][] = [
+    ['B63, 36', 'B63', '36'],
+    ['501(เป้ากระดุม)มิดไนท์, 30', '501(เป้ากระดุม)มิดไนท์', '30'],
+    ['L712/2 (มิดไนท์), 30 (ซิป)', 'L712/2 (มิดไนท์)', '30'],
+    ['WS-243/B (ดำ-superblack), 32 ', 'WS-243/B (ดำ-superblack)', '32'],
+    ['PK-001 (สีเทา), 5XL (รอบเอว 40)', 'PK-001 (สีเทา)', '5XL'],
+    ['980-28 (ส้ม), Freesize', '980-28 (ส้ม)', 'Freesize'],
+    ['KZ-19 (เทา), L (29-31)', 'KZ-19 (เทา)', 'L'],
+    ['XZ-06 สีกาแฟ, 37-38', 'XZ-06 สีกาแฟ', '37-38'],
+    ['black,free sizeนนไม่เกิน55', 'black', 'freesize'],
+    ['200/4', '200/4', ''],
+  ];
+  for (const [opt, model, size] of cases) assert.deepEqual(optionParts(opt), { model, size }, opt);
+  assert.equal(sizeFromSku('200-BB-MD-38'), '38');
+  assert.equal(sizeFromSku('PK004-CN-BL-XL'), 'XL');
+  assert.equal(sizeFromSku('X'), '');
+  const lines = buildLines(readOrderItems(RAW), makeLookup(CATALOG, new Map()));
+  const review = lines.filter((l) => l.kind === 'review');
+  assert.deepEqual(review.map((l) => [l.label, l.size]).sort(), [['(ไม่มี SKU)', '30'], ['(ไม่มี SKU)', '31'], ['2004-BB-BI-38', '38']]);
+  const noSku = review.find((l) => l.note.includes('R55'))!;
+  const [moved] = applyMoves([noSku], new Map([[noSku.sku, 'NBG']]), new Set());
+  assert.deepEqual([moved.label, moved.size], ['R55', '31'], 'a moved row keeps its size and shows the model');
 });

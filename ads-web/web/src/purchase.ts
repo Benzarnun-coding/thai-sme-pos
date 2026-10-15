@@ -205,6 +205,23 @@ export function labelOf(r: CatalogRow, kind: GroupKind): string {
   return theirs && !ours.startsWith(theirs) ? `${ours} (${theirs})` : ours;
 }
 
+/**
+ * Model and size from Bigseller's option text when there is no usable SKU: the size is the first word after the last
+ * comma — "B63, 36" → B63 / 36, "L712/2 (มิดไนท์), 30 (ซิป)" → L712/2 (มิดไนท์) / 30, "PK-001 (สีเทา), 5XL (รอบเอว 40)" → 5XL.
+ */
+export function optionParts(option: string): { model: string; size: string } {
+  const cut = option.lastIndexOf(',');
+  if (cut < 0) return { model: option.trim(), size: '' };
+  const size = option.slice(cut + 1).trim().match(/^(free\s*size|freesize|\d{1,3}(?:-\d{1,3})?|\d?x{0,3}[sml]|\dxl|fe)\b/i)?.[0] ?? '';
+  return { model: option.slice(0, cut).trim(), size: size.replace(/\s+/g, '') };
+}
+
+/** The size part of a SKU that is not in the catalog ("200-BB-MD-38" → 38); '' when it has no such part. */
+export function sizeFromSku(sku: string): string {
+  const parts = sku.split('-');
+  return parts.length >= 4 ? parts[parts.length - 1] : '';
+}
+
 /** Bigseller items → one line per (group, SKU) with quantities added up. */
 export function buildLines(items: OrderItem[], lookup: Lookup): PurchaseLine[] {
   const lines = new Map<string, PurchaseLine>();
@@ -215,7 +232,8 @@ export function buildLines(items: OrderItem[], lookup: Lookup): PurchaseLine[] {
       const what = it.option || it.name.slice(0, 60);
       line = {
         group: REVIEW, kind: 'review', sku: it.sku || `?${it.name.slice(0, 60)} · ${it.option}`, tab: '', product: '',
-        label: it.sku || '(ไม่มี SKU)', size: '', qty: 0, note: `${it.sku ? 'SKU ไม่มีในแคตตาล็อก' : 'ไม่มี SKU ใน Bigseller'} · ${what}`, orders: [],
+        label: it.sku || '(ไม่มี SKU)', size: (it.sku ? sizeFromSku(it.sku) : '') || optionParts(it.option).size, qty: 0,
+        note: `${it.sku ? 'SKU ไม่มีในแคตตาล็อก' : 'ไม่มี SKU ใน Bigseller'} · ${what}`, orders: [],
       };
     } else {
       const g = groupOf(r, lookup);
@@ -381,9 +399,10 @@ export function applyMoves(lines: PurchaseLine[], moves: Map<string, string>, wa
       const parts = raw.split('-');
       const sized = parts.length >= 3;
       const what = l.note.split(' · ').slice(1).join(' · ');
+      const opt = optionParts(what);
       return {
-        ...l, group: to, kind, label: raw ? (sized ? parts.slice(0, -1).join('-') : raw) : what || l.label,
-        size: sized ? parts[parts.length - 1] : '', note: '', moved: true, from: l.group,
+        ...l, group: to, kind, label: raw ? (sized ? parts.slice(0, -1).join('-') : raw) : (opt.size ? opt.model : what) || l.label,
+        size: raw ? (sized ? parts[parts.length - 1] : '') : opt.size || l.size, note: '', moved: true, from: l.group,
       };
     }
     const r = lookup?.rows.get(skuKey(l.sku));
