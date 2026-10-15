@@ -100,9 +100,21 @@ export const OPENED = 'เปิดร่างแล้ว · รอใส่�
 /** Note state while Page365 can't be reached (no or expired login): the sweep opens the draft once it can. */
 export const WAITING = 'รอเปิดร่าง';
 
+/**
+ * A note fresh from the webhook is taken by one invocation only: Meta re-sends a delivery it didn't get a 200 for,
+ * and the re-sent note (already filled, or being filled) must not be planned again — that read a filled draft as
+ * "ร่างมีสินค้าอยู่แล้ว" and asked a person, or added the items twice. Marked WAITING, so the sweep retries it if
+ * this invocation dies before the draft is recorded.
+ */
+export async function claimNote(db: D1Database, mid: string): Promise<boolean> {
+  const r = await db.prepare('UPDATE order_notes SET fill_error = ? WHERE mid = ? AND filled_at IS NULL AND fill_error IS NULL').bind(WAITING, mid).run();
+  return r.meta.changes > 0;
+}
+
 /** One note, start to finish. Never throws: failures become a Discord message. */
-export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force?: boolean } = {}): Promise<AutoResult> {
+export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force?: boolean; claim?: boolean } = {}): Promise<AutoResult> {
   if (!opts.force && !(await autoFillOn(env.DB))) return { status: 'skipped', order_no: null, reasons: ['ปิดอยู่'] };
+  if (opts.claim && !(await claimNote(env.DB, note.mid))) return { status: 'skipped', order_no: null, reasons: ['ทำไปแล้วหรือกำลังทำ'] };
   let draft: P365Order | null = null;
   let name = '';
   try {

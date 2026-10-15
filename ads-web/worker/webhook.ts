@@ -73,7 +73,8 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
     .then(() => Promise.all(notes.map((n) => sendNotePurchase(env as any, n).catch((err) => console.error('note purchase', err)))))
     // One note's draft per delivery: a fill takes ~30 requests and the free plan allows 50 per invocation. Further
     // notes in the same delivery (rare) are left to the sweep, which runs on the next deliveries.
-    .then(() => (notes.length ? autoFillNote(env as any, notes[0]) : null))
+    // claim: a delivery Meta sends again must not fill the same note twice.
+    .then(() => (notes.length ? autoFillNote(env as any, notes[0], { claim: true }) : null))
     .catch((err) => console.error('webhook store', err)));
   // Webhook deliveries are the clock for sending Page365 purchases to Meta (at most every 10 minutes; off by default)
   // and for the fill sweep (a note whose draft never opened or whose fill was cut short; at most every 5 minutes).

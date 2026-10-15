@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { blockedByKillSwitch, expireOld, proposalMessage, verifyDiscord } from './discord.ts';
+import { sqliteD1 } from './sqliteD1.ts';
 
 test('Discord signatures are checked with the app key', async () => {
   const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
@@ -21,23 +22,9 @@ test('a pause question carries approve / not now / move-to-testing buttons', () 
   assert.match(m.content, /หยุดแคมเปญ/);
 });
 
-// A D1 stand-in over node:sqlite, enough for prepare().bind().all()/run()/first().
-async function sqliteD1() {
-  const { DatabaseSync } = await import('node:sqlite');
-  const db = new DatabaseSync(':memory:');
-  db.exec(`CREATE TABLE proposals (id TEXT PRIMARY KEY, created_at TEXT, kind TEXT, entity_id TEXT, entity_name TEXT, rule_id TEXT, plan TEXT,
-    detail TEXT, status TEXT, decided_by TEXT, decided_at TEXT, message_id TEXT)`);
-  const stmt = (sql: string, args: unknown[] = []) => ({
-    bind: (...a: unknown[]) => stmt(sql, a),
-    all: async () => ({ results: db.prepare(sql).all(...(args as any[])) }),
-    first: async () => db.prepare(sql).get(...(args as any[])) ?? null,
-    run: async () => ({ meta: { changes: Number(db.prepare(sql).run(...(args as any[])).changes) } }),
-  });
-  return { raw: db, d1: { prepare: (sql: string) => stmt(sql) } as unknown as D1Database };
-}
-
 test('the Monday cap check closes only old cap questions; the 08:00 run\'s pause/move questions stay open', async () => {
-  const { raw, d1 } = await sqliteD1();
+  const { raw, d1 } = sqliteD1(`CREATE TABLE proposals (id TEXT PRIMARY KEY, created_at TEXT, kind TEXT, entity_id TEXT, entity_name TEXT, rule_id TEXT, plan TEXT,
+    detail TEXT, status TEXT, decided_by TEXT, decided_at TEXT, message_id TEXT)`);
   const add = (id: string, kind: string, at: string) => raw.prepare(`INSERT INTO proposals (id, created_at, kind, entity_id, entity_name, rule_id, plan, detail, status)
     VALUES (?, ?, ?, 'c', 'C', 'r', '', '{}', 'pending')`).run(id, at, kind);
   add('pause-0800', 'pause', '2026-10-19T01:00:00.000Z'); // posted by the 08:00 run a few seconds earlier
