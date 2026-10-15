@@ -37,7 +37,7 @@ import { aiEnabled, askAI, INSIGHT_SYSTEM, insightPrompt, transcript, type Conve
 import { kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, setKbStatus, speaker } from './botKb.ts';
 import { familyStats, postIdeas, postIdeasText } from './postIdeas.ts';
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
-import { approvalsEnabled, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
+import { approvalsEnabled, blockedByKillSwitch, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
@@ -1702,7 +1702,7 @@ async function scaleCheck(env: Env): Promise<{ asked: boolean; reason: string }>
   if (g.mer_7d < g.goal.scale_mer) return say(`MER จริง 7 วัน ${g.mer_7d.toFixed(2)} ต่ำกว่าเกณฑ์ ${g.goal.scale_mer} — ยังไม่ขยาย เพดานคง ${cap.toLocaleString('th-TH')} · ให้กฎคุมความคุ้มก่อน`);
   if (!approvalsEnabled(env)) return say(`MER จริง 7 วัน ${g.mer_7d.toFixed(2)} ผ่านเกณฑ์ แต่ยังไม่ได้ตั้งบอท Discord — ขยายเองในหน้าตั้งค่า`);
   const now = new Date().toISOString();
-  await expireOld(env, now).catch(() => null);
+  await expireOld(env, now, { capOnly: true }).catch(() => null);
   if ((await recentlyAsked(env.DB, new Date(Date.now() - 3 * 86_400_000).toISOString())).has('cap-up:shop')) return { asked: false, reason: 'ถามไปแล้ว รอคำตอบ' };
   const net7 = g.days.filter((d) => d.date >= bkkDate(7)).reduce((t, d) => t + d.net, 0);
   const p = { id: crypto.randomUUID(), created_at: now, kind: 'cap', entity_id: 'shop', entity_name: 'เพดานงบรวมต่อวัน', rule_id: 'cap-up',
@@ -1854,6 +1854,10 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
   const reply = (content: string) => json({ type: 7, data: { content, components: [] } });
   if (!p) return reply('ไม่พบคำถามนี้แล้ว');
   if (p.status !== 'pending') return reply(`ตัดสินไปแล้ว (${p.status}) โดย ${p.decided_by ?? '-'}`);
+  // Kill switch on: nothing that touches Meta or the spend cap; the question stays open for when it's switched off.
+  if (blockedByKillSwitch(verb, p.kind) && (await loadSettings(env.DB)).kill_switch) {
+    return json({ type: 4, data: { content: '⛔ ตอนนี้เปิด kill switch อยู่ (หน้าตั้งค่า) — น้องยังไม่ทำให้นะคะ ปิด kill switch แล้วกดใหม่ได้ค่ะ', flags: 64 } });
+  }
   const at = new Date().toISOString();
   const d = JSON.parse(p.detail || '{}');
   const mark = (status: string) => env.DB.prepare('UPDATE proposals SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = \'pending\'').bind(status, who, at, p.id).run();
