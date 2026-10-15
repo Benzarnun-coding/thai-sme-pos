@@ -569,6 +569,7 @@ function GroupCard({ group: g, open, onToggle, missing, onMissing, onPrice, onLa
                         {g.kind === 'review' ? l.note : <>
                           <code>{l.sku.startsWith('?') ? '(ไม่มี SKU)' : l.sku}</code>
                           {l.moved && <> <span className="pill warn">ย้ายมาจาก {l.from}</span></>}
+                          {l.moved && l.option && <div className="muted small">Bigseller: {l.option}</div>}
                           {!l.moved && l.note && <span className="muted"> · {l.note}</span>}
                           {l.sheetNote && <div className="po-sheet-note" title="ข้อความในคอลัมน์ รหัสแทน (M) ของชีต · แสดงให้ทีมเห็นเท่านั้น ไม่พิมพ์ในใบสั่ง">หมายเหตุชีต: {l.sheetNote}</div>}
                         </>}

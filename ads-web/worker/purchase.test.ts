@@ -369,3 +369,17 @@ test('a name typed for a product replaces code + colour on every sheet, every si
   const pia = missingGroup(lines, new Map([['5011-PK-MD-30', 1]]), lookup)!;
   assert.equal(pia.lines[0].label, 'ยีนส์ 501 มิดไนท์ (ใหม่)');
 });
+
+test('a Lazada SKU moved out of ตรวจสอบ is named by what the customer ordered, not by Lazada\'s id', async () => {
+  const { applyMoves, isOurSku } = await import('../web/src/purchase.ts');
+  assert.ok(isOurSku('2004-BB-BI-38') && isOurSku('PK004-CN-BL-L') && isOurSku('DF-BB-BL-32'));
+  assert.ok(!isOurSku('5409161349-1729665190325-32'), 'Lazada id');
+  const items = readOrderItems([{ 'ร้านค้า BigSeller': 'PK JEANS', SKU: '5409161349-1729665190325-32', 'ชื่อตัวเลือก': '101/1 สีดำ, 32', 'จำนวน': '1', 'หมายเลขคำสั่งซื้อ': '1123544675508045', 'ชื่อโลจิสติกส์': 'Lazada-TH-LEX' }]);
+  const [line] = buildLines(items, makeLookup(CATALOG, new Map()));
+  assert.deepEqual([line.kind, line.size], ['review', '32']);
+  const [moved] = applyMoves([line], new Map([[line.sku, 'CM']]), new Set(['CM']));
+  assert.deepEqual([moved.label, moved.size, moved.kind, moved.option], ['101/1 สีดำ', '32', 'warehouse', '101/1 สีดำ, 32'], 'the CM sheet of 15/10 printed "5409161349-1729665190325"');
+  // our own SKU format keeps naming by SKU
+  const [ours] = buildLines(readOrderItems([{ SKU: '2004-BB-BI-38', 'ชื่อตัวเลือก': '200/4, 38', 'จำนวน': '1' }]), makeLookup(CATALOG, new Map()));
+  assert.equal(applyMoves([ours], new Map([[ours.sku, 'J.BIG']]), new Set())[0].label, '2004-BB-BI');
+});
