@@ -917,3 +917,5 @@ tr:hover .po-label-btn { opacity: 1; }
 .units-kpis { grid-template-columns: repeat(5, 1fr); }
 @media (max-width: 1024px) { .units-kpis { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 760px) { .units-kpis { grid-template-columns: repeat(2, 1fr); } }
+.po-copy { border: 0; background: none; box-shadow: none; padding: 0 2px; min-height: 0; border-radius: 4px; cursor: copy; color: inherit; }
+.po-copy:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
