@@ -167,7 +167,7 @@ async function sessionAlarm(env: AutoEnv, msg: string): Promise<void> {
 }
 
 /** Only notes from when the sweep started: older ones were done by hand or by the 15 Oct backfill. */
-const SWEEP_FROM = '2026-10-15T12:00:00Z';
+const SWEEP_FROM = '2026-10-15T09:00:00Z'; // 16:00 Bangkok
 
 /**
  * The safety net, on webhook deliveries without notes (at most every 5 minutes): one note from the last 24 hours
