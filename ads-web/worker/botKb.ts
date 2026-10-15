@@ -93,9 +93,10 @@ export function kbMessage(it: KbItem, mention: string): { content: string; compo
   };
 }
 
-export async function postBot(env: DiscordEnv, body: { content: string; components?: unknown[] }, mentionDeciders = false): Promise<string | null> {
+/** Posts as the bot in #meta-chat (DISCORD_CHAT_CHANNEL_ID), or the ads channel when that isn't set. */
+export async function postBot(env: DiscordEnv & { DISCORD_CHAT_CHANNEL_ID?: string }, body: { content: string; components?: unknown[] }, mentionDeciders = false): Promise<string | null> {
   const ids = mentionDeciders ? idList(env.DISCORD_DECIDER_IDS) : [];
-  const res = await fetch(`https://discord.com/api/v10/channels/${env.DISCORD_CHANNEL_ID}/messages`, {
+  const res = await fetch(`https://discord.com/api/v10/channels/${env.DISCORD_CHAT_CHANNEL_ID || env.DISCORD_CHANNEL_ID}/messages`, {
     method: 'POST',
     headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...body, allowed_mentions: { users: ids } }),

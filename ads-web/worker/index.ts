@@ -66,6 +66,8 @@ export interface Env {
   CHAT_BOT_APP_IDS?: string;
   /** Who pastes the approved answers into Business AI each Monday (Fear); tagged and may press "ใส่บอทแล้ว" */
   DISCORD_KB_UPDATER_IDS?: string;
+  /** #meta-chat: the bot posts everything about chats and the answer bank here (needs View + Send there) */
+  DISCORD_CHAT_CHANNEL_ID?: string;
   CHAT_AI_MODEL?: string;
   /** Discord user IDs allowed to press the buttons (comma separated); empty = anyone in the channel */
   DISCORD_APPROVER_IDS?: string;
@@ -566,7 +568,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
   // ---- answer bank for Meta's Business AI ----
   if (path === '/api/botkb' && method === 'GET') { const items = await listKb(env.DB); return json({ items, paste: kbPasteText(items.filter((x) => x.status === 'approved')) }); }
-  if (path === '/api/botkb/remind-test' && method === 'POST') { await kbReminder(env, true); return json({ ok: true }); }
+  if (path === '/api/botkb/remind-test' && method === 'POST') return json({ discord: await kbReminder(env, true) });
   if (path === '/api/botkb/applied' && method === 'POST') { const n = await markApplied(env.DB); await audit(env.DB, user, 'botkb.applied', 'bot_kb', { n }); return json({ applied: n }); }
   if (path === '/api/botkb/generate' && method === 'POST') return json(await kbRound(env, url.searchParams.get('mode') === 'faq' ? 'faq' : 'fix'));
   const kbm = /^\/api\/botkb\/(\d+)$/.exec(path);
@@ -1336,14 +1338,14 @@ async function kbRound(env: Env, mode: 'fix' | 'faq'): Promise<{ proposed: numbe
 }
 
 /** Monday 10:00 (and Tuesday again if still waiting): approved answers to paste into Business AI → tag the updater. */
-async function kbReminder(env: Env, test = false): Promise<void> {
+async function kbReminder(env: Env, test = false): Promise<string | void> {
   const day = test ? 1 : new Date(Date.now() + 7 * 3_600_000).getUTCDay();
   if (day !== 1 && day !== 2) return;
   const n = (await env.DB.prepare(`SELECT count(*) n FROM bot_kb WHERE status = 'approved'`).first<{ n: number }>())?.n ?? 0;
   if ((!n && !test) || !approvalsEnabled(env)) return;
   const ids = idList(env.DISCORD_KB_UPDATER_IDS).length ? idList(env.DISCORD_KB_UPDATER_IDS) : idList(env.DISCORD_DECIDER_IDS);
   const mention = ids.map((id) => `<@${id}>`).join(' ');
-  await fetch(`https://discord.com/api/v10/channels/${env.DISCORD_CHANNEL_ID}/messages`, {
+  return fetch(`https://discord.com/api/v10/channels/${env.DISCORD_CHAT_CHANNEL_ID || env.DISCORD_CHANNEL_ID}/messages`, {
     method: 'POST',
     headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1351,7 +1353,7 @@ async function kbReminder(env: Env, test = false): Promise<void> {
       components: [{ type: 1, components: [{ type: 2, style: 3, label: '✅ ใส่บอทแล้ว', custom_id: 'kbapplied:all' }] }],
       allowed_mentions: { users: ids },
     }),
-  }).then(async (res) => { if (!res.ok) console.error('kb reminder', res.status, await res.text()); });
+  }).then(async (res) => { if (res.ok) return 'ok'; const t = await res.text(); console.error('kb reminder', res.status, t); return `${res.status} ${t.slice(0, 200)}`; });
 }
 
 /** น้องจิบิ's AI read of a day's chats → #meta-chat. One model call per day; tokens are logged in audit. */
@@ -1589,7 +1591,7 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
   if (i.type === 1) return json({ type: 1 });
   if (i.type !== 3) return json({ type: 4, data: { content: 'ยังไม่รองรับคำสั่งนี้', flags: 64 } });
   // The bot works in one channel only: a press from anywhere else is refused (only the presser sees the reply).
-  if (env.DISCORD_CHANNEL_ID && i.channel_id !== env.DISCORD_CHANNEL_ID) return json({ type: 4, data: { content: 'บอทนี้ใช้ได้เฉพาะห้องรายงานแอด', flags: 64 } });
+  if (env.DISCORD_CHANNEL_ID && i.channel_id !== env.DISCORD_CHANNEL_ID && i.channel_id !== env.DISCORD_CHAT_CHANNEL_ID) return json({ type: 4, data: { content: 'บอทนี้ใช้ได้เฉพาะห้องรายงานแอด', flags: 64 } });
   const who = i.member?.user?.global_name || i.member?.user?.username || i.user?.username || 'ไม่ทราบชื่อ';
   // Only the listed people may decide (empty list = anyone in the channel); the refusal shows the presser their ID.
   const userId = String(i.member?.user?.id ?? i.user?.id ?? '');

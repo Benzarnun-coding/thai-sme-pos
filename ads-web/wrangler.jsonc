@@ -43,6 +43,8 @@
     "CHAT_BOT_APP_IDS": "",
     // Who pastes approved answers into Business AI each Monday (Fear); empty = tag the deciders.
     "DISCORD_KB_UPDATER_IDS": "1179672160122458124",
+    // #meta-chat: bot posts about chats and the answer bank (fixes with buttons, Fear's Monday reminder).
+    "DISCORD_CHAT_CHANNEL_ID": "1560180109045014528",
     // Owners: always allowed to manage users on the ผู้ใช้ page (comma separated).
     "OWNER_EMAILS": "arnun.tre@benzarnun.com,ps.maxpollawat@gmail.com",
     // Cloudflare Access sync: account + the reusable policy "PkJeans team" (token is the secret CF_API_TOKEN).
