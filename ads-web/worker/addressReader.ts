@@ -29,7 +29,8 @@ The customer may type it or send a photo of it. The first photo in a chat is usu
 If the customer gave more than one address, use the latest one and say so in "doubt". Copy names and place names exactly as written;
 fix only obvious typing errors in place names. Never invent a postcode or phone number — leave it empty if it isn't there.
 A missing postcode is fine (it is looked up from the subdistrict afterwards): don't mention it in "doubt".
-If the customer later corrected part of it (a name, a house number), use the correction — that is settled, not a doubt.`;
+If the customer later corrected part of it (a name, a house number), use the correction — that is settled, not a doubt.
+If the customer never typed a recipient name, leave "name" empty (the Facebook name is used) — that is normal, not a doubt.`;
 
 /** The chat as Claude sees it: the last 40 messages as text, plus the customer's last 3 photos after the first message. */
 export function chatInput(messages: ChatMessage[]): Anthropic.ContentBlockParam[] {

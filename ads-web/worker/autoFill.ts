@@ -57,10 +57,13 @@ export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force
     name = draft?.customer_name ?? '';
     const plan = await planFill(env, note, { draft });
     const reasons = [...plan.problems, ...plan.warnings];
-    if (!reasons.length && plan.order) {
-      const r = await applyFill(env, note, { plan, address: plan.address });
+    // Warnings only (an address doubt, a small discount): fill anyway — items, price and whatever address could
+    // be read — and ask a person to check (Benz 15 Oct: a bill left empty for a doubt about the name is worse).
+    if (!plan.problems.length && plan.order) {
+      const r = await applyFill(env, note, { plan, address: plan.address, allowWarnings: true });
       await markFill(env.DB, note.mid, { by: 'auto', order_no: r.order.no, error: null });
-      return { status: 'filled', order_no: r.order.no, reasons: [] };
+      if (plan.warnings.length) await tell(env, note, r.order, name, plan.warnings, true);
+      return { status: 'filled', order_no: r.order.no, reasons: plan.warnings };
     }
     const why = reasons.length ? reasons : ['ไม่เจอร่างบิล และเปิดร่างให้ไม่ได้'];
     // Shown on the note's row in the Log tab too, not only in Discord.
@@ -75,10 +78,10 @@ export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force
   }
 }
 
-export async function tell(env: AutoEnv, note: StoredNote, draft: P365Order | null, name: string, reasons: string[]): Promise<void> {
+export async function tell(env: AutoEnv, note: StoredNote, draft: P365Order | null, name: string, reasons: string[], filled = false): Promise<void> {
   const bill = draft ? `[#${draft.no}](<${orderLink(env, draft.id)}>)` : '(ยังไม่มีร่าง)';
   const body = (mention: string) => [
-    `🧾 บิลนี้ต้องให้คนดู ${mention}`.trim(),
+    (filled ? `✅ ใส่บิลให้แล้ว แต่ช่วยเช็กก่อนส่งบิล ${mention}` : `🧾 บิลนี้ต้องให้คนดู ${mention}`).trim(),
     `ลูกค้า: **${name || 'ไม่ทราบชื่อ'}** · บิล ${bill}`,
     `แอดมินสรุป: \`${note.text.replace(/\s+/g, ' ')}\``,
     ...reasons.slice(0, 6).map((r) => `• ${r}`),

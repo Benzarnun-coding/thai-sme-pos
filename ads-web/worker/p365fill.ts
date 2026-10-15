@@ -238,7 +238,9 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
     else {
       const read = await readAddress(env.ANTHROPIC_API_KEY, chat, env.ADDRESS_MODEL, env.ANTHROPIC_WORKSPACE_ID).catch((err) => ({ problems: [`อ่านที่อยู่ไม่สำเร็จ: ${err?.message ?? err}`] } as { problems: string[] } & Partial<PlanAddress>));
       if (read.problems.length) warnings.push(...read.problems.map((p) => `ที่อยู่: ${p}`));
-      else address = { name: read.name || draft.customer_name || '', phone: read.phone!, street: read.street!, subdistrict: read.subdistrict!, district: read.district!, province: read.province!, postal_code: read.postal_code!, from_image: !!read.from_image, source: 'chat' };
+      // A doubt alone (a name, a house number) doesn't keep the address off the bill: whatever is complete
+      // enough to ship goes in, and the doubt goes to a person to check (Benz 15 Oct, bill #29372).
+      address = validAddress({ ...read, name: read.name || draft.customer_name || '', source: 'chat' });
     }
   }
   const bill_name = draft ? billName(draft.no, lines[0]?.sku ?? null, address?.name || draft.customer_name || '') : null;
