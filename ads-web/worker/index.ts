@@ -529,6 +529,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (path === '/api/webhook' && method === 'GET') return json(await webhookStatus(env, `${url.origin}/webhook/meta`));
   // ---- answer bank for Meta's Business AI ----
   if (path === '/api/botkb' && method === 'GET') { const items = await listKb(env.DB); return json({ items, paste: kbPasteText(items.filter((x) => x.status === 'approved')) }); }
+  if (path === '/api/botkb/remind-test' && method === 'POST') { await kbReminder(env, true); return json({ ok: true }); }
   if (path === '/api/botkb/applied' && method === 'POST') { const n = await markApplied(env.DB); await audit(env.DB, user, 'botkb.applied', 'bot_kb', { n }); return json({ applied: n }); }
   if (path === '/api/botkb/generate' && method === 'POST') return json(await kbRound(env, url.searchParams.get('mode') === 'faq' ? 'faq' : 'fix'));
   const kbm = /^\/api\/botkb\/(\d+)$/.exec(path);
@@ -1298,18 +1299,18 @@ async function kbRound(env: Env, mode: 'fix' | 'faq'): Promise<{ proposed: numbe
 }
 
 /** Monday 10:00 (and Tuesday again if still waiting): approved answers to paste into Business AI → tag the updater. */
-async function kbReminder(env: Env): Promise<void> {
-  const day = new Date(Date.now() + 7 * 3_600_000).getUTCDay();
+async function kbReminder(env: Env, test = false): Promise<void> {
+  const day = test ? 1 : new Date(Date.now() + 7 * 3_600_000).getUTCDay();
   if (day !== 1 && day !== 2) return;
   const n = (await env.DB.prepare(`SELECT count(*) n FROM bot_kb WHERE status = 'approved'`).first<{ n: number }>())?.n ?? 0;
-  if (!n || !approvalsEnabled(env)) return;
+  if ((!n && !test) || !approvalsEnabled(env)) return;
   const ids = idList(env.DISCORD_KB_UPDATER_IDS).length ? idList(env.DISCORD_KB_UPDATER_IDS) : idList(env.DISCORD_DECIDER_IDS);
   const mention = ids.map((id) => `<@${id}>`).join(' ');
   await fetch(`https://discord.com/api/v10/channels/${env.DISCORD_CHANNEL_ID}/messages`, {
     method: 'POST',
     headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      content: `📌 ${day === 2 ? 'น้องจิบิเตือนอีกรอบค่ะ' : 'ถึงรอบอัปเดตบอทแล้วค่ะ'} คุณ ${mention || 'ทีม'} 🙏 มี **คำตอบที่แม็กซ์อนุมัติแล้ว ${n} ข้อ** รอใส่ในบอท Business AI\n1) เปิด https://pkjeans-ads.ads-web.workers.dev/botkb แล้วกด "คัดลอกทั้งหมด"\n2) Meta Business Suite → Business AI → วางในส่วนคำถาม-คำตอบ / คำแนะนำ\n3) กดปุ่ม **ใส่บอทแล้ว** ด้านล่าง น้องจะจดวันที่ไว้วัดผลค่ะ`,
+      content: `${test ? '🧪 **ข้อความทดสอบ** (หน้าตาการเตือนทุกวันจันทร์ 10:00)\n' : ''}📌 ${day === 2 ? 'น้องจิบิเตือนอีกรอบค่ะ' : 'ถึงรอบอัปเดตบอทแล้วค่ะ'} คุณ ${mention || 'ทีม'} 🙏 มี **คำตอบที่แม็กซ์อนุมัติแล้ว ${n} ข้อ** รอใส่ในบอท Business AI\n1) เปิด https://pkjeans-ads.ads-web.workers.dev/botkb แล้วกด "คัดลอกทั้งหมด"\n2) Meta Business Suite → Business AI → วางในส่วนคำถาม-คำตอบ / คำแนะนำ\n3) กดปุ่ม **ใส่บอทแล้ว** ด้านล่าง น้องจะจดวันที่ไว้วัดผลค่ะ`,
       components: [{ type: 1, components: [{ type: 2, style: 3, label: '✅ ใส่บอทแล้ว', custom_id: 'kbapplied:all' }] }],
       allowed_mentions: { users: ids },
     }),
