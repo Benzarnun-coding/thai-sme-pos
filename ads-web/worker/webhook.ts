@@ -1,8 +1,11 @@
 // Messenger webhook: Meta calls /webhook/meta the moment a customer opens a chat from an ad, with the
 // customer's page-scoped id and the ad id. That is the only way to learn which ad each customer came from
 // (the Graph API refuses to say afterwards), so we store it from the day the webhook is switched on.
-// We keep no names and no message text — only psid, time, ad, and the campaign the ad belongs to.
+// We keep no names and no message text — only psid, time, ad, and the campaign the ad belongs to. The one
+// exception is the admins' own order note ("501/1/2 32 / cod 449", see orderNotes.ts): the page's messages come
+// back as echoes, and a message that is nothing but such a note is kept to check against Page365.
 
+import { parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { hashName } from './p365.ts';
 
 export interface WebhookEnv {
@@ -15,7 +18,8 @@ export interface WebhookEnv {
 }
 
 // standby: when another app (e.g. the chat tool) owns the thread, Meta delivers the same events there instead.
-const SUBSCRIBED_FIELDS = 'messages,messaging_postbacks,messaging_referrals,standby';
+// message_echoes: the page's own messages, for the admins' order notes.
+const SUBSCRIBED_FIELDS = 'messages,message_echoes,messaging_postbacks,messaging_referrals,standby';
 const GRAPH = (env: WebhookEnv) => `https://graph.facebook.com/${env.META_API_VERSION ?? 'v21.0'}`;
 
 interface Referral { ref?: string; source?: string; type?: string; ad_id?: string }
@@ -25,7 +29,7 @@ interface MessagingEvent {
   timestamp?: number;
   referral?: Referral;
   postback?: { referral?: Referral };
-  message?: { is_echo?: boolean; referral?: Referral };
+  message?: { is_echo?: boolean; mid?: string; text?: string; referral?: Referral };
 }
 
 export interface ReferralRow { psid: string; at: string; ad_id: string | null; campaign_id: string | null; source: string | null; ref: string | null; kind: string; name_hash?: string | null }
@@ -53,9 +57,10 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
   if (body.object !== 'page') return new Response('ignored', { status: 200 });
 
   const rows = extractReferrals(body.entry ?? []);
+  const notes = extractOrderNotes(body.entry ?? []);
   const events = (body.entry ?? []).reduce((n, e) => n + (e.messaging?.length ?? 0) + (e.standby?.length ?? 0), 0);
   // Answer Meta right away; the writes finish in the background (Meta retries deliveries that get no 200).
-  ctx.waitUntil(store(env, rows, events).catch((err) => console.error('webhook store', err)));
+  ctx.waitUntil(store(env, rows, events, notes).catch((err) => console.error('webhook store', err)));
   return new Response('ok', { status: 200 });
 }
 
@@ -83,13 +88,26 @@ export function extractReferrals(entries: { messaging?: MessagingEvent[]; standb
   return out;
 }
 
+/** The page's own messages (echoes) that are an order note and nothing else; everything else is dropped here. */
+export function extractOrderNotes(entries: { messaging?: MessagingEvent[]; standby?: MessagingEvent[] }[]): StoredNote[] {
+  const out: StoredNote[] = [];
+  for (const e of entries) {
+    for (const ev of [...(e.messaging ?? []), ...(e.standby ?? [])]) {
+      const m = ev.message;
+      if (!m?.is_echo || !m.mid || !m.text || !ev.recipient?.id || !parseOrderNote(m.text)) continue;
+      out.push({ mid: m.mid, psid: ev.recipient.id, at: eventTime(ev.timestamp), text: m.text.trim(), name_hash: null });
+    }
+  }
+  return out;
+}
+
 /** Meta documents timestamps in milliseconds but delivers some in seconds; anything before 2001 in ms is seconds. */
 function eventTime(ts: number | undefined): string {
   if (!ts) return new Date().toISOString();
   return new Date(ts < 1e11 ? ts * 1000 : ts).toISOString();
 }
 
-async function store(env: WebhookEnv, rows: ReferralRow[], events: number): Promise<void> {
+async function store(env: WebhookEnv, rows: ReferralRow[], events: number, notes: StoredNote[] = []): Promise<void> {
   const now = new Date().toISOString();
   const stmts = [
     bump(env.DB, 'events_total', events),
@@ -107,6 +125,12 @@ async function store(env: WebhookEnv, rows: ReferralRow[], events: number): Prom
       bump(env.DB, 'referrals_total', rows.length),
       env.DB.prepare('INSERT OR REPLACE INTO webhook_status (key, value) VALUES (?, ?)').bind('last_referral_at', now),
     );
+  }
+  if (notes.length) {
+    const hashes = await nameHashes(env, [...new Set(notes.map((n) => n.psid))]);
+    for (const n of notes) n.name_hash = hashes.get(n.psid) ?? null;
+    await saveNotes(env.DB, notes);
+    stmts.push(bump(env.DB, 'order_notes_total', notes.length), env.DB.prepare('INSERT OR REPLACE INTO webhook_status (key, value) VALUES (?, ?)').bind('last_order_note_at', now));
   }
   await env.DB.batch(stmts);
 }
@@ -179,8 +203,12 @@ export interface WebhookStatus {
   page: { id: string; name: string; subscribed: boolean } | null;
   events_total: number;
   referrals_total: number;
+  order_notes_total: number;
   last_event_at: string | null;
   last_referral_at: string | null;
+  last_order_note_at: string | null;
+  /** the page subscription still lacks message_echoes (press connect again) */
+  echoes_missing: boolean;
   error: string | null;
 }
 
@@ -194,8 +222,11 @@ export async function webhookStatus(env: WebhookEnv, callbackUrl: string): Promi
     page: null,
     events_total: Number(kv.events_total ?? 0),
     referrals_total: Number(kv.referrals_total ?? 0),
+    order_notes_total: Number(kv.order_notes_total ?? 0),
     last_event_at: kv.last_event_at ?? null,
     last_referral_at: kv.last_referral_at ?? null,
+    last_order_note_at: kv.last_order_note_at ?? null,
+    echoes_missing: false,
     error: null,
   };
   const errors: string[] = [];
@@ -211,8 +242,10 @@ export async function webhookStatus(env: WebhookEnv, callbackUrl: string): Promi
   try {
     const pg = await pageOf(env);
     if (pg) {
-      const apps: any = await graph(env, `${pg.id}/subscribed_apps`, { access_token: pg.token });
-      st.page = { id: pg.id, name: pg.name, subscribed: (apps.data ?? []).some((a: any) => String(a.id) === env.META_APP_ID) };
+      const apps: any = await graph(env, `${pg.id}/subscribed_apps`, { access_token: pg.token, fields: 'id,name,subscribed_fields' });
+      const mine = (apps.data ?? []).find((a: any) => String(a.id) === env.META_APP_ID);
+      st.page = { id: pg.id, name: pg.name, subscribed: !!mine };
+      st.echoes_missing = !!mine && Array.isArray(mine.subscribed_fields) && !mine.subscribed_fields.includes('message_echoes');
     }
   } catch (err: any) {
     errors.push(err?.message ?? String(err));

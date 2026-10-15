@@ -1,0 +1,76 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { checkNotes, parseOrderNote } from './orderNotes.ts';
+import type { StoredOrder } from './p365.ts';
+import { extractOrderNotes } from './webhook.ts';
+
+const short = (t: string) => {
+  const p = parseOrderNote(t);
+  return p && { items: p.items.map((i) => `${i.prefix} ${i.size} ×${i.qty}`), payment: p.payment, total: p.total, unknown: p.unknown };
+};
+
+test('the admins\' notes as typed in Page365 chats on 15 Oct 2026', () => {
+  assert.deepEqual(short('501/1  32\ncod  249'), { items: ['5011 32 ×1'], payment: 'cod', total: 249, unknown: [] });
+  assert.deepEqual(short('ni9-3 32 1 cod 239')?.items, ['NI93 32 ×1']);
+  assert.deepEqual(short('501/1 30 cod 239')?.items, ['5011 30 ×1']);
+  assert.deepEqual(short('501/1/2/3  32\ncod  649')?.items, ['5011 32 ×1', '5012 32 ×1', '5013 32 ×1']);
+  assert.deepEqual(short('Ni9-1-2-5  31\ncod  549')?.items, ['NI91 31 ×1', 'NI92 31 ×1', 'NI95 31 ×1']);
+  assert.deepEqual(short('009-1-2  36\ncod  299')?.items, ['0091 36 ×1', '0092 36 ×1']);
+  assert.deepEqual(short('801/3  36  3\ncod  849')?.items, ['8013 36 ×3']);
+  assert.deepEqual(short('444/2  38  2\n555/3  38  2\ncod  1290')?.items, ['4442 38 ×2', '5553 38 ×2']);
+  assert.deepEqual(short('D01 D02 34\ncod 448')?.items, ['D01 34 ×1', 'D02 34 ×1']);
+  assert.deepEqual(short('200  200/2  30\ncod  448')?.items, ['200 30 ×1', '2002 30 ×1']);
+  assert.deepEqual(short('200  36\n111  36\n222  36\n301/3  36\n301/1  36\ncod  1299')?.items.length, 5);
+  assert.equal(short('009-1-2  30\ncod299')?.total, 299);
+  assert.equal(short('301/1 34 1 โอน 199')?.payment, 'transfer');
+});
+
+test('chat that is not just an order note is never taken (keeps addresses out of storage)', () => {
+  assert.equal(parseOrderNote('สีดำครับ ไซส์30 อรรถพล 31 ม.8 ต.ท่าซุง 61000 สีดำ 1 ตัว'), null);
+  assert.equal(parseOrderNote('โอน 319 ปลายทาง 369'), null);
+  assert.equal(parseOrderNote('501/1 32\nบ้านเลขที่ 22/6 ม.1\ncod 249'), null);
+  assert.equal(parseOrderNote('ขอบคุณค่ะ'), null);
+  assert.equal(parseOrderNote(''), null);
+  assert.equal(parseOrderNote('501/1 32\n501 ดำ?\ncod 249'), null);
+  // A line in codes the parser doesn't follow is kept but flagged, so the team can see what it misses.
+  assert.deepEqual(short('501/1 32\n501/2 32 99\ncod 249')?.unknown, ['501/2 32 99']);
+});
+
+test('only the page\'s own messages that are notes are extracted from the webhook', () => {
+  const notes = extractOrderNotes([{ messaging: [
+    { sender: { id: 'page' }, recipient: { id: 'u1' }, timestamp: 1_791_500_000_000, message: { is_echo: true, mid: 'm1', text: '501/1  32\ncod  249' } },
+    { sender: { id: 'page' }, recipient: { id: 'u2' }, timestamp: 1_791_500_000_000, message: { is_echo: true, mid: 'm2', text: 'ขอบคุณมากนะคะ' } },
+    { sender: { id: 'u3' }, recipient: { id: 'page' }, timestamp: 1_791_500_000_000, message: { mid: 'm3', text: '501/1 32 cod 249' } },
+  ] }]);
+  assert.deepEqual(notes.map((n) => [n.mid, n.psid]), [['m1', 'u1']]);
+});
+
+const order = (no: string, at: string, total: number, items: [string, number][], name_hash: string | null = null): StoredOrder => ({
+  order_no: no, date: at.slice(0, 10), created_at: at, total, subtotal: null, discount: null, shipping: null, cost: null, payment: 'cod', paid_at: null,
+  units: items.reduce((n, [, q]) => n + q, 0), items: items.map(([sku, qty]) => ({ code: sku.split('-')[0], sku, name: '', qty, price: 0 })), name_hash, campaign_id: null, match: 'none',
+});
+
+test('notes are paired with their Page365 order and compared', () => {
+  const orders = [
+    order('29296', '2026-10-14T13:07:00.000Z', 239, [['NI93-PK-BR-32', 1]], 'h1'),
+    order('29290', '2026-10-14T13:20:00.000Z', 239, [['5011-PK-MD-30', 1]], 'h2'),   // customer asked for black NI9
+    order('29280', '2026-10-14T14:00:00.000Z', 649, [['5011-PK-MD-32', 1], ['5012-PK-BL-32', 1], ['5013-PK-BK-32', 1]]),
+    order('29281', '2026-10-14T14:05:00.000Z', 300, [['3011-PK-MD-34', 1]], 'h4'),
+  ];
+  const checks = checkNotes([
+    { mid: 'a', psid: 'u1', at: '2026-10-14T13:00:00.000Z', text: 'ni9-3 32 1 cod 239', name_hash: 'h1' },
+    { mid: 'b', psid: 'u2', at: '2026-10-14T13:15:00.000Z', text: 'Ni9-1 30\ncod 239', name_hash: 'h2' },
+    { mid: 'c', psid: 'u3', at: '2026-10-14T14:01:00.000Z', text: '501/1/2/3 32\ncod 649', name_hash: null },
+    { mid: 'd', psid: 'u4', at: '2026-10-14T14:02:00.000Z', text: '301/1 34 cod 299', name_hash: 'h4' },
+    { mid: 'e', psid: 'u5', at: '2026-10-14T15:00:00.000Z', text: '801/1 30 cod 239', name_hash: 'h9' },
+  ], orders);
+  assert.deepEqual(checks.map((c) => [c.order_no, c.verdict, c.linked_by]), [
+    ['29296', 'same', 'customer'],
+    ['29290', 'diff_items', 'customer'],
+    ['29280', 'same', 'total'],
+    ['29281', 'diff_total', 'customer'],
+    [null, 'no_order', null],
+  ]);
+  assert.deepEqual(checks[1].missing, ['NI91 30 ×1']);
+  assert.deepEqual(checks[1].extra, ['5011 30 ×1']);
+});

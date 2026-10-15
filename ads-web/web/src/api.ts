@@ -253,9 +253,21 @@ export interface WebhookStatus {
   page: { id: string; name: string; subscribed: boolean } | null;
   events_total: number;
   referrals_total: number;
+  order_notes_total: number;
   last_event_at: string | null;
   last_referral_at: string | null;
+  last_order_note_at: string | null;
+  echoes_missing: boolean;
   error: string | null;
+}
+export interface NoteCheck {
+  at: string; text: string;
+  items: { code: string; prefix: string; size: string; qty: number }[];
+  unknown: string[]; payment: 'cod' | 'transfer' | null; total: number | null;
+  order_no: string | null; order_total: number | null; order_items: { sku: string; qty: number }[];
+  linked_by: 'customer' | 'total' | null;
+  verdict: 'same' | 'diff_items' | 'diff_total' | 'unparsed' | 'no_order';
+  missing: string[]; extra: string[];
 }
 export interface ReferralSummary { date: string; campaign_id: string | null; ad_id: string | null; ad_name: string | null; people: number; bought: number; events: number }
 
@@ -379,6 +391,8 @@ export const api = {
   removeUser: (email: string) => call<{ ok: true; sync: { ok: boolean; error?: string } | null }>('DELETE', `/api/users/${encodeURIComponent(email)}`),
   syncAccess: () => call<{ emails: string[] }>('POST', '/api/users/access-sync'),
   webhook: () => call<WebhookStatus>('GET', '/api/webhook'),
+  orderNoteDays: () => call<{ days: { date: string; notes: number }[] }>('GET', '/api/order-notes/days'),
+  orderNotes: (date: string) => call<{ date: string; uploaded: boolean; orders: number; orders_without_note: number; notes: NoteCheck[] }>('GET', `/api/order-notes?date=${date}`),
   sendPostIdeas: () => call<{ sent: boolean; ideas: number }>('POST', '/api/post-ideas/send'),
   goal: () => call<GoalStatus>('GET', '/api/goal'),
   goalScaleCheck: () => call<{ asked: boolean; reason: string }>('POST', '/api/goal/scale-check'),

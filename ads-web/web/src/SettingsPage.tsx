@@ -257,7 +257,7 @@ function WebhookCard() {
     <section className="card">
       <h2>ลูกค้าทักจากแอดไหน (Messenger webhook)</h2>
       <p className="muted small">
-        Meta ส่งมาบอกทันทีที่ลูกค้ากดทักจากแอด ว่าลูกค้า (รหัส) คนนี้มาจากแอดตัวไหน · เก็บแค่รหัสลูกค้า แอด และเวลา ไม่เก็บชื่อหรือข้อความ
+        Meta ส่งมาบอกทันทีที่ลูกค้ากดทักจากแอด ว่าลูกค้า (รหัส) คนนี้มาจากแอดตัวไหน · เก็บแค่รหัสลูกค้า แอด และเวลา ไม่เก็บชื่อหรือข้อความ (ยกเว้นบรรทัดสรุปออเดอร์ที่แอดมินพิมพ์ เช่น "501/1 32 cod 249" ซึ่งไม่มีข้อมูลลูกค้า)
         · ย้อนหลังก่อนวันเชื่อมต่อไม่มี (Meta ไม่ให้ดึง) · ดูผลได้ในหน้ายอดขายรายวัน
       </p>
       {!st ? <div className="skeleton" style={{ height: 60 }} /> : (
@@ -267,7 +267,9 @@ function WebhookCard() {
             <div><div className="small muted">เพจ</div><b>{st.page ? `${st.page.name}${st.page.subscribed ? '' : ' (ยังไม่ส่งข้อมูล)'}` : '–'}</b></div>
             <div><div className="small muted">เหตุการณ์ที่รับมาทั้งหมด</div><b>{st.events_total.toLocaleString('th-TH')}</b>{st.last_event_at && <span className="small muted"> · ล่าสุด {when(st.last_event_at)}</span>}</div>
             <div><div className="small muted">ลูกค้าทักจากแอด</div><b>{st.referrals_total.toLocaleString('th-TH')}</b>{st.last_referral_at && <span className="small muted"> · ล่าสุด {when(st.last_referral_at)}</span>}</div>
+            <div><div className="small muted">บรรทัดสรุปออเดอร์ที่แอดมินพิมพ์</div><b>{st.order_notes_total.toLocaleString('th-TH')}</b>{st.last_order_note_at && <span className="small muted"> · ล่าสุด {when(st.last_order_note_at)}</span>}</div>
           </div>
+          {connected && st.echoes_missing && <p className="small warn">ยังไม่ได้รับข้อความที่เพจตอบ (message_echoes) — กด "เชื่อมต่อใหม่" เพื่อเริ่มเก็บบรรทัดสรุปออเดอร์</p>}
           {!ready && (
             <p className="small warn">
               ต้องตั้ง secret ใน Worker ก่อน:{!st.configured.app_secret && ' META_APP_SECRET (รหัสลับแอป Stat)'}{!st.configured.verify_token && ' META_WEBHOOK_VERIFY_TOKEN'}{!st.configured.app_id && ' META_APP_ID'}
