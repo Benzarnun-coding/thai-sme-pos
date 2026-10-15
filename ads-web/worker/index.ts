@@ -62,6 +62,8 @@ export interface Env {
   DISCORD_DECIDER_IDS?: string;
   /** #meta-chat channel webhook: the daily chat report */
   DISCORD_CHAT_WEBHOOK_URL?: string;
+  /** #report channel: the morning back-office report (falls back to DISCORD_WEBHOOK_URL) */
+  DISCORD_REPORT_WEBHOOK_URL?: string;
   /** AI read of the chats (chatInsights.ts); company Anthropic account */
   ANTHROPIC_API_KEY?: string;
   /** Messenger echo app ids: admins (Meta inbox, Page365) vs Meta's Business AI — labels in the chat reads */
@@ -781,9 +783,12 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const settings = await loadSettings(env.DB);
     return json(await profitData(env.DB, from, to, settings.order_fees, () => dailySpend(env, from, to)));
   }
-  if (method === 'GET' && path === '/api/ops-digest') {
+  if (path === '/api/ops-digest' && (method === 'GET' || method === 'POST')) {
     const d = url.searchParams.get('date');
-    const facts = await opsFacts(env.DB, d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : bkkDate(1));
+    const date = d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : bkkDate(1);
+    // POST (owners/admins) posts it to #report now; GET only previews.
+    if (method === 'POST') return json({ sent: await opsReport(env, date), date });
+    const facts = await opsFacts(env.DB, date);
     return json({ text: opsText(facts), facts });
   }
   if (method === 'GET' && path === '/api/mp-import-maps') return json({ maps: await listImportMaps(env.DB) });
@@ -1426,12 +1431,18 @@ async function sendChatInsights(env: Env, scope: 'yesterday' | 'today'): Promise
 
 async function dailyDigest(env: Env): Promise<void> {
   await salesDigest(env, bkkDate(1));
-  if (!env.DISCORD_WEBHOOK_URL) return;
-  const g = await loadGoal(env).catch(() => null);
-  if (g) await pushDiscord(goalText(g), env.DISCORD_WEBHOOK_URL);
-  // Back office: order sheets, units sold, marketplace money, owed to suppliers, unknown SKUs.
-  const ops = await opsFacts(env.DB, bkkDate(1)).catch((err) => { console.error('ops digest', err); return null; });
-  if (ops) await pushDiscord(opsText(ops), env.DISCORD_WEBHOOK_URL);
+  if (env.DISCORD_WEBHOOK_URL) {
+    const g = await loadGoal(env).catch(() => null);
+    if (g) await pushDiscord(goalText(g), env.DISCORD_WEBHOOK_URL);
+  }
+  await opsReport(env, bkkDate(1)).catch((err) => console.error('ops report', err));
+}
+
+/** Back office (order sheets, units sold, marketplace money, owed to suppliers, unknown SKUs) → #report. */
+async function opsReport(env: Env, date: string): Promise<boolean> {
+  const hook = env.DISCORD_REPORT_WEBHOOK_URL || env.DISCORD_WEBHOOK_URL;
+  if (!hook) return false;
+  return !!(await pushDiscord(opsText(await opsFacts(env.DB, date)), hook));
 }
 
 /** Meta spend per day (all campaigns) for a range; Meta takes at most 31 days per call, so longer ranges are split. */
