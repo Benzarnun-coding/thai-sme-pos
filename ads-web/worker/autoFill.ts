@@ -191,10 +191,11 @@ export async function sweepNotes(env: AutoEnv, opts: { force?: boolean } = {}): 
     await saveNotes(env.DB, rescued);
     for (const n of rescued) await sendNotePurchase(env as any, n).catch((err) => console.error('note purchase', err));
   }
+  // instr, not LIKE: D1 refuses LIKE patterns this long in Thai ("pattern too complex").
   const note = await env.DB.prepare(
     `SELECT * FROM order_notes WHERE at >= ? AND at <= ? AND filled_at IS NULL
-       AND (fill_error IS NULL OR fill_error LIKE ? OR fill_error LIKE ?) ORDER BY at LIMIT 1`,
-  ).bind(from, to, `${OPENED}%`, `${WAITING}%`).first<StoredNote>();
+       AND (fill_error IS NULL OR instr(fill_error, ?) = 1 OR instr(fill_error, ?) = 1) ORDER BY at LIMIT 1`,
+  ).bind(from, to, OPENED, WAITING).first<StoredNote>();
   if (!note) return null;
   if (triesOf(note.fill_error) >= 3) {
     const why = ['เปิดร่างแล้วแต่ใส่รายละเอียดไม่สำเร็จ 3 ครั้ง — ใส่เองในร่าง'];
