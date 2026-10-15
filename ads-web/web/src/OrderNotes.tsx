@@ -381,7 +381,7 @@ export function OrderNotesList({ date, dayLabel, refresh = 0, live = false }: { 
                       {n.fill.at ? <span className="good">ใส่แล้ว #{n.fill.order_no}<div className="muted">{n.fill.by} · {when(n.fill.at)}</div></span>
                         : <>
                           <button className="ghost small" onClick={() => setFilling(n)}>ใส่ใน Page365</button>
-                          {n.fill.error && <div className="bad" title={n.fill.error}>ครั้งก่อนไม่สำเร็จ</div>}
+                          {n.fill.error && <div className="bad">{n.fill.error.startsWith('ต้องให้คนดู') ? n.fill.error : `ครั้งก่อนไม่สำเร็จ: ${n.fill.error}`}{n.fill.order_no ? ` (บิล #${n.fill.order_no})` : ''}</div>}
                         </>}
                     </td>
                   </tr>

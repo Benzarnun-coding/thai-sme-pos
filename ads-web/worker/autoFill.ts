@@ -62,8 +62,11 @@ export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force
       await markFill(env.DB, note.mid, { by: 'auto', order_no: r.order.no, error: null });
       return { status: 'filled', order_no: r.order.no, reasons: [] };
     }
-    await tell(env, note, draft, name, reasons.length ? reasons : ['ไม่เจอร่างบิล และเปิดร่างให้ไม่ได้']);
-    return { status: 'needs_person', order_no: draft?.no ?? null, reasons };
+    const why = reasons.length ? reasons : ['ไม่เจอร่างบิล และเปิดร่างให้ไม่ได้'];
+    // Shown on the note's row in the Log tab too, not only in Discord.
+    await markFill(env.DB, note.mid, { by: 'auto', order_no: draft?.no ?? null, error: `ต้องให้คนดู: ${why.join(' · ')}` }).catch(() => null);
+    await tell(env, note, draft, name, why);
+    return { status: 'needs_person', order_no: draft?.no ?? null, reasons: why };
   } catch (err: any) {
     const msg = err?.message ?? String(err);
     await markFill(env.DB, note.mid, { by: 'auto', order_no: null, error: msg }).catch(() => null);
