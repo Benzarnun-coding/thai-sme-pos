@@ -66,6 +66,10 @@ test('clampBudget caps percent and respects min/max', () => {
   assert.equal(clampBudget(110, -20, g)?.next, 100);
   assert.equal(clampBudget(2900, 20, g)?.next, 3000);
   assert.equal(clampBudget(3000, 20, g), null);
+  // Never the other way: a raise on a budget above the max isn't a cut, a cut below the min isn't a raise.
+  assert.equal(clampBudget(5000, 20, g), null);
+  assert.equal(clampBudget(80, -20, g), null);
+  assert.equal(clampBudget(5000, -20, g)?.next, 3000); // a cut that lands under the max still goes through
 });
 
 test('over the total cap: cuts still go through, increases are refused', async () => {
