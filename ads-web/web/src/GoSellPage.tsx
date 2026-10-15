@@ -7,15 +7,17 @@ import { buildWorkbook, CARRIERS, DEFAULT_CARRIER, missingColumns, parseExport, 
 import { baht, num } from './fmt.ts';
 import { Icon, useUi } from './ui.tsx';
 import { readFirstSheet } from './xlsx.ts';
+import { HomeLogo, SiteNav } from './SiteNav.tsx';
 
 /** The whole /gosell site: just a header and the converter. */
 export function GoSellApp() {
   useEffect(() => { document.title = 'แปลงออเดอร์ GoSell'; }, []);
   return (
     <div className="app">
+      <SiteNav current="/gosell" />
       <header className="top">
         <div className="brand">
-          <span className="logo" aria-hidden="true">GS</span>
+          <HomeLogo text="GS" />
           <div>
             <h1>แปลงออเดอร์ Bigseller → GoSell</h1>
             <p className="muted small clip">PkJeans</p>

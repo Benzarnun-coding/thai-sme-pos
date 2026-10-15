@@ -79,6 +79,14 @@ p { margin: 6px 0; }
 .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .brand > div { min-width: 0; }
 .brand p { margin: 0; max-width: 60vw; }
+/* strip of links between the standalone pages (SiteNav.tsx) */
+.site-nav { display: flex; gap: 4px; padding: 10px 0 0; overflow-x: auto; scrollbar-width: none; }
+.site-nav::-webkit-scrollbar { display: none; }
+.site-nav a { flex: none; padding: 5px 12px; border-radius: 999px; font-size: 13px; font-weight: 500; color: var(--muted); text-decoration: none; white-space: nowrap; }
+.site-nav a:hover { color: var(--text); background: var(--surface-3); }
+.site-nav a.on { color: var(--text); background: var(--surface-3); font-weight: 600; }
+a.logo { text-decoration: none; }
+a.logo:hover { filter: brightness(1.08); }
 .logo { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; flex: none; font-weight: 700; font-size: 13px; letter-spacing: 0.02em; color: var(--accent-text); background: linear-gradient(135deg, var(--accent), var(--purple)); }
 .mode { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 

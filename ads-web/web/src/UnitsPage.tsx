@@ -9,6 +9,7 @@ import { makeLookup, thaiShortDate } from './purchase.ts';
 import { byDay, byProduct, byStore, byWarehouse, CHANNELS, costOf, saleRows, type Channel, type DayTotal } from './sales.ts';
 import { Icon, useUi } from './ui.tsx';
 import { useCatalog } from './useCatalog.ts';
+import { HomeLogo, SiteNav } from './SiteNav.tsx';
 
 const COLORS: Record<Channel, string> = { TikTok: '#0fb5a6', Shopee: '#ee4d2d', Facebook: '#1877f2', Lazada: '#7a4fd6', 'อื่นๆ': '#98a1b2' };
 const PRESETS = [7, 14, 30, 60];
@@ -70,17 +71,14 @@ export function UnitsApp() {
 
   return (
     <div className="app units">
+      <SiteNav current="/catalog/sales" />
       <header className="top">
         <div className="brand">
-          <span className="logo" aria-hidden="true">ขาย</span>
+          <HomeLogo text="ขาย" />
           <div>
             <h1>ยอดขาย</h1>
             <p className="muted small clip">จำนวนตัวที่ขายได้ต่อวัน · Bigseller (TikTok, Shopee) + Page365 (Facebook)</p>
           </div>
-        </div>
-        <div className="row-actions">
-          <a className="button" href="/catalog"><Icon name="back" size={14} /> แคตตาล็อก</a>
-          <a className="button" href="/catalog/orders">สั่งของ</a>
         </div>
       </header>
 

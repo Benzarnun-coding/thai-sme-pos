@@ -16,6 +16,7 @@ import { SectionEditor } from './SectionEditor.tsx';
 import { SettingsPage } from './SettingsPage.tsx';
 import { UsersPage } from './UsersPage.tsx';
 import { Icon, Modal, useUi } from './ui.tsx';
+import { HomeLogo, SiteNav } from './SiteNav.tsx';
 
 type Tab = 'overview' | 'sales' | 'chatlog' | 'ideas' | 'competitors' | 'rules' | 'products' | 'history' | 'settings' | 'users';
 const TABS: [Tab, string][] = [['overview', 'ภาพรวม'], ['sales', 'ยอดขายรายวัน'], ['chatlog', 'Log ออเดอร์แชท'], ['ideas', 'ไอเดีย'], ['competitors', 'คู่แข่ง'], ['rules', 'กฎ'], ['products', 'สินค้า/ต้นทุน'], ['history', 'ประวัติ'], ['settings', 'ตั้งค่า']];
@@ -123,9 +124,10 @@ export function App() {
 
   return (
     <div className="app">
+      <SiteNav current="/" />
       <header className="top">
         <div className="brand">
-          <span className="logo" aria-hidden="true">PK</span>
+          <HomeLogo text="PK" onClick={(e) => { e.preventDefault(); go('overview'); }} />
           <div>
             <h1>PkJeans Ads</h1>
             <p className="muted small clip">{data?.account ?? 'กำลังโหลด…'}{me ? ` · ${me.email}` : ''}</p>

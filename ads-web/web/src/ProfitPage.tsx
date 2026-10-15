@@ -14,6 +14,7 @@ import {
 } from './money.ts';
 import { profit, type ChannelProfit } from './profit.ts';
 import { makeLookup, thaiShortDate } from './purchase.ts';
+import { HomeLogo, SiteNav } from './SiteNav.tsx';
 import { Icon, useUi } from './ui.tsx';
 import { useCatalog } from './useCatalog.ts';
 import { readFirstSheetGrid } from './xlsx.ts';
@@ -60,18 +61,14 @@ export function ProfitApp() {
 
   return (
     <div className="app profit">
+      <SiteNav current="/catalog/profit" />
       <header className="top">
         <div className="brand">
-          <span className="logo" aria-hidden="true">฿</span>
+          <HomeLogo text="฿" />
           <div>
             <h1>กำไร</h1>
             <p className="muted small clip">ต่อช่องทางและต่อสินค้า · Facebook จาก Page365 · TikTok/Shopee จากไฟล์ยอดเงินของแต่ละแพลตฟอร์ม · ทุนจากแคตตาล็อก</p>
           </div>
-        </div>
-        <div className="row-actions">
-          <a className="button" href="/catalog">แคตตาล็อก</a>
-          <a className="button" href="/catalog/sales">ยอดขาย</a>
-          <a className="button" href="/catalog/todo">งานค้าง</a>
         </div>
       </header>
 

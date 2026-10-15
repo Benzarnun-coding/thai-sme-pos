@@ -17,6 +17,7 @@ import { Icon, Modal, useUi } from './ui.tsx';
 import { useCatalog } from './useCatalog.ts';
 import { readFirstSheet } from './xlsx.ts';
 import { parseExport } from './gosell.ts';
+import { HomeLogo, SiteNav } from './SiteNav.tsx';
 
 
 interface Loaded { file: string; items: OrderItem[] }
@@ -313,17 +314,14 @@ export function OrdersApp() {
 
   return (
     <div className="app orders">
+      <SiteNav current="/catalog/orders" />
       <header className="top">
         <div className="brand">
-          <span className="logo" aria-hidden="true">PO</span>
+          <HomeLogo text="PO" />
           <div>
             <h1>ใบสั่งสินค้า</h1>
             <p className="muted small clip">{loading ? `กำลังโหลดแคตตาล็อก ${loading.of ? `${num(loading.done)} / ${num(loading.of)}` : '…'}` : `ไฟล์ Bigseller → ใบสั่งแยกตามร้านค้า / โกดัง · แคตตาล็อก ${num(rows.length)} SKU`}</p>
           </div>
-        </div>
-        <div className="row-actions">
-          <a className="button" href="/catalog"><Icon name="back" size={14} /> แคตตาล็อก</a>
-          <a className="button" href="/catalog/sales">ยอดขาย <Icon name="chevron" size={14} /></a>
         </div>
       </header>
 

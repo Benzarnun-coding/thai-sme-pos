@@ -1,0 +1,119 @@
+# Back office (catalog, order sheets, sales, profit)
+
+Standalone pages behind the main Cloudflare Access app (they call `/api`). Every page has the same link bar
+(`web/src/SiteNav.tsx`): แอด · แคตตาล็อก · สั่งของ · ยอดขาย · กำไร · งานค้าง · GoSell. A new page goes in that bar.
+
+Pages and the one job each does:
+
+| Page | Job | Main files |
+|---|---|---|
+| `/catalog` แคตตาล็อก | find a product, its pictures, cost, selling price, supplier | `web/src/CatalogPage.tsx`, `web/src/catalog.ts`, `worker/catalog.ts` |
+| `/catalog/orders` สั่งของ | Bigseller file → order sheets per supplier / warehouse; what we owe suppliers | `web/src/OrdersPage.tsx`, `web/src/purchase.ts`, `worker/purchase.ts` |
+| `/catalog/sales` ยอดขาย | pieces sold per day and channel | `web/src/UnitsPage.tsx`, `web/src/sales.ts`, `worker/sales.ts` |
+| `/catalog/profit` กำไร | money per channel and product; upload TikTok/Shopee money files | `web/src/ProfitPage.tsx`, `web/src/profit.ts`, `web/src/money.ts`, `worker/mpOrders.ts` |
+| `/catalog/todo` งานค้าง | missing data, most sold first, fixed inline | `web/src/TodoPage.tsx` |
+
+Shared rule for every page: a cost or price typed on the website wins over the sheet; nothing here changes the ads
+rules, the monthly goal or the sheet.
+
+## Catalog `/catalog`
+
+- Source: the `SKU+Price` sheet (id in setting `catalog_sheet_id`, falls back to `sheet_id`; kept separate because
+  production `sheet_id` is empty (2026-10-13) and filling it would start the 07:30 cost sync feeding the live rules;
+  owners/admins paste the link on the page). One tab per warehouse.
+- Columns A–J by position (B SKU · C code · D description · H cost · I price · J image); ร้านค้า / รหัสแทน /
+  ราคาร้านค้า / รหัสเก่า by header (they move per tab; only BB-style tabs have real suppliers).
+- Sync is a button, done by the browser: tab gids from the sheet's `/htmlview`, each tab's raw
+  `/export?format=csv&gid=` passed through the Worker (gviz blanks mixed-type cells and drops rows), parsed and diffed
+  in the browser (`web/src/catalog.ts`, shared with the Worker); only changed rows are sent (position-only moves
+  skipped). Rows load in pages cached by the browser per `catalog_version`.
+- Tables: `catalog` (sheet copy, PK tab+sku), `catalog_tabs` (counts + gid), `catalog_web` (SKUs added on the page,
+  never touched by syncs; the "เพิ่มจากเว็บ" tab copies them as TSV to paste into the sheet).
+- Filters: chips per warehouse (names from คู่มือ); for tabs with a ร้านค้า column (BB, BBW, BLD) a supplier
+  sub-filter (statuses like เลิกผลิต and "(ไม่ระบุร้าน)" last); "ไม่มีรูป".
+- Pictures: column J (Shopee `_tn` thumbnails), or added on the page (`catalog_images`, per product = tab|SKU minus
+  size: upload / photo / paste / drop, resized in the browser to ~400 px + ~1200 px JPEG, stored as D1 BLOBs, bytes
+  checked server-side; or an https link), which wins over column J. Other sites' photos via
+  `/api/catalog/image-proxy` (allowlisted hosts only).
+- Product view: supplier (`catalog_suppliers`, per product, wins over the sheet; used for PK models bought from a BB
+  supplier), and "แก้ทุน / ราคาขาย" (Benz 2026-10-15): every size, blank = sheet, "ทุกไซส์" fills all; saved per size
+  (key tab|SKU) or once per product (tab|SPU) when every size is the same (`planPrices`), read by `overrideOf`
+  (size > product > sheet). Cost → `catalog_prices` (the same cost the order page types; a cost typed there clears the
+  product's per-size ones); selling price → `catalog_sell_prices` (migration 0032, `PUT /api/catalog/sell-price`),
+  shown in the catalog only. "เว็บ" marks a typed value (sheet value on hover).
+- SKU matching (2026-10-15): a SKU the catalog doesn't know (Lazada's own id, a typo, an old code) is matched once to
+  one of ours ("จับคู่ SKU ของเรา" on ตรวจสอบ rows and on งานค้าง; `catalog_aliases`, `PUT /api/catalog/alias`, must
+  point at a real catalog/web SKU). `makeLookup` reads it as ours on every page, but a SKU really in the catalog
+  always wins. Suggestions: `suggestSkus`.
+- Baseline 2026-10-13: 17,423 SKUs.
+
+## Order sheets `/catalog/orders`
+
+- Input: Bigseller's daily "Order-SKU-inprocess" export, .xlsx or .csv (CSV via `parseExport` in `gosell.ts`: UTF-16
+  tabs, UTF-8 commas, or Thai Excel's Windows-874), read in the browser. Columns ร้านค้า BigSeller, SKU, ชื่อสินค้า,
+  ชื่อตัวเลือก, จำนวน, หมายเลขคำสั่งซื้อ … or Bigseller's English names. It has no prices.
+- Where a row goes (`groupOf`): supplier set on the page > sheet ร้านค้า (statuses like เลิกผลิต ignored) >
+  "BB · ยังไม่ระบุร้าน" (only BB must have a supplier, `SUPPLIER_TABS`) > the warehouse itself (PK, CM, CN, BBW …;
+  BBW products with นอร์ท still go to นอร์ท). Unknown SKUs → "ตรวจสอบ" (match, or add via `/catalog?q=SKU&add=1`);
+  their size comes from the SKU's last part, or Bigseller's option text after the last comma (`optionParts`).
+- Moves: any row, any group, also in a reopened round, can go to any supplier/warehouse for that round only
+  (`applyMoves`, keyed by SKU; "ย้อนกลับไป …" undoes; whole group at once); "จำไว้ทุกวัน" also sets the product's
+  supplier. A reopened round saves itself after each change.
+- Label: a name typed on the page (`catalog_labels`, per product, every size; rows not in the catalog: that round
+  only), else our code + colour name, plus the supplier's code from column M in brackets only when it looks like a code
+  (`supplierCodeOf`). BB's column M is mostly notes ("มีทุกร้าน", "ร้าน ส.") shown on screen as "หมายเหตุชีต", never
+  printed. Labels are recomputed when a saved round is reopened.
+- Order numbers + sales store (`storeLabel`: platform from the shipping name + Bigseller store → "TikTok · STM-SHOP")
+  on screen, Excel, print and pictures. Bigseller has TikTok/Shopee only; Facebook orders come from Page365.
+  Search order numbers in the round and in saved rounds; copy all order numbers of a group.
+- Output: Excel (`web/src/xlsxWrite.ts`), print/PDF (A4, one table per sheet, header repeated), and "รูปภาพ" PNG pages
+  1080 px wide (`web/src/pictureSheet.ts`): per order by default (Bigseller picking-list layout, text as in Bigseller,
+  no translation; order/tracking numbers only drawn, never saved) or per product (the only choice for history).
+  Highlighted for CN, which packs each order itself.
+- History: downloading / printing / ticking saves the round per date+round (`purchase_uploads`, `purchase_lines`:
+  SKU, qty, group, order numbers, `missing`, price; tracking numbers never saved) and `purchase_items` (order + SKU +
+  qty + store, for units sold). Uploading the same file again (by file name) reopens that round and fills in what's new.
+- Out of stock: tick "ของไม่มี" (all or N pieces; `PUT /api/purchase/missing`, kept across re-saves) → the round's
+  "พี่เปีย" sheet (`missingGroup`), bought elsewhere.
+- What we pay (internal, never on supplier sheets): ทุน = sheet column H only (Benz 2026-10-15; ราคาร้านค้า N not used),
+  or a cost typed on the page; amount = (qty − out of stock) × price. "ยอดจ่ายร้าน" card per supplier + internal
+  Excel "สรุปจ่ายร้าน (ภายใน)" (`paymentWorkbook`). Payments: amount, "จ่ายแล้ว" tick (no amount = the amount owed),
+  note (`purchase_payments`, `PUT /api/purchase/payments`). "ยอดค้างจ่ายร้าน" = last 60 days of rounds not ticked
+  paid (`GET /api/purchase/ledger`).
+- Baseline 2026-10-13: today's Bigseller file 304/335 pieces matched.
+
+## Units sold `/catalog/sales`
+
+- `GET /api/sales?from&to` (≤ 62 days). Bigseller from `purchase_items`: each order + SKU counted once, on the day of
+  the round where it first appeared (in-process orders come back in later rounds). Page365 (Facebook) from
+  `p365_orders` by the order's date.
+- Daily chart + table by channel with which source had a file that day; tabs by sales store / product / warehouse.
+  "ต้นทุนของเรา" = cost of what was sold, labelled as not sales. Revenue here is Facebook only; money for every
+  channel is on the profit page. Rounds saved before 2026-10-15 have no order rows (upload the file again).
+
+## Profit `/catalog/profit`
+
+- Per channel and per product: revenue − fees − catalog cost − ads (`GET /api/profit`).
+- Facebook: Page365 orders with `settings.order_fees`; ads = Meta spend only on days that have a Page365 file.
+- TikTok / Shopee / Lazada: the platform's own order or income export, uploaded on this page. Read in the browser
+  (`web/src/money.ts`): header row found under title rows; columns guessed (order no., amount gross or net of fees,
+  fee columns, date, status, SKU / qty / item amount), picked once and saved per header layout (`mp_import_maps`);
+  cancelled / unpaid / returned left out by default; only order no., date, status, amounts, fees and SKUs are sent →
+  `mp_orders` (migration 0041, upsert by order no.; no date = the day the order first appeared on an order sheet).
+- Items come from the file or the order-sheet rounds; an order's money and fees are split over its items by value, so
+  products add up to channels. Cost = catalog ทุน, not the Page365 cost the monthly goal uses.
+- No real TikTok/Shopee export has been tried yet: check the guessed columns on the first upload.
+
+## งานค้าง `/catalog/todo`
+
+From units sold in the last 7/14/30 days, most sold first: unknown SKUs (match / add), products without a cost (type
+it), BB products the order sheets would put in "ยังไม่ระบุร้าน" (same `groupOf` rule; set supplier), products without
+a picture, web SKUs not yet in the sheet. Linked from the order page's "ต้องตรวจสอบ" box.
+
+## Morning report in #report
+
+07:30 Discord "หลังบ้าน" (`worker/opsDigest.ts`; secret `DISCORD_REPORT_WEBHOOK_URL`, else `DISCORD_WEBHOOK_URL`;
+preview `GET /api/ops-digest?date=`, post now with `POST` as owner/admin): yesterday's order-sheet rounds (pieces per
+round; per supplier from the latest round, since later rounds repeat in-process orders), pieces sold per channel,
+marketplace orders with / without money, owed to suppliers (60-day ledger, suppliers + พี่เปีย), SKUs sold in 7 days
+that the catalog doesn't know.

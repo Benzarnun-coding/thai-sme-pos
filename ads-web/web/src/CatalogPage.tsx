@@ -13,6 +13,7 @@ import {
 } from './catalog.ts';
 import { num } from './fmt.ts';
 import { Icon, Modal, useUi } from './ui.tsx';
+import { HomeLogo, SiteNav } from './SiteNav.tsx';
 
 const ALL = '*';
 const WEB = '+web';
@@ -219,9 +220,10 @@ export function CatalogApp() {
 
   return (
     <div className="app catalog">
+      <SiteNav current="/catalog" />
       <header className="top">
         <div className="brand">
-          <span className="logo" aria-hidden="true">SKU</span>
+          <HomeLogo text="SKU" />
           <div>
             <h1>แคตตาล็อกสินค้า</h1>
             <p className="muted small clip">
@@ -230,8 +232,6 @@ export function CatalogApp() {
           </div>
         </div>
         <div className="row-actions">
-          <a className="button" href="/catalog/sales" title="จำนวนตัวที่ขายได้ต่อวัน">ยอดขาย</a>
-          <a className="button go" href="/catalog/orders" title="อัปโหลดไฟล์ Bigseller → ใบสั่งแยกตามร้าน/โกดัง">สั่งของ <Icon name="chevron" size={14} /></a>
           {canEdit && <>
             <button onClick={startSync} disabled={!!loading || !!sync?.running}><Icon name="refresh" size={14} /> {sync?.running ? 'กำลังดึง…' : 'ดึงจากชีต'}</button>
             <button className="primary" onClick={() => setAdding({})} disabled={!tabs.length}>+ เพิ่ม SKU</button>
