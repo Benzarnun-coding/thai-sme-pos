@@ -43,6 +43,7 @@ import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365
 import { autoFillNote, autoFillOn, customerFor, setAutoFill } from './autoFill.ts';
 import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './metaPurchases.ts';
 import { captureSource, planNotePurchases } from './notePurchases.ts';
+import { dayOrders } from './orderDay.ts';
 import { adjustmentDays, seedFromSent } from './metaAdjust.ts';
 import { pageOf, receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
@@ -511,6 +512,12 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
       out[model] = `${r.status} ${(await r.text()).slice(0, 160)}`;
     }
     return json({ colo: (req as any).cf?.colo ?? null, out });
+  }
+  // The day's sales for Max (Log tab): customer, bill and stage live from Page365, totals.
+  if (path === '/api/order-notes/sales' && method === 'GET') {
+    const date = url.searchParams.get('date') ?? bkkDate(0);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
+    return json({ date, ...(await dayOrders(env, await loadNotes(env.DB, date))) });
   }
   if (path === '/api/order-notes/days' && method === 'GET') return json({ days: await noteDays(env.DB, 14) });
   if (path === '/api/order-notes' && method === 'GET') {
