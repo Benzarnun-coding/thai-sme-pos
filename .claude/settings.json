@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CLAUDE_CODE_REMOTE\" = \"true\" ] || exit 0; cd \"$CLAUDE_PROJECT_DIR/ads-web\" && npm ci --no-audit --no-fund --loglevel=error && echo \"ads-web ready: $(node -v)\""
+          }
+        ]
+      }
+    ]
+  }
+}
