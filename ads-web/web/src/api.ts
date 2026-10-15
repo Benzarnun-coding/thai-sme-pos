@@ -265,13 +265,13 @@ export interface WebhookStatus {
 export interface FillPlan {
   order: { id: number; no: number; stage: string } | null;
   lines: { code: string; size: string; qty: number; product_id: number | null; variant_id: number | null; sku: string | null; price: number | null; available: number | null }[];
-  payment: 'cod' | 'transfer' | null; subtotal: number; shipping: number; discount: number; total: number | null; problems: string[];
+  payment: 'cod' | 'transfer' | null; subtotal: number; shipping: number; discount: number; total: number | null; problems: string[]; said: string[];
 }
 export interface NoteCheck {
   mid: string;
   fill: { at: string | null; by: string | null; order_no: number | null; error: string | null };
   at: string; text: string;
-  items: { code: string; prefix: string; size: string; qty: number; catalog: { tab: string; sku: string; name: string; color: string; price: number | null; image: string; others: string[] } | null }[];
+  items: { code: string; prefix: string; size: string; qty: number; catalog: { tab: string; sku: string; name: string; color: string; price: number | null; image: string; others: string[] } | null; sizes: string[] }[];
   unknown: string[]; payment: 'cod' | 'transfer' | null; total: number | null;
   order_no: string | null; order_total: number | null; order_items: { sku: string; qty: number }[];
   linked_by: 'customer' | 'total' | null;

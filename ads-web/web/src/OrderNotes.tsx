@@ -93,6 +93,12 @@ function FillModal({ note, onClose, onDone }: { note: NoteCheck; onClose: () => 
             {' '}({plan.payment === 'cod' ? 'ปลายทาง' : 'โอน'})
           </p>
           {plan.problems.length > 0 && <ul className="small bad">{plan.problems.map((p, i) => <li key={i}>{p}</li>)}</ul>}
+          {plan.said.length > 0 && (
+            <div className="small">
+              <div className="muted">ลูกค้าพิมพ์เรื่องไซส์ไว้ในแชท:</div>
+              {plan.said.map((t, i) => <div key={i}>“{t}”</div>)}
+            </div>
+          )}
           <p className="muted small">ระบบใส่สินค้า ไซส์ จำนวน ค่าส่ง และส่วนลดลงในร่างเท่านั้น — บิลยังเป็นร่าง ยังไม่ส่งหาลูกค้า · เปิดบิลใน Page365 แล้วกด "บันทึกและส่ง" เองเหมือนเดิม</p>
           <div className="row gap">
             <button disabled={busy || plan.problems.length > 0 || !plan.order} onClick={fill}>{busy ? 'กำลังใส่…' : `ใส่สินค้าในร่าง${plan.order ? ` #${plan.order.no}` : ''}`}</button>
@@ -118,6 +124,7 @@ export function OrderNotesList({ date, dayLabel, refresh = 0, live = false }: { 
   const count = (v: NoteCheck['verdict']) => notes.filter((n) => n.verdict === v).length;
   const compared = notes.filter((n) => n.order_no).length;
   const noCatalog = notes.reduce((t, n) => t + n.items.filter((i) => !i.catalog).length, 0);
+  const noSize = notes.reduce((t, n) => t + n.items.filter((i) => !i.catalog && i.sizes.length).length, 0);
 
   return (
     <section className="card table-card">
@@ -135,7 +142,8 @@ export function OrderNotesList({ date, dayLabel, refresh = 0, live = false }: { 
               {count('diff_items') > 0 && <> · <span className="bad">สินค้าต่าง {num(count('diff_items'))}</span></>}
               {count('diff_total') > 0 && <> · <span className="warn">ยอดต่าง {num(count('diff_total'))}</span></>}
               {count('unparsed') > 0 && <> · <span className="warn">อ่านไม่ออก {num(count('unparsed'))}</span></>}
-              {noCatalog > 0 && <> · <span className="warn">ไม่พบใน Catalog {num(noCatalog)} รายการ</span></>}
+              {noSize > 0 && <> · <span className="bad">ไซส์ไม่มีขาย {num(noSize)} รายการ</span></>}
+              {noCatalog - noSize > 0 && <> · <span className="warn">ไม่พบใน Catalog {num(noCatalog - noSize)} รายการ</span></>}
               {res.uploaded ? <> · ออเดอร์ Page365 ที่ไม่มีสรุปในแชท {num(res.orders_without_note)} จาก {num(res.orders)}</> : <span className="muted"> · ยังไม่ได้อัปโหลดไฟล์ Page365 ของวันนี้</span>}
             </p>
           )}
@@ -162,7 +170,9 @@ export function OrderNotesList({ date, dayLabel, refresh = 0, live = false }: { 
                             <b>{it.catalog?.sku ?? `${it.code} ${it.size}`}</b> × {it.qty}
                             {it.catalog ? (
                               <div className="muted">{it.catalog.name}{it.catalog.others.length > 0 && ` · มีที่ ${it.catalog.others.join(', ')} ด้วย`}</div>
-                            ) : <div className="warn">ไม่พบใน Catalog</div>}
+                            ) : it.sizes.length ? (
+                              <div className="bad">ไม่มีไซส์ {it.size} — รุ่นนี้มี {it.sizes.join(', ')} · ต้องถามลูกค้าใหม่</div>
+                            ) : <div className="warn">ไม่พบรุ่นนี้ใน Catalog</div>}
                           </div>
                         </div>
                       ))}

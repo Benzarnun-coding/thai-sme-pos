@@ -182,8 +182,24 @@ export function pickCatalog(hits: CatalogHit[] | undefined): CatalogPick | null 
   return { ...best, others: hits.filter((h) => h !== best).map((h) => h.tab) };
 }
 
-export function withCatalog<T extends { items: NoteItem[] }>(checks: T[], cat: Map<string, CatalogHit[]>): (Omit<T, 'items'> & { items: (NoteItem & { catalog: CatalogPick | null })[] })[] {
-  return checks.map((c) => ({ ...c, items: c.items.map((i) => ({ ...i, catalog: pickCatalog(cat.get(catKey(i.code, i.size))) })) }));
+/** Sizes the catalog has for each code, in size order (shown when a note asks for a size that isn't made). */
+function sizesByCode(cat: Map<string, CatalogHit[]>): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const k of cat.keys()) {
+    const [code, size] = k.split('|');
+    (out.get(code) ?? out.set(code, []).get(code)!).push(size);
+  }
+  for (const v of out.values()) v.sort((a, b) => (Number(a) || 0) - (Number(b) || 0) || a.localeCompare(b));
+  return out;
+}
+
+/** Each line with its catalog product, or — when the size isn't in the catalog — the sizes that model does come in. */
+export function withCatalog<T extends { items: NoteItem[] }>(checks: T[], cat: Map<string, CatalogHit[]>): (Omit<T, 'items'> & { items: (NoteItem & { catalog: CatalogPick | null; sizes: string[] })[] })[] {
+  const sizes = sizesByCode(cat);
+  return checks.map((c) => ({ ...c, items: c.items.map((i) => {
+    const catalog = pickCatalog(cat.get(catKey(i.code, i.size)));
+    return { ...i, catalog, sizes: catalog ? [] : sizes.get(i.code.toUpperCase()) ?? [] };
+  }) }));
 }
 
 // ---- storage ----

@@ -51,7 +51,7 @@ export async function sessionStatus(env: P365Env): Promise<{ ok: boolean; error:
 interface ListOrder { id: number; no: number; created_at: string; stage: string }
 interface Variant { id: number; name: string; code: string | null; price: number; available: number; stockable?: boolean }
 export interface P365Order {
-  id: number; no: number; stage: string; customer_fbid: string | null; created_at: string; cod: boolean;
+  id: number; no: number; stage: string; customer_fbid: string | null; conversation_id: number | null; created_at: string; cod: boolean;
   subtotal: number; total: number; shipping_cost: number | null; discount: number | null;
   items: { id: number; name: string; note: string | null; price: number; quantity: number; variant: { id: number; code: string | null; product_id: number } | null }[];
 }
@@ -72,7 +72,7 @@ export async function findDraft(env: P365Env, psid: string, at: string, maxCheck
 }
 
 /** Page365 product + size for one line: product whose name starts with the code, variant whose SKU ends with the size. */
-async function findVariant(env: P365Env, it: NoteItem, cache: Map<string, { productId: number; variants: Variant[] } | null>): Promise<{ productId: number; variant: Variant } | null> {
+async function findVariant(env: P365Env, it: NoteItem, cache: Map<string, { productId: number; variants: Variant[] } | null>): Promise<{ productId: number; variant: Variant | null; sizes: string[] } | null> {
   const key = it.code.toUpperCase();
   if (!cache.has(key)) {
     const found = await call<{ products: { id: number; name: string }[] }>(env, `products.json?for_browser=true&page=1&search=${encodeURIComponent(it.code)}`);
@@ -86,7 +86,21 @@ async function findVariant(env: P365Env, it: NoteItem, cache: Map<string, { prod
   const prod = cache.get(key);
   if (!prod) return null;
   const v = prod.variants.find((x) => (x.code ?? '').toUpperCase().endsWith(`-${it.size}`) || x.name.replace(/\s+/g, '').toUpperCase() === `ไซส์${it.size}`);
-  return v ? { productId: prod.productId, variant: v } : null;
+  const sizes = prod.variants.map((x) => (x.code ?? '').split('-').pop() || x.name.replace(/\D/g, '')).filter(Boolean);
+  return { productId: prod.productId, variant: v ?? null, sizes };
+}
+
+/** The customer's messages that mention a size ("เอว31ทุกตัว"), phone numbers and long numbers removed. */
+export function sizeLines(messages: { own?: boolean; message?: string | null }[]): string[] {
+  return messages
+    .filter((m) => !m.own && m.message && /(เอว|ไซส์|ไซซ์|size|sz)\s*\d{2}|\b(2[4-9]|[34]\d)\b/i.test(m.message))
+    .map((m) => m.message!.replace(/\+?\d[\d\s-]{7,}\d/g, '…').replace(/\s+/g, ' ').trim().slice(0, 120))
+    .slice(-5);
+}
+
+async function customerSizeLines(env: P365Env, conversationId: number): Promise<string[]> {
+  const c = await call<{ messages: { own?: boolean; message?: string | null }[] }>(env, `conversations/${conversationId}.json`);
+  return sizeLines(c.messages ?? []);
 }
 
 // ---- the plan ----
@@ -101,6 +115,8 @@ export interface FillPlan {
   discount: number;
   total: number | null;
   problems: string[];
+  /** the customer's own messages about size, when a line's size isn't made */
+  said: string[];
 }
 
 /**
@@ -118,12 +134,17 @@ export async function planFill(env: P365Env, note: { psid: string; at: string; t
 
   const cache = new Map<string, { productId: number; variants: Variant[] } | null>();
   const lines: PlanLine[] = [];
+  let missingSize = false;
   for (const it of parsed.items) {
-    const hit = await findVariant(env, it, cache);
-    if (!hit) problems.push(`ไม่พบ ${it.code} ไซส์ ${it.size} ใน Page365`);
+    const found = await findVariant(env, it, cache);
+    const hit = found?.variant ? { productId: found.productId, variant: found.variant } : null;
+    if (!found) problems.push(`ไม่พบรุ่น ${it.code} ใน Page365`);
+    else if (!hit) { problems.push(`${it.code} ไม่มีไซส์ ${it.size} — รุ่นนี้มี ${found.sizes.join(', ')} · ต้องถามลูกค้าใหม่`); missingSize = true; }
     else if (hit.variant.stockable !== false && hit.variant.available < it.qty) problems.push(`${hit.variant.code ?? it.code} เหลือ ${hit.variant.available} ตัว ไม่พอ ${it.qty}`);
     lines.push({ code: it.code, size: it.size, qty: it.qty, product_id: hit?.productId ?? null, variant_id: hit?.variant.id ?? null, sku: hit?.variant.code ?? null, price: hit?.variant.price ?? null, available: hit?.variant.available ?? null });
   }
+  // A size that isn't made: show what the customer actually wrote about size, so the admin can ask them again.
+  const said = missingSize && draft?.conversation_id ? await customerSizeLines(env, draft.conversation_id).catch(() => []) : [];
   const ids = lines.map((l) => l.product_id).filter((x) => x != null);
   if (new Set(ids).size !== ids.length) problems.push('มีรุ่นเดียวกันหลายไซส์ในใบเดียว — ตอนนี้ยังให้คนใส่เอง');
   const subtotal = lines.reduce((t, l) => t + (l.price ?? 0) * l.qty, 0);
@@ -135,7 +156,7 @@ export async function planFill(env: P365Env, note: { psid: string; at: string; t
   // Promos at list price run to ~60% off (1 × 369 for 199 COD, 3 × 369 for 549); beyond 70% the total is likely mistyped.
   else if (discount > subtotal * 0.7) problems.push(`ส่วนลด ${discount} เกิน 70% ของราคาสินค้า — เช็กยอดอีกครั้ง`);
   if (draft && draft.cod !== (parsed.payment === 'cod')) problems.push(`ร่างเป็น${draft.cod ? 'เก็บปลายทาง' : 'โอน'} แต่บรรทัดสรุปเป็น${parsed.payment === 'cod' ? 'ปลายทาง' : 'โอน'}`);
-  return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, subtotal, shipping, discount: Math.max(0, discount), total, problems };
+  return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, subtotal, shipping, discount: Math.max(0, discount), total, problems, said };
 }
 
 /** Puts the planned items into the draft (still a draft afterwards), then reads it back and checks the total. */

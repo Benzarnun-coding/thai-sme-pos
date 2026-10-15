@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyFill, planFill } from './p365fill.ts';
+import { applyFill, planFill, sizeLines } from './p365fill.ts';
 
 // A fake Page365 with the shapes its web app sees (read 15 Oct 2026): one draft for customer "u1".
 function fakePage365() {
@@ -73,4 +73,16 @@ test('apply: adds the products, sets sizes, shipping and discount, and checks th
 
 test('no stored login → a clear message, no calls', async () => {
   await assert.rejects(planFill({}, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/1 30\ncod 249' }), /P365_COOKIE/);
+});
+
+test('a size that isn\'t made lists the sizes there are, and the customer\'s own words about size', async () => {
+  fakePage365();
+  const plan = await planFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/2 31\ncod 249' });
+  assert.match(plan.problems.join(' '), /ไม่มีไซส์ 31 — รุ่นนี้มี 30/);
+  assert.deepEqual(sizeLines([
+    { own: false, message: 'ดำ1ตัว กรม1ตัว เทา1ตัว เอว31ทุกตัวนะค่ะ' },
+    { own: true, message: 'สรุป เอว 31 ทั้ง 3 ตัว' },
+    { own: false, message: 'นาง ก 114 ม.5 เลย 42150 โทร 0928040924' },
+    { own: false, message: 'เก็บปลายทาง' },
+  ]), ['ดำ1ตัว กรม1ตัว เทา1ตัว เอว31ทุกตัวนะค่ะ']);
 });
