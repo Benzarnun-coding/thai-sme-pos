@@ -6,6 +6,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
+import { completeAddress } from './thaiAddress.ts';
 
 export const AddressSchema = z.object({
   found: z.boolean().describe('true only if the chat contains a full shipping address for this order'),
@@ -26,7 +27,8 @@ export interface ChatMessage { own?: boolean; auto?: boolean; message?: string |
 const SYSTEM = `You read a Thai online shop's Messenger chat and pull out the shipping address the customer gave for their order.
 The customer may type it or send a photo of it. The first photo in a chat is usually the ad they clicked — ignore photos of clothes.
 If the customer gave more than one address, use the latest one and say so in "doubt". Copy names and place names exactly as written;
-fix only obvious typing errors in place names. Never invent a postcode or phone number — leave it empty if it isn't there.`;
+fix only obvious typing errors in place names. Never invent a postcode or phone number — leave it empty if it isn't there.
+A missing postcode is fine (it is looked up from the subdistrict afterwards): don't mention it in "doubt".`;
 
 /** The chat as Claude sees it: the last 40 messages as text, plus the customer's last 3 photos after the first message. */
 export function chatInput(messages: ChatMessage[]): Anthropic.ContentBlockParam[] {
@@ -44,10 +46,16 @@ export function chatInput(messages: ChatMessage[]): Anthropic.ContentBlockParam[
 /** Shapes the result for Page365 and rejects what can't be right (bad postcode/phone → treated as doubtful). */
 export function cleanAddress(a: ReadAddress): ReadAddress & { problems: string[] } {
   const phone = a.phone.replace(/\D/g, '').replace(/^66(?=\d{9}$)/, '0');
-  const postal = a.postal_code.replace(/\D/g, '');
   const problems: string[] = [];
+  // Postcode/district/province filled or checked from the subdistrict (customers often leave the postcode out).
+  const { parts, doubt } = a.found ? completeAddress(a) : { parts: a, doubt: null };
+  a = { ...a, ...parts };
+  const postal = a.postal_code.replace(/\D/g, '');
   if (!a.found) problems.push('ไม่เจอที่อยู่ในแชท');
   else {
+    if (doubt) problems.push(doubt);
+    // The model sometimes still notes a missing postcode; once the address book filled it, that's settled.
+    if (postal.length === 5) a = { ...a, doubt: a.doubt.split(/[,;·\n]/).filter((x) => !/รหัสไปรษณีย์|postcode|zip/i.test(x)).join(', ').trim() };
     if (!/^\d{5}$/.test(postal)) problems.push('ไม่มีรหัสไปรษณีย์ 5 หลัก');
     if (!/^0\d{8,9}$/.test(phone)) problems.push('ไม่มีเบอร์โทร');
     if (!a.province.trim() || !a.district.trim()) problems.push('ที่อยู่ไม่ครบ (ไม่มีอำเภอ/จังหวัด)');
