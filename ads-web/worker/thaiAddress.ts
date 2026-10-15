@@ -16,8 +16,12 @@ const PROVINCE_ALIAS: Record<string, string> = {
 };
 
 /** Strips prefixes and spaces: "ต. พรุดินนา" → "พรุดินนา", "อำเภอเมืองเลย" → "เมืองเลย". */
+const THAI_DIGIT = ['ศูนย์', 'หนึ่ง', 'สอง', 'สาม', 'สี่', 'ห้า', 'หก', 'เจ็ด', 'แปด', 'เก้า', 'สิบ'];
+
 export function bare(s: string): string {
-  return (s ?? '').replace(/^(ตำบล|ต\.|แขวง|อำเภอ|อ\.|เขต|จังหวัด|จ\.)\s*/, '').replace(/\s+/g, '').trim();
+  return (s ?? '').replace(/^(ตำบล|ต\.|แขวง|อำเภอ|อ\.|เขต|จังหวัด|จ\.)\s*/, '').replace(/\s+/g, '').trim()
+    // "คลอง7" → "คลองเจ็ด" (Pathum Thani's numbered canals are written both ways)
+    .replace(/(\D)(10|[1-9])$/, (_, a: string, n: string) => a + THAI_DIGIT[Number(n)]);
 }
 
 function province(s: string): string {

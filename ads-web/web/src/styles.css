@@ -945,3 +945,27 @@ tr:hover .po-label-btn { opacity: 1; }
 .cat-price-edit .cat-price-all td { background: var(--surface-2); }
 .cat-price-fill { display: inline-flex; gap: 4px; align-items: center; }
 .cat-price-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+
+/* /botkb — answer bank for Meta's Business AI */
+.kb-page { max-width: 880px; margin: 0 auto; padding: 24px 16px 64px; display: grid; gap: 16px; }
+.kb-head h1 { margin: 6px 0 4px; font-size: 24px; }
+.kb-paste textarea { width: 100%; font: 13px/1.5 ui-monospace, Menlo, monospace; margin-top: 10px; }
+.kb-list { display: grid; gap: 10px; }
+.kb-item { display: grid; gap: 6px; }
+.kb-item p { margin: 0; }
+.warn-badge { background: var(--bad-bg); color: var(--bad); }
+
+/* /catalog/profit: marketplace money upload + profit tables */
+.money-map { display: grid; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.money-map p { margin: 0; }
+.money-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px 12px; }
+.money-fields label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.money-fields select { min-width: 0; width: 100%; }
+.money-checks { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; max-height: 180px; overflow-y: auto; }
+.money-checks label { display: inline-flex; flex-direction: row; gap: 4px; align-items: center; color: var(--text-2); }
+.money-checks input[type=checkbox] { width: auto; min-height: 0; margin: 0; }
+.money-fees summary { cursor: pointer; }
+.money-fees .money-checks { margin-top: 6px; }
+.money-preview { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-2); font-size: 14px; }
+.profit-notes ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.profit-notes p { margin: 0; }

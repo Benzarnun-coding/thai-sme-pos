@@ -2,7 +2,7 @@
 // depends on their role in the `users` table (managed on the ผู้ใช้ page by owners):
 //   owner  – everything, including users and roles (the people in OWNER_EMAILS are always owners)
 //   admin  – everything except users
-//   costs  – only costs (web costs, product lines, syncing the cost sheets, Page365 uploads, the product catalog)
+//   costs  – only costs (web costs, product lines, syncing the cost sheets, Page365 / marketplace money uploads, the product catalog)
 //   viewer – read only
 
 export type Role = 'owner' | 'admin' | 'costs' | 'viewer';
@@ -39,6 +39,8 @@ const COST_WRITES: [string, RegExp][] = [
   ['PUT', /^\/api\/catalog\/sell-price$/],
   ['PUT', /^\/api\/catalog\/label$/],
   ['PUT', /^\/api\/catalog\/alias$/],
+  ['PUT', /^\/api\/mp-orders$/],
+  ['PUT', /^\/api\/mp-import-map$/],
   ['PUT', /^\/api\/purchase$/],
   ['PUT', /^\/api\/purchase\/missing$/],
   ['PUT', /^\/api\/purchase\/payments$/],

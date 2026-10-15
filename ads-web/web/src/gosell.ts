@@ -39,15 +39,7 @@ const PROVINCE_ALIASES: Record<string, string> = { 'กทม': 'กรุงเ
 
 /** CSV/TSV bytes → rows keyed by header. Bigseller exports UTF-16 with tabs; UTF-8 (or Thai Windows-874) and commas also work. */
 export function parseExport(bytes: Uint8Array): { headers: string[]; rows: SourceRow[] } {
-  let text: string;
-  if (bytes[0] === 0xff && bytes[1] === 0xfe) text = new TextDecoder('utf-16le').decode(bytes.subarray(2));
-  else if (bytes[0] === 0xfe && bytes[1] === 0xff) text = new TextDecoder('utf-16be').decode(bytes.subarray(2));
-  // No BOM but every other byte zero = UTF-16 LE anyway (some re-saves drop the BOM).
-  else if (bytes.length > 3 && bytes[1] === 0 && bytes[3] === 0) text = new TextDecoder('utf-16le').decode(bytes);
-  else text = decodeUtf8OrThai(bytes).replace(/^\uFEFF/, '');
-  const firstLine = text.split('\n', 1)[0];
-  const sep = (firstLine.match(/\t/g)?.length ?? 0) >= (firstLine.match(/,/g)?.length ?? 0) ? '\t' : ',';
-  const table = splitDelimited(text, sep);
+  const table = exportGrid(bytes);
   const headers = (table[0] ?? []).map((h) => h.trim());
   const rows = table.slice(1).filter((r) => r.some((c) => c.trim())).map((r) => {
     const o: SourceRow = {};
@@ -55,6 +47,20 @@ export function parseExport(bytes: Uint8Array): { headers: string[]; rows: Sourc
     return o;
   });
   return { headers, rows };
+}
+
+/** CSV/TSV bytes → rows of cells (any encoding parseExport reads), header not assumed. */
+export function exportGrid(bytes: Uint8Array): string[][] {
+  let text: string;
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) text = new TextDecoder('utf-16le').decode(bytes.subarray(2));
+  else if (bytes[0] === 0xfe && bytes[1] === 0xff) text = new TextDecoder('utf-16be').decode(bytes.subarray(2));
+  // No BOM but every other byte zero = UTF-16 LE anyway (some re-saves drop the BOM).
+  else if (bytes.length > 3 && bytes[1] === 0 && bytes[3] === 0) text = new TextDecoder('utf-16le').decode(bytes);
+  else text = decodeUtf8OrThai(bytes).replace(/^\uFEFF/, '');
+  // Separator from the first lines, not only the first (some reports start with a title line).
+  const head = text.split('\n', 20).join('\n');
+  const sep = (head.match(/\t/g)?.length ?? 0) >= (head.match(/,/g)?.length ?? 0) ? '\t' : ',';
+  return splitDelimited(text, sep);
 }
 
 /** UTF-8, or Windows-874 (TIS-620) when it is not valid UTF-8 — what Thai Excel writes when a CSV is re-saved. */

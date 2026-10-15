@@ -116,4 +116,12 @@ test('the total the chat agreed on: the shop\'s last "ยอด…", not the ord
   ];
   assert.equal(chatTotal(msgs, '2026-10-15T02:17:00Z'), 549);
   assert.equal(chatTotal([{ own: true, message: 'รวม 3 ตัว ราคาโปร' }]), null);
+  assert.equal(chatTotal([{ own: true, message: 'ยอดรวม 239 บาท' }, { own: true, message: 'ยอดสั่งเกิน 15000 ส่งฟรี' }]), 239);
+});
+
+test('a draft passed in is used as is (the auto path looks it up once)', async () => {
+  const { calls } = fakePage365();
+  const plan = await planFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/1 30\ncod 249' }, { draft: null });
+  assert.equal(plan.order, null);
+  assert.ok(!calls.some((c) => c.startsWith('GET orders.json')), 'no draft search');
 });

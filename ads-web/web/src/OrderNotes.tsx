@@ -41,8 +41,31 @@ export function OrderNotesPage() {
         ))}
       </div>
       <SessionBanner />
+      <AutoSwitch />
       <OrderNotesList date={date} dayLabel={date === todayBkk() ? 'วันนี้' : thaiDay(date)} refresh={tick} live={date === todayBkk()} />
     </>
+  );
+}
+
+/** Owner switch: open + fill drafts by themselves the moment the admin types the note (problems → Discord). */
+function AutoSwitch() {
+  const { toast } = useUi();
+  const [on, setOn] = useState<boolean | null>(null);
+  useEffect(() => { fetch('/api/order-notes/auto').then((r) => r.json()).then((j) => setOn(!!j.on)).catch(() => {}); }, []);
+  async function flip() {
+    const r = await fetch('/api/order-notes/auto', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: !on }) });
+    const j = await r.json();
+    if (!r.ok) { toast(j.error ?? 'เปลี่ยนไม่ได้', 'bad'); return; }
+    setOn(j.on); toast(j.on ? 'เปิดอัตโนมัติแล้ว — บรรทัดสรุปใหม่จะถูกเปิดร่างและใส่บิลเอง' : 'ปิดอัตโนมัติแล้ว', 'ok');
+  }
+  if (on === null) return null;
+  return (
+    <div className={`banner ${on ? 'info' : ''}`} style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
+      <span>
+        <b>ใส่บิลอัตโนมัติ: {on ? 'เปิด' : 'ปิด'}</b> — {on ? 'แอดมินพิมพ์สรุปแล้ว ระบบเปิดร่าง + ใส่สินค้า/ที่อยู่เองทันที ใบที่ติดปัญหาแจ้งใน Discord (ชื่อลูกค้า + เลขบิล) · บิลยังเป็นร่าง แอดมินกด "ส่งบิล" เอง' : 'ต้องกดปุ่ม "ใส่ใน Page365" / "ใส่ทุกใบที่ผ่าน" เอง'}
+      </span>
+      <button className="ghost small" onClick={flip}>{on ? 'ปิด' : 'เปิดอัตโนมัติ'}</button>
+    </div>
   );
 }
 

@@ -24,7 +24,7 @@ export class P365Error extends Error {
   constructor(message: string, kind: 'session' | 'api' | 'check' = 'api') { super(message); this.kind = kind; }
 }
 
-async function call<T>(env: P365Env, path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+export async function call<T>(env: P365Env, path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   if (!env.P365_COOKIE) throw new P365Error('ยังไม่ได้ตั้ง P365_COOKIE (ล็อกอิน Page365 ของบัญชีที่ให้ระบบใช้)', 'session');
   const res = await fetch(`${BASE}/${PAGE(env)}/${path}`, {
     method: init.method ?? 'GET',
@@ -109,7 +109,10 @@ export function chatTotal(messages: ChatMessage[], until?: string): number | nul
   for (const m of messages) {
     if (m.created_at && Date.parse(m.created_at) > end) continue;
     if (!m.own || m.auto || !m.message || parseOrderNote(m.message)) continue;
-    for (const x of m.message.replace(/[*,]/g, '').matchAll(/(?:ยอดรวม|ยอดชำระ|ยอดโอน|รวมทั้งหมด|รวม|ยอด)[^\d\n]{0,25}(\d{3,5})(?!\d)/g)) last = Number(x[1]);
+    for (const x of m.message.replace(/[*,]/g, '').matchAll(/(?:ยอดรวม|ยอดชำระ|ยอดโอน|รวมทั้งหมด|รวม|ยอด)[^\d\n]{0,25}(\d{3,5})(?!\d)/g)) {
+      // Five-digit amounts are other things ("ยอดสั่งเกิน 15000", a postcode after รวม…), not a bill of jeans.
+      if (Number(x[1]) < 10000) last = Number(x[1]);
+    }
   }
   return last;
 }
@@ -165,13 +168,13 @@ function draftAddress(d: P365Order): PlanAddress | null {
  * the note's total goes into the bill's discount, the way the team writes promos (3 × 199 + 50 − 98 = 549). The
  * note's total must match what the chat agreed. The address comes from Page365 if complete, else from the chat.
  */
-export async function planFill(env: FillEnv, note: { psid: string; at: string; text: string }, opts: { readAddress?: boolean } = {}): Promise<FillPlan> {
+export async function planFill(env: FillEnv, note: { psid: string; at: string; text: string }, opts: { readAddress?: boolean; draft?: P365Order | null } = {}): Promise<FillPlan> {
   const parsed = parseOrderNote(note.text);
   const problems: string[] = [];
   const warnings: string[] = [];
   if (!parsed) throw new P365Error('อ่านบรรทัดสรุปนี้ไม่ได้', 'check');
   if (parsed.unknown.length) problems.push(`อ่านไม่ออก: ${parsed.unknown.join(' / ')}`);
-  const draft = await findDraft(env, note.psid, note.at);
+  const draft = opts.draft !== undefined ? opts.draft : await findDraft(env, note.psid, note.at);
   if (!draft) problems.push('ไม่เจอร่างบิลของลูกค้าคนนี้ใน Page365 (ยังไม่ได้เปิดร่าง หรือเปิดไปแล้ว)');
   else if (draft.items.length) problems.push(`ร่าง #${draft.no} มีสินค้าอยู่แล้ว ${draft.items.length} รายการ — ไม่ใส่ซ้ำ`);
   const chat = draft?.conversation_id ? (await call<{ messages: ChatMessage[] }>(env, `conversations/${draft.conversation_id}.json`).catch(() => null))?.messages ?? [] : [];
@@ -239,9 +242,9 @@ export function validAddress(a: unknown): PlanAddress | null {
  * reads it back and checks the items and total. `address` is what the admin saw (and may have corrected) on screen;
  * without it the address is read again. Warnings don't stop a single fill — the person has seen them.
  */
-export async function applyFill(env: FillEnv, note: { psid: string; at: string; text: string }, opts: { address?: unknown; allowWarnings?: boolean } = {}): Promise<{ plan: FillPlan; order: P365Order }> {
+export async function applyFill(env: FillEnv, note: { psid: string; at: string; text: string }, opts: { address?: unknown; allowWarnings?: boolean; plan?: FillPlan } = {}): Promise<{ plan: FillPlan; order: P365Order }> {
   const given = validAddress(opts.address);
-  const plan = await planFill(env, note, { readAddress: !given });
+  const plan = opts.plan ?? await planFill(env, note, { readAddress: !given });
   if (given) plan.address = given;
   if (plan.problems.length || !plan.order) throw new P365Error(plan.problems.join(' · ') || 'ไม่เจอร่างบิล', 'check');
   const warnings = plan.warnings.filter((w) => !(given && w.startsWith('ยังไม่ได้อ่านที่อยู่')));

@@ -34,7 +34,7 @@ export async function askAI(env: AIEnv, system: string, user: string, maxTokens 
   return { text, input_tokens: body.usage?.input_tokens ?? 0, output_tokens: body.usage?.output_tokens ?? 0, model };
 }
 
-export interface Conversation { psid: string; campaign: string | null; ordered: boolean; messages: { from_page: number; text: string | null; attachments: string | null; at?: string }[] }
+export interface Conversation { psid: string; campaign: string | null; ordered: boolean; messages: { from_page: number; text: string | null; attachments: string | null; at?: string; who?: string }[] }
 
 /** "14:05" Bangkok time of an ISO timestamp — lets the team find a chat in the inbox. */
 const bkkTime = (iso?: string) => (iso ? new Date(Date.parse(iso) + 7 * 3_600_000).toISOString().slice(11, 16) : '');
@@ -50,7 +50,7 @@ export function transcript(convs: Conversation[]): { text: string; used: number 
     const lines = [`### ลูกค้า ${i + 1} · ทักครั้งแรก ${bkkTime(first?.at)} น. · แอด: ${c.campaign ?? 'ไม่ระบุ'} · มีโน้ตออเดอร์: ${c.ordered ? 'ใช่' : 'ไม่'}`];
     for (const m of c.messages.slice(0, MAX_MSGS)) {
       const t = m.text ? m.text.replace(/\s+/g, ' ').slice(0, MAX_MSG_CHARS) : `[ส่ง${m.attachments === 'image' || m.attachments?.startsWith('image') ? 'รูป' : 'ไฟล์'}]`;
-      lines.push(`${m.from_page ? 'เพจ' : 'ลูกค้า'}: ${t}`);
+      lines.push(`${m.who ?? (m.from_page ? 'เพจ' : 'ลูกค้า')}: ${t}`);
     }
     const block = lines.join('\n');
     if (total + block.length > MAX_CHARS) break;
@@ -72,6 +72,7 @@ export const INSIGHT_SYSTEM = `คุณคือ "น้องจิบิ" ผ
 **🛍 ชวนเป็นเซ็ต** ในแชทที่ลูกค้าเอา 1 ตัว แอดมินเสนอเซ็ต/เพิ่มตัวกี่ครั้ง และได้ผลกี่ครั้ง
 **📣 ไอเดียโพสต์/แอด** 2–3 ข้อ จากสิ่งที่ลูกค้าถามหรือติดใจ
 **🤖 ข้อมูลที่ควรใส่ให้ Business AI** 2–3 ข้อ (คำถาม → คำตอบที่แอดมินพิมพ์จริงในแชท ไม่ใช่คำตอบที่คิดเอง)
+**🤖 บอท Meta AI วันนี้** ("บอท" ในแชท; "เพจ" = ไม่รู้ว่าคนหรือบอท) ตอบผิด/สัญญาเกิน (ราคา ส่วนลด ข้อมูลสินค้า) กี่ครั้ง · ตอบปัด/ไม่ส่งต่อคนกี่ครั้ง · ยกตัวอย่าง 1–2 ข้อ
 **⚠️ ต้องดู** แชทที่ตอบผิด/ตอบช้า/ลูกค้าไม่พอใจ (อ้าง "ลูกค้า N")`;
 
 export function insightPrompt(dayLabel: string, t: { text: string; used: number }, total: number): string {

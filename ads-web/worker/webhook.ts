@@ -5,6 +5,8 @@
 // cod 449", see orderNotes.ts) is kept to check against Page365, and since 2026-10-15 every message's text is kept
 // for 30 days with phone numbers, e-mails, long numbers and addresses removed first (chatLog.ts).
 
+import { autoFillNote } from './autoFill.ts';
+import { maybeSyncPurchases } from './metaPurchases.ts';
 import { parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { hashName } from './p365.ts';
 import { extractChats, saveChats } from './chatLog.ts';
@@ -62,7 +64,13 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
   const echoes = (body.entry ?? []).reduce((n, e) => n + [...(e.messaging ?? []), ...(e.standby ?? [])].filter((ev) => ev.message?.is_echo).length, 0);
   const events = (body.entry ?? []).reduce((n, e) => n + (e.messaging?.length ?? 0) + (e.standby?.length ?? 0), 0);
   // Answer Meta right away; the writes finish in the background (Meta retries deliveries that get no 200).
-  ctx.waitUntil(store(env, rows, events, notes, echoes).catch((err) => console.error('webhook store', err)));
+  // An order note: once stored, open/fill its Page365 draft (autoFill.ts; only when switched on). Those deliveries
+  // skip the purchase sync so one invocation stays inside the free plan's outbound-request limit.
+  ctx.waitUntil(store(env, rows, events, notes, echoes)
+    .then(() => Promise.all(notes.map((n) => autoFillNote(env as any, n))))
+    .catch((err) => console.error('webhook store', err)));
+  // Webhook deliveries are the clock for sending Page365 purchases to Meta (at most every 10 minutes; off by default).
+  if (!notes.length) ctx.waitUntil(maybeSyncPurchases(env as any).catch((err) => console.error('capi', err)));
   const chats = extractChats(body.entry ?? []);
   if (chats.length) ctx.waitUntil(saveChats(env.DB, chats).catch((err) => console.error('chat store', err)));
   return new Response('ok', { status: 200 });
@@ -281,7 +289,7 @@ export async function setupWebhook(env: WebhookEnv, callbackUrl: string): Promis
   return { app, page };
 }
 
-async function pageOf(env: WebhookEnv): Promise<{ id: string; name: string; token: string } | null> {
+export async function pageOf(env: WebhookEnv): Promise<{ id: string; name: string; token: string } | null> {
   if (!env.META_ACCESS_TOKEN) return null;
   const res: any = await graph(env, 'me/accounts', { access_token: env.META_ACCESS_TOKEN, fields: 'id,name,access_token' });
   const p = res.data?.[0];
