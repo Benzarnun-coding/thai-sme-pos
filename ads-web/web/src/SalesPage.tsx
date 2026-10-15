@@ -49,7 +49,9 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
 
   useEffect(() => {
     setReport(null); setError('');
-    api.salesReport(window).then(setReport).catch((e) => setError(e.message));
+    let live = true; // a slower answer for a window no longer selected is dropped
+    api.salesReport(window).then((r) => { if (live) setReport(r); }).catch((e) => { if (live) setError(e.message); });
+    return () => { live = false; };
   }, [window, reloadKey]);
 
   const days = useMemo(() => {
@@ -337,7 +339,9 @@ function ConversionList({ date, window, onOpenCampaign }: { date: string; window
   const [open, setOpen] = useState<Set<string>>(new Set());
   useEffect(() => {
     setRes(null); setError(''); setOpen(new Set());
-    api.conversions(date, window).then(setRes).catch((e) => setError(e.message));
+    let live = true;
+    api.conversions(date, window).then((r) => { if (live) setRes(r); }).catch((e) => { if (live) setError(e.message); });
+    return () => { live = false; };
   }, [date, window]);
   const cs = res?.campaigns ?? [];
   const t = cs.reduce((a, c) => ({ n: a.n + c.count, v: a.v + c.value, m: a.m + c.orders.filter((o) => o.status === 'match').reduce((x, o) => x + o.value, 0) }), { n: 0, v: 0, m: 0 });
@@ -434,7 +438,9 @@ function ReferralList({ date, data, onOpenCampaign }: { date: string; data: Over
   const [error, setError] = useState('');
   useEffect(() => {
     setRows(null); setError('');
-    api.adReferrals({ date }).then((r) => setRows(r.rows)).catch((e) => setError(e.message));
+    let live = true;
+    api.adReferrals({ date }).then((r) => { if (live) setRows(r.rows); }).catch((e) => { if (live) setError(e.message); });
+    return () => { live = false; };
   }, [date]);
   const byCampaign = useMemo(() => {
     const m = new Map<string, { campaign_id: string | null; people: number; bought: number; events: number; ads: ReferralSummary[] }>();

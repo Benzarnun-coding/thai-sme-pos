@@ -91,8 +91,19 @@ function ReconLine({ r }: { r: Recon }) {
 function DaySales({ date, refresh }: { date: string; refresh: number }) {
   const [res, setRes] = useState<{ rows: DayRow[]; summary: DaySummary; page365: boolean; error: string | null; recon: Recon | null } | null>(null);
   const [filter, setFilter] = useState<Stage | 'all'>('all');
-  useEffect(() => { setRes(null); }, [date]);
-  useEffect(() => { fetch(`/api/order-notes/sales?date=${date}`).then((r) => r.json()).then(setRes).catch(() => {}); }, [date, refresh]);
+  const [failed, setFailed] = useState('');
+  useEffect(() => { setRes(null); setFailed(''); }, [date]);
+  // An error answer (bad date, expired login, D1/Page365 down) has no summary: show it instead of crashing the page.
+  // `live`: a slower answer for a day no longer shown is dropped.
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/order-notes/sales?date=${date}`)
+      .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok || !j.summary) throw new Error(j.error ?? `โหลดไม่ได้ (${r.status})`); return j; })
+      .then((j) => { if (live) { setRes(j); setFailed(''); } })
+      .catch((e) => { if (live) setFailed(e.message); });
+    return () => { live = false; };
+  }, [date, refresh]);
+  if (failed && !res) return <section className="card"><p className="bad small">ยอดขายวันนี้โหลดไม่ได้: {failed}</p></section>;
   if (!res) return <section className="card"><div className="skeleton" style={{ height: 90 }} /></section>;
   const s = res.summary;
   const rows = res.rows.filter((r) => !r.repeat).reverse().filter((r) => filter === 'all' || (r.bill?.stage ?? 'none') === filter);
@@ -327,7 +338,11 @@ export function OrderNotesList({ date, dayLabel, refresh = 0, live = false }: { 
   const [filling, setFilling] = useState<NoteCheck | null>(null);
   const [again, setAgain] = useState(0);
   useEffect(() => { setRes(null); setError(''); }, [date]);
-  useEffect(() => { api.orderNotes(date).then(setRes).catch((e) => setError(e.message)); }, [date, refresh, again]);
+  useEffect(() => {
+    let live = true;
+    api.orderNotes(date).then((r) => { if (live) setRes(r); }).catch((e) => { if (live) setError(e.message); });
+    return () => { live = false; };
+  }, [date, refresh, again]);
   // Newest first, like a log.
   const notes = [...(res?.notes ?? [])].reverse();
   const count = (v: NoteCheck['verdict']) => notes.filter((n) => n.verdict === v).length;
