@@ -173,7 +173,7 @@ export async function planRun(
   // Uploaded Page365 days replace Meta's admin-tagged purchases (campaign level).
   const actualNotes = daily ? await applyActual(db, entities, [...(neededWindowsOf(calls, 'campaign'))], daily, now) : [];
   const evaluated = entities.filter((e) => groups.some((g) => g.campaignIds.has(e.campaign_id))).length;
-  const plan = planDecisions(groups, entities, sectionOf, costs, campaignSettings, stages, state, now, codOf(settings), await shopBreakeven(db, settings, now));
+  const plan = planDecisions(groups, entities, sectionOf, costs, campaignSettings, stages, state, now, codOf(settings), await shopBreakeven(db, settings, now), settings.guardrails.max_daily_budget);
   plan.notes.unshift(...actualNotes);
   return { plan, evaluated };
 }
