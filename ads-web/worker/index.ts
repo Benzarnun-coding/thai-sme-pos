@@ -38,7 +38,7 @@ import { approvalsEnabled, editMessage, expireOld, idList, postToDeciders, recen
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, planFill, sessionStatus, P365Error } from './p365fill.ts';
-import { receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
+import { pageOf, receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
 export interface Env {
@@ -527,6 +527,25 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
 
   // ---- Messenger webhook: who came from which ad ----
   if (path === '/api/webhook' && method === 'GET') return json(await webhookStatus(env, `${url.origin}/webhook/meta`));
+  // Datasets (pixels) the Meta token can see — the one linked to the Page receives purchases from chat orders.
+  if (path === '/api/meta/datasets' && method === 'GET') {
+    if (!env.META_ACCESS_TOKEN) throw new BadRequest('ยังไม่ได้ตั้ง META_ACCESS_TOKEN');
+    const v = env.META_API_VERSION ?? 'v21.0';
+    const get = async (p: string) => {
+      const r = await fetch(`https://graph.facebook.com/${v}/${p}${p.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(env.META_ACCESS_TOKEN!)}`);
+      const b: any = await r.json().catch(() => ({}));
+      return b.error ? { error: b.error.message } : b;
+    };
+    const fields = 'id,name,last_fired_time,is_unavailable,owner_business{id,name}';
+    const accounts = ['act_2149666808519411', 'act_822911542923398', 'act_3743524862582232', 'act_752083272582459'];
+    const byAccount = await Promise.all(accounts.map(async (a) => ({ account: a, ...(await get(`${a}/adspixels?fields=${fields}`)) })));
+    const businesses = await get('me/businesses?fields=id,name');
+    const owned = await Promise.all(((businesses.data ?? []) as { id: string; name: string }[]).slice(0, 5).map(async (b) => ({ business: b.name, ...(await get(`${b.id}/owned_pixels?fields=${fields}`)) })));
+    // The dataset Meta links to the Page for business messaging (GET /{page}/dataset with the page token).
+    const pg = await pageOf(env).catch(() => null);
+    const page = pg ? { page: pg.name, page_id: pg.id, ...(await fetch(`https://graph.facebook.com/${v}/${pg.id}/dataset?access_token=${encodeURIComponent(pg.token)}`).then((r) => r.json() as Promise<Record<string, unknown>>).catch((e) => ({ error: String(e) }))) } : null;
+    return json({ page, byAccount, owned, businesses });
+  }
   // ---- answer bank for Meta's Business AI ----
   if (path === '/api/botkb' && method === 'GET') { const items = await listKb(env.DB); return json({ items, paste: kbPasteText(items.filter((x) => x.status === 'approved')) }); }
   if (path === '/api/botkb/remind-test' && method === 'POST') { await kbReminder(env, true); return json({ ok: true }); }

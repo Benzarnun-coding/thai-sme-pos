@@ -281,7 +281,7 @@ export async function setupWebhook(env: WebhookEnv, callbackUrl: string): Promis
   return { app, page };
 }
 
-async function pageOf(env: WebhookEnv): Promise<{ id: string; name: string; token: string } | null> {
+export async function pageOf(env: WebhookEnv): Promise<{ id: string; name: string; token: string } | null> {
   if (!env.META_ACCESS_TOKEN) return null;
   const res: any = await graph(env, 'me/accounts', { access_token: env.META_ACCESS_TOKEN, fields: 'id,name,access_token' });
   const p = res.data?.[0];

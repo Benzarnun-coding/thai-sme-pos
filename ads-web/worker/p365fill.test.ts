@@ -116,4 +116,5 @@ test('the total the chat agreed on: the shop\'s last "ยอด…", not the ord
   ];
   assert.equal(chatTotal(msgs, '2026-10-15T02:17:00Z'), 549);
   assert.equal(chatTotal([{ own: true, message: 'รวม 3 ตัว ราคาโปร' }]), null);
+  assert.equal(chatTotal([{ own: true, message: 'ยอดรวม 239 บาท' }, { own: true, message: 'ยอดสั่งเกิน 15000 ส่งฟรี' }]), 239);
 });

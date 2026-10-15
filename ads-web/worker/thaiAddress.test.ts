@@ -16,3 +16,9 @@ test('"อ.เมือง" means the capital district; a wrong postcode or an u
   assert.match(completeAddress({ subdistrict: 'พรุดินนา', district: 'คลองท่อม', province: 'กระบี่', postal_code: '10110' }).doubt ?? '', /ไม่ตรง/);
   assert.match(completeAddress({ subdistrict: 'ไม่มีจริง', district: 'คลองท่อม', province: 'กระบี่', postal_code: '' }).doubt ?? '', /ไม่พบ/);
 });
+
+test('numbered canals written with a digit', () => {
+  const r = completeAddress({ subdistrict: 'คลอง7', district: 'คลองหลวง', province: 'ปทุมธานี', postal_code: '' });
+  assert.equal(r.parts.subdistrict, 'คลองเจ็ด');
+  assert.equal(r.doubt, null);
+});

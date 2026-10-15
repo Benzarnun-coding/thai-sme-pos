@@ -109,7 +109,10 @@ export function chatTotal(messages: ChatMessage[], until?: string): number | nul
   for (const m of messages) {
     if (m.created_at && Date.parse(m.created_at) > end) continue;
     if (!m.own || m.auto || !m.message || parseOrderNote(m.message)) continue;
-    for (const x of m.message.replace(/[*,]/g, '').matchAll(/(?:ยอดรวม|ยอดชำระ|ยอดโอน|รวมทั้งหมด|รวม|ยอด)[^\d\n]{0,25}(\d{3,5})(?!\d)/g)) last = Number(x[1]);
+    for (const x of m.message.replace(/[*,]/g, '').matchAll(/(?:ยอดรวม|ยอดชำระ|ยอดโอน|รวมทั้งหมด|รวม|ยอด)[^\d\n]{0,25}(\d{3,5})(?!\d)/g)) {
+      // Five-digit amounts are other things ("ยอดสั่งเกิน 15000", a postcode after รวม…), not a bill of jeans.
+      if (Number(x[1]) < 10000) last = Number(x[1]);
+    }
   }
   return last;
 }
