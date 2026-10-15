@@ -75,7 +75,7 @@ export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force
   }
 }
 
-async function tell(env: AutoEnv, note: StoredNote, draft: P365Order | null, name: string, reasons: string[]): Promise<void> {
+export async function tell(env: AutoEnv, note: StoredNote, draft: P365Order | null, name: string, reasons: string[]): Promise<void> {
   const bill = draft ? `[#${draft.no}](<${orderLink(env, draft.id)}>)` : '(ยังไม่มีร่าง)';
   const body = (mention: string) => [
     `🧾 บิลนี้ต้องให้คนดู ${mention}`.trim(),
