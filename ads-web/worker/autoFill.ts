@@ -8,7 +8,7 @@ import { postToDeciders, type DiscordEnv } from './discord.ts';
 import { markFill, type StoredNote } from './orderNotes.ts';
 import { applyFill, call, findDraft, planFill, type FillEnv, type P365Order } from './p365fill.ts';
 
-export interface AutoEnv extends FillEnv, DiscordEnv { DB: D1Database }
+export interface AutoEnv extends FillEnv, DiscordEnv { DB: D1Database; /** #ออเดอร์มีปัญหา (Benz 15 Oct); falls back to the ads channel via the bot */ DISCORD_ORDER_WEBHOOK_URL?: string }
 
 const PAGE = (env: FillEnv) => env.P365_PAGE_ID ?? '115748303500549';
 const orderLink = (env: FillEnv, id: number) => `https://app.page365.net/${PAGE(env)}/orders/${id}`;
@@ -77,10 +77,20 @@ export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force
 
 async function tell(env: AutoEnv, note: StoredNote, draft: P365Order | null, name: string, reasons: string[]): Promise<void> {
   const bill = draft ? `[#${draft.no}](<${orderLink(env, draft.id)}>)` : '(ยังไม่มีร่าง)';
-  await postToDeciders(env, (mention) => [
+  const body = (mention: string) => [
     `🧾 บิลนี้ต้องให้คนดู ${mention}`.trim(),
     `ลูกค้า: **${name || 'ไม่ทราบชื่อ'}** · บิล ${bill}`,
     `แอดมินสรุป: \`${note.text.replace(/\s+/g, ' ')}\``,
     ...reasons.slice(0, 6).map((r) => `• ${r}`),
-  ].join('\n'));
+  ].join('\n').slice(0, 2000);
+  if (env.DISCORD_ORDER_WEBHOOK_URL) {
+    const ids = (env.DISCORD_DECIDER_IDS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+    const r = await fetch(env.DISCORD_ORDER_WEBHOOK_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'น้องจิบิ', content: body(ids.map((id) => `<@${id}>`).join(' ')), allowed_mentions: { users: ids } }),
+    });
+    if (r.ok) return;
+    console.error('order webhook', r.status);
+  }
+  await postToDeciders(env, body);
 }
