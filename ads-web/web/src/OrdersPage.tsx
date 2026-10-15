@@ -8,7 +8,7 @@ import { api, type LedgerRow, type PurchaseUpload, type SavedPurchaseLine } from
 import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from './catalog.ts';
 import { num } from './fmt.ts';
 import {
-  applyMoves, buildLines, dateFromFileName, orderColumns, orderText, paymentWorkbook, PRICE_SOURCE_LABEL, supplierTotals, withPrices, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
+  applyMoves, buildLines, dateFromFileName, saleItems, orderColumns, orderText, paymentWorkbook, PRICE_SOURCE_LABEL, supplierTotals, withPrices, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
   orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
 } from './purchase.ts';
 import { orderPictureSheets, pictureSheets } from './pictureSheet.ts';
@@ -148,7 +148,9 @@ export function OrdersApp() {
     if ((!viewing && !data) || sig === savedSig || !canEdit) return true;
     try {
       const file = viewing ? viewing.upload.file : data!.file;
-      const { upload } = await api.savePurchase({ date, round, file, lines: lines.map((l) => ({ ...l })) });
+      // Saved from a file: also its order rows, for the units-sold page (a reopened round keeps the ones it has).
+      const items = !viewing && data ? saleItems(data.items, lookup, `${date}#${round}`) : undefined;
+      const { upload } = await api.savePurchase({ date, round, file, lines: lines.map((l) => ({ ...l })), items });
       setHistory((h) => [upload, ...h.filter((x) => x.id !== upload.id)].sort((a, b) => b.date.localeCompare(a.date) || b.round - a.round));
       setSavedSig(sig);
       loadLedger();
@@ -315,6 +317,7 @@ export function OrdersApp() {
         </div>
         <div className="row-actions">
           <a className="button" href="/catalog"><Icon name="back" size={14} /> แคตตาล็อก</a>
+          <a className="button" href="/catalog/sales">ยอดขาย <Icon name="chevron" size={14} /></a>
         </div>
       </header>
 

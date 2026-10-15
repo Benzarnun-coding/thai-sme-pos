@@ -208,6 +208,7 @@ export function CatalogApp() {
           </div>
         </div>
         <div className="row-actions">
+          <a className="button" href="/catalog/sales" title="จำนวนตัวที่ขายได้ต่อวัน">ยอดขาย</a>
           <a className="button go" href="/catalog/orders" title="อัปโหลดไฟล์ Bigseller → ใบสั่งแยกตามร้าน/โกดัง">สั่งของ <Icon name="chevron" size={14} /></a>
           {canEdit && <>
             <button onClick={startSync} disabled={!!loading || !!sync?.running}><Icon name="refresh" size={14} /> {sync?.running ? 'กำลังดึง…' : 'ดึงจากชีต'}</button>

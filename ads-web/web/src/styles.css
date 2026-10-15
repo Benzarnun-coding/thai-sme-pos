@@ -899,3 +899,18 @@ tr:hover .po-label-btn { opacity: 1; }
 .po-label-edit { display: flex; flex-direction: column; gap: 4px; min-width: 200px; }
 .po-label-edit input { font-size: 14px; padding: 4px 8px; min-height: 32px; }
 .po-label-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+/* ---------- /catalog/sales (units sold) ---------- */
+.units-range { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.units-range label { min-width: 150px; }
+.units-legend { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.units-legend button { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; min-height: 32px; padding: 3px 12px; font-size: 13px; box-shadow: none; }
+.units-legend button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.units-legend i, .units-chip i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.units-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.units-chart { width: 100%; height: auto; display: block; }
+.units-chart .grid { stroke: var(--border); stroke-width: 1; }
+.units-chart .axis { fill: var(--muted); font-size: 11px; }
+.units-chart .val { fill: var(--text-2); font-size: 11px; font-weight: 600; }
+.units-product { display: inline-flex; align-items: center; gap: 10px; }
+.units-product img, .units-noimg { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; background: var(--surface-2); flex: none; }

@@ -25,6 +25,7 @@ import { bkkDate, loadConversionHours, saveConversionDay, syncConversionHours, t
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
+import { parseRange, salesData } from './sales.ts';
 import { deletePurchase, ledger, listPurchases, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
@@ -609,6 +610,12 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const saved = await saveSuppliers(env.DB, await body(), user);
     await audit(env.DB, user, 'catalog.supplier', saved.map((s) => s.key).join(',') || 'clear', { shops: [...new Set(saved.map((s) => s.shop))] });
     return json({ suppliers: saved });
+  }
+
+  // ---- units sold per day (/catalog/sales) ----
+  if (method === 'GET' && path === '/api/sales') {
+    const { from, to } = parseRange(url.searchParams.get('from'), url.searchParams.get('to'));
+    return json(await salesData(env.DB, from, to));
   }
 
   // ---- order sheets (/catalog/orders) ----

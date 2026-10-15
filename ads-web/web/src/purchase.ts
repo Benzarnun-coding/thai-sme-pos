@@ -102,7 +102,7 @@ export function missingOrderColumns(headers: string[]): string[] | null {
   return miss.length ? miss : null;
 }
 
-export function readOrderItems(rows: Record<string, string>[], headers: string[] = Object.keys(rows[0] ?? {})): OrderItem[] {
+export function readOrderItems(rows: Record<string, string>[], headers: string[] = [...new Set(rows.flatMap((r) => Object.keys(r)))]): OrderItem[] {
   const cols = orderColumns(headers);
   const get = (r: Record<string, string>, f: Field) => (cols[f] ? String(r[cols[f]!] ?? '').trim() : '');
   return rows.map((r) => ({
@@ -527,4 +527,23 @@ export async function paymentWorkbook(groups: PurchaseGroup[], missing: Map<stri
     sheets.push({ name: g.name, rows, cols: [30, 8, 22, 7, 9, 8, 10, 13, 12, 60] });
   }
   return buildXlsx(sheets);
+}
+
+// ---- order rows for the units-sold page ----
+
+/**
+ * One row per order + SKU of the file (catalog SKU when known), with its sales store — saved with the round so the
+ * units-sold page can count each order once even when it comes back in a later round. Rows without an order number
+ * get a key of their own so they are never merged with others.
+ */
+export function saleItems(items: OrderItem[], lookup: Lookup, roundKey: string): { order: string; sku: string; qty: number; store: string }[] {
+  return items.map((it, i) => {
+    const r = it.sku ? lookup.rows.get(skuKey(it.sku)) : undefined;
+    return {
+      order: it.order || `?${roundKey}#${i}`,
+      sku: r ? r.sku : it.sku || `?${it.name.slice(0, 60)} · ${it.option}`,
+      qty: it.qty,
+      store: storeLabel(it.store, it.carrier),
+    };
+  });
 }

@@ -22,7 +22,10 @@ export interface SavedLine {
 }
 const PRICE_SOURCES = new Set(['web', 'cost', '']);
 
-export function validatePurchase(input: any): { date: string; round: number; file: string; lines: SavedLine[] } {
+export interface SavedItem { order: string; sku: string; qty: number; store: string }
+const MAX_ITEMS = 20_000;
+
+export function validatePurchase(input: any): { date: string; round: number; file: string; lines: SavedLine[]; items: SavedItem[] | null } {
   const date = String(input?.date ?? '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
   const round = Math.trunc(Number(input?.round));
@@ -51,7 +54,21 @@ export function validatePurchase(input: any): { date: string; round: number; fil
     seen.add(k);
     return l;
   });
-  return { date, round, file: cleanText(input?.file, 200), lines };
+  // Per-order rows (only when saved from a file): duplicates of order + SKU are added up.
+  let items: SavedItem[] | null = null;
+  if (Array.isArray(input?.items)) {
+    if (input.items.length > MAX_ITEMS) throw new BadRequest(`รายการออเดอร์เกิน ${MAX_ITEMS}`);
+    const byKey = new Map<string, SavedItem>();
+    for (const x of input.items) {
+      const it: SavedItem = { order: cleanText(x?.order, 60), sku: cleanText(x?.sku, 200), qty: Math.trunc(Number(x?.qty)), store: cleanText(x?.store, 80) };
+      if (!it.order || !it.sku || !(it.qty > 0 && it.qty < 100_000)) continue;
+      const k = `${it.order}\u0000${it.sku}`;
+      const prev = byKey.get(k);
+      if (prev) prev.qty += it.qty; else byKey.set(k, it);
+    }
+    items = [...byKey.values()];
+  }
+  return { date, round, file: cleanText(input?.file, 200), lines, items };
 }
 
 export async function savePurchase(db: D1Database, p: ReturnType<typeof validatePurchase>, user: string): Promise<PurchaseUpload> {
@@ -77,9 +94,18 @@ export async function savePurchase(db: D1Database, p: ReturnType<typeof validate
            json(value -> '$.orders'), value ->> '$.missing', json(value -> '$.stores'), value ->> '$.price', value ->> '$.price_source' FROM json_each(?2)`;
   const chunks: SavedLine[][] = [];
   for (let i = 0; i < p.lines.length; i += 500) chunks.push(p.lines.slice(i, i + 500));
+  const itemChunks: SavedItem[][] = [];
+  for (let i = 0; i < (p.items?.length ?? 0); i += 1000) itemChunks.push(p.items!.slice(i, i + 1000));
   await db.batch([
     db.prepare('DELETE FROM purchase_lines WHERE upload_id = ?1').bind(id),
     ...chunks.map((c) => db.prepare(insert).bind(id, JSON.stringify(c))),
+    ...(p.items ? [
+      db.prepare('DELETE FROM purchase_items WHERE upload_id = ?1').bind(id),
+      ...itemChunks.map((c) => db.prepare(
+        `INSERT INTO purchase_items (upload_id, order_no, sku, qty, store)
+         SELECT ?1, value ->> '$.order', value ->> '$.sku', value ->> '$.qty', value ->> '$.store' FROM json_each(?2)`,
+      ).bind(id, JSON.stringify(c))),
+    ] : []),
     db.prepare(
       `INSERT INTO purchase_uploads (id, date, round, file, pieces, review, missing, groups, saved_by, saved_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
        ON CONFLICT (id) DO UPDATE SET file = excluded.file, pieces = excluded.pieces, review = excluded.review, missing = excluded.missing, groups = excluded.groups, saved_by = excluded.saved_by, saved_at = excluded.saved_at`,
@@ -128,6 +154,7 @@ export async function deletePurchase(db: D1Database, id: string): Promise<boolea
     db.prepare('DELETE FROM purchase_lines WHERE upload_id = ?1').bind(id),
     db.prepare('DELETE FROM purchase_uploads WHERE id = ?1').bind(id),
     db.prepare('DELETE FROM purchase_payments WHERE upload_id = ?1').bind(id),
+    db.prepare('DELETE FROM purchase_items WHERE upload_id = ?1').bind(id),
   ]);
   return (r.meta.changes ?? 0) > 0;
 }
