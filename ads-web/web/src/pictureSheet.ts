@@ -6,7 +6,7 @@
 // Photos from other sites come through /api/catalog/image-proxy so the canvas can still be exported.
 
 import { colorLabel } from './catalog.ts';
-import { thaiShortDate, type OrderBlock, type PictureBlock } from './purchase.ts';
+import { orderText, storeLabel, thaiShortDate, type OrderBlock, type PictureBlock } from './purchase.ts';
 
 const W = 1080;
 const PAD = 36;
@@ -188,7 +188,7 @@ export async function orderPictureSheets(title: string, date: string, round: num
       ctx.textAlign = 'right';
       ctx.fillStyle = '#111827';
       ctx.font = `500 26px ${FONT}`;
-      ctx.fillText(o.store, W - PAD, iy + 34, 600);
+      ctx.fillText(storeLabel(o.store, o.carrier), W - PAD, iy + 34, 600);
       ctx.font = `700 28px ${FONT}`;
       ctx.fillText(`ทั้งหมด: ${o.qty}`, W - PAD, iy + 70);
       ctx.textAlign = 'left';
@@ -238,7 +238,8 @@ export async function pictureSheets(title: string, date: string, round: number, 
     for (const sz of block.sizes) {
       if (!sz.orders.length) continue;
       let line = `${sz.size || '—'}: `;
-      sz.orders.forEach((o, i) => {
+      sz.orders.forEach((no, i) => {
+        const o = orderText(no, sz.stores);
         const piece = i ? `, ${o}` : o;
         if (i && measure.measureText(line + piece).width > fullW) { orderLines.push(`${line},`); line = `   ${o}`; } else line += piece;
       });

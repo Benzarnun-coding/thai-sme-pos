@@ -817,11 +817,11 @@ label.button.primary { background: var(--accent); color: var(--accent-text); bor
   .po-sheet th { font-weight: 700; }
   .po-sheet td:first-child { text-align: center; }
   .po-sheet td.orders { font-family: Menlo, Consolas, monospace; font-size: 10.5px; text-align: left; line-height: 1.35; }
-  .po-sheet col.c-code { width: 32%; }
+  .po-sheet col.c-code { width: 27%; }
   .po-sheet col.c-size { width: 8%; }
   .po-sheet col.c-qty { width: 8%; }
-  .po-sheet col.c-orders { width: 30%; }
-  .po-sheet col.c-note { width: 22%; }
+  .po-sheet col.c-orders { width: 39%; }
+  .po-sheet col.c-note { width: 18%; }
   .po-sheet tr.shade td { background: #bfbfbf !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .po-sheet tr.total td { font-weight: 700; }
 }
@@ -877,3 +877,15 @@ a.button.go:hover { background: color-mix(in srgb, var(--accent-soft) 70%, var(-
 .goal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 16px; }
 .goal-grid > div { display: flex; flex-direction: column; gap: 2px; }
 .goal-grid b { font-size: 18px; }
+
+/* order sheets: internal money columns (never printed or sent) */
+.data-table th.po-internal, .data-table td.po-internal { background: color-mix(in srgb, var(--warn-bg) 55%, transparent); }
+.pill.po-money { background: var(--warn-bg); color: var(--warn); }
+.po-price { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 0; line-height: 1.2; }
+.po-price small { font-size: 11px; }
+.po-price small.src-web { color: var(--accent); }
+.po-price-edit { display: inline-flex; gap: 4px; align-items: center; }
+.po-price-edit input { width: 76px; font-size: 13px; padding: 3px 6px; min-height: 30px; text-align: right; }
+.po-store { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.po-orders > span { white-space: nowrap; }
+.po-payments { border-left: 3px solid var(--warn); }

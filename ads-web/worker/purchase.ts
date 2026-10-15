@@ -12,7 +12,15 @@ const MAX_LINES = 5000;
 const MAX_ORDERS_PER_LINE = 1000;
 
 export interface PurchaseUpload { id: string; date: string; round: number; file: string; pieces: number; review: number; missing: number; groups: { name: string; kind: string; pieces: number }[]; saved_by: string; saved_at: string }
-export interface SavedLine { grp: string; kind: string; sku: string; tab: string; label: string; size: string; qty: number; note: string; orders: string[]; missing: number }
+export interface SavedLine {
+  grp: string; kind: string; sku: string; tab: string; label: string; size: string; qty: number; note: string; orders: string[]; missing: number;
+  /** order number → sales store ("TikTok · STM-SHOP") */
+  stores: Record<string, string>;
+  /** price per piece when last saved, and where it came from (web | shop | cost) */
+  price: number | null;
+  price_source: string;
+}
+const PRICE_SOURCES = new Set(['web', 'shop', 'cost', '']);
 
 export function validatePurchase(input: any): { date: string; round: number; file: string; lines: SavedLine[] } {
   const date = String(input?.date ?? '');
@@ -29,7 +37,14 @@ export function validatePurchase(input: any): { date: string; round: number; fil
       label: cleanText(x?.label, 200), size: cleanText(x?.size, 40), qty: Math.trunc(Number(x?.qty)), note: cleanText(x?.note, 300),
       orders: [...new Set((Array.isArray(x?.orders) ? x.orders : []).map((o: unknown) => cleanText(o, 60)).filter(Boolean))].slice(0, MAX_ORDERS_PER_LINE) as string[],
       missing: 0,
+      stores: {},
+      price: x?.price === null || x?.price === undefined || x?.price === '' ? null : Number(x.price),
+      price_source: PRICE_SOURCES.has(String(x?.priceSource ?? x?.price_source ?? '')) ? String(x?.priceSource ?? x?.price_source ?? '') : '',
     };
+    if (l.price !== null && !(Number.isFinite(l.price) && l.price >= 0 && l.price <= 100_000)) l.price = null;
+    if (x?.stores && typeof x.stores === 'object') {
+      for (const o of l.orders) { const v = cleanText(x.stores[o], 80); if (v) l.stores[o] = v; }
+    }
     if (!l.grp || !l.sku || !KINDS.has(l.kind) || !(l.qty > 0 && l.qty < 100_000)) throw new BadRequest(`รายการไม่ครบ: ${l.sku || '(ไม่มี SKU)'}`);
     const k = `${l.grp}\u0000${l.sku}`;
     if (seen.has(k)) throw new BadRequest(`รายการซ้ำ: ${l.grp} ${l.sku}`);
@@ -57,9 +72,9 @@ export async function savePurchase(db: D1Database, p: ReturnType<typeof validate
   for (const l of p.lines) l.missing = Math.min(l.qty, byLine.get(`${l.grp}\u0000${l.sku}`) ?? bySku.get(l.sku) ?? 0);
   const missing = p.lines.reduce((n, l) => n + l.missing, 0);
   const upload: PurchaseUpload = { id, date: p.date, round: p.round, file: p.file, pieces, review, missing, groups: [...groups.values()], saved_by: user, saved_at: now };
-  const insert = `INSERT INTO purchase_lines (upload_id, grp, kind, sku, tab, label, size, qty, note, orders, missing)
+  const insert = `INSERT INTO purchase_lines (upload_id, grp, kind, sku, tab, label, size, qty, note, orders, missing, stores, price, price_source)
     SELECT ?1, value ->> '$.grp', value ->> '$.kind', value ->> '$.sku', value ->> '$.tab', value ->> '$.label', value ->> '$.size', value ->> '$.qty', value ->> '$.note',
-           json(value -> '$.orders'), value ->> '$.missing' FROM json_each(?2)`;
+           json(value -> '$.orders'), value ->> '$.missing', json(value -> '$.stores'), value ->> '$.price', value ->> '$.price_source' FROM json_each(?2)`;
   const chunks: SavedLine[][] = [];
   for (let i = 0; i < p.lines.length; i += 500) chunks.push(p.lines.slice(i, i + 500));
   await db.batch([
@@ -79,8 +94,8 @@ export async function listPurchases(db: D1Database, limit = 60): Promise<Purchas
 }
 
 export async function purchaseLines(db: D1Database, id: string): Promise<SavedLine[]> {
-  const { results } = await db.prepare('SELECT grp, kind, sku, tab, label, size, qty, note, orders, missing FROM purchase_lines WHERE upload_id = ?1').bind(id).all<Omit<SavedLine, 'orders'> & { orders: string }>();
-  return results.map((r) => ({ ...r, orders: JSON.parse(r.orders || '[]') }));
+  const { results } = await db.prepare('SELECT grp, kind, sku, tab, label, size, qty, note, orders, missing, stores, price, price_source FROM purchase_lines WHERE upload_id = ?1').bind(id).all<Omit<SavedLine, 'orders' | 'stores'> & { orders: string; stores: string }>();
+  return results.map((r) => ({ ...r, orders: JSON.parse(r.orders || '[]'), stores: JSON.parse(r.stores || '{}') }));
 }
 
 /** Ticks from the page: how many pieces of a line the supplier did not have (0 = untick). Clamped to the line's qty. */

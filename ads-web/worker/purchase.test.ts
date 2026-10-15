@@ -213,7 +213,7 @@ test('order numbers follow each line to the sheet and the Excel file', async () 
   const groups = groupLines(lines);
   const files = await unzip(await orderWorkbook([groups.find((g) => g.name === 'PK')!], '2026-10-13', 1));
   const sheet = new TextDecoder().decode(files.get('xl/worksheets/sheet1.xml'));
-  assert.ok(sheet.includes('เลขคำสั่งซื้อ') && sheet.includes('A1, A2'));
+  assert.ok(sheet.includes('เลขคำสั่งซื้อ') && sheet.includes('STM-SHOP A1, Shopee A2'), 'order numbers with their store');
   const saved = validatePurchase({ date: '2026-10-13', round: 1, lines });
   assert.deepEqual(saved.lines.find((l) => l.sku === '5011-PK-MD-30')!.orders, ['A1', 'A2']);
 });
@@ -243,4 +243,63 @@ test('out-of-stock ticks are validated', async () => {
   assert.deepEqual(ok.items.map((i) => i.missing), [2, 0]);
   assert.throws(() => validateMissing({ id: '2026-10-13', items: [{ grp: 'a', sku: 'b', missing: 1 }] }), /รอบไหน/);
   assert.throws(() => validateMissing({ id: '2026-10-13#1', items: [] }), /ไม่มีรายการ/);
+});
+
+test('sales store of each order: TikTok / Shopee from the shipping name, store from Bigseller', async () => {
+  const { platformOf, storeLabel, orderText } = await import('../web/src/purchase.ts');
+  assert.equal(platformOf('TikTok-TH-J&T Express', 'STM-SHOP'), 'TikTok');
+  assert.equal(platformOf('Shopee-TH-SPX Express', 'Sup-store17'), 'Shopee');
+  assert.equal(platformOf('', 'Shopee PK-JEANS'), 'Shopee');
+  assert.equal(platformOf('', 'บอยขายยีนส์'), '');
+  assert.equal(storeLabel('STM-SHOP', 'TikTok-TH-J&T Express'), 'TikTok · STM-SHOP');
+  assert.equal(storeLabel('Shopee STM-SHOP', 'Shopee-TH-SPX Express'), 'Shopee · STM-SHOP');
+  assert.equal(storeLabel('Sup-store17', 'Shopee-TH-Flash Express'), 'Shopee · Sup-store17');
+  assert.equal(storeLabel('Shopee', ''), 'Shopee');
+  const lines = buildLines(readOrderItems([
+    { 'ร้านค้า BigSeller': 'STM-SHOP', SKU: '5011-PK-MD-30', 'จำนวน': '1', 'หมายเลขคำสั่งซื้อ': '586549', 'ชื่อโลจิสติกส์': 'TikTok-TH-J&T Express' },
+    { 'ร้านค้า BigSeller': 'Sup-store17', SKU: '5011-PK-MD-30', 'จำนวน': '1', 'หมายเลขคำสั่งซื้อ': '261012E', 'ชื่อโลจิสติกส์': 'Shopee-TH-SPX Express' },
+  ]), makeLookup(CATALOG, new Map()));
+  assert.deepEqual(lines[0].stores, { 586549: 'TikTok · STM-SHOP', '261012E': 'Shopee · Sup-store17' });
+  assert.equal(orderText('586549', lines[0].stores), 'TikTok · STM-SHOP 586549');
+  const files = await unzip(await orderWorkbook(groupLines(lines), '2026-10-15', 1));
+  assert.ok(new TextDecoder().decode(files.get('xl/worksheets/sheet1.xml')).includes('TikTok · STM-SHOP 586549, Shopee · Sup-store17 261012E'));
+});
+
+test('what we pay: web price > ราคาร้านค้า > ทุน; out-of-stock pieces are not paid', async () => {
+  const { priceOf, withPrices, supplierTotals, missingGroup, paymentWorkbook } = await import('../web/src/purchase.ts');
+  const rows = [
+    row({ tab: 'BB', sku: 'J41-BB-BL-34', code: 'J41-2', color: 'BL', size: '34', shop: 'แพลนเนท', cost: 150, shop_price: 145 }),
+    row({ tab: 'BB', sku: 'J41-BB-BL-38', code: 'J41-2', color: 'BL', size: '38', shop: 'แพลนเนท', cost: 150 }),
+    row({ tab: 'BB', sku: 'X-BB-BL-30', code: 'X', color: 'BL', size: '30', shop: 'แพลนเนท' }),
+    row({ tab: 'PK', sku: '5011-PK-MD-30', code: '501/1', color: 'MD', size: '30', cost: 110 }),
+  ];
+  const lookup = makeLookup(rows, new Map());
+  assert.deepEqual(priceOf('J41-BB-BL-34', lookup), { price: 145, source: 'shop' });
+  assert.deepEqual(priceOf('J41-BB-BL-38', lookup), { price: 150, source: 'cost' });
+  assert.deepEqual(priceOf('X-BB-BL-30', lookup), { price: null, source: '' });
+  assert.deepEqual(priceOf('nope', lookup), { price: null, source: '' });
+  const typed = makeLookup(rows, new Map(), new Map([['BB|J41-BB-BL', 140]]));
+  assert.deepEqual(priceOf('J41-BB-BL-38', typed), { price: 140, source: 'web' }, 'typed price covers every size');
+
+  const items = readOrderItems([{ SKU: 'J41-BB-BL-34', 'จำนวน': '3' }, { SKU: 'J41-BB-BL-38', 'จำนวน': '1' }, { SKU: 'X-BB-BL-30', 'จำนวน': '2' }, { SKU: '5011-PK-MD-30', 'จำนวน': '2' }]);
+  const lines = withPrices(buildLines(items, lookup), lookup);
+  const missing = new Map([['J41-BB-BL-34', 1]]);
+  const pia = missingGroup(lines, missing, lookup)!;
+  const totals = supplierTotals([...groupLines(lines), pia], missing);
+  assert.deepEqual(totals.map((t) => [t.name, t.ordered, t.missing, t.received, t.amount, t.unpriced]), [
+    ['แพลนเนท', 6, 1, 5, 2 * 145 + 150, 2],
+    ['PK', 2, 0, 2, 220, 0],
+    ['พี่เปีย', 1, 0, 1, 145, 0],
+  ]);
+  const files = await unzip(await paymentWorkbook([...groupLines(lines), pia], missing, '2026-10-15', 1));
+  const wb = new TextDecoder().decode(files.get('xl/workbook.xml'));
+  assert.deepEqual([...wb.matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1]), ['สรุปจ่ายร้าน', 'แพลนเนท', 'PK', 'พี่เปีย']);
+  const summary = new TextDecoder().decode(files.get('xl/worksheets/sheet1.xml'));
+  assert.ok(summary.includes('<v>440</v>') && summary.includes('ภายใน ไม่ส่งร้าน'));
+  const supplierSheet = new TextDecoder().decode((await unzip(await orderWorkbook(groupLines(lines), '2026-10-15', 1))).get('xl/worksheets/sheet2.xml'));
+  assert.ok(!supplierSheet.includes('145') && !supplierSheet.includes('ราคา'), 'the sheet sent to the supplier has no prices');
+
+  const saved = validatePurchase({ date: '2026-10-15', round: 1, lines: lines.map((l) => ({ ...l, stores: { x: 'y' } })) });
+  assert.deepEqual(saved.lines.map((l) => [l.sku, l.price, l.price_source]), [['J41-BB-BL-34', 145, 'shop'], ['J41-BB-BL-38', 150, 'cost'], ['X-BB-BL-30', null, ''], ['5011-PK-MD-30', 110, 'cost']]);
+  assert.deepEqual(saved.lines[0].stores, {}, 'stores only for the line\'s own order numbers');
 });

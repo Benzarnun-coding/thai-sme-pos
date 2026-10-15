@@ -52,7 +52,9 @@ export function useCatalog() {
   })), [images]);
   const suppliers = meta?.suppliers;
   const supplierMap = useMemo(() => new Map((suppliers ?? []).map((s) => [s.key, s.shop])), [suppliers]);
+  const prices = meta?.prices;
+  const priceMap = useMemo(() => new Map((prices ?? []).map((p) => [p.key, p.price])), [prices]);
   const canEdit = role === 'owner' || role === 'admin' || role === 'costs';
 
-  return { meta, setMeta, rows, setRows, loading, error, load, role, canEdit, imageMap, supplierMap };
+  return { meta, setMeta, rows, setRows, loading, error, load, role, canEdit, imageMap, supplierMap, priceMap };
 }

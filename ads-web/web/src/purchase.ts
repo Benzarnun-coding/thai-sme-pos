@@ -30,6 +30,11 @@ export interface PurchaseLine {
   note: string;
   /** marketplace order numbers this line came from (shown on the sheets) */
   orders: string[];
+  /** the sales store of each order number: {"5865…": "TikTok · STM-SHOP"} */
+  stores?: Record<string, string>;
+  /** what we pay per piece (web price > ราคาร้านค้า > ทุน H), filled by withPrices; null = unknown */
+  price?: number | null;
+  priceSource?: PriceSource;
   /** pieces the supplier reported out of stock (ticked on the page; goes to the พี่เปีย file) */
   missing?: number;
   /** moved by hand to another supplier/warehouse for this round (out of stock, a substitute, a ตรวจสอบ row …) */
@@ -39,6 +44,30 @@ export interface PurchaseLine {
 }
 
 export interface PurchaseGroup { name: string; kind: GroupKind; lines: PurchaseLine[]; pieces: number }
+
+// ---- sales store of an order (TikTok / Shopee + the Bigseller store) ----
+
+const PLATFORMS: Record<string, string> = { tiktok: 'TikTok', shopee: 'Shopee', lazada: 'Lazada' };
+
+/** "TikTok-TH-J&T Express" → TikTok; else from the store name ("Shopee PK-JEANS"). Facebook orders are not in Bigseller (they come from Page365). */
+export function platformOf(carrier: string, store: string): string {
+  const m = (carrier.match(/^(tiktok|shopee|lazada)/i) ?? store.match(/^(tiktok|shopee|lazada)\b/i))?.[1];
+  return m ? PLATFORMS[m.toLowerCase()] : '';
+}
+
+/** "TikTok · STM-SHOP", "Shopee · PK-JEANS" (the platform is not repeated when the store name starts with it). */
+export function storeLabel(store: string, carrier: string): string {
+  const p = platformOf(carrier, store);
+  const lower = store.toLowerCase(), pl = p.toLowerCase();
+  const name = !p ? store : lower === pl ? '' : lower.startsWith(`${pl} `) ? store.slice(p.length + 1) : store;
+  return p ? (name ? `${p} · ${name}` : p) : name;
+}
+
+/** An order number with its store in front, for sheets: "TikTok · STM-SHOP 586549…". */
+export function orderText(order: string, stores?: Record<string, string>): string {
+  const s = stores?.[order];
+  return s ? `${s} ${order}` : order;
+}
 
 /** Header names per field: Bigseller in Thai (the file Benz uses), Bigseller in English, and close variants. */
 const COLUMNS = {
@@ -120,16 +149,18 @@ export interface Lookup {
   /** tabs whose sheet has a ร้านค้า column in use */
   /** tabs where every product must have a supplier (only BB, agreed 2026-10-13) */
   supplierTabs: Set<string>;
+  /** product key → price per piece typed on the page */
+  prices: Map<string, number>;
 }
 
-export function makeLookup(rows: CatalogRow[], suppliers: Map<string, string>): Lookup {
+export function makeLookup(rows: CatalogRow[], suppliers: Map<string, string>, prices: Map<string, number> = new Map()): Lookup {
   const map = new Map<string, CatalogRow>();
   const supplierTabs = new Set(SUPPLIER_TABS);
   for (const r of rows) {
     const k = skuKey(r.sku);
     if (!map.has(k)) map.set(k, r);
   }
-  return { rows: map, suppliers, supplierTabs };
+  return { rows: map, suppliers, supplierTabs, prices };
 }
 
 /** Where one catalog row is ordered from. */
@@ -166,9 +197,10 @@ export function buildLines(items: OrderItem[], lookup: Lookup): PurchaseLine[] {
       line = { group: g.group, kind: g.kind, sku: r.sku, tab: r.tab, product: `${r.tab}|${spuOf(r.sku)}`, label: labelOf(r, g.kind), size: r.size, qty: 0, note: g.note, orders: [] };
     }
     const key = `${line.group}\u0000${line.sku}`;
-    const target = lines.get(key) ?? { ...line, orders: [] };
+    const target = lines.get(key) ?? { ...line, orders: [], stores: {} };
     target.qty += it.qty;
     if (it.order && !target.orders.includes(it.order)) target.orders.push(it.order);
+    if (it.order && (it.store || it.carrier)) target.stores![it.order] = storeLabel(it.store, it.carrier);
     lines.set(key, target);
   }
   return [...lines.values()];
@@ -198,7 +230,7 @@ export function groupLines(lines: PurchaseLine[]): PurchaseGroup[] {
 }
 
 /** Rows of a printed sheet: same label + size merged (different SKUs can share a supplier code). */
-export interface SheetRow { label: string; size: string; qty: number; band: number; note: string; orders: string[] }
+export interface SheetRow { label: string; size: string; qty: number; band: number; note: string; orders: string[]; stores: Record<string, string> }
 
 export function sheetRows(g: PurchaseGroup): SheetRow[] {
   const out: SheetRow[] = [];
@@ -208,10 +240,11 @@ export function sheetRows(g: PurchaseGroup): SheetRow[] {
     if (g.kind !== 'review' && prev && prev.label === l.label && prev.size === l.size) {
       prev.qty += l.qty;
       for (const o of l.orders ?? []) if (!prev.orders.includes(o)) prev.orders.push(o);
+      Object.assign(prev.stores, l.stores ?? {});
       continue;
     }
     if (l.label !== last) { band++; last = l.label; }
-    out.push({ label: l.label, size: l.size, qty: l.qty, band, note: l.note, orders: [...(l.orders ?? [])] });
+    out.push({ label: l.label, size: l.size, qty: l.qty, band, note: l.note, orders: [...(l.orders ?? [])], stores: { ...(l.stores ?? {}) } });
   }
   return out;
 }
@@ -224,17 +257,17 @@ function groupSheet(g: PurchaseGroup, date: string, round: number): Sheet {
   const rows: (Cell | string | number | null)[][] = [
     [{ v: thaiShortDate(date), s: S.title }, null, { v: g.name, s: S.title }, null, { v: `รอบ ${round}`, s: S.title }],
     [],
-    ['รหัสสินค้า', 'ไซส์', 'จำนวน', 'หมายเหตุ', 'เลขคำสั่งซื้อ'].map((v) => ({ v, s: S.head })),
+    ['รหัสสินค้า', 'ไซส์', 'จำนวน', 'หมายเหตุ', 'ร้านขาย · เลขคำสั่งซื้อ'].map((v) => ({ v, s: S.head })),
   ];
   for (const r of sheetRows(g)) {
     const shade = r.band % 2 === 0;
     rows.push([
       { v: r.label, s: shade ? S.bandLeft : S.boxLeft }, { v: /^\d+$/.test(r.size) ? Number(r.size) : r.size, s: shade ? S.band : S.box },
-      { v: r.qty, s: shade ? S.band : S.box }, { v: r.note, s: S.boxLeft }, { v: r.orders.join(', '), s: S.boxLeft },
+      { v: r.qty, s: shade ? S.band : S.box }, { v: r.note, s: S.boxLeft }, { v: r.orders.map((o) => orderText(o, r.stores)).join(', '), s: S.boxLeft },
     ]);
   }
   rows.push([{ v: 'รวม', s: S.boxBold }, { v: '', s: S.box }, { v: g.pieces, s: S.boxBold }, { v: '', s: S.box }, { v: '', s: S.box }]);
-  return { name: g.name, rows, cols: [34, 9, 9, 24, 44], merges: ['A1:B1', 'C1:D1'] };
+  return { name: g.name, rows, cols: [34, 9, 9, 24, 60], merges: ['A1:B1', 'C1:D1'] };
 }
 
 /** One workbook: a summary sheet, then one sheet per group (ตรวจสอบ included when present). */
@@ -256,7 +289,7 @@ export async function orderWorkbook(groups: PurchaseGroup[], date: string, round
 
 // ---- picture sheets (the China warehouse CN: pictures are easier to pick from than a list) ----
 
-export interface PictureBlock { key: string; code: string; spu: string; color: string; image: string; sizes: { size: string; qty: number; orders: string[] }[]; qty: number }
+export interface PictureBlock { key: string; code: string; spu: string; color: string; image: string; sizes: { size: string; qty: number; orders: string[]; stores: Record<string, string> }[]; qty: number }
 export interface ProductInfo { key: string; code: string; color: string; image: string }
 
 /** One block per product: picture, code, colour, every size with its quantity. Same order as the sheet. */
@@ -270,7 +303,8 @@ export function pictureBlocks(g: PurchaseGroup, info: (sku: string) => ProductIn
     if (s) {
       s.qty += l.qty;
       for (const o of l.orders ?? []) if (!s.orders.includes(o)) s.orders.push(o);
-    } else b.sizes.push({ size: l.size, qty: l.qty, orders: [...(l.orders ?? [])] });
+      Object.assign(s.stores, l.stores ?? {});
+    } else b.sizes.push({ size: l.size, qty: l.qty, orders: [...(l.orders ?? [])], stores: { ...(l.stores ?? {}) } });
     b.qty += l.qty;
     blocks.set(key, b);
   }
@@ -354,4 +388,84 @@ export function missingGroup(lines: PurchaseLine[], missing: Map<string, number>
   }
   if (!out.length) return null;
   return groupLines(out)[0];
+}
+
+// ---- what we pay suppliers (internal: never on the sheets sent to them) ----
+
+/** web = typed on the page · shop = ราคาร้านค้า (column N) · cost = ทุน (column H, own warehouses) */
+export type PriceSource = 'web' | 'shop' | 'cost' | '';
+export const PRICE_SOURCE_LABEL: Record<PriceSource, string> = { web: 'กรอกในเว็บ', shop: 'ราคาร้านค้า', cost: 'ทุนในชีต', '': 'ยังไม่มีราคา' };
+
+/** Price per piece of a catalog SKU: typed on the page > ราคาร้านค้า > ทุน H. */
+export function priceOf(sku: string, lookup: Lookup): { price: number | null; source: PriceSource } {
+  const r = lookup.rows.get(skuKey(sku));
+  if (!r) return { price: null, source: '' };
+  const typed = lookup.prices.get(`${r.tab}|${spuOf(r.sku)}`);
+  if (typed !== undefined) return { price: typed, source: 'web' };
+  if (r.shop_price !== null && r.shop_price > 0) return { price: r.shop_price, source: 'shop' };
+  if (r.cost !== null && r.cost > 0) return { price: r.cost, source: 'cost' };
+  return { price: null, source: '' };
+}
+
+export function withPrices(lines: PurchaseLine[], lookup: Lookup): PurchaseLine[] {
+  return lines.map((l) => { const p = priceOf(l.sku, lookup); return { ...l, price: p.price, priceSource: p.source }; });
+}
+
+export interface SupplierTotal { name: string; kind: GroupKind; ordered: number; missing: number; received: number; amount: number; unpriced: number }
+
+/** Per supplier/warehouse: pieces ordered, out of stock, received, amount owed for what was received, pieces without a price. */
+export function supplierTotals(groups: PurchaseGroup[], missing: Map<string, number>): SupplierTotal[] {
+  return groups.filter((g) => g.kind !== 'review').map((g) => {
+    const t: SupplierTotal = { name: g.name, kind: g.kind, ordered: 0, missing: 0, received: 0, amount: 0, unpriced: 0 };
+    for (const l of g.lines) {
+      const miss = g.name === MISSING_GROUP ? 0 : Math.min(l.qty, missing.get(lineKey(l)) ?? 0);
+      const got = l.qty - miss;
+      t.ordered += l.qty; t.missing += miss; t.received += got;
+      if (l.price != null) t.amount += got * l.price; else t.unpriced += got;
+    }
+    return t;
+  });
+}
+
+const money = (n: number) => Math.round(n * 100) / 100;
+
+/** Internal workbook: what to pay each supplier (summary), then each one's lines with price and amount. Not for suppliers. */
+export async function paymentWorkbook(groups: PurchaseGroup[], missing: Map<string, number>, date: string, round: number): Promise<Uint8Array> {
+  const totals = supplierTotals(groups, missing);
+  const sum = (f: keyof SupplierTotal) => totals.reduce((n, t) => n + (t[f] as number), 0);
+  const summary: Sheet = {
+    name: 'สรุปจ่ายร้าน',
+    rows: [
+      [{ v: `สรุปยอดจ่ายร้าน ${thaiShortDate(date)} รอบ ${round} (ภายใน ไม่ส่งร้าน)`, s: S.bold }],
+      [],
+      ['ร้าน / โกดัง', 'ประเภท', 'สั่ง', 'ของไม่มี', 'ได้จริง', 'ยอดเงิน', 'ยังไม่มีราคา (ชิ้น)'].map((v) => ({ v, s: S.head })),
+      ...totals.map((t) => [{ v: t.name, s: S.boxLeft }, { v: t.name === MISSING_GROUP ? 'สั่งข้างนอก' : KIND_LABEL[t.kind], s: S.box }, { v: t.ordered, s: S.box }, { v: t.missing, s: S.box }, { v: t.received, s: S.box }, { v: money(t.amount), s: S.box }, { v: t.unpriced || '', s: S.box }]),
+      [{ v: 'รวม', s: S.boxBold }, { v: '', s: S.box }, { v: sum('ordered'), s: S.boxBold }, { v: sum('missing'), s: S.boxBold }, { v: sum('received'), s: S.boxBold }, { v: money(sum('amount')), s: S.boxBold }, { v: sum('unpriced') || '', s: S.boxBold }],
+    ],
+    cols: [26, 16, 8, 10, 9, 14, 18],
+  };
+  const sheets: Sheet[] = [summary];
+  for (const g of groups) {
+    if (g.kind === 'review') continue;
+    const rows: (Cell | string | number | null)[][] = [
+      [{ v: `${g.name} · ${thaiShortDate(date)} รอบ ${round} (ภายใน)`, s: S.bold }],
+      [],
+      ['รหัสสินค้า', 'ไซส์', 'SKU', 'สั่ง', 'ของไม่มี', 'ได้จริง', 'ราคา/ตัว', 'ที่มาราคา', 'ยอดเงิน', 'ร้านขาย · เลขคำสั่งซื้อ'].map((v) => ({ v, s: S.head })),
+    ];
+    let amount = 0;
+    for (const l of g.lines) {
+      const miss = g.name === MISSING_GROUP ? 0 : Math.min(l.qty, missing.get(lineKey(l)) ?? 0);
+      const got = l.qty - miss;
+      const line = l.price != null ? got * l.price : null;
+      if (line !== null) amount += line;
+      rows.push([
+        { v: l.label, s: S.boxLeft }, { v: l.size, s: S.box }, { v: l.sku.startsWith('?') ? '' : l.sku, s: S.boxLeft }, { v: l.qty, s: S.box }, { v: miss || '', s: S.box },
+        { v: got, s: S.box }, { v: l.price ?? '', s: S.box }, { v: PRICE_SOURCE_LABEL[l.priceSource ?? ''], s: S.box }, { v: line === null ? '' : money(line), s: S.box },
+        { v: (l.orders ?? []).map((o) => orderText(o, l.stores)).join(', '), s: S.boxLeft },
+      ]);
+    }
+    rows.push([{ v: 'รวม', s: S.boxBold }, ...Array.from({ length: 7 }, () => ({ v: '', s: S.box })), { v: money(amount), s: S.boxBold }, { v: '', s: S.box }]);
+    sheets.push({ name: g.name, rows, cols: [30, 8, 22, 7, 9, 8, 10, 13, 12, 60] });
+  }
+  return buildXlsx(sheets);
 }

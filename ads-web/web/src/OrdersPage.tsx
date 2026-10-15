@@ -8,7 +8,7 @@ import { api, type PurchaseUpload, type SavedPurchaseLine } from './api.ts';
 import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from './catalog.ts';
 import { num } from './fmt.ts';
 import {
-  applyMoves, buildLines, dateFromFileName, orderColumns, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
+  applyMoves, buildLines, dateFromFileName, orderColumns, orderText, paymentWorkbook, PRICE_SOURCE_LABEL, supplierTotals, withPrices, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
   orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
 } from './purchase.ts';
 import { orderPictureSheets, pictureSheets } from './pictureSheet.ts';
@@ -34,13 +34,13 @@ function download(bytes: Uint8Array, name: string) {
 }
 
 function fromSaved(l: SavedPurchaseLine): PurchaseLine {
-  return { group: l.grp, kind: l.kind, sku: l.sku, tab: l.tab, product: '', label: l.label, size: l.size, qty: l.qty, note: l.note, orders: l.orders ?? [], missing: l.missing };
+  return { group: l.grp, kind: l.kind, sku: l.sku, tab: l.tab, product: '', label: l.label, size: l.size, qty: l.qty, note: l.note, orders: l.orders ?? [], stores: l.stores ?? {}, missing: l.missing };
 }
 
 export function OrdersApp() {
   useEffect(() => { document.title = 'ใบสั่งสินค้า'; }, []);
   const { toast, confirm } = useUi();
-  const { meta, setMeta, rows, loading, error, canEdit, role, supplierMap, imageMap } = useCatalog();
+  const { meta, setMeta, rows, loading, error, canEdit, role, supplierMap, imageMap, priceMap } = useCatalog();
   const [data, setData] = useState<Loaded | null>(null);
   const [history, setHistory] = useState<PurchaseUpload[]>([]);
   const [viewing, setViewing] = useState<FromHistory | null>(null);
@@ -61,7 +61,7 @@ export function OrdersApp() {
 
   // Sheet rows + SKUs added on the page, so a SKU added this morning already lands on the right sheet.
   const allRows = useMemo<CatalogRow[]>(() => [...rows, ...(meta?.web ?? []).map((w) => webToRow(w, 0))], [rows, meta?.web]);
-  const lookup = useMemo(() => makeLookup(allRows, supplierMap), [allRows, supplierMap]);
+  const lookup = useMemo(() => makeLookup(allRows, supplierMap, priceMap), [allRows, supplierMap, priceMap]);
   // Photo, code and colour per SKU for picture sheets: a picture added on the page, else column J of any size.
   const productInfo = useMemo(() => {
     const firstImage = new Map<string, string>();
@@ -76,12 +76,13 @@ export function OrdersApp() {
   const warehouses = useMemo(() => new Set((meta?.tabs ?? []).map((t) => t.tab)), [meta?.tabs]);
   // Moves (out of stock → another supplier, ตรวจสอบ rows …) apply to a new upload and to a round reopened from history.
   const baseLines = useMemo(() => (viewing ? viewing.lines : data ? buildLines(data.items, lookup) : []), [viewing, data, lookup]);
-  const lines = useMemo(() => applyMoves(baseLines, moves, warehouses, lookup), [baseLines, moves, warehouses, lookup]);
+  // Price per piece is always the current one (web > ราคาร้านค้า > ทุน); it is stored with the round when saved.
+  const lines = useMemo(() => withPrices(applyMoves(baseLines, moves, warehouses, lookup), lookup), [baseLines, moves, warehouses, lookup]);
   const groups = useMemo(() => groupLines(lines), [lines]);
   const pieces = groups.reduce((n, g) => n + g.pieces, 0);
   const pia = useMemo(() => missingGroup(lines, missing, lookup), [lines, missing, lookup]);
   const review = groups.find((g) => g.kind === 'review');
-  const sig = JSON.stringify([date, round, lines.map((l) => [l.group, l.sku, l.qty])]);
+  const sig = JSON.stringify([date, round, lines.map((l) => [l.group, l.sku, l.qty, l.price ?? null])]);
   const supplierNames = useMemo(() => {
     const names = new Set<string>();
     for (const r of rows) if (r.shop && !SHOP_STATUSES.has(r.shop)) names.add(r.shop);
@@ -183,6 +184,26 @@ export function OrdersApp() {
     const t = setTimeout(() => window.print(), 50);
     return () => { clearTimeout(t); window.removeEventListener('afterprint', done); };
   }, [printing]);
+
+  /** Price per piece for a product (every size), remembered; empty = back to ราคาร้านค้า / ทุน from the sheet. */
+  async function setPrice(l: PurchaseLine, price: number | null) {
+    if (!l.tab || l.sku.startsWith('?')) return;
+    const spu = spuOf(l.sku), key = `${l.tab}|${spu}`;
+    try {
+      await api.setPrices([{ tab: l.tab, spu, price }]);
+      const now = new Date().toISOString();
+      setMeta((m) => (m ? { ...m, prices: [...m.prices.filter((p) => p.key !== key), ...(price === null ? [] : [{ key, tab: l.tab, spu, price, updated_by: '', updated_at: now }])] } : m));
+      toast(price === null ? `${l.label} กลับไปใช้ราคาจากชีต` : `${l.label} ราคา ${num(price)} บาท/ตัว · จำไว้ใช้ทุกวัน`, 'ok');
+    } catch (e: any) { toast(e.message, 'bad'); }
+  }
+
+  async function exportPayments() {
+    setBusy('กำลังสร้างไฟล์…');
+    try {
+      await save();
+      download(await paymentWorkbook(pia ? [...groups, pia] : groups, missing, date, round), `สรุปจ่ายร้าน ${dayMonth(date)} รอบ${round} (ภายใน).xlsx`);
+    } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(''); }
+  }
 
   async function setSupplier(items: { tab: string; spu: string }[], shop: string) {
     if (!items.length) return;
@@ -304,14 +325,16 @@ export function OrdersApp() {
 
           <section className="card po-actions">
             <div>
-              <h2>ส่งออกใบสั่ง</h2>
-              <p className="muted small">Excel = ชีตสรุป + ชีตละร้าน · พิมพ์ = หน้าละร้าน เลือก "บันทึกเป็น PDF" เพื่อส่งทาง Line ได้{!viewing && canEdit ? ' · ระบบบันทึกประวัติให้เมื่อดาวน์โหลดหรือพิมพ์' : ''}</p>
+              <h2>ใบสั่ง · ส่งร้าน</h2>
+              <p className="muted small">ไม่มีราคา/ยอดเงิน · Excel = ชีตสรุป + ชีตละร้าน · พิมพ์ = หน้าละร้าน เลือก "บันทึกเป็น PDF" เพื่อส่งทาง Line ได้{!viewing && canEdit ? ' · ระบบบันทึกประวัติให้เมื่อดาวน์โหลดหรือพิมพ์' : ''}</p>
             </div>
             <div className="row-actions">
               <button onClick={() => print()} disabled={!!busy}><Icon name="down" size={14} /> พิมพ์ / PDF ทุกใบ</button>
               <button className="primary" onClick={() => exportExcel()} disabled={!!busy}><Icon name="down" size={14} /> Excel ทุกใบ</button>
             </div>
           </section>
+
+          <PaymentCard totals={supplierTotals(pia ? [...groups, pia] : groups, missing)} onExport={exportPayments} busy={!!busy} />
 
           {pia ? (
             <section className="card table-card po-group pia">
@@ -334,7 +357,7 @@ export function OrdersApp() {
                       <tr key={`${l.note}|${l.sku}`}>
                         <td><b>{l.label}</b></td><td>{l.size || '—'}</td><td className="num"><b>{num(l.qty)}</b></td>
                         <td className="small">{l.note.replace(/^ไม่มีที่ /, '')}</td><td className="small"><code>{l.sku}</code></td>
-                        <td className="small"><OrderNumbers orders={l.orders} /></td>
+                        <td className="small"><OrderNumbers orders={l.orders} stores={l.stores} /></td>
                         {canEdit && <td><button className="link small" onClick={() => { const orig = lines.find((x) => x.sku === l.sku && `ไม่มีที่ ${x.group}` === l.note); if (orig) setLineMissing(orig, 0); }}>เอาออก</button></td>}
                       </tr>
                     ))}
@@ -349,7 +372,7 @@ export function OrdersApp() {
           {groups.map((g) => (
             <GroupCard
               key={g.name} group={g} open={open.has(g.name)} onToggle={() => toggle(g.name)}
-              missing={missing} onMissing={canEdit ? setLineMissing : null}
+              missing={missing} onMissing={canEdit ? setLineMissing : null} onPrice={canEdit ? setPrice : null}
               canRemember={canEdit} movable={!viewing || canEdit} targets={targets} onMove={moveLine}
               onSupplier={setSupplier} onExcel={() => exportExcel(g)} onPrint={() => print(g)} busy={!!busy}
               onPictures={() => { save(); setPictures(g); }}
@@ -399,8 +422,9 @@ export function OrdersApp() {
 
 // ---- one supplier / warehouse ----
 
-function GroupCard({ group: g, open, onToggle, missing, onMissing, canRemember, movable, targets, onMove, onSupplier, onExcel, onPrint, onPictures, busy }: {
+function GroupCard({ group: g, open, onToggle, missing, onMissing, onPrice, canRemember, movable, targets, onMove, onSupplier, onExcel, onPrint, onPictures, busy }: {
   group: PurchaseGroup; open: boolean; onToggle: () => void; missing: Map<string, number>; onMissing: ((l: PurchaseLine, n: number) => Promise<void>) | null;
+  onPrice: ((l: PurchaseLine, price: number | null) => Promise<void>) | null;
   canRemember: boolean; movable: boolean; targets: string[]; onMove: (sku: string, to: string) => void;
   onSupplier: (items: { tab: string; spu: string }[], shop: string) => Promise<void>; onExcel: () => void; onPrint: () => void; onPictures: () => void; busy: boolean;
 }) {
@@ -413,6 +437,7 @@ function GroupCard({ group: g, open, onToggle, missing, onMissing, canRemember, 
   const [bulk, setBulk] = useState('');
   const [setAll, setSetAll] = useState('');
   const missingHere = g.lines.reduce((n, l) => n + (missing.get(lineKey(l)) ?? 0), 0);
+  const total = g.kind === 'review' ? null : supplierTotals([g], missing)[0];
   /** Move a row this round; with "จำไว้ทุกวัน" also make it the product's supplier from now on. */
   const move = async (l: PurchaseLine, to: string, remember: boolean) => {
     onMove(l.sku, to);
@@ -427,6 +452,7 @@ function GroupCard({ group: g, open, onToggle, missing, onMissing, canRemember, 
           <span className={`pill ${g.kind === 'review' || g.kind === 'unassigned' ? 'bad' : g.kind === 'supplier' ? 'on' : ''}`}>{KIND_LABEL[g.kind]}</span>
           <span className="muted small">{num(g.pieces)} ชิ้น · {num(rowsOnSheet)} รายการ</span>
           {missingHere > 0 && <span className="pill warn">ของไม่มี {num(missingHere)}</span>}
+          {total && <span className="pill po-money" title="ยอดเงินของที่ได้จริง (ภายใน ไม่ส่งร้าน)">฿{num(total.amount)}{total.unpriced ? ` · ขาดราคา ${num(total.unpriced)} ชิ้น` : ''}</span>}
         </button>
         {g.kind !== 'review' && (
           <div className="row-actions">
@@ -463,8 +489,10 @@ function GroupCard({ group: g, open, onToggle, missing, onMissing, canRemember, 
               <thead>
                 <tr>
                   <th>{g.kind === 'review' ? 'SKU ใน Bigseller' : 'รหัสสินค้า'}</th><th>ไซส์</th><th className="num">จำนวน</th>
-                  <th>{g.kind === 'review' ? 'ปัญหา / ตัวเลือกสินค้า' : 'SKU'}</th><th>เลขคำสั่งซื้อ</th>
+                  <th>{g.kind === 'review' ? 'ปัญหา / ตัวเลือกสินค้า' : 'SKU'}</th><th>ร้านขาย · เลขคำสั่งซื้อ</th>
                   {g.kind !== 'review' && <th className="center">ของไม่มี</th>}
+                  {g.kind !== 'review' && <th className="num po-internal" title="ภายใน ไม่ส่งร้าน">ราคา/ตัว</th>}
+                  {g.kind !== 'review' && <th className="num po-internal" title="ภายใน ไม่ส่งร้าน">ยอด</th>}
                   {movable && <th>ย้ายไป (รอบนี้)</th>}
                 </tr>
               </thead>
@@ -484,8 +512,12 @@ function GroupCard({ group: g, open, onToggle, missing, onMissing, canRemember, 
                           {!l.moved && l.note && <span className="muted"> · {l.note}</span>}
                         </>}
                       </td>
-                      <td className="small"><OrderNumbers orders={l.orders} /></td>
+                      <td className="small"><OrderNumbers orders={l.orders} stores={l.stores} /></td>
                       {g.kind !== 'review' && <td className="center"><MissingCell qty={l.qty} value={missing.get(lineKey(l)) ?? 0} onChange={onMissing ? (n) => onMissing(l, n) : null} /></td>}
+                      {g.kind !== 'review' && <td className="num po-internal"><PriceCell line={l} onSave={onPrice && l.tab && !l.sku.startsWith('?') ? (p) => onPrice(l, p) : null} /></td>}
+                      {g.kind !== 'review' && (
+                        <td className="num po-internal">{l.price != null ? <b>{num((l.qty - Math.min(l.qty, missing.get(lineKey(l)) ?? 0)) * l.price)}</b> : <span className="muted">—</span>}</td>
+                      )}
                       {movable && (
                         <td>
                           <div className="po-move">
@@ -508,14 +540,93 @@ function GroupCard({ group: g, open, onToggle, missing, onMissing, canRemember, 
   );
 }
 
-/** Order numbers of a line: the first two, the rest behind "+N". */
-function OrderNumbers({ orders }: { orders: string[] }) {
+/** What we pay per piece and where the number comes from; typed here when the sheet has none (remembered per product). */
+function PriceCell({ line: l, onSave }: { line: PurchaseLine; onSave: ((price: number | null) => Promise<void>) | null }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const save = async (raw: string) => {
+    if (!onSave) return;
+    const t = raw.trim();
+    const p = t === '' ? null : Number(t);
+    if (p !== null && !(p >= 0)) return;
+    setBusy(true);
+    try { await onSave(p); setEditing(false); setValue(''); } finally { setBusy(false); }
+  };
+  if (editing || (l.price == null && onSave)) {
+    return (
+      <span className="po-price-edit">
+        <input inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value.replace(/[^\d.]/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter') save(value); if (e.key === 'Escape') setEditing(false); }}
+          placeholder={l.price != null ? String(l.price) : 'ใส่ราคา'} aria-label="ราคาต่อตัว" autoFocus={editing} />
+        <button className="small" disabled={busy || (!value.trim() && l.priceSource !== 'web')} onClick={() => save(value)}>บันทึก</button>
+        {editing && <button className="link small" onClick={() => setEditing(false)}>ยกเลิก</button>}
+      </span>
+    );
+  }
+  if (l.price == null) return <span className="muted">—</span>;
+  return (
+    <span className="po-price">
+      <b>{num(l.price)}</b>
+      <small className={`muted src-${l.priceSource}`}>{PRICE_SOURCE_LABEL[l.priceSource ?? '']}</small>
+      {onSave && <button className="link small" onClick={() => { setEditing(true); setValue(String(l.price)); }}>แก้</button>}
+    </span>
+  );
+}
+
+/** Our side only: what each supplier is owed for what it delivered (out-of-stock pieces not counted), and gaps in prices. */
+function PaymentCard({ totals, onExport, busy }: { totals: ReturnType<typeof supplierTotals>; onExport: () => void; busy: boolean }) {
+  const [open, setOpen] = useState(false);
+  const sum = (f: 'ordered' | 'missing' | 'received' | 'amount' | 'unpriced') => totals.reduce((n, t) => n + t[f], 0);
+  const suppliers = totals.filter((t) => t.kind === 'supplier' || t.name === MISSING_GROUP);
+  return (
+    <section className="card table-card po-payments">
+      <div className="table-card-head">
+        <button className="link po-group-title" onClick={() => setOpen(!open)} aria-expanded={open}>
+          <Icon name="chevron" size={14} />
+          <b>ยอดจ่ายร้าน</b>
+          <span className="pill">ภายใน · ไม่ส่งร้าน</span>
+          <span className="muted small">ร้านค้า ฿{num(suppliers.reduce((n, t) => n + t.amount, 0))} · ทุกกลุ่ม ฿{num(sum('amount'))} · ได้จริง {num(sum('received'))} ชิ้น</span>
+          {sum('unpriced') > 0 && <span className="pill warn">ขาดราคา {num(sum('unpriced'))} ชิ้น</span>}
+        </button>
+        <button className="small primary" onClick={onExport} disabled={busy}><Icon name="down" size={14} /> Excel สรุปจ่ายร้าน (ภายใน)</button>
+      </div>
+      {open && (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead><tr><th>ร้าน / โกดัง</th><th>ประเภท</th><th className="num">สั่ง</th><th className="num">ของไม่มี</th><th className="num">ได้จริง</th><th className="num">ยอดเงิน</th><th className="num">ขาดราคา</th></tr></thead>
+            <tbody>
+              {totals.map((t) => (
+                <tr key={t.name}>
+                  <td><b>{t.name}</b></td>
+                  <td className="small muted">{t.name === MISSING_GROUP ? 'สั่งข้างนอก' : KIND_LABEL[t.kind]}</td>
+                  <td className="num">{num(t.ordered)}</td>
+                  <td className={`num ${t.missing ? 'warn' : ''}`}>{t.missing ? num(t.missing) : '—'}</td>
+                  <td className="num">{num(t.received)}</td>
+                  <td className="num"><b>฿{num(t.amount)}</b></td>
+                  <td className={`num ${t.unpriced ? 'warn' : ''}`}>{t.unpriced ? `${num(t.unpriced)} ชิ้น` : '—'}</td>
+                </tr>
+              ))}
+              <tr className="total-row">
+                <td>รวม</td><td /><td className="num">{num(sum('ordered'))}</td><td className="num">{num(sum('missing'))}</td><td className="num">{num(sum('received'))}</td>
+                <td className="num">฿{num(sum('amount'))}</td><td className="num">{sum('unpriced') ? `${num(sum('unpriced'))} ชิ้น` : '—'}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="small muted po-hint" style={{ paddingTop: 8 }}>ยอดเงิน = (สั่ง − ของไม่มี) × ราคา/ตัว · ราคา: กรอกในเว็บ › ราคาร้านค้า (ชีต) › ทุนในชีต (โกดังของเรา) · ใส่ราคาที่ขาดได้ในช่อง "ราคา/ตัว" ของแต่ละรายการ จำไว้ใช้ทุกวัน</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Order numbers of a line with the store each came from: the first two, the rest behind "+N". */
+function OrderNumbers({ orders, stores }: { orders: string[]; stores?: Record<string, string> }) {
   const [all, setAll] = useState(false);
   if (!orders?.length) return <span className="muted">—</span>;
   const shown = all ? orders : orders.slice(0, 2);
   return (
     <span className="po-orders">
-      {shown.map((o) => <code key={o}>{o}</code>)}
+      {shown.map((o) => <span key={o}>{stores?.[o] && <span className="po-store">{stores[o]}</span>} <code>{o}</code></span>)}
       {orders.length > 2 && <button className="link small" onClick={() => setAll(!all)}>{all ? 'ย่อ' : `+${orders.length - 2}`}</button>}
     </span>
   );
@@ -658,12 +769,12 @@ function PrintSheets({ groups, date, round }: { groups: PurchaseGroup[]; date: s
             </div>
             <table className="po-sheet">
               <colgroup><col className="c-code" /><col className="c-size" /><col className="c-qty" /><col className="c-orders" /><col className="c-note" /></colgroup>
-              <thead><tr><th>รหัสสินค้า</th><th>ไซส์</th><th>จำนวน</th><th>เลขคำสั่งซื้อ</th><th>หมายเหตุ</th></tr></thead>
+              <thead><tr><th>รหัสสินค้า</th><th>ไซส์</th><th>จำนวน</th><th>ร้านขาย · เลขคำสั่งซื้อ</th><th>หมายเหตุ</th></tr></thead>
               <tbody>
                 {sheetRows(g).map((r, ri) => (
                   <tr key={ri} className={r.band % 2 === 0 ? 'shade' : ''}>
                     <td>{r.label}</td><td>{r.size}</td><td>{r.qty}</td>
-                    <td className="orders">{r.orders.map((o) => <div key={o}>{o}</div>)}</td>
+                    <td className="orders">{r.orders.map((o) => <div key={o}>{orderText(o, r.stores)}</div>)}</td>
                     <td>{showNote ? r.note : ''}</td>
                   </tr>
                 ))}

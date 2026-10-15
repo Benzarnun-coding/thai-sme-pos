@@ -74,16 +74,17 @@ export async function catalogVersion(db: D1Database): Promise<string> {
   return (await db.prepare("SELECT value FROM settings WHERE key = 'catalog_version'").first<string>('value')) ?? '';
 }
 
-export async function catalogMeta(db: D1Database, fallbackSheet = ''): Promise<{ version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; sheet_configured: boolean }> {
-  const [version, tabs, web, sheet, images, suppliers] = await Promise.all([
+export async function catalogMeta(db: D1Database, fallbackSheet = ''): Promise<{ version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; prices: CatalogPrice[]; sheet_configured: boolean }> {
+  const [version, tabs, web, sheet, images, suppliers, prices] = await Promise.all([
     catalogVersion(db),
     db.prepare('SELECT tab, gid, sort, skus, synced_at, synced_by FROM catalog_tabs ORDER BY sort, tab').all<CatalogTab>(),
     db.prepare('SELECT * FROM catalog_web ORDER BY created_at DESC').all<WebSku>(),
     catalogSheetId(db, fallbackSheet),
     listImages(db),
     listSuppliers(db),
+    listPrices(db),
   ]);
-  return { version, tabs: tabs.results, web: web.results, images, suppliers, sheet_configured: !!sheet };
+  return { version, tabs: tabs.results, web: web.results, images, suppliers, prices, sheet_configured: !!sheet };
 }
 
 /** A page of one tab's rows as arrays in ROW_FIELDS order; `next` is the SKU to continue after. */
@@ -342,4 +343,38 @@ export async function proxyImage(raw: string): Promise<Response> {
   if (!/^image\/(jpeg|png|webp|gif)/.test(type)) return new Response('not an image', { status: 415 });
   if (Number(res.headers.get('content-length') ?? 0) > MAX_PROXY_BYTES) return new Response('too large', { status: 413 });
   return new Response(res.body, { headers: { 'Content-Type': type, 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' } });
+}
+
+// ---- price per piece typed on the order page (what we pay; wins over ราคาร้านค้า and ทุน) ----
+
+export interface CatalogPrice { key: string; tab: string; spu: string; price: number; updated_by: string; updated_at: string }
+
+export async function listPrices(db: D1Database): Promise<CatalogPrice[]> {
+  return (await db.prepare('SELECT key, tab, spu, price, updated_by, updated_at FROM catalog_prices').all<CatalogPrice>()).results;
+}
+
+/** Several products at once; an empty price removes it (back to the sheet). */
+export async function savePrices(db: D1Database, input: any, user: string): Promise<CatalogPrice[]> {
+  const list: unknown[] = Array.isArray(input?.items) ? input.items : [input];
+  if (!list.length || list.length > 200) throw new BadRequest('ส่งได้ครั้งละ 1–200 สินค้า');
+  const now = new Date().toISOString();
+  const items = list.map((x: any) => {
+    const empty = x?.price === null || x?.price === undefined || String(x.price).trim() === '';
+    const price = empty ? null : parseNumber(x.price);
+    if (!empty && (price === null || price < 0 || price > 100_000)) throw new BadRequest('ราคาต้องเป็นตัวเลข 0–100,000');
+    return { ...imageKey(x?.tab, x?.spu), price };
+  });
+  const set = items.filter((i) => i.price !== null).map((i) => ({ ...i, updated_by: user, updated_at: now }));
+  const clear = items.filter((i) => i.price === null).map((i) => i.key);
+  const statements: D1PreparedStatement[] = [];
+  if (set.length) {
+    statements.push(db.prepare(
+      `INSERT INTO catalog_prices (key, tab, spu, price, updated_by, updated_at)
+       SELECT value ->> '$.key', value ->> '$.tab', value ->> '$.spu', value ->> '$.price', value ->> '$.updated_by', value ->> '$.updated_at' FROM json_each(?1) WHERE true
+       ON CONFLICT (key) DO UPDATE SET price = excluded.price, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+    ).bind(JSON.stringify(set)));
+  }
+  if (clear.length) statements.push(db.prepare('DELETE FROM catalog_prices WHERE key IN (SELECT value FROM json_each(?1))').bind(JSON.stringify(clear)));
+  await db.batch(statements);
+  return set as CatalogPrice[];
 }

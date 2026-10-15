@@ -26,7 +26,7 @@ import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetito
 import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
 import { deletePurchase, listPurchases, purchaseLines, savePurchase, setMissing, validateMissing, validatePurchase } from './purchase.ts';
-import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveImageLink, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
+import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveImageLink, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { familyStats, postIdeas, postIdeasText } from './postIdeas.ts';
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
@@ -594,6 +594,11 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     if (!(await deleteImage(env.DB, key))) return json({ error: 'ไม่พบรูปที่เพิ่มไว้' }, 404);
     await audit(env.DB, user, 'catalog.image.delete', key, {});
     return json({ ok: true });
+  }
+  if (method === 'PUT' && path === '/api/catalog/price') {
+    const saved = await savePrices(env.DB, await body(), user);
+    await audit(env.DB, user, 'catalog.price', saved.map((s) => `${s.key}=${s.price}`).join(',') || 'clear', {});
+    return json({ prices: saved });
   }
   if (method === 'PUT' && path === '/api/catalog/supplier') {
     const saved = await saveSuppliers(env.DB, await body(), user);
