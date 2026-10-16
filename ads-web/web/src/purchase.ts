@@ -119,6 +119,36 @@ export function readOrderItems(rows: Record<string, string>[], headers: string[]
   })).filter((i) => i.qty > 0 && (i.sku || i.name));
 }
 
+// ---- other sources on the same round: Facebook orders (Page365) and lines typed by hand ----
+
+/** Store label of Facebook orders (same text as sales.ts FACEBOOK_STORE). */
+export const FACEBOOK_STORE = 'Facebook · Page365';
+/** Store label of lines typed on the page. */
+export const MANUAL_STORE = 'เพิ่มเอง';
+
+/** Page365's per-item order export: 'No.', 'SKU', 'Item Qty' … (UTF-16 tabs, like Bigseller's CSV). */
+export function isFacebookExport(headers: string[]): boolean {
+  const h = new Set(headers.map((x) => x.trim()));
+  return h.has('No.') && h.has('SKU') && h.has('Item Qty') && (h.has('Item Name') || h.has('Profile name') || h.has('Source'));
+}
+
+/** Facebook order lines: order number, our SKU, qty (Variant Name / Item Name for rows without a SKU). Cancelled orders are left out. */
+export function readFacebookItems(rows: Record<string, string>[]): OrderItem[] {
+  return rows
+    .filter((r) => !/(cancel|void|ยกเลิก|refund)/i.test(r['Status'] ?? ''))
+    .map((r) => ({
+      store: FACEBOOK_STORE,
+      sku: cleanSku(r['SKU'] ?? ''),
+      name: (r['Item Name'] ?? '').trim(),
+      option: (r['Variant Name'] ?? '').trim(),
+      qty: Math.max(0, Math.round(Number(String(r['Item Qty'] ?? '').replace(/,/g, '')) || 0)),
+      order: (r['No.'] ?? '').trim(),
+      tracking: '',
+      carrier: '',
+    }))
+    .filter((i) => i.qty > 0 && (i.sku || i.name));
+}
+
 /** "Order-SKU-inprocess20261013010110576.xlsx" → 2026-10-13 (the export's date). */
 export function dateFromFileName(name: string): string | null {
   const m = name.match(/(20\d{2})(\d{2})(\d{2})\d{6,}/);
@@ -246,25 +276,26 @@ export function labelFor(r: CatalogRow, kind: GroupKind, lookup: Lookup | null):
 
 /** Bigseller items → one line per (group, SKU) with quantities added up. */
 /**
- * Which items go to the พี่เปีย stock group: a stock product whose order + SKU was already cut (it came back in a later
- * round) always does; a new one does while the balance lasts, first come first served. `short` counts the pieces that
- * did not fit (they stay on their usual sheet). Off when the round's day is not after the starting balance.
+ * Which items go to a stock group (พี่เปีย by default; GoSell for Facebook orders): a stock product whose order + SKU was
+ * already cut (it came back in a later round) always does; a new one does while the balance lasts, first come first
+ * served. `short` counts the pieces that did not fit (they stay on their usual sheet). Off when `active` is false.
  */
-export function stockPlacer(stock: { skus: Set<string>; balance: Map<string, number>; cut: Set<string>; active: boolean }) {
+export function stockPlacer(stock: { skus: Set<string>; balance: Map<string, number>; cut: Set<string>; active: boolean; group?: string }) {
+  const group = stock.group ?? STOCK_GROUP;
   const left = new Map(stock.balance);
   const short = new Map<string, number>();
-  const place = (it: OrderItem, r: CatalogRow): boolean => {
-    if (!stock.active || !stock.skus.has(r.sku)) return false;
-    if (it.order && stock.cut.has(`${it.order}|${r.sku}`)) return true;
+  const place = (it: OrderItem, r: CatalogRow): string | null => {
+    if (!stock.active || !stock.skus.has(r.sku)) return null;
+    if (it.order && stock.cut.has(`${it.order}|${r.sku}`)) return group;
     const n = left.get(r.sku) ?? 0;
-    if (n >= it.qty) { left.set(r.sku, n - it.qty); return true; }
+    if (n >= it.qty) { left.set(r.sku, n - it.qty); return group; }
     short.set(r.sku, (short.get(r.sku) ?? 0) + it.qty);
-    return false;
+    return null;
   };
   return { place, short };
 }
 
-export function buildLines(items: OrderItem[], lookup: Lookup, place?: (it: OrderItem, r: CatalogRow) => boolean): PurchaseLine[] {
+export function buildLines(items: OrderItem[], lookup: Lookup, place?: (it: OrderItem, r: CatalogRow) => string | null): PurchaseLine[] {
   const lines = new Map<string, PurchaseLine>();
   for (const it of items) {
     const r = it.sku ? lookup.rows.get(skuKey(it.sku)) : undefined;
@@ -279,7 +310,8 @@ export function buildLines(items: OrderItem[], lookup: Lookup, place?: (it: Orde
         note: `${it.sku ? 'SKU ไม่มีในแคตตาล็อก' : 'ไม่มี SKU ใน Bigseller'} · ${what}`, orders: [],
       };
     } else {
-      const g = place?.(it, r) ? { group: STOCK_GROUP, kind: 'warehouse' as GroupKind, note: '' } : groupOf(r, lookup);
+      const placed = place?.(it, r);
+      const g = placed ? { group: placed, kind: 'warehouse' as GroupKind, note: '' } : groupOf(r, lookup);
       line = { group: g.group, kind: g.kind, sku: r.sku, tab: r.tab, product: `${r.tab}|${spuOf(r.sku)}`, label: labelFor(r, g.kind, lookup), size: r.size, qty: 0, note: g.note, orders: [] };
     }
     const key = `${line.group}\u0000${line.sku}`;
@@ -462,6 +494,9 @@ export const MISSING_GROUP = 'เก็บตกแทน';
 
 /** The order-sheet group that is our own stock at พี่เปีย's BB branch (cuts /catalog/stock; same as worker/stock.ts). */
 export const STOCK_GROUP = 'พี่เปีย';
+
+/** The order-sheet group for Facebook orders of products in GoSell's stock (GoSell ships them; not cut by the sheet). */
+export const GOSELL_GROUP = 'GoSell';
 
 /** How moves and out-of-stock ticks are keyed on the page: the SKU (a SKU is on one line per round). */
 export const lineKey = (l: Pick<PurchaseLine, 'sku'>) => l.sku;

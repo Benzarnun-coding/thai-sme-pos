@@ -29,7 +29,7 @@ import { parseRange, salesData } from './sales.ts';
 import { listImportMaps, profitData, saveImportMap, saveMpOrders, validateMpOrders } from './mpOrders.ts';
 import { opsFacts, opsText } from './opsDigest.ts';
 import { deleteMove, gosellCut, saveMoves, stockData, syncRoundStock, validateMoves } from './stock.ts';
-import { deletePurchase, findOrders, ledger, listPurchases, orderTerms, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
+import { deletePurchase, findOrders, ledger, listPurchases, orderTerms, purchaseExtra, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveAlias, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './chatLog.ts';
@@ -958,7 +958,11 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
 
   if (method === 'GET' && path === '/api/purchase') return json({ uploads: await listPurchases(env.DB) });
-  if (method === 'GET' && path === '/api/purchase/lines') return json({ lines: await purchaseLines(env.DB, url.searchParams.get('id') ?? '') });
+  if (method === 'GET' && path === '/api/purchase/lines') {
+    const id = url.searchParams.get('id') ?? '';
+    const [lines, extra] = await Promise.all([purchaseLines(env.DB, id), purchaseExtra(env.DB, id)]);
+    return json({ lines, extra });
+  }
   if (method === 'PUT' && path === '/api/purchase') {
     const upload = await savePurchase(env.DB, validatePurchase(await body()), user);
     await syncRoundStock(env.DB, upload.id, user);

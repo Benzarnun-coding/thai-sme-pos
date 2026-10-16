@@ -4,13 +4,13 @@
 // Who supplies a product can be changed right here; it is saved for that product and used every day after.
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { api, type CatalogAlias, type FoundOrder, type LedgerRow, type PurchaseUpload, type SavedPurchaseLine, type StockData } from './api.ts';
+import { api, type CatalogAlias, type FoundOrder, type LedgerRow, type PurchaseUpload, type PurchaseExtra, type SavedPurchaseLine, type StockData } from './api.ts';
 import { SkuMatch } from './SkuMatch.tsx';
 import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from './catalog.ts';
 import { num } from './fmt.ts';
 import {
   applyMoves, buildLines, dateFromFileName, optionParts, saleItems, orderColumns, orderText, paymentWorkbook, PRICE_SOURCE_LABEL, supplierTotals, withPrices, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
-  STOCK_GROUP, stockPlacer, orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
+  FACEBOOK_STORE, GOSELL_GROUP, isFacebookExport, MANUAL_STORE, readFacebookItems, suggestSkus, STOCK_GROUP, stockPlacer, orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
 } from './purchase.ts';
 import { orderPictureSheets, pictureSheets } from './pictureSheet.ts';
 import { Icon, Modal, useUi } from './ui.tsx';
@@ -21,6 +21,10 @@ import { HomeLogo, SiteNav } from './SiteNav.tsx';
 
 
 interface Loaded { file: string; items: OrderItem[] }
+
+/** Saved Facebook / typed items → order items (and back). */
+const fromExtra = (x: PurchaseExtra): OrderItem => ({ store: x.source === 'manual' ? MANUAL_STORE : FACEBOOK_STORE, sku: x.sku, name: x.name, option: x.option, qty: x.qty, order: x.order, tracking: '', carrier: '' });
+const toExtra = (it: OrderItem): PurchaseExtra => ({ source: it.store === MANUAL_STORE ? 'manual' : 'facebook', order: it.order, sku: it.sku, name: it.name, option: it.option, qty: it.qty });
 interface FromHistory { upload: PurchaseUpload; lines: PurchaseLine[] }
 
 function todayBkk(): string {
@@ -44,6 +48,10 @@ export function OrdersApp() {
   const { toast, confirm } = useUi();
   const { meta, setMeta, rows, loading, error, canEdit, role, supplierMap, imageMap, priceMap, labelMap, aliasMap } = useCatalog();
   const [data, setData] = useState<Loaded | null>(null);
+  // Facebook orders (Page365's per-item export) and lines typed by hand, on the same round as the Bigseller file.
+  const [fb, setFb] = useState<Loaded | null>(null);
+  const [manual, setManual] = useState<OrderItem[]>([]);
+  const allItems = useMemo(() => [...(data?.items ?? []), ...(fb?.items ?? []), ...manual], [data, fb, manual]);
   const [history, setHistory] = useState<PurchaseUpload[]>([]);
   const [viewing, setViewing] = useState<FromHistory | null>(null);
   const [date, setDate] = useState(todayBkk());
@@ -91,20 +99,32 @@ export function OrdersApp() {
     const balance = new Map((stock?.balances ?? []).filter((b) => b.loc === 'pia').map((b) => [b.sku, b.qty]));
     const cut = new Set((stock?.cut ?? []).filter((c) => c.loc === 'pia').map((c) => `${c.order_no}|${c.sku}`));
     const active = !!stock?.start.pia && date > stock.start.pia;
-    return () => stockPlacer({ skus, balance, cut, active });
+    // Facebook orders of products in GoSell's stock go to the GoSell sheet (GoSell ships them; its stock is cut by the
+    // button on the GoSell page, not here); typed lines stay on their usual sheet.
+    const gsBalance = new Map((stock?.balances ?? []).filter((b) => b.loc === 'gosell').map((b) => [b.sku, b.qty]));
+    return () => {
+      const pia = stockPlacer({ skus, balance, cut, active });
+      const gs = stockPlacer({ skus, balance: gsBalance, cut: new Set(), active: !!stock?.start.gosell, group: GOSELL_GROUP });
+      return {
+        place: (it: OrderItem, r: CatalogRow) => (it.store === FACEBOOK_STORE ? gs.place(it, r) : it.store === MANUAL_STORE ? null : pia.place(it, r)),
+        short: pia.short, gsShort: gs.short,
+      };
+    };
   }, [stock, date]);
-  const warehouses = useMemo(() => new Set([...(meta?.tabs ?? []).map((t) => t.tab), ...(stock?.items.length ? [STOCK_GROUP] : [])]), [meta?.tabs, stock?.items.length]);
+  const warehouses = useMemo(() => new Set([...(meta?.tabs ?? []).map((t) => t.tab), ...(stock?.items.length ? [STOCK_GROUP, GOSELL_GROUP] : [])]), [meta?.tabs, stock?.items.length]);
   // Moves (out of stock → another supplier, ตรวจสอบ rows …) apply to a new upload and to a round reopened from history.
   const built = useMemo(() => {
     if (viewing || !data) return null;
     const p = newPlacer();
-    return { lines: buildLines(data.items, lookup, p.place), short: p.short };
-  }, [viewing, data, lookup, newPlacer]);
+    return { lines: buildLines(allItems, lookup, p.place), short: p.short, gsShort: p.gsShort };
+  }, [viewing, data, allItems, lookup, newPlacer]);
   const baseLines = useMemo(() => (viewing ? viewing.lines : built?.lines ?? []), [viewing, built]);
-  const stockShort = useMemo(() => [...(built?.short ?? new Map<string, number>())].map(([sku, n]) => {
+  const shortList = (m: Map<string, number> | undefined) => [...(m ?? new Map<string, number>())].map(([sku, n]) => {
     const it = stock?.items.find((i) => i.sku === sku);
     return { sku, n, name: it ? `${it.code} #${it.size}` : sku };
-  }), [built, stock]);
+  });
+  const stockShort = useMemo(() => shortList(built?.short), [built, stock]); // eslint-disable-line react-hooks/exhaustive-deps
+  const gosellShort = useMemo(() => shortList(built?.gsShort), [built, stock]); // eslint-disable-line react-hooks/exhaustive-deps
   // Price per piece is always the current one (typed on the page > ทุน H); it is stored with the round when saved.
   // Names typed for rows that are not in the catalog (ตรวจสอบ) apply to this round only: Bigseller SKU → name.
   const [labelEdits, setLabelEdits] = useState<Map<string, string>>(new Map());
@@ -137,7 +157,22 @@ export function OrdersApp() {
       let headers: string[], raw: Record<string, string>[];
       if (/\.xlsx$/i.test(file.name)) ({ headers, rows: raw } = await readFirstSheet(file));
       else if (/\.(csv|tsv|txt)$/i.test(file.name)) ({ headers, rows: raw } = parseExport(new Uint8Array(await file.arrayBuffer())));
-      else throw new Error('เลือกไฟล์ .xlsx หรือ .csv ที่ export จาก Bigseller (Order-SKU-inprocess…)');
+      else throw new Error('เลือกไฟล์ .xlsx หรือ .csv ที่ export จาก Bigseller (Order-SKU-inprocess…) หรือ Page365');
+      if (isFacebookExport(headers)) {
+        // Facebook orders join the round on screen (or start one); the Bigseller file can come before or after.
+        const items = readFacebookItems(raw);
+        if (!items.length) throw new Error('ไม่พบรายการสินค้าในไฟล์ Page365');
+        setViewing(null);
+        setFb({ file: file.name, items });
+        if (!data) {
+          setData({ file: file.name, items: [] });
+          setDate(todayBkk());
+          setRound(nextRound(todayBkk()));
+          setSavedSig('');
+        }
+        toast(`เพิ่มออเดอร์ Facebook ${num(new Set(items.map((i) => i.order)).size)} ออเดอร์ · ${num(items.reduce((t, i) => t + i.qty, 0))} ตัว`, 'ok');
+        return;
+      }
       const missing = missingOrderColumns(headers);
       if (missing) throw new Error(`ไฟล์ "${file.name}" ไม่มีคอลัมน์ ${missing.join(', ')} · หัวตารางที่อ่านได้: ${headers.slice(0, 6).join(', ') || '(ว่าง)'}`);
       const items = readOrderItems(raw, headers);
@@ -152,14 +187,28 @@ export function OrdersApp() {
       setMissingMap(new Map());
       setLabelEdits(new Map());
       setData({ file: file.name, items });
+      if (same) { setFb(null); setManual([]); }
       setDate(d);
       setRound(same ? same.round : nextRound(d));
       setSavedSig('');
       if (same) {
         // Bring back what was done on that round: rows moved by hand, and the out-of-stock ticks.
-        const { lines: saved } = await api.purchaseLines(same.id);
-        const fresh = new Map(buildLines(items, lookup, newPlacer().place).map((l) => [l.sku, l.group]));
-        setMoves(new Map(saved.filter((l) => fresh.has(l.sku) && fresh.get(l.sku) !== l.grp).map((l) => [l.sku, l.grp])));
+        const { lines: saved, extra } = await api.purchaseLines(same.id);
+        // Facebook orders and typed lines saved with that round come back too.
+        const fbItems = (extra ?? []).filter((x) => x.source === 'facebook').map(fromExtra);
+        const typed = (extra ?? []).filter((x) => x.source === 'manual').map(fromExtra);
+        setFb(fbItems.length ? { file: 'ที่บันทึกไว้กับรอบนี้', items: fbItems } : null);
+        setManual(typed);
+        // A move is keyed by SKU, so only a SKU that sits in one group both now and as saved can be moved back; a SKU
+        // split over groups (e.g. พี่เปีย for TikTok, GoSell for Facebook, PK for the rest) is left as the page puts it.
+        const groupsOf = (list: { sku: string; group: string }[]) => {
+          const m = new Map<string, Set<string>>();
+          for (const l of list) m.set(l.sku, (m.get(l.sku) ?? new Set()).add(l.group));
+          return m;
+        };
+        const fresh = groupsOf(buildLines([...items, ...fbItems, ...typed], lookup, newPlacer().place));
+        const was = groupsOf(saved.map((l) => ({ sku: l.sku, group: l.grp })));
+        setMoves(new Map([...was].filter(([sku, g]) => g.size === 1 && fresh.get(sku)?.size === 1 && !fresh.get(sku)!.has([...g][0])).map(([sku, g]) => [sku, [...g][0]])));
         // names typed for rows not in the catalog (catalog products get theirs from catalog_labels)
         setLabelEdits(new Map(saved.filter((l) => !l.tab && l.label && l.label !== '(ไม่มี SKU)' && l.label !== l.sku && !l.label.startsWith(spuOf(l.sku))).map((l) => [l.sku, l.label])));
         setMissingMap(new Map(saved.filter((l) => l.missing > 0).map((l) => [lineKey({ sku: l.sku }), l.missing])));
@@ -175,7 +224,9 @@ export function OrdersApp() {
       const file = viewing ? viewing.upload.file : data!.file;
       // Saved from a file: also its order rows, for the units-sold page (a reopened round keeps the ones it has).
       const items = !viewing && data ? saleItems(data.items, lookup, `${date}#${round}`) : undefined;
-      const { upload } = await api.savePurchase({ date, round, file, lines: lines.map((l) => ({ ...l })), items });
+      // Facebook / typed items are kept with the round (not as sales: Facebook units come from the Page365 upload).
+      const extra = !viewing && data ? [...(fb?.items ?? []), ...manual].map(toExtra) : undefined;
+      const { upload } = await api.savePurchase({ date, round, file, lines: lines.map((l) => ({ ...l })), items, extra });
       setHistory((h) => [upload, ...h.filter((x) => x.id !== upload.id)].sort((a, b) => b.date.localeCompare(a.date) || b.round - a.round));
       setSavedSig(sig);
       loadStock();
@@ -315,6 +366,8 @@ export function OrdersApp() {
       setLabelEdits(new Map());
       setMissingMap(new Map(saved.filter((l) => l.missing > 0).map((l) => [lineKey({ sku: l.sku }), l.missing])));
       setData(null);
+      setFb(null);
+      setManual([]);
       setDate(u.date);
       setRound(u.round);
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -365,6 +418,15 @@ export function OrdersApp() {
             <input type="file" accept=".xlsx,.csv,.tsv,.txt" hidden disabled={!!busy || !ready} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onFile(f); }} />
           </label>
         </div>
+        {data && !viewing && (
+          <Sources
+            bigseller={data.items.length ? { file: data.file, pieces: data.items.reduce((t, i) => t + i.qty, 0) } : null}
+            fb={fb ? { file: fb.file, orders: new Set(fb.items.map((i) => i.order)).size, pieces: fb.items.reduce((t, i) => t + i.qty, 0) } : null}
+            manual={manual} rows={allRows} busy={!!busy || !ready}
+            onFile={onFile} onRemoveFb={() => setFb(null)}
+            onAdd={(it) => setManual((m) => [...m, it])} onRemoveManual={(i) => setManual((m) => m.filter((_, j) => j !== i))}
+          />
+        )}
         {!shown && (
           <div
             className="po-drop"
@@ -405,12 +467,17 @@ export function OrdersApp() {
       {shown && (
         <>
           <div className="kpis po-kpis">
-            <div className="kpi"><span>ชิ้นทั้งหมด</span><b>{num(pieces)}</b>{data && <small>{num(new Set(data.items.map((i) => i.order).filter(Boolean)).size)} ออเดอร์</small>}</div>
+            <div className="kpi"><span>ชิ้นทั้งหมด</span><b>{num(pieces)}</b>{data && <small>{num(new Set(allItems.map((i) => i.order).filter(Boolean)).size)} ออเดอร์</small>}</div>
             <div className="kpi"><span>ร้านค้า</span><b>{num(groups.filter((g) => g.kind === 'supplier').length)}</b></div>
             <div className="kpi"><span>โกดัง</span><b>{num(groups.filter((g) => g.kind === 'warehouse').length)}</b></div>
             <div className="kpi"><span>ต้องตรวจสอบ</span><b className={review || groups.some((g) => g.kind === 'unassigned') ? 'bad' : 'good'}>{num((review?.pieces ?? 0) + groups.filter((g) => g.kind === 'unassigned').reduce((n, g) => n + g.pieces, 0))}</b><small>ไม่มี SKU / ยังไม่ระบุร้าน · <a href="/catalog/todo">งานค้างทั้งหมด</a></small></div>
           </div>
 
+          {gosellShort.length > 0 && (
+            <div className="card warn-card small">
+              <b>สต็อก GoSell ไม่พอสำหรับออเดอร์ Facebook</b> · {gosellShort.map((x) => `${x.name} ${num(x.n)} ตัว`).join(' · ')} → อยู่ใบเดิม · <a href="/catalog/stock?gosell=1">ดูสต็อก</a>
+            </div>
+          )}
           {stockShort.length > 0 && (
             <div className="card warn-card small">
               <b>สต็อก{STOCK_GROUP}ไม่พอ</b> · {stockShort.map((x) => `${x.name} ${num(x.n)} ตัว`).join(' · ')} → อยู่ใบเดิม (ไม่ตัดสต็อก) · ย้ายไป {STOCK_GROUP} เองได้ถ้ามีของจริง · <a href="/catalog/stock">ดูสต็อก</a>
@@ -517,8 +584,69 @@ export function OrdersApp() {
       {pictures && (
         <PictureModal
           group={pictures} date={date} round={round} info={productInfo} onClose={() => setPictures(null)}
-          orders={data && !viewing ? orderBlocks(data.items, lookup, pictures.name, productInfo) : null}
+          orders={data && !viewing ? orderBlocks(allItems, lookup, pictures.name, productInfo) : null}
         />
+      )}
+    </div>
+  );
+}
+
+// ---- what this round is made of: Bigseller file, Facebook orders, typed lines ----
+
+function Sources({ bigseller, fb, manual, rows, busy, onFile, onRemoveFb, onAdd, onRemoveManual }: {
+  bigseller: { file: string; pieces: number } | null;
+  fb: { file: string; orders: number; pieces: number } | null;
+  manual: OrderItem[]; rows: CatalogRow[]; busy: boolean;
+  onFile: (f: File) => void; onRemoveFb: () => void; onAdd: (it: OrderItem) => void; onRemoveManual: (i: number) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [q, setQ] = useState('');
+  const [sku, setSku] = useState<CatalogRow | null>(null);
+  const [qty, setQty] = useState('1');
+  const hits = useMemo(() => (adding && !sku ? suggestSkus(rows, q, 6) : []), [adding, sku, rows, q]);
+  const add = (s: string, name = '') => {
+    const n = Math.round(Number(qty));
+    if (!s.trim() || !(n > 0)) return;
+    onAdd({ store: MANUAL_STORE, sku: s.trim(), name, option: '', qty: n, order: '', tracking: '', carrier: '' });
+    setQ(''); setSku(null); setQty('1');
+  };
+  return (
+    <div className="po-sources small">
+      <div className="po-source-row">
+        <span>Bigseller: {bigseller ? <b>{bigseller.file}</b> : <span className="muted">ยังไม่มีไฟล์</span>}{bigseller && <span className="muted"> · {num(bigseller.pieces)} ตัว</span>}</span>
+        <span>
+          Facebook: {fb ? <><b>{fb.file}</b> <span className="muted">· {num(fb.orders)} ออเดอร์ · {num(fb.pieces)} ตัว</span> <button className="link small danger" onClick={onRemoveFb}>เอาออก</button></>
+            : <label className={`link small ${busy ? 'disabled' : ''}`}>+ เพิ่มไฟล์ Facebook (Page365)
+                <input type="file" accept=".csv,.tsv,.txt,.xlsx" hidden disabled={busy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onFile(f); }} />
+              </label>}
+        </span>
+        <span>เพิ่มเอง: {manual.length ? <b>{manual.length} รายการ</b> : <span className="muted">—</span>} {!adding && <button className="link small" onClick={() => setAdding(true)}>+ เพิ่มรายการเอง</button>}</span>
+      </div>
+      {manual.length > 0 && (
+        <div className="po-manual-list">
+          {manual.map((m, i) => <span key={i} className="pill">{m.sku} × {m.qty} <button className="link small danger" aria-label={`เอา ${m.sku} ออก`} onClick={() => onRemoveManual(i)}>✕</button></span>)}
+        </div>
+      )}
+      {adding && (
+        <div className="po-manual-add">
+          {sku ? <span className="pill on">{sku.sku} <button className="link small" onClick={() => setSku(null)}>เปลี่ยน</button></span>
+            : <input value={q} autoFocus placeholder="SKU หรือ รหัส สี ไซส์ เช่น 501/2 32" aria-label="ค้นหา SKU" onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { if (hits[0]) setSku(hits[0]); else add(q); } if (e.key === 'Escape') setAdding(false); }} />}
+          <input className="po-manual-qty" inputMode="numeric" value={qty} aria-label="จำนวน" onChange={(e) => setQty(e.target.value.replace(/\D/g, ''))}
+            onKeyDown={(e) => { if (e.key === 'Enter' && sku) add(sku.sku, sku.name); }} />
+          <button className="small primary" disabled={!(sku || q.trim()) || !(Number(qty) > 0)} onClick={() => (sku ? add(sku.sku, sku.name) : add(q))}>เพิ่ม</button>
+          <button className="small" onClick={() => { setAdding(false); setQ(''); setSku(null); }}>เสร็จ</button>
+          {!sku && hits.length > 0 && (
+            <div className="sku-match-list po-manual-hits">
+              {hits.map((r) => (
+                <button key={`${r.tab}|${r.sku}`} className="sku-match-item" onClick={() => setSku(r)}>
+                  <code>{r.sku}</code><span className="muted small">{r.code}{r.size ? ` · ${r.size}` : ''} · {r.tab}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {!sku && q.trim() && !hits.length && <span className="muted small">ไม่พบในแคตตาล็อก · กดเพิ่มเพื่อใส่ตามที่พิมพ์ (จะไปอยู่ ตรวจสอบ)</span>}
+        </div>
       )}
     </div>
   );

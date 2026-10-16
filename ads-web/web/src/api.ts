@@ -335,6 +335,8 @@ export interface StockData {
   cut: { loc: StockLoc; order_no: string; sku: string; ref: string }[];
 }
 export interface GosellCut { cut: { sku: string; qty: number }[]; orders: number; already: number; other: number }
+/** A round's item that is not from the Bigseller file: a Facebook order line (Page365) or a line typed by hand. */
+export interface PurchaseExtra { source: 'facebook' | 'manual'; order: string; sku: string; name: string; option: string; qty: number }
 export type PurchaseKind = 'supplier' | 'warehouse' | 'unassigned' | 'review';
 export interface SalesData {
   from: string; to: string;
@@ -375,8 +377,8 @@ export const api = {
   setSellPrices: (items: { tab: string; spu: string; price: number | null }[]) => call<{ prices: CatalogPrice[] }>('PUT', '/api/catalog/sell-price', { items }),
   setSuppliers: (items: { tab: string; spu: string; shop: string }[]) => call<{ suppliers: CatalogSupplier[] }>('PUT', '/api/catalog/supplier', { items }),
   purchases: () => call<{ uploads: PurchaseUpload[] }>('GET', '/api/purchase'),
-  purchaseLines: (id: string) => call<{ lines: SavedPurchaseLine[] }>('GET', `/api/purchase/lines?id=${encodeURIComponent(id)}`),
-  savePurchase: (p: { date: string; round: number; file: string; lines: unknown[]; items?: unknown[] }) => call<{ upload: PurchaseUpload }>('PUT', '/api/purchase', p),
+  purchaseLines: (id: string) => call<{ lines: SavedPurchaseLine[]; extra: PurchaseExtra[] }>('GET', `/api/purchase/lines?id=${encodeURIComponent(id)}`),
+  savePurchase: (p: { date: string; round: number; file: string; lines: unknown[]; items?: unknown[]; extra?: PurchaseExtra[] }) => call<{ upload: PurchaseUpload }>('PUT', '/api/purchase', p),
   setMissing: (id: string, items: { grp: string; sku: string; missing: number }[]) => call<{ missing: number }>('PUT', '/api/purchase/missing', { id, items }),
   stock: () => call<StockData>('GET', '/api/stock'),
   stockMoves: (loc: StockLoc, kind: 'in' | 'adjust' | 'open', date: string, note: string, items: { sku: string; qty: number }[]) =>

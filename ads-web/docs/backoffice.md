@@ -53,6 +53,15 @@ rules, the monthly goal or the sheet.
 - Input: Bigseller's daily "Order-SKU-inprocess" export, .xlsx or .csv (CSV via `parseExport` in `gosell.ts`: UTF-16
   tabs, UTF-8 commas, or Thai Excel's Windows-874), read in the browser. Columns ร้านค้า BigSeller, SKU, ชื่อสินค้า,
   ชื่อตัวเลือก, จำนวน, หมายเลขคำสั่งซื้อ … or Bigseller's English names. It has no prices.
+- Other sources on the same round (Benz 2026-10-16): **Facebook orders** — Page365's per-item export (UTF-16 tabs; `No.`,
+  `SKU`, `Item Qty`…; `isFacebookExport`, `readFacebookItems`), picked with the same file button or "+ เพิ่มไฟล์ Facebook",
+  before or after the Bigseller file; read in the browser, only order no. + SKU + qty + item name kept; cancelled
+  orders left out. Facebook items of products in GoSell's stock go to the "GoSell" sheet while GoSell's balance lasts
+  (GoSell ships them; cut by the GoSell page's button, not here); the rest go where any row goes. **Typed lines** —
+  "+ เพิ่มรายการเอง": SKU (search by code/colour/size) + qty, or text the catalog doesn't know (→ ตรวจสอบ). Both are
+  saved with the round (`purchase_uploads.extra`, migration 0049) and come back when the same Bigseller file is
+  uploaded again; neither goes into `purchase_items` (Facebook units are counted from the Page365 upload; typed lines
+  are not sales). A SKU split over groups (พี่เปีย / GoSell / PK) is not turned into a "move" when a round reopens.
 - Where a row goes (`groupOf`): supplier set on the page > sheet ร้านค้า (statuses like เลิกผลิต ignored) >
   "BB · ยังไม่ระบุร้าน" (only BB must have a supplier, `SUPPLIER_TABS`) > the warehouse itself (PK, CM, CN, BBW …;
   BBW products with นอร์ท still go to นอร์ท). Unknown SKUs → "ตรวจสอบ" (match, or add via `/catalog?q=SKU&add=1`);
