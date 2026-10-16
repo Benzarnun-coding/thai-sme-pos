@@ -33,7 +33,7 @@ import { deletePurchase, findOrders, ledger, listPurchases, orderTerms, purchase
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveAlias, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './chatLog.ts';
-import { aiEnabled, askAI, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
+import { aiEnabled, askAI, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
 import { kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, setKbStatus, speaker } from './botKb.ts';
 import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './postIdeas.ts';
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
@@ -1580,7 +1580,7 @@ async function sendChatInsights(env: Env, scope: 'yesterday' | 'today'): Promise
   const t = transcript(list);
   const ai = await askAI(env, INSIGHT_SYSTEM, insightPrompt(thai, t, list.length));
   const head = `🧠 **น้องจิบิอ่านแชท ${scope === 'yesterday' ? thai : `วันนี้ ${thai} (ถึงตอนนี้)`}** · ${list.length} คน${t.used < list.length ? ` (อ่าน ${t.used})` : ''}\n`;
-  const sent = await pushDiscord(head + ai.text, env.DISCORD_CHAT_WEBHOOK_URL).catch(() => false);
+  const sent = await pushDiscord(head + ai.text + citeKey(ai.text, list.slice(0, t.used)), env.DISCORD_CHAT_WEBHOOK_URL).catch(() => false);
   await audit(env.DB, 'ai', 'chat.insights', day, { model: ai.model, input_tokens: ai.input_tokens, output_tokens: ai.output_tokens, customers: list.length, read: t.used, sent: !!sent, text: ai.text.slice(0, 4000) }).catch(() => null);
   return { sent: !!sent, customers: list.length, read: t.used, input_tokens: ai.input_tokens, output_tokens: ai.output_tokens };
 }
