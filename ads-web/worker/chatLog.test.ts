@@ -27,6 +27,7 @@ test('chat text keeps the conversation and drops contact details', () => {
   assert.equal(redactChat('ผ้า Cotton สีไม่ตกค่ะ Jeans ทรงกระบอก'), 'ผ้า Cotton สีไม่ตกค่ะ Jeans ทรงกระบอก');
   assert.equal(redactChat('บ้านกร่าง    ศรีประจันต์     สุพรรณบุรี72140'), '[ที่อยู่]');
   assert.equal(redactChat('72140'), '[ที่อยู่]');
+  assert.equal(redactChat('สะดวกให้จัดส่งไปที่ 123 หมู่ 4 วังทองชุก บ้านกร่าง ตามที่แจ้งไว้เลยไหมคะ'), 'สะดวกให้จัดส่งไปที่ [ที่อยู่]ตามที่แจ้งไว้เลยไหมคะ');
   assert.equal(redactChat('ชื่อผิด ชื่อคือ(ร.ต.ชาญ เพ็งกระจ่าง'), 'ชื่อผิด ชื่อคือ [ชื่อ]');
   assert.equal(redactChat('รับ 3 ตัว 549 บาท'), 'รับ 3 ตัว 549 บาท');
 });

@@ -33,6 +33,8 @@ export function redactChat(text: string): string {
   // A postcode with place names around it ("บ้านกร่าง ศรีประจันต์ สุพรรณบุรี72140", "ต หงส์เจริญ อ ท่าแซะ") or on its own.
   const postcode = /(^|\D)[1-9]\d{4}(\D|$)/.test(t);
   if (postcode && ((t.match(/[\u0E01-\u0E4E]{2,}/g) ?? []).length >= 2 || t.replace(/\D/g, '').length === t.replace(/\s/g, '').length)) return '[ที่อยู่]';
+  // An address quoted inside a longer message ("…ส่งไปที่ 123 หมู่ 4 วังทองชุก บ้านกร่าง ตามที่แจ้งไว้…"): cut that part only.
+  t = t.replace(/\d+(?:\/\d+)?\s*(?:หมู่|ม\.)\s*\d+[^\n]{0,60}?(?=ตามที่|นะคะ|ไหมคะ|ค่ะ|ครับ|\n|$)/g, '[ที่อยู่]');
   t = t.replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '[อีเมล]');
   // Names the page (or its reply bot) uses for the customer: "คุณกนิการ", "คุณ Uthumporn", "พี่ Uthumporn".
   t = t.replace(/(?<!ขอบ)คุณ\s?(?!ค่ะ|ครับ|คะ|นะ|ลูกค้า|ภาพ|สมบัติ)[A-Za-z\u0E01-\u0E2E\u0E30-\u0E4E]{2,24}/g, 'คุณ[ชื่อ]');
