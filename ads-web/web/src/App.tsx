@@ -63,16 +63,21 @@ export function App() {
 
   // Ideas and the preview don't depend on the date window: load them once, and again only on refresh/reload.
   const extrasLoaded = useRef(false);
+  // Only the latest request may set the numbers: a slow 30-day answer must not land under the 7-day tab.
+  const latest = useRef(0);
   const load = useCallback(async (fresh = false, withExtras = false) => {
+    const req = ++latest.current;
     setLoading(true);
     try {
-      setData(await api.overview(window, fresh));
+      const d = await api.overview(window, fresh);
+      if (req !== latest.current) return;
+      setData(d);
       setError('');
       if (withExtras || !extrasLoaded.current) { extrasLoaded.current = true; loadExtras(); }
     } catch (e: any) {
-      setError(e.message);
+      if (req === latest.current) setError(e.message);
     } finally {
-      setLoading(false);
+      if (req === latest.current) setLoading(false);
     }
   }, [window, loadExtras]);
 

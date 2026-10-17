@@ -5,9 +5,8 @@
 // cod 449", see orderNotes.ts) is kept to check against Page365, and since 2026-10-15 every message's text is kept
 // for 30 days with phone numbers, e-mails, long numbers and addresses removed first (chatLog.ts).
 
-import { autoFillNote, recordMisses, sweepNotes } from './autoFill.ts';
+import { autoFillNote, recordMisses, sendNoteSale, sweepNotes } from './autoFill.ts';
 import { maybeSyncPurchases } from './metaPurchases.ts';
-import { sendNotePurchase } from './notePurchases.ts';
 import { looksLikeNote, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { hashName } from './p365.ts';
 import { extractChats, saveChats } from './chatLog.ts';
@@ -70,10 +69,11 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
   // skip the purchase sync so one invocation stays inside the free plan's outbound-request limit.
   ctx.waitUntil(store(env, rows, events, notes, echoes)
     // The sale goes to Meta first (seconds after the note), then the draft is filled.
-    .then(() => Promise.all(notes.map((n) => sendNotePurchase(env as any, n).catch((err) => console.error('note purchase', err)))))
+    .then(() => Promise.all(notes.map((n) => sendNoteSale(env as any, n).catch((err) => console.error('note purchase', err)))))
     // One note's draft per delivery: a fill takes ~30 requests and the free plan allows 50 per invocation. Further
     // notes in the same delivery (rare) are left to the sweep, which runs on the next deliveries.
-    .then(() => (notes.length ? autoFillNote(env as any, notes[0]) : null))
+    // claim: a delivery Meta sends again must not fill the same note twice.
+    .then(() => (notes.length ? autoFillNote(env as any, notes[0], { claim: true }) : null))
     .catch((err) => console.error('webhook store', err)));
   // Webhook deliveries are the clock for sending Page365 purchases to Meta (at most every 10 minutes; off by default)
   // and for the fill sweep (a note whose draft never opened or whose fill was cut short; at most every 5 minutes).

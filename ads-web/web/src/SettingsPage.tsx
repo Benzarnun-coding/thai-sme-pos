@@ -312,7 +312,7 @@ function DiscordCard() {
         setBusy(true);
         try { const r = await api.sendPostIdeas(); toast(`ส่งไอเดียแล้ว ${r.ideas} ข้อ`, 'ok'); } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
       }}>{busy ? 'กำลังส่ง…' : 'ส่งไอเดียโพสต์ให้แม็กซ์ตอนนี้'}</button>
-      <p className="muted small">10:00 ถ้ายังไม่มีไฟล์ Page365 ของเมื่อวาน น้องจิบิจะแท็กคนอัปโหลด (มอส) ให้กด "อัปโหลดแล้ว"</p>
+      <p className="muted small">10:00 ถ้ายังไม่มีไฟล์ Page365 ของเมื่อวาน น้องจิบิจะแท็กคนอัปโหลด (เคน) ให้กด "อัปโหลดแล้ว"</p>
       <div className="row">
         {([[undefined, 'ส่งข้อความทดสอบเข้า Discord'], ['upload', 'ทดสอบเตือนอัปโหลด Page365']] as const).map(([kind, label]) => (
           <button key={label} className="ghost" disabled={busy} onClick={async () => {

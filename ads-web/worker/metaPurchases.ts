@@ -28,6 +28,21 @@ export async function loadCapi(db: D1Database): Promise<CapiConfig> {
   return { mode, dataset_id: kv.dataset_id ?? '', test_code: kv.test_code ?? '', live_from: kv.live_from ?? '', last_sync: kv.last_sync ?? '' };
 }
 
+/**
+ * Bills may be sent only while the source is "bill" (with source "note" each sale already went out when the admin
+ * typed the note, under another event id, so a bill would count twice and Meta can't delete it). Returns the
+ * earliest order time a bill may be sent for — the later of going live and switching to "bill" — or null.
+ */
+export function billSendFrom(cfg: Pick<CapiConfig, 'mode' | 'live_from'>, source: string | undefined, sourceAt: string | undefined): number | null {
+  if (cfg.mode !== 'live' || source !== 'bill') return null;
+  return Math.max(cfg.live_from ? Date.parse(cfg.live_from) : 0, sourceAt ? Date.parse(sourceAt) : 0);
+}
+
+async function sourceRows(db: D1Database): Promise<{ source?: string; source_at?: string }> {
+  const { results } = await db.prepare("SELECT key, value FROM meta_capi WHERE key IN ('source', 'source_at')").all<{ key: string; value: string }>().catch(() => ({ results: [] as { key: string; value: string }[] }));
+  return Object.fromEntries(results.map((r) => [r.key, r.value]));
+}
+
 export async function saveCapi(db: D1Database, input: unknown): Promise<CapiConfig> {
   const x = (input ?? {}) as Record<string, unknown>;
   const cur = await loadCapi(db);
@@ -84,10 +99,15 @@ export async function syncPurchases(env: CapiEnv, opts: { dry?: boolean } = {}):
   const cfg = await loadCapi(env.DB);
   // "test" never posts: on 2026-10-15 Meta processed "test" events as real ones because the test_event_code had
   // no open Test Events session (87 duplicate purchases). Test = dry run only; only live sends.
-  const dry = opts.dry || cfg.mode !== 'live';
+  const src = await sourceRows(env.DB);
+  const from = billSendFrom(cfg, src.source, src.source_at);
+  if (!opts.dry && cfg.mode === 'live' && from === null) {
+    return { mode: cfg.mode, dry: true, checked: 0, sent: [], skipped: [], error: 'ตอนนี้ส่งยอดตอนแอดมินพิมพ์สรุปอยู่แล้ว — ไม่ส่งบิลซ้ำ' };
+  }
+  const dry = opts.dry || from === null;
   const res: SyncResult = { mode: cfg.mode, dry, checked: 0, sent: [], skipped: [], error: null };
   const weekAgo = Date.now() - 7 * 86_400_000 + 3_600_000;
-  const liveFrom = cfg.mode === 'live' && cfg.live_from ? Date.parse(cfg.live_from) : 0;
+  const liveFrom = from ?? (cfg.mode === 'live' && cfg.live_from ? Date.parse(cfg.live_from) : 0);
 
   // Newest first; stop at orders older than a week.
   const list: ListOrder[] = [];
@@ -153,8 +173,8 @@ export async function maybeSyncPurchases(env: CapiEnv): Promise<void> {
   const cfg = await loadCapi(env.DB);
   if (cfg.mode !== 'live' || !cfg.dataset_id || !env.P365_COOKIE) return;
   // Sales are sent when the admin types the note (notePurchases.ts) unless the source is set to the bill.
-  const src = await env.DB.prepare("SELECT value FROM meta_capi WHERE key = 'source'").first<{ value: string }>().catch(() => null);
-  if (src?.value !== 'bill') return;
+  const src = await sourceRows(env.DB);
+  if (billSendFrom(cfg, src.source, src.source_at) === null) return;
   if (cfg.last_sync && Date.now() - Date.parse(cfg.last_sync) < SYNC_EVERY_MS) return;
   // Claim the slot first so overlapping deliveries don't both run.
   const claim = await env.DB.prepare('INSERT INTO meta_capi (key, value) VALUES (\'last_sync\', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1 WHERE value = ?2')
@@ -170,11 +190,12 @@ export async function recentPurchases(db: D1Database, days = 7): Promise<{ order
 }
 
 
-/** Sends one Page365 bill as a real Purchase now, whatever the mode — only if it counts, came from Messenger, has a value and wasn't sent before. */
+/** Sends one Page365 bill as a real Purchase now, whatever the mode — only with source "bill", and only if it counts, came from Messenger, has a value and wasn't sent before. */
 export async function sendOne(env: CapiEnv, no: number): Promise<{ order_no: number; value: number; stage: string; meta: unknown }> {
   const cfg = await loadCapi(env.DB);
   if (!cfg.dataset_id) throw new Error('ยังไม่มี Dataset ID');
   if (!env.META_ACCESS_TOKEN) throw new Error('ยังไม่ได้ตั้ง META_ACCESS_TOKEN');
+  if ((await sourceRows(env.DB)).source !== 'bill') throw new Error('ตอนนี้ส่งยอดตอนแอดมินพิมพ์สรุปอยู่แล้ว — ส่งบิลซ้ำไม่ได้');
   let found: ListOrder | undefined;
   for (let page = 1; page <= 3 && !found; page++) found = (await call<{ orders: ListOrder[] }>(env, `orders.json?page=${page}`)).orders.find((o) => o.no === no);
   if (!found) throw new Error(`ไม่เจอบิล #${no} ในบิลล่าสุด`);

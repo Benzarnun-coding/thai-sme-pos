@@ -185,13 +185,24 @@ export async function recentlyAsked(db: D1Database, since: string): Promise<Set<
   return new Set(results.map((r) => `${r.rule_id}:${r.entity_id}`));
 }
 
-/** Pending questions older than the new run are closed: the new run asks again if the rule still holds. */
-export async function expireOld(env: DiscordEnv, before: string): Promise<void> {
+/**
+ * Pending questions older than the new run are closed: the new run asks again if the rule still holds.
+ * `capOnly` (the weekly cap check, which runs right after the Monday 08:00 run) closes only stale cap questions,
+ * so the pause/move/dup questions that run just posted stay open.
+ */
+export async function expireOld(env: DiscordEnv, before: string, opts: { capOnly?: boolean } = {}): Promise<void> {
   // The weekly cap question stays open for 6 days; the rest are asked again by the next run.
   const capBefore = new Date(Date.parse(before) - 6 * 86_400_000).toISOString();
-  const where = `status = 'pending' AND ((kind != 'cap' AND created_at < ?1) OR (kind = 'cap' AND created_at < ?2))`;
+  const where = opts.capOnly
+    ? `status = 'pending' AND kind = 'cap' AND created_at < ?2`
+    : `status = 'pending' AND ((kind != 'cap' AND created_at < ?1) OR (kind = 'cap' AND created_at < ?2))`;
   const { results } = await env.DB.prepare(`SELECT * FROM proposals WHERE ${where}`).bind(before, capBefore).all<Proposal>();
   if (!results.length) return;
   await env.DB.prepare(`UPDATE proposals SET status = 'expired', decided_at = ?3 WHERE ${where}`).bind(before, capBefore, new Date().toISOString()).run();
   for (const p of results) if (p.message_id) await editMessage(env, p.message_id, `⌛ หมดเวลา (ไม่มีคนกด) — ${{ pause: 'หยุด', cap: 'ขยายเพดานงบ', dup: 'คัดลอก', move: 'ย้าย' }[p.kind] ?? 'ย้าย'} "${p.entity_name}" · รอบนี้ถามใหม่ถ้ายังเข้าเงื่อนไข`);
+}
+
+/** With the kill switch on, a button press must not change Meta or raise the spend cap; moving a stage (D1 only) or saying no is fine. */
+export function blockedByKillSwitch(verb: string, kind: string): boolean {
+  return verb === 'approve' && (kind === 'pause' || kind === 'dup' || kind === 'cap');
 }

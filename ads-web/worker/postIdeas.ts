@@ -24,6 +24,17 @@ export function nameHasFamily(campaignName: string, family: string): boolean {
 
 export interface CampaignWeek { id: string; name: string; spend: number }
 
+/**
+ * Meta's last-7-day spend, cut to the days whose Page365 file is uploaded (revenue only exists for those): a week
+ * with 4 of 7 files must not compare 7 days of spend with 4 days of sales (real ROAS 3.0 read as ~1.7).
+ * Spend per day isn't fetched (API calls are scarce), so it is taken as even across the week.
+ */
+export function spendForUploadedDays(campaigns: CampaignWeek[], days7: string[], uploaded: Set<string>): { campaigns: CampaignWeek[]; week: Set<string> } {
+  const week = new Set(days7.filter((d) => uploaded.has(d)));
+  const share = days7.length ? week.size / days7.length : 0;
+  return { campaigns: campaigns.map((c) => ({ ...c, spend: c.spend * share })), week };
+}
+
 export interface FamilyStats {
   family: string; label: string;
   pieces: number; organic_pieces: number; orders: number;

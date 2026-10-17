@@ -88,6 +88,9 @@ export function clampBudget(current: number, pct: number, g: Guardrails): { next
   if (next > g.max_daily_budget) { next = g.max_daily_budget; note = 'hit max_daily_budget'; }
   next = Math.round(next);
   if (next === Math.round(current)) return null;
+  // The min/max must never turn a move around: a +20% on a budget set above the max (e.g. 5,000 in Ads Manager)
+  // is not a cut to the max, and a cut on a budget under the min is not a raise to the min.
+  if ((capped > 0 && next < current) || (capped < 0 && next > current)) return null;
   return { next, note };
 }
 

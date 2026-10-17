@@ -29,15 +29,15 @@ import { parseRange, salesData } from './sales.ts';
 import { listImportMaps, profitData, saveImportMap, saveMpOrders, validateMpOrders } from './mpOrders.ts';
 import { opsFacts, opsText } from './opsDigest.ts';
 import { deleteMove, gosellCut, saveMoves, stockData, syncRoundStock, validateMoves } from './stock.ts';
-import { deletePurchase, findOrders, ledger, listPurchases, orderTerms, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
+import { deletePurchase, findOrders, ledger, listPurchases, orderTerms, purchaseExtra, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveAlias, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './chatLog.ts';
-import { aiEnabled, askAI, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
+import { aiEnabled, askAI, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
 import { kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, setKbStatus, speaker } from './botKb.ts';
-import { familyStats, postIdeas, postIdeasText } from './postIdeas.ts';
+import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './postIdeas.ts';
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
-import { approvalsEnabled, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
+import { approvalsEnabled, blockedByKillSwitch, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
@@ -80,7 +80,7 @@ export interface Env {
   CHAT_AI_MODEL?: string;
   /** Discord user IDs allowed to press the buttons (comma separated); empty = anyone in the channel */
   DISCORD_APPROVER_IDS?: string;
-  /** Discord user IDs who upload Page365 (มอส); tagged at 10:00 if the file is missing, may press the upload buttons */
+  /** Discord user IDs who upload Page365 (เคน from 2026-10-16, was มอส); tagged at 10:00 if the file is missing, may press the upload buttons */
   DISCORD_UPLOADER_IDS?: string;
   /** Page365 login the Worker uses to fill drafts (secret; see worker/p365fill.ts) and the shop's page id */
   P365_COOKIE?: string;
@@ -682,7 +682,11 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (path === '/api/meta/purchases/source' && method === 'PUT') {
     if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
     const source = (await body())?.source === 'bill' ? 'bill' : 'note';
-    await env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('source', ?)").bind(source).run();
+    // Switching to "bill" starts its own clock: bills opened before it were already sent at the note.
+    const prev = await captureSource(env.DB);
+    const stmts = [env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('source', ?)").bind(source)];
+    if (source !== prev) stmts.push(env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('source_at', ?)").bind(new Date().toISOString()));
+    await env.DB.batch(stmts);
     await audit(env.DB, user, 'meta.capi.source', source, {});
     return json({ source });
   }
@@ -698,6 +702,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
   if (path === '/api/meta/purchases/sync' && method === 'POST') {
     const dry = url.searchParams.get('dry') === '1';
+    if (!dry && role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
     const r = await syncPurchases(env, { dry }).catch((err) => { throw new BadRequest(err.message); });
     if (!dry) await audit(env.DB, user, 'meta.capi.sync', r.mode, { sent: r.sent.length, error: r.error });
     return json(r);
@@ -953,7 +958,11 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
 
   if (method === 'GET' && path === '/api/purchase') return json({ uploads: await listPurchases(env.DB) });
-  if (method === 'GET' && path === '/api/purchase/lines') return json({ lines: await purchaseLines(env.DB, url.searchParams.get('id') ?? '') });
+  if (method === 'GET' && path === '/api/purchase/lines') {
+    const id = url.searchParams.get('id') ?? '';
+    const [lines, extra] = await Promise.all([purchaseLines(env.DB, id), purchaseExtra(env.DB, id)]);
+    return json({ lines, extra });
+  }
   if (method === 'PUT' && path === '/api/purchase') {
     const upload = await savePurchase(env.DB, validatePurchase(await body()), user);
     await syncRoundStock(env.DB, upload.id, user);
@@ -1575,7 +1584,7 @@ async function sendChatInsights(env: Env, scope: 'yesterday' | 'today'): Promise
   const t = transcript(list);
   const ai = await askAI(env, INSIGHT_SYSTEM, insightPrompt(thai, t, list.length));
   const head = `🧠 **น้องจิบิอ่านแชท ${scope === 'yesterday' ? thai : `วันนี้ ${thai} (ถึงตอนนี้)`}** · ${list.length} คน${t.used < list.length ? ` (อ่าน ${t.used})` : ''}\n`;
-  const sent = await pushDiscord(head + ai.text, env.DISCORD_CHAT_WEBHOOK_URL).catch(() => false);
+  const sent = await pushDiscord(head + ai.text + citeKey(ai.text, list.slice(0, t.used)), env.DISCORD_CHAT_WEBHOOK_URL).catch(() => false);
   await audit(env.DB, 'ai', 'chat.insights', day, { model: ai.model, input_tokens: ai.input_tokens, output_tokens: ai.output_tokens, customers: list.length, read: t.used, sent: !!sent, text: ai.text.slice(0, 4000) }).catch(() => null);
   return { sent: !!sent, customers: list.length, read: t.used, input_tokens: ai.input_tokens, output_tokens: ai.output_tokens };
 }
@@ -1646,7 +1655,8 @@ async function buildPostIdeas(env: Env) {
   const revenue = orders.reduce((t, o) => t + o.total, 0);
   const gross = orders.reduce((t, o) => t + o.total - (o.cost ?? 0) - orderFees(o, settings.order_fees), 0);
   const breakeven = revenue > 0 && gross > 0 ? revenue / gross : 2.8;
-  const stats = familyStats(orders, settings.order_fees, campaigns, new Set(days7));
+  const week = spendForUploadedDays(campaigns, days7, new Set(orders.map((o) => o.date)));
+  const stats = familyStats(orders, settings.order_fees, week.campaigns, week.week);
   return { days: uploaded, breakeven, ideas: postIdeas(stats, breakeven, uploaded), families: stats.slice(0, 20) };
 }
 
@@ -1697,7 +1707,7 @@ async function scaleCheck(env: Env): Promise<{ asked: boolean; reason: string }>
   if (g.mer_7d < g.goal.scale_mer) return say(`MER จริง 7 วัน ${g.mer_7d.toFixed(2)} ต่ำกว่าเกณฑ์ ${g.goal.scale_mer} — ยังไม่ขยาย เพดานคง ${cap.toLocaleString('th-TH')} · ให้กฎคุมความคุ้มก่อน`);
   if (!approvalsEnabled(env)) return say(`MER จริง 7 วัน ${g.mer_7d.toFixed(2)} ผ่านเกณฑ์ แต่ยังไม่ได้ตั้งบอท Discord — ขยายเองในหน้าตั้งค่า`);
   const now = new Date().toISOString();
-  await expireOld(env, now).catch(() => null);
+  await expireOld(env, now, { capOnly: true }).catch(() => null);
   if ((await recentlyAsked(env.DB, new Date(Date.now() - 3 * 86_400_000).toISOString())).has('cap-up:shop')) return { asked: false, reason: 'ถามไปแล้ว รอคำตอบ' };
   const net7 = g.days.filter((d) => d.date >= bkkDate(7)).reduce((t, d) => t + d.net, 0);
   const p = { id: crypto.randomUUID(), created_at: now, kind: 'cap', entity_id: 'shop', entity_name: 'เพดานงบรวมต่อวัน', rule_id: 'cap-up',
@@ -1725,7 +1735,7 @@ async function salesDigest(env: Env, date: string, remindIfMissing = false): Pro
   const thai = new Date(`${date}T00:00:00+07:00`).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' });
   const [uploads, orders, settings] = await Promise.all([loadUploads(env.DB, [date]), loadOrders(env.DB, [date]), loadSettings(env.DB)]);
   if (!uploads.has(date)) {
-    if (remindIfMissing) await pushDiscord(`📂 **${thai}** ยังไม่มีไฟล์ Page365 — มอส export ของเมื่อวานแล้วอัปโหลดที่หน้ายอดขายรายวันด้วยครับ`, env.DISCORD_WEBHOOK_URL);
+    if (remindIfMissing) await pushDiscord(`📂 **${thai}** ยังไม่มีไฟล์ Page365 — เคน export ของเมื่อวานแล้วอัปโหลดที่หน้ายอดขายรายวันด้วยครับ`, env.DISCORD_WEBHOOK_URL);
     return;
   }
   const n = (f: (o: typeof orders[number]) => number) => orders.reduce((t, o) => t + f(o), 0);
@@ -1849,6 +1859,10 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
   const reply = (content: string) => json({ type: 7, data: { content, components: [] } });
   if (!p) return reply('ไม่พบคำถามนี้แล้ว');
   if (p.status !== 'pending') return reply(`ตัดสินไปแล้ว (${p.status}) โดย ${p.decided_by ?? '-'}`);
+  // Kill switch on: nothing that touches Meta or the spend cap; the question stays open for when it's switched off.
+  if (blockedByKillSwitch(verb, p.kind) && (await loadSettings(env.DB)).kill_switch) {
+    return json({ type: 4, data: { content: '⛔ ตอนนี้เปิด kill switch อยู่ (หน้าตั้งค่า) — น้องยังไม่ทำให้นะคะ ปิด kill switch แล้วกดใหม่ได้ค่ะ', flags: 64 } });
+  }
   const at = new Date().toISOString();
   const d = JSON.parse(p.detail || '{}');
   const mark = (status: string) => env.DB.prepare('UPDATE proposals SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = \'pending\'').bind(status, who, at, p.id).run();

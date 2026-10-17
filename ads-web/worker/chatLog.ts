@@ -15,6 +15,9 @@ export interface ChatRow { mid: string; psid: string; at: string; from_page: num
 export const CHAT_KEEP_DAYS = 30;
 const MAX_TEXT = 1000;
 
+/** Capitalised words that are products, brands or English chat, not customers' names. */
+const LATIN_KEEP = new Set(['Cotton', 'Jeans', 'Climax', 'Facebook', 'Meta', 'Messenger', 'Options', 'What', 'Hello', 'Hi', 'Thank', 'Thanks', 'Please', 'Sorry', 'Yes', 'The', 'Levi', 'Levis', 'Kerry', 'Flash', 'Shopee', 'Lazada', 'Line', 'Size', 'Sports', 'Ni', 'Rev', 'Free']);
+
 // Thai address words: ตำบล/อำเภอ/จังหวัด (and their short forms), แขวง/เขต, หมู่/ม., ซอย/ซ., ถนน/ถ., บ้านเลขที่.
 const ADDRESS_WORD = /(ตำบล|ต\.|อำเภอ|อ\.|จังหวัด|จ\.|แขวง|เขต|หมู่บ้าน|หมู่|ม\.\s?\d|ซอย|ซ\.|ถนน|ถ\.|บ้านเลขที่|รหัสไปรษณีย์)/;
 
@@ -27,6 +30,11 @@ export function redactChat(text: string): string {
   if (!t) return t;
   const words = t.match(new RegExp(ADDRESS_WORD.source, 'g')) ?? [];
   if ((words.length >= 1 && /(^|\D)\d{5}(\D|$)/.test(t)) || (words.length >= 2 && /\d+\/\d+|\d{2,}/.test(t))) return '[ที่อยู่]';
+  // A postcode with place names around it ("บ้านกร่าง ศรีประจันต์ สุพรรณบุรี72140", "ต หงส์เจริญ อ ท่าแซะ") or on its own.
+  const postcode = /(^|\D)[1-9]\d{4}(\D|$)/.test(t);
+  if (postcode && ((t.match(/[\u0E01-\u0E4E]{2,}/g) ?? []).length >= 2 || t.replace(/\D/g, '').length === t.replace(/\s/g, '').length)) return '[ที่อยู่]';
+  // An address quoted inside a longer message ("…ส่งไปที่ 123 หมู่ 4 วังทองชุก บ้านกร่าง ตามที่แจ้งไว้…"): cut that part only.
+  t = t.replace(/\d+(?:\/\d+)?\s*(?:หมู่|ม\.)\s*\d+[^\n]{0,60}?(?=ตามที่|นะคะ|ไหมคะ|ค่ะ|ครับ|\n|$)/g, '[ที่อยู่]');
   t = t.replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '[อีเมล]');
   // Names the page (or its reply bot) uses for the customer: "คุณกนิการ", "คุณ Uthumporn", "พี่ Uthumporn".
   t = t.replace(/(?<!ขอบ)คุณ\s?(?!ค่ะ|ครับ|คะ|นะ|ลูกค้า|ภาพ|สมบัติ)[A-Za-z\u0E01-\u0E2E\u0E30-\u0E4E]{2,24}/g, 'คุณ[ชื่อ]');
@@ -34,6 +42,11 @@ export function redactChat(text: string): string {
   t = t.replace(/(สวัสดี(?:ค่ะ|ครับ|คะ)?)\s?[A-Za-z][A-Za-z.'-]{1,24}/g, '$1 [ชื่อ]');
   // Meta's follow-up template: "สวัสดี คมกริช! เราต้องการติดตามผล…" — any word between the greeting and "!".
   t = t.replace(/สวัสดี\s+(?!ค่ะ|ครับ|คะ)[^\s!]{2,24}!/g, 'สวัสดี [ชื่อ]!');
+  // Meta's bot calls customers by their Latin profile name: "รับทราบค่ะ Adul", "Ajax คะ", "คุณ **Bancha**", "Hello Max!".
+  t = t.replace(/(Hello|Hi|สวัสดี|นะคะ|ค่ะ|คะ|ครับ|คุณ|^)(\s*\**\s*)([A-Z][a-z]{2,20})(?=\**(?:\s|$|[!.,?🙏]|คะ|ค่ะ|ครับ))/gm,
+    (m, a, sp, w) => (LATIN_KEEP.has(w) ? m : `${a}${sp}[ชื่อ]`));
+  // A customer giving a name: "ชื่อคือ(ร.ต.ชาญ เพ็งกระจ่าง" / "ชื่อ: …".
+  t = t.replace(/(ชื่อ(?:คือ|\s*[:：]))\s*\(?\s*[^\s,)]{2,}(?:\s+[^\s,)]{2,})?/g, '$1 [ชื่อ]');
   // Tracking / order codes with letters ("PAGE02576305CE") go before the phone pattern, which would eat their digits.
   t = t.replace(/(?<![A-Za-z0-9])[A-Za-z]{0,6}\d[A-Za-z0-9]{6,}(?![A-Za-z0-9])/g, (m) => (m.replace(/\D/g, '').length >= 7 ? '[ตัวเลข]' : m));
   t = t.replace(/(?<![A-Za-z0-9])(\+?66|0)[\s-]?\d{1,2}[\s-]?\d{3}[\s-]?\d{3,4}(?!\d)/g, '[เบอร์]');

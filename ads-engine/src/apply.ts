@@ -45,7 +45,8 @@ export async function applyDecisions(
         const c = clampBudget(e.daily_budget!, d.action.pct ?? 0, guardrails);
         if (!c) { d.skipped_reason = 'budget change rounds to zero or blocked by guardrails'; continue; }
         const delta = c.next - e.daily_budget!;
-        if (projectedTotal + delta > guardrails.max_total_daily_budget) {
+        // The total cap only stops increases: a cut must go through even when the total is already over the cap.
+        if (delta > 0 && projectedTotal + delta > guardrails.max_total_daily_budget) {
           d.skipped_reason = `would exceed max_total_daily_budget (${guardrails.max_total_daily_budget})`;
           continue;
         }

@@ -27,6 +27,9 @@ export function MetaPurchasesCard() {
   const [form, setForm] = useState({ dataset_id: '', test_code: '' });
   const [dry, setDry] = useState<SyncResult | null>(null);
   const [busy, setBusy] = useState('');
+  // With source "note" each sale went out when the admin typed the note; sending bills too would count them twice.
+  const [source, setSource] = useState<'note' | 'bill' | null>(null);
+  useEffect(() => { call<{ source: 'note' | 'bill' }>('GET', '/api/meta/purchases/source').then((r) => setSource(r.source)).catch(() => {}); }, []);
   const load = () => call<{ config: Config; rows: Row[] }>('GET', '/api/meta/purchases').then((r) => { setCfg(r.config); setRows(r.rows); setForm({ dataset_id: r.config.dataset_id, test_code: r.config.test_code }); }).catch(() => {});
   useEffect(() => { load(); }, []);
 
@@ -64,9 +67,9 @@ export function MetaPurchasesCard() {
             <button className="ghost" disabled={!!busy} onClick={() => run(true)}>{busy === 'dry' ? 'กำลังดู…' : 'ดูว่าตอนนี้จะส่งอะไร (ไม่ส่งจริง)'}</button>
             {cfg.mode !== 'live' && <button className="warn" disabled={!!busy} onClick={() => save('live')}>เปิดส่งจริง</button>}
             {cfg.mode !== 'off' && <button className="ghost" disabled={!!busy} onClick={() => save('off')}>ปิด</button>}
-            {cfg.mode !== 'off' && <button className="ghost" disabled={!!busy} onClick={() => run(false)}>{busy === 'sync' ? 'กำลังส่ง…' : 'ส่งตอนนี้'}</button>}
+            {cfg.mode === 'live' && source === 'bill' && <button className="ghost" disabled={!!busy} onClick={() => run(false)}>{busy === 'sync' ? 'กำลังส่ง…' : 'ส่งตอนนี้'}</button>}
           </div>
-          <NoteSource />
+          <NoteSource source={source} setSource={setSource} />
           {dry && (
             <div className="small" style={{ marginTop: 8 }}>
               {dry.error && <div className="bad">{dry.error}</div>}
@@ -109,11 +112,9 @@ function AdjustmentDays() {
 }
 
 /** When a sale is sent (at the admin's note / at the bill), and what today's notes would send — nothing is sent from here. */
-function NoteSource() {
+function NoteSource({ source, setSource }: { source: 'note' | 'bill' | null; setSource: (s: 'note' | 'bill') => void }) {
   const { toast } = useUi();
-  const [source, setSource] = useState<'note' | 'bill' | null>(null);
   const [rows, setRows] = useState<{ mid: string; at: string; value: number; send: boolean; why: string | null; text?: string; status: string | null }[] | null>(null);
-  useEffect(() => { call<{ source: 'note' | 'bill' }>('GET', '/api/meta/purchases/source').then((r) => setSource(r.source)).catch(() => {}); }, []);
   if (!source) return null;
   return (
     <div className="small" style={{ marginTop: 8 }}>

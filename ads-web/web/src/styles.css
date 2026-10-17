@@ -995,3 +995,14 @@ tr:hover .po-label-btn { opacity: 1; }
 .stock-days.bad { color: var(--bad); }
 .stock-days.warn { color: var(--warn); }
 .stock-days.good { color: var(--good); }
+
+/* order page: sources of the round (Bigseller / Facebook / typed lines) */
+.po-sources { display: grid; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.po-source-row { display: flex; flex-wrap: wrap; gap: 6px 22px; align-items: center; }
+.po-source-row label.link { cursor: pointer; color: var(--accent); }
+.po-manual-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.po-manual-add { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; }
+.po-manual-add > input:first-child { min-width: 240px; flex: 1; font-size: 13px; padding: 4px 8px; min-height: 32px; }
+.po-manual-qty { width: 64px; text-align: center; font-size: 13px; padding: 4px 8px; min-height: 32px; }
+.po-manual-add .po-manual-hits { order: 10; flex: 0 0 100%; max-width: 100%; }
+.po-manual-hits .sku-match-item { max-width: 420px; }

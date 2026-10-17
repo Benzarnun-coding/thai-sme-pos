@@ -97,6 +97,8 @@ export function planDecisions(
   settings: Map<string, CampaignSetting>, stages: Stage[], state: State, now: Date, cod: Cod = NO_COD,
   /** Shop-wide break-even from real Page365 orders: used for product lines whose own can't be computed */
   fallbackBreakeven: number | null = null,
+  /** guardrails.max_daily_budget: for ABO campaigns it caps the sum of the ad sets */
+  maxCampaignBudget = Infinity,
 ): Plan {
   const decisions: Plan['decisions'] = [];
   const moves: MoveDecision[] = [];
@@ -115,7 +117,7 @@ export function planDecisions(
     // Paused campaigns (and their ad sets) aren't spending: nothing to decide for them.
     const pausedCampaigns = new Set(entities.filter((e) => e.level === 'campaign' && e.status !== 'ACTIVE').map((e) => e.id));
     const members = entities.filter((e) => g.campaignIds.has(e.campaign_id) && !pausedCampaigns.has(e.campaign_id));
-    for (const d of withAdsetBudgets(evaluate(members, actions, NO_SCOPE, state, now), entities, actions, state, now)) decisions.push({ ...d, group: g.label });
+    for (const d of withAdsetBudgets(evaluate(members, actions, NO_SCOPE, state, now), entities, actions, state, now, maxCampaignBudget)) decisions.push({ ...d, group: g.label });
 
     // Moves: each rule separately (so a too-young campaign can't block a later rule), campaign level only.
     const campaigns = members.filter((e) => e.level === 'campaign');
@@ -143,21 +145,33 @@ export function planDecisions(
 /**
  * A campaign whose budget lives on its ad sets (ABO, e.g. "REV 801 - กระบอกยืด 3 ตัว 799") can't take a campaign
  * budget change. Its campaign-level budget decision is turned into the same change on each active ad set with a
- * daily budget, judged by the campaign's numbers; each ad set keeps its own cooldown.
+ * daily budget, judged by the campaign's numbers; each ad set keeps its own cooldown. Like a CBO campaign, an ABO
+ * campaign gets one budget change per run (the first matching rule), and the per-campaign cap
+ * (`maxCampaignBudget`) applies to the sum of its ad sets: an increase is trimmed so the sum stays under it.
  */
-export function withAdsetBudgets(decisions: Decision[], entities: Entity[], rules: Rule[], state: State, now: Date): Decision[] {
+export function withAdsetBudgets(decisions: Decision[], entities: Entity[], rules: Rule[], state: State, now: Date, maxCampaignBudget = Infinity): Decision[] {
   const out: Decision[] = [];
+  const done = new Set<string>();
   for (const d of decisions) {
     out.push(d);
     if (d.action.type !== 'budget_pct' || d.entity.level !== 'campaign' || !d.skipped_reason?.startsWith('no daily budget')) continue;
     const adsets = entities.filter((e) => e.level === 'adset' && e.campaign_id === d.entity.id && e.status === 'ACTIVE' && e.daily_budget !== null);
     const rule = rules.find((r) => r.id === d.rule_id);
     if (!adsets.length || !rule) continue;
-    d.skipped_reason = `งบอยู่ที่ชุดโฆษณา (ABO) → ปรับ ${adsets.length} ชุดโฆษณาแทน`;
-    const pct = d.action.pct ?? 0;
+    if (done.has(d.entity.id)) { d.skipped_reason = 'another rule already acted on this entity'; continue; }
+    // Like a CBO campaign, a rule still on cooldown (here: on every ad set) lets the next matching rule act.
+    if (!adsets.every((a) => onCooldown(rule, a.id, state, now))) done.add(d.entity.id);
+    let pct = d.action.pct ?? 0;
+    const total = adsets.reduce((t, a) => t + a.daily_budget!, 0);
+    if (pct > 0 && total * (1 + pct / 100) > maxCampaignBudget) {
+      pct = Math.floor((maxCampaignBudget / total - 1) * 100);
+      if (pct < 1) { d.skipped_reason = `งบรวมชุดโฆษณา (ABO) ${Math.round(total)} ถึงเพดานต่อแคมเปญ ${maxCampaignBudget} แล้ว`; continue; }
+    }
+    d.skipped_reason = `งบอยู่ที่ชุดโฆษณา (ABO) → ปรับ ${adsets.length} ชุดโฆษณาแทน${pct !== d.action.pct ? ` (${pct > 0 ? '+' : ''}${pct}% ไม่ให้เกินเพดานต่อแคมเปญ)` : ''}`;
     for (const a of adsets) {
       const ad: Decision = {
         ...d,
+        action: { ...d.action, pct },
         entity: { level: 'adset', id: a.id, name: a.name, campaign_name: a.campaign_name },
         before: { status: a.status, daily_budget: a.daily_budget },
         plan: `BUDGET ${pct > 0 ? '+' : ''}${pct}% on adset "${a.name}" ของแคมเปญ "${d.entity.name}" [${d.window} ${d.metric}=${d.observed} vs ${d.threshold}] (now ${a.daily_budget})`,

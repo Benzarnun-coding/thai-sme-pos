@@ -100,9 +100,21 @@ export const OPENED = 'เปิดร่างแล้ว · รอใส่�
 /** Note state while Page365 can't be reached (no or expired login): the sweep opens the draft once it can. */
 export const WAITING = 'รอเปิดร่าง';
 
+/**
+ * A note fresh from the webhook is taken by one invocation only: Meta re-sends a delivery it didn't get a 200 for,
+ * and the re-sent note (already filled, or being filled) must not be planned again — that read a filled draft as
+ * "ร่างมีสินค้าอยู่แล้ว" and asked a person, or added the items twice. Marked WAITING, so the sweep retries it if
+ * this invocation dies before the draft is recorded.
+ */
+export async function claimNote(db: D1Database, mid: string): Promise<boolean> {
+  const r = await db.prepare('UPDATE order_notes SET fill_error = ? WHERE mid = ? AND filled_at IS NULL AND fill_error IS NULL').bind(WAITING, mid).run();
+  return r.meta.changes > 0;
+}
+
 /** One note, start to finish. Never throws: failures become a Discord message. */
-export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force?: boolean } = {}): Promise<AutoResult> {
+export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force?: boolean; claim?: boolean } = {}): Promise<AutoResult> {
   if (!opts.force && !(await autoFillOn(env.DB))) return { status: 'skipped', order_no: null, reasons: ['ปิดอยู่'] };
+  if (opts.claim && !(await claimNote(env.DB, note.mid))) return { status: 'skipped', order_no: null, reasons: ['ทำไปแล้วหรือกำลังทำ'] };
   let draft: P365Order | null = null;
   let name = '';
   try {
@@ -195,7 +207,7 @@ export async function sweepNotes(env: AutoEnv, opts: { force?: boolean } = {}): 
     // A miss the parser reads now (after a fix) is marked learnt.
     await env.DB.prepare(`UPDATE note_misses SET resolved_at = ? WHERE resolved_at IS NULL AND mid IN (SELECT value FROM json_each(?))`).bind(new Date().toISOString(), JSON.stringify(rescued.map((n) => n.mid))).run().catch(() => null);
     await saveNotes(env.DB, rescued);
-    for (const n of rescued) await sendNotePurchase(env as any, n).catch((err) => console.error('note purchase', err));
+    for (const n of rescued) await sendNoteSale(env, n).catch((err) => console.error('note purchase', err));
   }
   // instr, not LIKE: D1 refuses LIKE patterns this long in Thai ("pattern too complex").
   const note = await env.DB.prepare(
@@ -280,6 +292,35 @@ export async function tellMiss(env: AutoEnv, m: StoredNote, name: string): Promi
       '• ระบบยังไม่เปิดร่าง/ไม่ส่งยอดให้ Meta — เปิดบิลเองไปก่อน',
       '• ส่งรูปแบบนี้ให้เบนซ์/Claude เพิ่มเข้าระบบ (ดูได้ที่แท็บ Log ออเดอร์แชท → "สรุปที่อ่านไม่ออก")',
     ].join('\n').slice(0, 2000));
+}
+
+/**
+ * The sale to Meta for a note, and the problem channel told when Meta refuses it (Benz 15 Oct): admins no longer
+ * press Create order, so a refused sale would otherwise be missing from the ads without anyone knowing. Nothing
+ * retries it; the message asks an admin to press Create order in the inbox for that customer. At most one message
+ * per 15 minutes (a token or dataset problem fails every note).
+ */
+export async function sendNoteSale(env: AutoEnv, note: StoredNote): Promise<{ status: string; detail: string | null }> {
+  const r = await sendNotePurchase(env as any, note);
+  if (r.status === 'error') await tellPurchaseError(env, note, r.detail ?? '').catch((err) => console.error('purchase error post', err));
+  return r;
+}
+
+const PURCHASE_ALERT_MS = 15 * 60_000;
+
+async function tellPurchaseError(env: AutoEnv, note: StoredNote, error: string): Promise<void> {
+  const last = await env.DB.prepare("SELECT value FROM meta_capi WHERE key = 'purchase_error_alert_at'").first<{ value: string }>().catch(() => null);
+  if (last && Date.now() - Date.parse(last.value) < PURCHASE_ALERT_MS) return;
+  await env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('purchase_error_alert_at', ?)").bind(new Date().toISOString()).run();
+  const who = await customerFor(env, note.psid, 1).catch(() => null);
+  await postOrderChannel(env, (mention) => [
+    `⚠️ ส่งยอดขายให้ Meta ไม่สำเร็จ ${mention}`.trim(),
+    `ลูกค้า: **${who?.name || 'ไม่ทราบชื่อ'}** · สรุปตอน ${bkk(note.at)} น.`,
+    `แอดมินสรุป: \`${note.text.replace(/\s+/g, ' ').slice(0, 200)}\``,
+    `• Meta ตอบ: ${error.slice(0, 300) || 'ไม่ทราบสาเหตุ'}`,
+    '• ยอดนี้ยังไม่เข้าแอด — ให้แอดมินกด Create order ในกล่องแชทของลูกค้าคนนี้แทน (ระบบไม่ส่งซ้ำเอง)',
+    '• ถ้าเด้งหลายรายการติดกัน (token/dataset มีปัญหา) แจ้งเบนซ์ · ดูทุกรายการได้ที่ Settings → ส่งยอดขายให้ Meta',
+  ].join('\n').slice(0, 2000));
 }
 
 export interface NoteMiss { mid: string; at: string; text: string; alerted_at: string | null; resolved_at: string | null }

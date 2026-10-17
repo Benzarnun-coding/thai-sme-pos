@@ -39,7 +39,7 @@ export interface Conversation { psid: string; campaign: string | null; ordered: 
 /** "14:05" Bangkok time of an ISO timestamp — lets the team find a chat in the inbox. */
 const bkkTime = (iso?: string) => (iso ? new Date(Date.parse(iso) + 7 * 3_600_000).toISOString().slice(11, 16) : '');
 
-const MAX_CHARS = 60_000, MAX_MSGS = 30, MAX_MSG_CHARS = 200;
+const MAX_CHARS = 150_000, MAX_MSGS = 30, MAX_MSG_CHARS = 200;
 
 /** Conversations as compact text: one block per customer, numbered (no ids), newest-first cut at MAX_CHARS. */
 export function transcript(convs: Conversation[]): { text: string; used: number } {
@@ -77,4 +77,21 @@ export const INSIGHT_SYSTEM = `คุณคือ "น้องจิบิ" ผ
 
 export function insightPrompt(dayLabel: string, t: { text: string; used: number }, total: number): string {
   return `แชทวันที่ ${dayLabel}: ${total} คน${t.used < total ? ` (ส่งมาให้อ่าน ${t.used} คนแรก เพราะยาวเกิน)` : ''}\n\n${t.text}`;
+}
+
+/**
+ * The AI cites chats as "ลูกค้า N"; the team needs the time and ad to find them in the inbox. Lists every customer
+ * number cited from the "⚠️ ต้องดู" section on, with the first message time and the ad.
+ */
+export function citeKey(text: string, convs: Conversation[]): string {
+  const from = text.indexOf('⚠️');
+  const part = from >= 0 ? text.slice(from) : '';
+  const nums = [...new Set([...part.matchAll(/ลูกค้า\s*(\d{1,3})/g)].map((m) => Number(m[1])))].filter((n) => n >= 1 && n <= convs.length).sort((a, b) => a - b);
+  if (!nums.length) return '';
+  const lines = nums.map((n) => {
+    const c = convs[n - 1];
+    const first = c.messages.find((m) => !m.from_page) ?? c.messages[0];
+    return `ลูกค้า ${n} = ทัก ${bkkTime(first?.at)} น. · ${c.campaign ?? 'ไม่ระบุแอด'}`;
+  });
+  return `\n🔎 **ค้นใน inbox:** ${lines.join(' · ')}`;
 }

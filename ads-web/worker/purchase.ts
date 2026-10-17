@@ -25,7 +25,20 @@ const PRICE_SOURCES = new Set(['web', 'cost', '']);
 export interface SavedItem { order: string; sku: string; qty: number; store: string }
 const MAX_ITEMS = 20_000;
 
-export function validatePurchase(input: any): { date: string; round: number; file: string; lines: SavedLine[]; items: SavedItem[] | null } {
+/** A round's item that is not from the Bigseller file: a Facebook order line (Page365) or a line typed by hand. */
+export interface ExtraItem { source: 'facebook' | 'manual'; order: string; sku: string; name: string; option: string; qty: number }
+
+export function validateExtra(input: unknown): ExtraItem[] | null {
+  if (!Array.isArray(input)) return null;
+  if (input.length > 3000) throw new BadRequest('รายการ Facebook / เพิ่มเอง เกิน 3,000');
+  return input.map((x: any) => ({
+    source: x?.source === 'manual' ? 'manual' as const : 'facebook' as const,
+    order: cleanText(x?.order, 60), sku: cleanText(x?.sku, 120), name: cleanText(x?.name, 120), option: cleanText(x?.option, 80),
+    qty: Math.trunc(Number(x?.qty)),
+  })).filter((x) => (x.sku || x.name) && x.qty > 0 && x.qty < 10_000);
+}
+
+export function validatePurchase(input: any): { date: string; round: number; file: string; lines: SavedLine[]; items: SavedItem[] | null; extra: ExtraItem[] | null } {
   const date = String(input?.date ?? '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
   const round = Math.trunc(Number(input?.round));
@@ -74,7 +87,7 @@ export function validatePurchase(input: any): { date: string; round: number; fil
     }
     items = [...byKey.values()];
   }
-  return { date, round, file: cleanText(input?.file, 200), lines, items };
+  return { date, round, file: cleanText(input?.file, 200), lines, items, extra: validateExtra(input?.extra) };
 }
 
 export async function savePurchase(db: D1Database, p: ReturnType<typeof validatePurchase>, user: string): Promise<PurchaseUpload> {
@@ -113,9 +126,10 @@ export async function savePurchase(db: D1Database, p: ReturnType<typeof validate
       ).bind(id, JSON.stringify(c))),
     ] : []),
     db.prepare(
-      `INSERT INTO purchase_uploads (id, date, round, file, pieces, review, missing, groups, saved_by, saved_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-       ON CONFLICT (id) DO UPDATE SET file = excluded.file, pieces = excluded.pieces, review = excluded.review, missing = excluded.missing, groups = excluded.groups, saved_by = excluded.saved_by, saved_at = excluded.saved_at`,
-    ).bind(id, p.date, p.round, p.file, pieces, review, missing, JSON.stringify(upload.groups), user, now),
+      `INSERT INTO purchase_uploads (id, date, round, file, pieces, review, missing, groups, saved_by, saved_at, extra) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE(?11, '[]'))
+       ON CONFLICT (id) DO UPDATE SET file = excluded.file, pieces = excluded.pieces, review = excluded.review, missing = excluded.missing, groups = excluded.groups, saved_by = excluded.saved_by, saved_at = excluded.saved_at,
+         extra = COALESCE(?11, purchase_uploads.extra)`,
+    ).bind(id, p.date, p.round, p.file, pieces, review, missing, JSON.stringify(upload.groups), user, now, p.extra ? JSON.stringify(p.extra) : null),
   ]);
   return upload;
 }
@@ -123,6 +137,12 @@ export async function savePurchase(db: D1Database, p: ReturnType<typeof validate
 export async function listPurchases(db: D1Database, limit = 60): Promise<PurchaseUpload[]> {
   const { results } = await db.prepare('SELECT * FROM purchase_uploads ORDER BY date DESC, round DESC LIMIT ?1').bind(limit).all<Omit<PurchaseUpload, 'groups'> & { groups: string }>();
   return results.map((r) => ({ ...r, groups: JSON.parse(r.groups) }));
+}
+
+/** A saved round's Facebook / typed items (see ExtraItem). */
+export async function purchaseExtra(db: D1Database, id: string): Promise<ExtraItem[]> {
+  const r = await db.prepare('SELECT extra FROM purchase_uploads WHERE id = ?1').bind(id).first<{ extra: string }>();
+  try { return JSON.parse(r?.extra || '[]'); } catch { return []; }
 }
 
 export async function purchaseLines(db: D1Database, id: string): Promise<SavedLine[]> {
