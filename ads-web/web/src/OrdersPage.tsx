@@ -407,10 +407,10 @@ export function OrdersApp() {
       <section className="card">
         <div className="table-card-head" style={{ padding: 0 }}>
           <div>
-            <h2>{viewing ? `ใบสั่งย้อนหลัง ${thaiShortDate(viewing.upload.date)} รอบ ${viewing.upload.round}` : 'ไฟล์จาก Bigseller'}</h2>
+            <h2>{viewing ? `ใบสั่งย้อนหลัง ${thaiShortDate(viewing.upload.date)} รอบ ${viewing.upload.round}` : 'ไฟล์ออเดอร์ (Bigseller / Facebook)'}</h2>
             <p className="muted small">
               {viewing ? `บันทึกโดย ${viewing.upload.saved_by.split('@')[0]} · ไฟล์ ${viewing.upload.file || '—'}`
-                : data ? `${data.file} · อ่านในเบราว์เซอร์นี้ เก็บ SKU จำนวน และเลขคำสั่งซื้อ (ไม่เก็บเลขพัสดุ)` : 'Export "Order-SKU-inprocess" (.xlsx หรือ .csv) จาก Bigseller แล้วอัปโหลดที่นี่ วันละรอบหรือหลายรอบ'}
+                : data ? `${data.file} · อ่านในเบราว์เซอร์นี้ เก็บ SKU จำนวน และเลขคำสั่งซื้อ (ไม่เก็บเลขพัสดุ)` : 'Export "Order-SKU-inprocess" (.xlsx หรือ .csv) จาก Bigseller แล้วอัปโหลดที่นี่ วันละรอบหรือหลายรอบ · ออเดอร์ Facebook (ไฟล์ export ของ Page365) และรายการที่พิมพ์เองเพิ่มได้ด้านล่าง'}
             </p>
           </div>
           <label className={`button ${busy || !ready ? 'disabled' : 'primary'}`}>
@@ -418,13 +418,24 @@ export function OrdersApp() {
             <input type="file" accept=".xlsx,.csv,.tsv,.txt" hidden disabled={!!busy || !ready} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onFile(f); }} />
           </label>
         </div>
-        {data && !viewing && (
+        {/* Always there (before any file too): Facebook orders and typed lines can start a round on their own. */}
+        {!viewing && (
           <Sources
-            bigseller={data.items.length ? { file: data.file, pieces: data.items.reduce((t, i) => t + i.qty, 0) } : null}
+            bigseller={data?.items.length ? { file: data.file, pieces: data.items.reduce((t, i) => t + i.qty, 0) } : null}
             fb={fb ? { file: fb.file, orders: new Set(fb.items.map((i) => i.order)).size, pieces: fb.items.reduce((t, i) => t + i.qty, 0) } : null}
             manual={manual} rows={allRows} busy={!!busy || !ready}
             onFile={onFile} onRemoveFb={() => setFb(null)}
-            onAdd={(it) => setManual((m) => [...m, it])} onRemoveManual={(i) => setManual((m) => m.filter((_, j) => j !== i))}
+            onAdd={(it) => {
+              if (!data) {
+                // A typed line before any file starts today's next round.
+                setData({ file: 'เพิ่มเอง', items: [] });
+                setDate(todayBkk());
+                setRound(nextRound(todayBkk()));
+                setSavedSig('');
+              }
+              setManual((m) => [...m, it]);
+            }}
+            onRemoveManual={(i) => setManual((m) => m.filter((_, j) => j !== i))}
           />
         )}
         {!shown && (
