@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { normaliseRow, type CatalogRow } from '../web/src/catalog.ts';
-import { buildLines, FACEBOOK_STORE, GOSELL_GROUP, isFacebookExport, makeLookup, MANUAL_STORE, readFacebookItems, saleItems, STOCK_GROUP, stockPlacer, type OrderItem } from '../web/src/purchase.ts';
+import { buildLines, FB_ROUND, roundFile, roundLabel, FACEBOOK_STORE, GOSELL_GROUP, isFacebookExport, makeLookup, MANUAL_STORE, readFacebookItems, saleItems, STOCK_GROUP, stockPlacer, type OrderItem } from '../web/src/purchase.ts';
 import { validateExtra } from './purchase.ts';
 
 const row = (o: Record<string, unknown>): CatalogRow => normaliseRow(o);
@@ -50,4 +50,11 @@ test('saved extra items are cleaned; the units-sold rows stay Bigseller only (th
     [{ source: 'manual', order: '', sku: '5012-PK-NV-30', name: '', option: '', qty: 2 }]);
   assert.equal(validateExtra(undefined), null);
   assert.equal(saleItems([{ store: 'TikTok', sku: '5012-PK-NV-30', name: '', option: '', qty: 1, order: 'T1', tracking: '', carrier: '' }], makeLookup(CATALOG, new Map()), 'r').length, 1);
+});
+
+test('round labels: Bigseller rounds by number, round 0 is the Facebook round', () => {
+  assert.equal(FB_ROUND, 0);
+  assert.equal(roundLabel(2), 'รอบ 2');
+  assert.equal(roundLabel(0), 'รอบ Facebook');
+  assert.equal(roundFile(0), 'รอบFacebook');
 });

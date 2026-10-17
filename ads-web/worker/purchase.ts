@@ -42,7 +42,8 @@ export function validatePurchase(input: any): { date: string; round: number; fil
   const date = String(input?.date ?? '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
   const round = Math.trunc(Number(input?.round));
-  if (!(round >= 1 && round <= 9)) throw new BadRequest('รอบต้องเป็น 1–9');
+  // 1–9 = Bigseller rounds; 0 = the day's Facebook round (Page365 export)
+  if (!(round >= 0 && round <= 9)) throw new BadRequest('รอบต้องเป็น 1–9 หรือ Facebook');
   const raw: unknown[] = Array.isArray(input?.lines) ? input.lines : [];
   if (!raw.length) throw new BadRequest('ไม่มีรายการ');
   if (raw.length > MAX_LINES) throw new BadRequest(`รายการเกิน ${MAX_LINES}`);

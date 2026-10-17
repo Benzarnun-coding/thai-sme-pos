@@ -55,7 +55,7 @@ rules, the monthly goal or the sheet.
   ชื่อตัวเลือก, จำนวน, หมายเลขคำสั่งซื้อ … or Bigseller's English names. It has no prices.
 - Other sources on the same round (Benz 2026-10-16): **Facebook orders** — Page365's per-item export (UTF-16 tabs; `No.`,
   `SKU`, `Item Qty`…; `isFacebookExport`, `readFacebookItems`), picked with the same file button or "+ เพิ่มไฟล์ Facebook",
-  before or after the Bigseller file; read in the browser, only order no. + SKU + qty + item name kept; cancelled
+  before or after the Bigseller file (on its own it is the day's "รอบ Facebook" = round 0, `FB_ROUND`/`roundLabel`; Bigseller rounds are 1–9); read in the browser, only order no. + SKU + qty + item name kept; cancelled
   orders left out. Facebook items of products in GoSell's stock go to the "GoSell" sheet while GoSell's balance lasts
   (GoSell ships them; cut by the GoSell page's button, not here); the rest go where any row goes. **Typed lines** —
   "+ เพิ่มรายการเอง": SKU (search by code/colour/size) + qty, or text the catalog doesn't know (→ ตรวจสอบ). Both are

@@ -999,7 +999,11 @@ tr:hover .po-label-btn { opacity: 1; }
 /* order page: sources of the round (Bigseller / Facebook / typed lines) */
 .po-sources { display: grid; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
 .po-source-row { display: flex; flex-wrap: wrap; gap: 6px 22px; align-items: center; }
-.po-source-row label.link { cursor: pointer; color: var(--accent); }
+.po-source-row label.button { cursor: pointer; }
+.po-fb-btn { border-color: #1877f2; color: #1877f2; font-weight: 600; display: inline-flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; min-height: 32px; padding: 4px 12px; }
+.po-source-row > span { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.po-fb-btn:hover { background: color-mix(in srgb, #1877f2 10%, transparent); }
+.po-add-btn { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .po-manual-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .po-manual-add { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; }
 .po-manual-add > input:first-child { min-width: 240px; flex: 1; font-size: 13px; padding: 4px 8px; min-height: 32px; }

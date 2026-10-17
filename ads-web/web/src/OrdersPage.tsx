@@ -10,7 +10,7 @@ import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from '
 import { num } from './fmt.ts';
 import {
   applyMoves, buildLines, dateFromFileName, optionParts, saleItems, orderColumns, orderText, paymentWorkbook, PRICE_SOURCE_LABEL, supplierTotals, withPrices, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
-  FACEBOOK_STORE, GOSELL_GROUP, isFacebookExport, MANUAL_STORE, readFacebookItems, suggestSkus, STOCK_GROUP, stockPlacer, orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
+  FB_ROUND, roundFile, roundLabel, FACEBOOK_STORE, GOSELL_GROUP, isFacebookExport, MANUAL_STORE, readFacebookItems, suggestSkus, STOCK_GROUP, stockPlacer, orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
 } from './purchase.ts';
 import { orderPictureSheets, pictureSheets } from './pictureSheet.ts';
 import { Icon, Modal, useUi } from './ui.tsx';
@@ -165,10 +165,16 @@ export function OrdersApp() {
         setViewing(null);
         setFb({ file: file.name, items });
         if (!data) {
+          // On its own a Facebook file is the day's "รอบ Facebook" (the same file again reopens that round).
+          const same = history.find((h) => h.file === file.name);
           setData({ file: file.name, items: [] });
-          setDate(todayBkk());
-          setRound(nextRound(todayBkk()));
+          setDate(same?.date ?? todayBkk());
+          setRound(same ? same.round : FB_ROUND);
           setSavedSig('');
+          if (same) {
+            const { extra } = await api.purchaseLines(same.id);
+            setManual((extra ?? []).filter((x) => x.source === 'manual').map(fromExtra));
+          }
         }
         toast(`เพิ่มออเดอร์ Facebook ${num(new Set(items.map((i) => i.order)).size)} ออเดอร์ · ${num(items.reduce((t, i) => t + i.qty, 0))} ตัว`, 'ok');
         return;
@@ -212,7 +218,7 @@ export function OrdersApp() {
         // names typed for rows not in the catalog (catalog products get theirs from catalog_labels)
         setLabelEdits(new Map(saved.filter((l) => !l.tab && l.label && l.label !== '(ไม่มี SKU)' && l.label !== l.sku && !l.label.startsWith(spuOf(l.sku))).map((l) => [l.sku, l.label])));
         setMissingMap(new Map(saved.filter((l) => l.missing > 0).map((l) => [lineKey({ sku: l.sku }), l.missing])));
-        toast(`ไฟล์นี้เคยบันทึกเป็น ${thaiShortDate(same.date)} รอบ ${same.round} · เปิดรอบเดิมพร้อมการย้ายร้านและติ๊กของไม่มี · ดาวน์โหลด/พิมพ์/ติ๊ก จะอัปเดตรอบนี้ (เติมเลขคำสั่งซื้อ)`, 'info');
+        toast(`ไฟล์นี้เคยบันทึกเป็น ${thaiShortDate(same.date)} ${roundLabel(same.round)} · เปิดรอบเดิมพร้อมการย้ายร้านและติ๊กของไม่มี · ดาวน์โหลด/พิมพ์/ติ๊ก จะอัปเดตรอบนี้ (เติมเลขคำสั่งซื้อ)`, 'info');
       }
     } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(''); }
   }
@@ -259,7 +265,7 @@ export function OrdersApp() {
     try {
       await save();
       const list = only ? [only] : groups;
-      download(await orderWorkbook(list, date, round), `${only ? only.name : 'ใบสั่ง'} ${dayMonth(date)} รอบ${round}.xlsx`);
+      download(await orderWorkbook(list, date, round), `${only ? only.name : 'ใบสั่ง'} ${dayMonth(date)} ${roundFile(round)}.xlsx`);
     } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(''); }
   }
 
@@ -331,7 +337,7 @@ export function OrdersApp() {
     setBusy('กำลังสร้างไฟล์…');
     try {
       await save();
-      download(await paymentWorkbook(pia ? [...groups, pia] : groups, missing, date, round), `สรุปจ่ายร้าน ${dayMonth(date)} รอบ${round} (ภายใน).xlsx`);
+      download(await paymentWorkbook(pia ? [...groups, pia] : groups, missing, date, round), `สรุปจ่ายร้าน ${dayMonth(date)} ${roundFile(round)} (ภายใน).xlsx`);
     } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(''); }
   }
 
@@ -375,7 +381,7 @@ export function OrdersApp() {
   }
 
   async function removeHistory(u: PurchaseUpload) {
-    const ok = await confirm({ title: `ลบใบสั่ง ${thaiShortDate(u.date)} รอบ ${u.round}?`, body: <p>ลบเฉพาะประวัติในเว็บ ไฟล์ที่ดาวน์โหลดไปแล้วไม่หาย</p>, confirmLabel: 'ลบ', tone: 'danger' });
+    const ok = await confirm({ title: `ลบใบสั่ง ${thaiShortDate(u.date)} ${roundLabel(u.round)}?`, body: <p>ลบเฉพาะประวัติในเว็บ ไฟล์ที่ดาวน์โหลดไปแล้วไม่หาย</p>, confirmLabel: 'ลบ', tone: 'danger' });
     if (!ok) return;
     try {
       await api.deletePurchase(u.id);
@@ -407,7 +413,7 @@ export function OrdersApp() {
       <section className="card">
         <div className="table-card-head" style={{ padding: 0 }}>
           <div>
-            <h2>{viewing ? `ใบสั่งย้อนหลัง ${thaiShortDate(viewing.upload.date)} รอบ ${viewing.upload.round}` : 'ไฟล์ออเดอร์ (Bigseller / Facebook)'}</h2>
+            <h2>{viewing ? `ใบสั่งย้อนหลัง ${thaiShortDate(viewing.upload.date)} ${roundLabel(viewing.upload.round)}` : 'ไฟล์ออเดอร์ (Bigseller / Facebook)'}</h2>
             <p className="muted small">
               {viewing ? `บันทึกโดย ${viewing.upload.saved_by.split('@')[0]} · ไฟล์ ${viewing.upload.file || '—'}`
                 : data ? `${data.file} · อ่านในเบราว์เซอร์นี้ เก็บ SKU จำนวน และเลขคำสั่งซื้อ (ไม่เก็บเลขพัสดุ)` : 'Export "Order-SKU-inprocess" (.xlsx หรือ .csv) จาก Bigseller แล้วอัปโหลดที่นี่ วันละรอบหรือหลายรอบ · ออเดอร์ Facebook (ไฟล์ export ของ Page365) และรายการที่พิมพ์เองเพิ่มได้ด้านล่าง'}
@@ -455,7 +461,7 @@ export function OrdersApp() {
         {shown && (
           <div className="po-meta">
             <label>วันที่<input type="date" value={date} disabled={!!viewing} onChange={(e) => { setDate(e.target.value); if (!viewing) setRound(nextRound(e.target.value)); }} /></label>
-            <label>รอบ<select value={round} disabled={!!viewing} onChange={(e) => setRound(Number(e.target.value))}>{[1, 2, 3, 4, 5, 6].map((r) => <option key={r} value={r}>รอบ {r}{history.some((h) => h.date === date && h.round === r) ? ' (มีแล้ว)' : ''}</option>)}</select></label>
+            <label>รอบ<select value={round} disabled={!!viewing} onChange={(e) => setRound(Number(e.target.value))}>{[...new Set([1, 2, 3, 4, 5, 6, ...history.filter((h) => h.date === date && h.round > 6).map((h) => h.round), round].filter((r) => r !== FB_ROUND))].sort((a, b) => a - b).concat(FB_ROUND).map((r) => <option key={r} value={r}>{roundLabel(r)}{history.some((h) => h.date === date && h.round === r) ? ' (มีแล้ว)' : ''}</option>)}</select></label>
             {viewing && <button className="ghost small" onClick={() => setViewing(null)}>ปิดใบย้อนหลัง</button>}
             {viewing && viewing.lines.length > 0 && viewing.lines.every((l) => !l.orders?.length) && (
               <span className="warn small">รอบนี้บันทึกก่อนระบบเก็บเลขคำสั่งซื้อ · อัปโหลดไฟล์เดิม{viewing.upload.file ? ` (${viewing.upload.file})` : ''} อีกครั้ง แล้วกดดาวน์โหลด/พิมพ์ จะเติมเลขให้รอบนี้ (ติ๊กของไม่มียังอยู่)</span>
@@ -572,7 +578,7 @@ export function OrdersApp() {
                 {history.map((u) => (
                   <tr key={u.id} className={viewing?.upload.id === u.id ? 'selected' : ''}>
                     <td>{thaiShortDate(u.date)}</td>
-                    <td>{u.round}</td>
+                    <td>{u.round === FB_ROUND ? 'Facebook' : u.round}</td>
                     <td className="num">{num(u.pieces)}</td>
                     <td className="small">{u.groups.filter((g) => g.kind !== 'review').sort((a, b) => b.pieces - a.pieces).map((g) => `${g.name} ${g.pieces}`).join(' · ')}</td>
                     <td className={`num ${u.review ? 'bad' : ''}`}>{num(u.review)}</td>
@@ -627,11 +633,11 @@ function Sources({ bigseller, fb, manual, rows, busy, onFile, onRemoveFb, onAdd,
         <span>Bigseller: {bigseller ? <b>{bigseller.file}</b> : <span className="muted">ยังไม่มีไฟล์</span>}{bigseller && <span className="muted"> · {num(bigseller.pieces)} ตัว</span>}</span>
         <span>
           Facebook: {fb ? <><b>{fb.file}</b> <span className="muted">· {num(fb.orders)} ออเดอร์ · {num(fb.pieces)} ตัว</span> <button className="link small danger" onClick={onRemoveFb}>เอาออก</button></>
-            : <label className={`link small ${busy ? 'disabled' : ''}`}>+ เพิ่มไฟล์ Facebook (Page365)
+            : <label className={`button small po-fb-btn ${busy ? 'disabled' : ''}`}><Icon name="up" size={14} /> เพิ่มไฟล์ Facebook (Page365)
                 <input type="file" accept=".csv,.tsv,.txt,.xlsx" hidden disabled={busy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onFile(f); }} />
               </label>}
         </span>
-        <span>เพิ่มเอง: {manual.length ? <b>{manual.length} รายการ</b> : <span className="muted">—</span>} {!adding && <button className="link small" onClick={() => setAdding(true)}>+ เพิ่มรายการเอง</button>}</span>
+        <span>เพิ่มเอง: {manual.length ? <b>{manual.length} รายการ</b> : <span className="muted">—</span>} {!adding && <button className="small po-add-btn" onClick={() => setAdding(true)}>+ เพิ่มรายการเอง</button>}</span>
       </div>
       {manual.length > 0 && (
         <div className="po-manual-list">
@@ -1015,7 +1021,7 @@ function LedgerCard({ rows, history, onOpen }: { rows: LedgerRow[]; history: Pur
                   const u = history.find((h) => h.id === r.upload_id);
                   return (
                     <tr key={r.upload_id} className="formula-row">
-                      <td className="small">{thaiShortDate(r.date)} รอบ {r.round}{r.done ? ' · จ่ายแล้ว' : ''}{r.note ? ` · ${r.note}` : ''}</td>
+                      <td className="small">{thaiShortDate(r.date)} {roundLabel(r.round)}{r.done ? ' · จ่ายแล้ว' : ''}{r.note ? ` · ${r.note}` : ''}</td>
                       <td />
                       <td className="num small">฿{num(r.due)}</td>
                       <td className="num small">{r.paid != null ? `฿${num(r.paid)}` : '—'}</td>
@@ -1112,7 +1118,7 @@ function OrderSearch({ lines, history, currentId, onGo, onOpenRound }: {
                     return (
                       <tr key={i}>
                         <td><code>{r.order_no}</code>{r.store && <div className="po-store">{r.store}</div>}</td>
-                        <td>{thaiShortDate(r.date)} รอบ {r.round}</td>
+                        <td>{thaiShortDate(r.date)} {roundLabel(r.round)}</td>
                         <td><b>{r.grp}</b></td>
                         <td>{r.label} · {r.size || '—'}</td>
                         <td className="num">{num(r.qty)} ชิ้น</td>
@@ -1239,7 +1245,7 @@ function PictureModal({ group, date, round, info, orders, onClose }: {
       setImages(blobs.map((blob, i) => {
         const url = URL.createObjectURL(blob);
         made.push(url);
-        return { blob, url, name: `${group.name} ${dayMonth(date)} รอบ${round}${blobs.length > 1 ? ` (${i + 1}-${blobs.length})` : ''}.png` };
+        return { blob, url, name: `${group.name} ${dayMonth(date)} ${roundFile(round)}${blobs.length > 1 ? ` (${i + 1}-${blobs.length})` : ''}.png` };
       }));
     }).catch((e) => setError(e.message));
     return () => { cancelled = true; made.forEach((u) => URL.revokeObjectURL(u)); };
@@ -1310,7 +1316,7 @@ function PrintSheets({ groups, date, round }: { groups: PurchaseGroup[]; date: s
             <div className="po-page-head">
               <span>{thaiShortDate(date)}</span>
               <b>{g.name}</b>
-              <span>รอบ {round}</span>
+              <span>{roundLabel(round)}</span>
             </div>
             <table className="po-sheet">
               <colgroup><col className="c-code" /><col className="c-size" /><col className="c-qty" /><col className="c-orders" /><col className="c-note" /></colgroup>

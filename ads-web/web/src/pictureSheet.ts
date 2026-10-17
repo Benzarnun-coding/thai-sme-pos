@@ -6,7 +6,7 @@
 // Photos from other sites come through /api/catalog/image-proxy so the canvas can still be exported.
 
 import { colorLabel } from './catalog.ts';
-import { orderText, storeLabel, thaiShortDate, type OrderBlock, type PictureBlock } from './purchase.ts';
+import { orderText, storeLabel, thaiShortDate, type OrderBlock, type PictureBlock, roundLabel } from './purchase.ts';
 
 const W = 1080;
 const PAD = 36;
@@ -85,7 +85,7 @@ function header(ctx: CanvasRenderingContext2D, title: string, date: string, roun
   ctx.font = `700 54px ${FONT}`;
   ctx.fillText(title, PAD, 50);
   ctx.font = `500 28px ${FONT}`;
-  ctx.fillText(`${thaiShortDate(date)}  ·  รอบ ${round}`, PAD, 96);
+  ctx.fillText(`${thaiShortDate(date)}  ·  ${roundLabel(round)}`, PAD, 96);
   ctx.textAlign = 'right';
   ctx.font = `700 40px ${FONT}`;
   ctx.fillText(right, W - PAD, 50);
