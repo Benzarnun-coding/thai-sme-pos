@@ -95,7 +95,8 @@ test('history validation', () => {
   assert.equal(ok.lines.length, lines.length);
   assert.equal(ok.lines.reduce((n, l) => n + l.qty, 0), 16);
   assert.throws(() => validatePurchase({ date: '13/10', round: 1, lines }), /วันที่/);
-  assert.throws(() => validatePurchase({ date: '2026-10-13', round: 0, lines }), /รอบ/);
+  assert.throws(() => validatePurchase({ date: '2026-10-13', round: 10, lines }), /รอบ/);
+  assert.equal(validatePurchase({ date: '2026-10-13', round: 0, lines }).round, 0, 'round 0 = the day\'s Facebook round');
   const doubled = validatePurchase({ date: '2026-10-13', round: 1, lines: [...lines, lines[0]] });
   assert.equal(doubled.lines.length, lines.length, 'a repeated row is merged, not refused');
   assert.equal(doubled.lines[0].qty, lines[0].qty * 2);

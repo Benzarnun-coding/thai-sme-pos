@@ -149,6 +149,13 @@ export function readFacebookItems(rows: Record<string, string>[]): OrderItem[] {
     .filter((i) => i.qty > 0 && (i.sku || i.name));
 }
 
+/** The round number used for a day's Facebook orders (Page365 export), apart from Bigseller's rounds 1–9. */
+export const FB_ROUND = 0;
+/** "รอบ 2", or "รอบ Facebook" for round 0. */
+export const roundLabel = (round: number) => (round === FB_ROUND ? 'รอบ Facebook' : `รอบ ${round}`);
+/** For file names: "รอบ2" / "รอบFacebook". */
+export const roundFile = (round: number) => roundLabel(round).replace(' ', '');
+
 /** "Order-SKU-inprocess20261013010110576.xlsx" → 2026-10-13 (the export's date). */
 export function dateFromFileName(name: string): string | null {
   const m = name.match(/(20\d{2})(\d{2})(\d{2})\d{6,}/);
@@ -373,7 +380,7 @@ export const KIND_LABEL: Record<GroupKind, string> = { supplier: 'ร้าน�
 
 function groupSheet(g: PurchaseGroup, date: string, round: number): Sheet {
   const rows: (Cell | string | number | null)[][] = [
-    [{ v: thaiShortDate(date), s: S.title }, null, { v: g.name, s: S.title }, null, { v: `รอบ ${round}`, s: S.title }],
+    [{ v: thaiShortDate(date), s: S.title }, null, { v: g.name, s: S.title }, null, { v: roundLabel(round), s: S.title }],
     [],
     ['รหัสสินค้า', 'ไซส์', 'จำนวน', 'หมายเหตุ', 'ร้านขาย · เลขคำสั่งซื้อ'].map((v) => ({ v, s: S.head })),
   ];
@@ -394,7 +401,7 @@ export async function orderWorkbook(groups: PurchaseGroup[], date: string, round
   const summary: Sheet = {
     name: 'สรุป',
     rows: [
-      [{ v: `ใบสั่งสินค้า ${thaiShortDate(date)} รอบ ${round}`, s: S.bold }],
+      [{ v: `ใบสั่งสินค้า ${thaiShortDate(date)} ${roundLabel(round)}`, s: S.bold }],
       [],
       ['ร้าน / โกดัง', 'ประเภท', 'รายการ', 'จำนวน'].map((v) => ({ v, s: S.head })),
       ...groups.map((g) => [{ v: g.name, s: S.boxLeft }, { v: KIND_LABEL[g.kind], s: S.box }, { v: sheetRows(g).length, s: S.box }, { v: g.pieces, s: S.box }]),
@@ -571,7 +578,7 @@ export async function paymentWorkbook(groups: PurchaseGroup[], missing: Map<stri
   const summary: Sheet = {
     name: 'สรุปจ่ายร้าน',
     rows: [
-      [{ v: `สรุปยอดจ่ายร้าน ${thaiShortDate(date)} รอบ ${round} (ภายใน ไม่ส่งร้าน)`, s: S.bold }],
+      [{ v: `สรุปยอดจ่ายร้าน ${thaiShortDate(date)} ${roundLabel(round)} (ภายใน ไม่ส่งร้าน)`, s: S.bold }],
       [],
       ['ร้าน / โกดัง', 'ประเภท', 'สั่ง', 'ของไม่มี', 'ได้จริง', 'ยอดเงิน', 'ยังไม่มีทุน (ชิ้น)'].map((v) => ({ v, s: S.head })),
       ...totals.map((t) => [{ v: t.name, s: S.boxLeft }, { v: t.name === MISSING_GROUP ? 'สั่งข้างนอก' : KIND_LABEL[t.kind], s: S.box }, { v: t.ordered, s: S.box }, { v: t.missing, s: S.box }, { v: t.received, s: S.box }, { v: money(t.amount), s: S.box }, { v: t.unpriced || '', s: S.box }]),
@@ -583,7 +590,7 @@ export async function paymentWorkbook(groups: PurchaseGroup[], missing: Map<stri
   for (const g of groups) {
     if (g.kind === 'review') continue;
     const rows: (Cell | string | number | null)[][] = [
-      [{ v: `${g.name} · ${thaiShortDate(date)} รอบ ${round} (ภายใน)`, s: S.bold }],
+      [{ v: `${g.name} · ${thaiShortDate(date)} ${roundLabel(round)} (ภายใน)`, s: S.bold }],
       [],
       ['รหัสสินค้า', 'ไซส์', 'SKU', 'สั่ง', 'ของไม่มี', 'ได้จริง', 'ทุน/ตัว', 'ที่มา', 'ยอดเงิน', 'ร้านขาย · เลขคำสั่งซื้อ'].map((v) => ({ v, s: S.head })),
     ];

@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, type GosellCut, type Role, type SalesData, type StockData, type StockItem, type StockLoc, type StockMove } from './api.ts';
 import { coverDays, forecast, refill, sizeShares, type Forecast } from './forecast.ts';
 import { num } from './fmt.ts';
-import { thaiShortDate } from './purchase.ts';
+import { roundLabel, thaiShortDate } from './purchase.ts';
 import { HomeLogo, SiteNav } from './SiteNav.tsx';
 import { useUi } from './ui.tsx';
 
@@ -367,7 +367,7 @@ function History({ data, loc, canEdit, onDelete }: { data: StockData; loc: Stock
     }
     return [...m.values()];
   }, [data, loc]);
-  const what = (r: (typeof rows)[number]) => r.kind === 'out' && /^\d{4}-\d{2}-\d{2}#\d+$/.test(r.ref) ? `ใบสั่ง ${thaiShortDate(r.ref.slice(0, 10))} รอบ ${r.ref.split('#')[1]}` : r.note || '';
+  const what = (r: (typeof rows)[number]) => r.kind === 'out' && /^\d{4}-\d{2}-\d{2}#\d+$/.test(r.ref) ? `ใบสั่ง ${thaiShortDate(r.ref.slice(0, 10))} ${roundLabel(Number(r.ref.split('#')[1]))}` : r.note || '';
   return (
     <section className="card table-card">
       <div className="table-card-head"><h2>เข้า-ออก 45 วันล่าสุด</h2></div>
