@@ -6,12 +6,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, type GosellCut, type Role, type SalesData, type StockData, type StockItem, type StockLoc, type StockMove } from './api.ts';
 import { coverDays, forecast, refill, sizeShares, type Forecast } from './forecast.ts';
+import { compareSize } from './catalog.ts';
 import { num } from './fmt.ts';
 import { roundLabel, thaiShortDate } from './purchase.ts';
 import { HomeLogo, SiteNav } from './SiteNav.tsx';
 import { useUi } from './ui.tsx';
 
-const LOC_LABEL: Record<StockLoc, string> = { pia: 'พี่เปีย (BB)', gosell: 'GoSell' };
+const LOC_LABEL: Record<StockLoc, string> = { pia: 'พี่เปีย (BB)', gosell: 'GoSell', pk: 'PK (โกดัง)' };
+const LOCS: StockLoc[] = ['pia', 'gosell', 'pk'];
 const KIND_LABEL: Record<StockMove['kind'], string> = { open: 'ยอดเริ่ม', in: 'ของเข้า', out: 'ออก', adjust: 'ปรับยอด' };
 const LOW = 5;
 const todayBkk = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
@@ -26,13 +28,16 @@ interface Plan {
   source: string;
 }
 
-function makePlan(items: StockItem[], sales: SalesData, loc: StockLoc, balance: Map<string, number>): Plan {
+function makePlan(items: StockItem[], sales: SalesData, loc: StockLoc, balance: Map<string, number>, links: Map<string, string>): Plan {
   const today = todayBkk();
   const age = (d: string) => Math.round((Date.parse(today) - Date.parse(d)) / 86400_000);
   const bySku = new Map(items.map((i) => [i.sku, i]));
-  // พี่เปีย sells what TikTok/Shopee orders (order-sheet rounds); GoSell what Facebook orders (Page365).
-  const rows = loc === 'pia' ? sales.bigseller.map((r) => ({ date: r.date, sku: r.sku, qty: Number(r.qty) || 0 })) : sales.page365.map((r) => ({ date: r.date, sku: r.sku, qty: Number(r.qty) || 0 }));
-  const dataDays = (loc === 'pia' ? sales.bigsellerDays : sales.page365Days).filter((d) => d < today);
+  // พี่เปีย sells what TikTok/Shopee orders (order-sheet rounds); GoSell what Facebook orders (Page365); PK both.
+  const bs = sales.bigseller.map((r) => ({ date: r.date, sku: r.sku, qty: Number(r.qty) || 0 }));
+  const fb = sales.page365.map((r) => ({ date: r.date, sku: r.sku, qty: Number(r.qty) || 0 }));
+  const rows = (loc === 'pia' ? bs : loc === 'gosell' ? fb : [...bs, ...fb]).map((r) => ({ ...r, sku: links.get(r.sku) ?? links.get(r.sku.toUpperCase()) ?? r.sku }));
+  const both = sales.bigsellerDays.filter((d) => sales.page365Days.includes(d));
+  const dataDays = (loc === 'pia' ? sales.bigsellerDays : loc === 'gosell' ? sales.page365Days : both.length >= 3 ? both : [...new Set([...sales.bigsellerDays, ...sales.page365Days])]).filter((d) => d < today);
   const perDay = new Map<string, Map<string, number>>(); // model → date → pieces
   const perSize = new Map<string, Map<string, number>>(); // model → size → pieces
   for (const r of rows) {
@@ -54,12 +59,13 @@ function makePlan(items: StockItem[], sales: SalesData, loc: StockLoc, balance: 
     const sizes = items.filter((i) => i.code === code).map((i) => i.size);
     const shares = sizeShares(perSize.get(code) ?? new Map(), sizes);
     for (const i of items.filter((x) => x.code === code)) {
-      if (!balance.has(i.sku)) continue;
+      // no balance here, or no sales to forecast from: no days shown (rather than a misleading "> 90 วัน")
+      if (!balance.has(i.sku) || f.method === 'none' || f.mean === 0) continue;
       const share = shares.get(i.size) ?? 0;
-      sku.set(i.sku, { rate: f.at(1) * share, days: f.method === 'none' ? null : coverDays(balance.get(i.sku) ?? 0, f, share), share });
+      sku.set(i.sku, { rate: f.at(1) * share, days: coverDays(balance.get(i.sku) ?? 0, f, share), share });
     }
   }
-  return { models, sku, source: loc === 'pia' ? 'TikTok/Shopee จากรอบใบสั่ง' : 'Facebook จาก Page365' };
+  return { models, sku, source: loc === 'pia' ? 'TikTok/Shopee จากรอบใบสั่ง' : loc === 'gosell' ? 'Facebook จาก Page365' : 'TikTok/Shopee จากรอบใบสั่ง + Facebook จาก Page365' };
 }
 
 const daysText = (d: number | null) => (d === null ? '> 90 วัน' : d < 1 ? '< 1 วัน' : `~${Math.floor(d)} วัน`);
@@ -86,16 +92,19 @@ export function StockApp() {
   const canEdit = role === 'owner' || role === 'admin' || role === 'costs';
   const canOpen = role === 'owner' || role === 'admin';
 
-  const items = data?.items ?? [];
-  const models = useMemo(() => [...new Set(items.map((i) => i.code))], [items]);
-  const sizes = useMemo(() => [...new Set(items.map((i) => i.size))].sort((a, b) => Number(a) - Number(b)), [items]);
+  // the products this place keeps
+  const items = useMemo(() => (data?.items ?? []).filter((i) => i.locs.includes(loc)), [data, loc]);
+  const links = useMemo(() => new Map((data?.links ?? []).filter((k) => k.loc === loc).map((k) => [k.sku, k.stock_sku])), [data, loc]);
+  // PK lists every code: in code order (200, 200/2 …); the 5-model places keep their own order
+  const models = useMemo(() => { const c = [...new Set(items.map((i) => i.code))]; return loc === 'pk' ? c.sort((a, b) => a.localeCompare(b, 'en', { numeric: true })) : c; }, [items, loc]);
+  const sizes = useMemo(() => [...new Set(items.map((i) => i.size))].sort(compareSize), [items]);
   const skuOf = (code: string, size: string) => items.find((i) => i.code === code && i.size === size)?.sku;
   const balance = useMemo(() => new Map((data?.balances ?? []).filter((b) => b.loc === loc).map((b) => [b.sku, b.qty])), [data, loc]);
   const started = !!data?.start[loc];
   const total = [...balance.values()].reduce((a, b) => a + b, 0);
   // A size with no entry at all is not kept at this place (e.g. 701/1 at พี่เปีย): shown as — rather than as sold out.
   const lowCount = items.filter((i) => balance.has(i.sku) && (balance.get(i.sku) ?? 0) <= LOW).length;
-  const plan = useMemo(() => (data && sales ? makePlan(items, sales, loc, balance) : null), [data, sales, items, loc, balance]);
+  const plan = useMemo(() => (data && sales ? makePlan(items, sales, loc, balance, links) : null), [data, sales, items, loc, balance, links]);
 
   return (
     <div className="app stock">
@@ -105,16 +114,16 @@ export function StockApp() {
           <HomeLogo text="สต็อก" />
           <div>
             <h1>สต็อก</h1>
-            <p className="muted small clip">{models.length} รุ่น · ไซส์ {sizes[0] ?? ''}–{sizes[sizes.length - 1] ?? ''} · พี่เปียตัดตามใบสั่งของ · GoSell ตัดเมื่อกดหลังทำไฟล์ GoSell</p>
+            <p className="muted small clip">{models.length} รุ่น · ไซส์ {sizes[0] ?? ''}–{sizes[sizes.length - 1] ?? ''} · พี่เปียและ PK ตัดตามใบสั่งของ (ใบ "พี่เปีย" / ใบ "PK") · GoSell ตัดเมื่อกดหลังทำไฟล์ GoSell{links.size ? ` · ${loc === 'pia' ? '601/1–3 ตัดจาก 501/1–3' : ''}` : ''}</p>
           </div>
         </div>
       </header>
 
       <section className="card units-range">
         <div className="segmented" role="tablist" aria-label="สต็อกที่ไหน">
-          {(['pia', 'gosell'] as StockLoc[]).map((l) => <button key={l} className={loc === l ? 'on' : ''} onClick={() => { setLoc(l); setMode(null); }}>{LOC_LABEL[l]}</button>)}
+          {LOCS.map((l) => <button key={l} className={loc === l ? 'on' : ''} onClick={() => { setLoc(l); setMode(null); }}>{LOC_LABEL[l]}</button>)}
         </div>
-        {data && <span className="small muted">{started ? `ยอดเริ่ม ${thaiShortDate(data.start[loc]!)} · ${loc === 'pia' ? `ตัดจากใบสั่งตั้งแต่ ${thaiShortDate(nextDay(data.start[loc]!))}` : 'ตัดเมื่อกดจากหน้า GoSell'}` : 'ยังไม่ได้ตั้งยอดเริ่ม'}</span>}
+        {data && <span className="small muted">{started ? `ยอดเริ่ม ${thaiShortDate(data.start[loc]!)} · ${loc === 'gosell' ? 'ตัดเมื่อกดจากหน้า GoSell' : `ตัดจากใบ "${loc === 'pia' ? 'พี่เปีย' : 'PK'}" ตั้งแต่ ${thaiShortDate(nextDay(data.start[loc]!))}`}` : 'ยังไม่ได้ตั้งยอดเริ่ม'}</span>}
       </section>
 
       {loc === 'gosell' && canEdit && <GosellConfirm data={data} onDone={load} />}

@@ -308,7 +308,7 @@ export interface CatalogTab { tab: string; gid: string; sort: number; skus: numb
 export interface CatalogImage { key: string; tab: string; spu: string; url: string | null; uploaded: boolean; bytes: number; updated_by: string; updated_at: string }
 export interface CatalogSupplier { key: string; tab: string; spu: string; shop: string; updated_by: string; updated_at: string }
 export interface CatalogPrice { key: string; tab: string; spu: string; price: number; updated_by: string; updated_at: string }
-export interface CatalogAlias { alias: string; sku: string; created_by: string; created_at: string }
+export interface CatalogAlias { alias: string; sku: string; force?: boolean; created_by: string; created_at: string }
 export interface CatalogLabel { key: string; tab: string; spu: string; label: string; updated_by: string; updated_at: string }
 export interface CatalogMeta { version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; prices: CatalogPrice[]; sell_prices: CatalogPrice[]; labels: CatalogLabel[]; aliases: CatalogAlias[]; sheet_configured: boolean }
 /** /catalog/profit: Page365 orders (with the shop's per-order fee), marketplace money, order-sheet items, Meta spend. */
@@ -324,8 +324,8 @@ export interface ProfitData {
 }
 export interface ImportMap { signature: string; map: MoneyMap; platform: Platform | 'auto'; updated_by: string; updated_at: string }
 /** /catalog/stock: our own stock at พี่เปีย's BB branch ('pia') and in GoSell's warehouse ('gosell'). */
-export type StockLoc = 'pia' | 'gosell';
-export interface StockItem { sku: string; code: string; size: string; sort: number }
+export type StockLoc = 'pia' | 'gosell' | 'pk';
+export interface StockItem { sku: string; code: string; size: string; sort: number; locs: StockLoc[] }
 export interface StockMove { id: number; loc: StockLoc; sku: string; qty: number; kind: 'open' | 'in' | 'out' | 'adjust'; ref: string; date: string; note: string; created_by: string; created_at: string }
 export interface StockData {
   items: StockItem[];
@@ -333,6 +333,7 @@ export interface StockData {
   start: Partial<Record<StockLoc, string>>;
   moves: StockMove[];
   cut: { loc: StockLoc; order_no: string; sku: string; ref: string }[];
+  links: { loc: StockLoc; sku: string; stock_sku: string }[];
 }
 export interface GosellCut { cut: { sku: string; qty: number }[]; orders: number; already: number; other: number }
 /** A round's item that is not from the Bigseller file: a Facebook order line (Page365) or a line typed by hand. */
@@ -371,7 +372,7 @@ export const api = {
   },
   linkCatalogImage: (tab: string, spu: string, url: string) => call<{ image: CatalogImage }>('POST', '/api/catalog/image', { tab, spu, url }),
   deleteCatalogImage: (tab: string, spu: string) => call<{ ok: true }>('DELETE', `/api/catalog/image?tab=${encodeURIComponent(tab)}&spu=${encodeURIComponent(spu)}`),
-  setAlias: (alias: string, sku: string) => call<{ alias: CatalogAlias | null }>('PUT', '/api/catalog/alias', { alias, sku }),
+  setAlias: (alias: string, sku: string, force = false) => call<{ alias: CatalogAlias | null }>('PUT', '/api/catalog/alias', { alias, sku, force }),
   setLabels: (items: { tab: string; spu: string; label: string }[]) => call<{ labels: CatalogLabel[] }>('PUT', '/api/catalog/label', { items }),
   setPrices: (items: { tab: string; spu: string; price: number | null }[]) => call<{ prices: CatalogPrice[] }>('PUT', '/api/catalog/price', { items }),
   setSellPrices: (items: { tab: string; spu: string; price: number | null }[]) => call<{ prices: CatalogPrice[] }>('PUT', '/api/catalog/sell-price', { items }),

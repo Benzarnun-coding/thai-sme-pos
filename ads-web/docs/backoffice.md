@@ -62,6 +62,10 @@ rules, the monthly goal or the sheet.
   saved with the round (`purchase_uploads.extra`, migration 0049) and come back when the same Bigseller file is
   uploaded again; neither goes into `purchase_items` (Facebook units are counted from the Page365 upload; typed lines
   are not sales). A SKU split over groups (พี่เปีย / GoSell / PK) is not turned into a "move" when a round reopens.
+- "รหัสของเรา" (Benz 2026-10-19): "แก้" on a row (not PK's own) also offers our codes (the PK tab); picking one
+  saves a forced match (`catalog_aliases.force`, migration 0050) from the row's SKU to that code's same size, e.g.
+  39-BB-MD-34 → 5011-PK-MD-34. From then on every page reads it as ours, so the two rows add up; the merged row says
+  "รวม 39-BB-MD-34 · แยก" to undo. Ordinary matches (unknown SKUs) never override a catalog SKU; forced ones do.
 - Where a row goes (`groupOf`): supplier set on the page > sheet ร้านค้า (statuses like เลิกผลิต ignored) >
   "BB · ยังไม่ระบุร้าน" (only BB must have a supplier, `SUPPLIER_TABS`) > the warehouse itself (PK, CM, CN, BBW …;
   BBW products with นอร์ท still go to นอร์ท). Unknown SKUs → "ตรวจสอบ" (match, or add via `/catalog?q=SKU&add=1`);
@@ -121,8 +125,12 @@ rules, the monthly goal or the sheet.
 
 ## Stock `/catalog/stock` (Benz 2026-10-15; replaces the "Stock BB" sheet)
 
-- Products: `stock_items` = 501/1, 501/2, 501/3, 701/1, 701/2 × sizes 28–36 (our PK SKUs; 38+ come from BB
-  suppliers). Two places, balance = Σ `stock_moves.qty` (open / in / out / adjust):
+- Products: `stock_items`; which place keeps which: `stock_locs` (migration 0050). พี่เปีย and GoSell = 501/1, 501/2,
+  501/3, 701/1, 701/2 × sizes 28–36; PK = every size of our 39 codes in the PK tab (200 … 009/2, Ni8/Ni9, D01/D02).
+  `stock_links`: 601/1–3 sold at พี่เปีย are cut from 501/1–3 of the same size. Balance = Σ `stock_moves.qty`
+  (open / in / out / adjust):
+  - PK (`pk`, our PK warehouse, 2026-10-19): cut by the order sheets' "PK" sheet, like พี่เปีย, including the round's
+    Facebook orders and typed lines. Starts once its starting balance is set ("ตั้งยอดเริ่ม", owner/admin).
   - พี่เปีย (`pia`, our branch at BB, the sheet's tab BB): cut by the order sheets — what is in a saved round's
     "พี่เปีย" group, each order + SKU once (`stock_orders`, so in-process orders that come back are not cut again),
     less pieces ticked "ของไม่มี". Only rounds dated after the starting balance count.

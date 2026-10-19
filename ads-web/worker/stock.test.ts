@@ -41,3 +41,20 @@ test('before the stock starts (the sheet covered that day) nothing moves', () =>
   const lines = buildLines([item('A', '5012-PK-NV-30')], makeLookup(CATALOG, new Map()), p.place);
   assert.equal(lines[0].group, 'PK');
 });
+
+test('601/1 sold at พี่เปีย uses 501/1 stock of the same size', () => {
+  const cat = [...CATALOG, row({ tab: 'PK', sku: '6011-PK-MD-30', code: '601/1', color: 'MD', size: '30' })];
+  const p = stockPlacer({ skus: new Set(['5012-PK-NV-30']), balance: new Map([['5012-PK-NV-30', 3]]), cut: new Set(), active: true, link: new Map([['6011-PK-MD-30', '5012-PK-NV-30']]) });
+  const lines = buildLines([item('A', '6011-PK-MD-30', 2), item('B', '5012-PK-NV-30', 2)], makeLookup(cat, new Map()), p.place);
+  assert.deepEqual(lines.map((l) => [l.group, l.sku, l.qty]), [[STOCK_GROUP, '6011-PK-MD-30', 2], ['PK', '5012-PK-NV-30', 2]]);
+  assert.deepEqual([...p.short], [['5012-PK-NV-30', 2]], 'only 1 left for the 501 order');
+});
+
+test('"รหัสของเรา": a forced match replaces a SKU even when the catalog has it, so the rows add up', () => {
+  const cat = [...CATALOG, row({ tab: 'BB', sku: '39-BB-MD-30', code: '39', color: 'MD', size: '30', shop: 'ร้าน 39' })];
+  const items = [item('A', '39-BB-MD-30'), item('B', '5012-PK-NV-30', 2)];
+  const plain = buildLines(items, makeLookup(cat, new Map(), new Map(), new Map(), new Map([['39-BB-MD-30', '5012-PK-NV-30']])));
+  assert.equal(plain.length, 2, 'an ordinary match never overrides a catalog SKU');
+  const forced = buildLines(items, makeLookup(cat, new Map(), new Map(), new Map(), new Map([['39-BB-MD-30', '5012-PK-NV-30']]), new Set(['39-BB-MD-30'])));
+  assert.deepEqual(forced.map((l) => [l.group, l.sku, l.qty, l.merged]), [['PK', '5012-PK-NV-30', 3, ['39-BB-MD-30']]]);
+});

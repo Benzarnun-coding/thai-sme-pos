@@ -27,7 +27,7 @@ function readPreset(): number {
 export function UnitsApp() {
   useEffect(() => { document.title = 'ยอดขาย'; }, []);
   const { toast } = useUi();
-  const { meta, rows, supplierMap, priceMap, labelMap, imageMap, aliasMap } = useCatalog();
+  const { meta, rows, supplierMap, priceMap, labelMap, imageMap, aliasMap, aliasForce } = useCatalog();
   const [preset, setPreset] = useState<number | null>(readPreset);
   const [to, setTo] = useState(todayBkk());
   const [from, setFrom] = useState(minus(todayBkk(), readPreset() - 1));
@@ -47,7 +47,7 @@ export function UnitsApp() {
   const pick = (days: number) => { setPreset(days); setTo(todayBkk()); setFrom(minus(todayBkk(), days - 1)); };
 
   const allRows = useMemo<CatalogRow[]>(() => [...rows, ...(meta?.web ?? []).map((w) => webToRow(w, 0))], [rows, meta?.web]);
-  const lookup = useMemo(() => makeLookup(allRows, supplierMap, priceMap, labelMap, aliasMap), [allRows, supplierMap, priceMap, labelMap, aliasMap]);
+  const lookup = useMemo(() => makeLookup(allRows, supplierMap, priceMap, labelMap, aliasMap, aliasForce), [allRows, supplierMap, priceMap, labelMap, aliasMap, aliasForce]);
   const sales = useMemo(() => (data ? saleRows(data) : []), [data]);
   const shown = useMemo(() => (channel ? sales.filter((r) => r.channel === channel) : sales), [sales, channel]);
   const days = useMemo(() => (data ? byDay(sales, data) : []), [sales, data]);

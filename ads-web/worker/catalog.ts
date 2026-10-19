@@ -416,10 +416,11 @@ export async function saveLabels(db: D1Database, input: any, user: string): Prom
 
 // ---- another system's SKU matched to ours (Lazada ids, typos, old codes) ----
 
-export interface CatalogAlias { alias: string; sku: string; created_by: string; created_at: string }
+/** `force`: replaces the SKU even when the catalog has it (picked as "รหัสของเรา" on the order page). */
+export interface CatalogAlias { alias: string; sku: string; force: boolean; created_by: string; created_at: string }
 
 export async function listAliases(db: D1Database): Promise<CatalogAlias[]> {
-  return (await db.prepare('SELECT alias, sku, created_by, created_at FROM catalog_aliases ORDER BY created_at DESC').all<CatalogAlias>()).results;
+  return (await db.prepare('SELECT alias, sku, force, created_by, created_at FROM catalog_aliases ORDER BY created_at DESC').all<Omit<CatalogAlias, 'force'> & { force: number }>()).results.map((a) => ({ ...a, force: !!a.force }));
 }
 
 /** Match `alias` to our `sku` (which must exist in the catalog); an empty sku removes the match. */
@@ -427,6 +428,7 @@ export async function saveAlias(db: D1Database, input: any, user: string): Promi
   const alias = skuKey(input?.alias);
   if (!alias || alias.length > 120) throw new BadRequest('ไม่มี SKU ที่จะจับคู่');
   const sku = cleanSku(input?.sku);
+  const force = input?.force === true;
   if (!sku) {
     await db.prepare('DELETE FROM catalog_aliases WHERE alias = ?1').bind(alias).run();
     return null;
@@ -438,8 +440,8 @@ export async function saveAlias(db: D1Database, input: any, user: string): Promi
   if (!ours) throw new BadRequest(`ไม่พบ SKU ${sku} ในแคตตาล็อก`);
   const now = new Date().toISOString();
   await db.prepare(
-    `INSERT INTO catalog_aliases (alias, sku, created_by, created_at) VALUES (?1, ?2, ?3, ?4)
-     ON CONFLICT (alias) DO UPDATE SET sku = excluded.sku, created_by = excluded.created_by, created_at = excluded.created_at`,
-  ).bind(alias, ours.sku, user, now).run();
-  return { alias, sku: ours.sku, created_by: user, created_at: now };
+    `INSERT INTO catalog_aliases (alias, sku, force, created_by, created_at) VALUES (?1, ?2, ?5, ?3, ?4)
+     ON CONFLICT (alias) DO UPDATE SET sku = excluded.sku, force = excluded.force, created_by = excluded.created_by, created_at = excluded.created_at`,
+  ).bind(alias, ours.sku, user, now, force ? 1 : 0).run();
+  return { alias, sku: ours.sku, force, created_by: user, created_at: now };
 }

@@ -46,7 +46,7 @@ function fromSaved(l: SavedPurchaseLine): PurchaseLine {
 export function OrdersApp() {
   useEffect(() => { document.title = 'ใบสั่งสินค้า'; }, []);
   const { toast, confirm } = useUi();
-  const { meta, setMeta, rows, loading, error, canEdit, role, supplierMap, imageMap, priceMap, labelMap, aliasMap } = useCatalog();
+  const { meta, setMeta, rows, loading, error, canEdit, role, supplierMap, imageMap, priceMap, labelMap, aliasMap, aliasForce } = useCatalog();
   const [data, setData] = useState<Loaded | null>(null);
   // Facebook orders (Page365's per-item export) and lines typed by hand, on the same round as the Bigseller file.
   const [fb, setFb] = useState<Loaded | null>(null);
@@ -77,7 +77,33 @@ export function OrdersApp() {
 
   // Sheet rows + SKUs added on the page, so a SKU added this morning already lands on the right sheet.
   const allRows = useMemo<CatalogRow[]>(() => [...rows, ...(meta?.web ?? []).map((w) => webToRow(w, 0))], [rows, meta?.web]);
-  const lookup = useMemo(() => makeLookup(allRows, supplierMap, priceMap, labelMap, aliasMap), [allRows, supplierMap, priceMap, labelMap, aliasMap]);
+  const lookup = useMemo(() => makeLookup(allRows, supplierMap, priceMap, labelMap, aliasMap, aliasForce), [allRows, supplierMap, priceMap, labelMap, aliasMap, aliasForce]);
+  // Our own codes (the PK tab): code → size → SKU, for "รหัสของเรา" when a row's name is edited.
+  const ours = useMemo(() => {
+    const m = new Map<string, Map<string, string>>();
+    for (const r of allRows) {
+      if (r.tab !== 'PK' || !r.code) continue;
+      const x = m.get(r.code) ?? new Map<string, string>();
+      x.set(r.size, r.sku);
+      m.set(r.code, x);
+    }
+    return new Map([...m].sort(([a], [b]) => a.localeCompare(b, 'en', { numeric: true })));
+  }, [allRows]);
+  /** Reads `from` as our `to` from now on (every page, every day), so the two rows add up. */
+  async function replaceSku(from: string, to: string) {
+    try {
+      const { alias } = await api.setAlias(from, to, true);
+      if (alias) setMeta((m) => (m ? { ...m, aliases: [alias, ...m.aliases.filter((x) => x.alias !== alias.alias)] } : m));
+      toast(`${from} → ${to} · รวมกับบรรทัดของเราแล้ว จำไว้ใช้ทุกวัน${viewing ? ' (ใบย้อนหลังที่เปิดอยู่จะรวมเมื่ออัปโหลดไฟล์เดิมอีกครั้ง)' : ''}`, 'ok');
+    } catch (e: any) { toast(e.message, 'bad'); }
+  }
+  async function unmerge(from: string) {
+    try {
+      await api.setAlias(from, '');
+      setMeta((m) => (m ? { ...m, aliases: m.aliases.filter((x) => x.alias !== skuKey(from)) } : m));
+      toast(`${from} แยกกลับเป็นบรรทัดของตัวเองแล้ว`, 'ok');
+    } catch (e: any) { toast(e.message, 'bad'); }
+  }
   // Photo, code and colour per SKU for picture sheets: a picture added on the page, else column J of any size.
   const productInfo = useMemo(() => {
     const firstImage = new Map<string, string>();
@@ -95,7 +121,9 @@ export function OrdersApp() {
   const loadStock = () => api.stock().then(setStock).catch(() => {});
   useEffect(() => { loadStock(); }, []);
   const newPlacer = useMemo(() => {
-    const skus = new Set((stock?.items ?? []).map((i) => i.sku));
+    const skus = new Set((stock?.items ?? []).filter((i) => i.locs.includes('pia')).map((i) => i.sku));
+    const gsSkus = new Set((stock?.items ?? []).filter((i) => i.locs.includes('gosell')).map((i) => i.sku));
+    const link = new Map((stock?.links ?? []).filter((k) => k.loc === 'pia').map((k) => [k.sku, k.stock_sku]));
     const balance = new Map((stock?.balances ?? []).filter((b) => b.loc === 'pia').map((b) => [b.sku, b.qty]));
     const cut = new Set((stock?.cut ?? []).filter((c) => c.loc === 'pia').map((c) => `${c.order_no}|${c.sku}`));
     const active = !!stock?.start.pia && date > stock.start.pia;
@@ -103,8 +131,8 @@ export function OrdersApp() {
     // button on the GoSell page, not here); typed lines stay on their usual sheet.
     const gsBalance = new Map((stock?.balances ?? []).filter((b) => b.loc === 'gosell').map((b) => [b.sku, b.qty]));
     return () => {
-      const pia = stockPlacer({ skus, balance, cut, active });
-      const gs = stockPlacer({ skus, balance: gsBalance, cut: new Set(), active: !!stock?.start.gosell, group: GOSELL_GROUP });
+      const pia = stockPlacer({ skus, balance, cut, active, link });
+      const gs = stockPlacer({ skus: gsSkus, balance: gsBalance, cut: new Set(), active: !!stock?.start.gosell, group: GOSELL_GROUP });
       return {
         place: (it: OrderItem, r: CatalogRow) => (it.store === FACEBOOK_STORE ? gs.place(it, r) : it.store === MANUAL_STORE ? null : pia.place(it, r)),
         short: pia.short, gsShort: gs.short,
@@ -559,6 +587,7 @@ export function OrdersApp() {
               onLabel={(l) => (l.tab && !l.sku.startsWith('?') ? (canEdit ? setLabel : null) : (!viewing || canEdit ? setLabel : null))}
               canRemember={canEdit} movable={!viewing || canEdit} targets={targets} onMove={moveLine}
               matchRows={allRows} onMatched={canEdit ? (a) => setMeta((m) => (m ? { ...m, aliases: [a, ...m.aliases.filter((x) => x.alias !== a.alias)] } : m)) : null}
+              ours={ours} onReplace={canEdit ? replaceSku : null} onUnmerge={canEdit ? unmerge : null}
               onSupplier={setSupplier} onExcel={() => exportExcel(g)} onPrint={() => print(g)} busy={!!busy}
               onPictures={() => { save(); setPictures(g); }}
             />
@@ -671,12 +700,13 @@ function Sources({ bigseller, fb, manual, rows, busy, onFile, onRemoveFb, onAdd,
 
 // ---- one supplier / warehouse ----
 
-function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPrice, onLabel, canRemember, movable, targets, onMove, matchRows, onMatched, onSupplier, onExcel, onPrint, onPictures, busy }: {
+function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPrice, onLabel, canRemember, movable, targets, onMove, matchRows, onMatched, ours, onReplace, onUnmerge, onSupplier, onExcel, onPrint, onPictures, busy }: {
   group: PurchaseGroup; open: boolean; onToggle: () => void; found: Set<string>; missing: Map<string, number>; onMissing: ((l: PurchaseLine, n: number) => Promise<void>) | null;
   onPrice: ((l: PurchaseLine, price: number | null) => Promise<void>) | null;
   onLabel: (l: PurchaseLine) => ((l: PurchaseLine, text: string) => Promise<void>) | null;
   canRemember: boolean; movable: boolean; targets: string[]; onMove: (sku: string, to: string) => void;
   matchRows: CatalogRow[]; onMatched: ((a: CatalogAlias) => void) | null;
+  ours: Map<string, Map<string, string>>; onReplace: ((from: string, to: string) => Promise<void>) | null; onUnmerge: ((from: string) => Promise<void>) | null;
   onSupplier: (items: { tab: string; spu: string }[], shop: string) => Promise<void>; onExcel: () => void; onPrint: () => void; onPictures: () => void; busy: boolean;
 }) {
   const rowsOnSheet = sheetRows(g).length;
@@ -754,7 +784,7 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
                   const firstOfProduct = g.lines.findIndex((x) => `${x.tab}|${spuOf(x.sku)}` === product) === i;
                   return (
                     <tr key={l.sku} id={rowId(g.name, l.sku)} className={`${firstOfProduct && i > 0 ? 'group-start' : ''} ${missing.get(lineKey(l)) ? 'po-missing' : ''} ${found.has(`${g.name}\u0000${l.sku}`) ? 'po-found' : ''}`}>
-                      <td><LabelCell line={l} strong={!!firstOfProduct || g.kind === 'review'} onSave={onLabel(l) ? (text) => onLabel(l)!(l, text) : null} /></td>
+                      <td><LabelCell line={l} strong={!!firstOfProduct || g.kind === 'review'} onSave={onLabel(l) ? (text) => onLabel(l)!(l, text) : null} ours={ours} onReplace={onReplace} onUnmerge={onUnmerge} /></td>
                       <td>{l.size || '—'}</td>
                       <td className="num"><b>{num(l.qty)}</b></td>
                       <td className="small">
@@ -802,26 +832,57 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
  * The name on the sheet, editable: a catalog product keeps it for every size and day, a row not in the catalog for
  * this round only. Empty + save = back to the default.
  */
-function LabelCell({ line: l, strong, onSave }: { line: PurchaseLine; strong: boolean; onSave: ((text: string) => Promise<void>) | null }) {
+function LabelCell({ line: l, strong, onSave, ours, onReplace, onUnmerge }: {
+  line: PurchaseLine; strong: boolean; onSave: ((text: string) => Promise<void>) | null;
+  ours: Map<string, Map<string, string>>; onReplace: ((from: string, to: string) => Promise<void>) | null; onUnmerge: ((from: string) => Promise<void>) | null;
+}) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(l.label);
+  const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const catalog = !!l.tab && !l.sku.startsWith('?');
+  // "รหัสของเรา": the same size of one of our codes; picking it makes this SKU read as ours (merged with our row).
+  const target = code ? ours.get(code)?.get(l.size) ?? null : null;
+  const canReplace = !!onReplace && !l.sku.startsWith('?') && l.tab !== 'PK';
   const save = async () => {
     if (!onSave) return;
     if (value.trim() === l.label) { setEditing(false); return; }
     setBusy(true);
     try { await onSave(value.trim()); setEditing(false); } finally { setBusy(false); }
   };
+  const replace = async () => {
+    if (!onReplace || !target) return;
+    setBusy(true);
+    try { await onReplace(l.sku, target); setEditing(false); setCode(''); } finally { setBusy(false); }
+  };
+  const merged = l.merged?.length ? (
+    <small className="muted po-merged">
+      รวม {l.merged.map((m) => <span key={m}>{m}{onUnmerge && <> <button className="link small" title="แยกกลับเป็นบรรทัดของตัวเอง" onClick={() => onUnmerge(m)}>แยก</button></>} </span>)}
+    </small>
+  ) : null;
   if (editing) {
     return (
       <span className="po-label-edit">
+        {canReplace && (
+          <span className="po-our-code">
+            <label className="small">รหัสของเรา
+              <select value={code} disabled={busy} onChange={(e) => setCode(e.target.value)} aria-label="เปลี่ยนเป็นรหัสของเรา">
+                <option value="">— เลือก —</option>
+                {[...ours.keys()].map((c) => <option key={c} value={c}>{c}{ours.get(c)?.has(l.size) ? '' : ` (ไม่มีไซส์ ${l.size})`}</option>)}
+              </select>
+            </label>
+            {code && (target
+              ? <><small><code>{l.sku}</code> → <code>{target}</code></small> <button className="small primary" disabled={busy} onClick={replace}>ใช้รหัสนี้</button></>
+              : <small className="bad">{code} ไม่มีไซส์ {l.size || '(ไม่ทราบไซส์)'}</small>)}
+            <small className="muted">SKU เปลี่ยนเป็นของเรา จำนวนรวมกับบรรทัดเดิม · จำไว้ทุกวัน ทุกหน้า (ยอดขาย ทุน สต็อก)</small>
+          </span>
+        )}
         <input value={value} autoFocus disabled={busy} onChange={(e) => setValue(e.target.value)} aria-label="ชื่อในใบสั่ง"
           onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }} />
         <span className="po-label-actions">
-          <button className="small primary" disabled={busy} onClick={save}>บันทึก</button>
-          <button className="link small" onClick={() => setEditing(false)}>ยกเลิก</button>
-          <small className="muted">{catalog ? 'ทุกไซส์ · จำไว้ทุกวัน · ลบให้ว่าง = กลับเป็นค่าเดิม' : 'เฉพาะรอบนี้'}</small>
+          <button className="small primary" disabled={busy} onClick={save}>บันทึกชื่อ</button>
+          <button className="link small" onClick={() => { setEditing(false); setCode(''); }}>ยกเลิก</button>
+          <small className="muted">{catalog ? 'ชื่อ: ทุกไซส์ · จำไว้ทุกวัน · ลบให้ว่าง = กลับเป็นค่าเดิม' : 'ชื่อ: เฉพาะรอบนี้'}</small>
         </span>
       </span>
     );
@@ -829,7 +890,8 @@ function LabelCell({ line: l, strong, onSave }: { line: PurchaseLine; strong: bo
   return (
     <span className="po-label">
       {strong ? <b>{l.label}</b> : <span className="muted">{l.label}</span>}
-      {onSave && <button className="link small po-label-btn" onClick={() => { setValue(l.label); setEditing(true); }} title="แก้ชื่อที่จะขึ้นในใบสั่ง">แก้</button>}
+      {(onSave || canReplace) && <button className="link small po-label-btn" onClick={() => { setValue(l.label); setEditing(true); }} title="แก้ชื่อ หรือเปลี่ยนเป็นรหัสของเรา">แก้</button>}
+      {merged}
     </span>
   );
 }

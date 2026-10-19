@@ -37,6 +37,8 @@ export interface PurchaseLine {
   /** what we pay per piece (ทุน H from the sheet, or typed on the page), filled by withPrices; null = unknown */
   price?: number | null;
   priceSource?: PriceSource;
+  /** other SKUs read as this one (a match picked as "รหัสของเรา", or a marketplace SKU matched to ours), shown on screen */
+  merged?: string[];
   /** pieces the supplier reported out of stock (ticked on the page; goes to the เก็บตกแทน file) */
   missing?: number;
   /** moved by hand to another supplier/warehouse for this round (out of stock, a substitute, a ตรวจสอบ row …) */
@@ -196,7 +198,7 @@ export interface Lookup {
   labels: Map<string, string>;
 }
 
-export function makeLookup(rows: CatalogRow[], suppliers: Map<string, string>, prices: Map<string, number> = new Map(), labels: Map<string, string> = new Map(), aliases: Map<string, string> = new Map()): Lookup {
+export function makeLookup(rows: CatalogRow[], suppliers: Map<string, string>, prices: Map<string, number> = new Map(), labels: Map<string, string> = new Map(), aliases: Map<string, string> = new Map(), force: Set<string> = new Set()): Lookup {
   const map = new Map<string, CatalogRow>();
   const supplierTabs = new Set(SUPPLIER_TABS);
   for (const r of rows) {
@@ -204,9 +206,12 @@ export function makeLookup(rows: CatalogRow[], suppliers: Map<string, string>, p
     if (!map.has(k)) map.set(k, r);
   }
   // Another system's SKU matched to ours reads as ours (a SKU really in the catalog always wins).
+  // A forced match ("รหัสของเรา" picked on the order page) replaces even a SKU the catalog has; targets are read
+  // from the catalog as it was, so two matches never chain.
+  const base = new Map(map);
   for (const [alias, sku] of aliases) {
-    const r = map.get(skuKey(sku));
-    if (r && !map.has(alias)) map.set(alias, r);
+    const r = base.get(skuKey(sku));
+    if (r && (force.has(alias) || !map.has(alias))) map.set(alias, r);
   }
   return { rows: map, suppliers, supplierTabs, prices, labels };
 }
@@ -287,16 +292,19 @@ export function labelFor(r: CatalogRow, kind: GroupKind, lookup: Lookup | null):
  * already cut (it came back in a later round) always does; a new one does while the balance lasts, first come first
  * served. `short` counts the pieces that did not fit (they stay on their usual sheet). Off when `active` is false.
  */
-export function stockPlacer(stock: { skus: Set<string>; balance: Map<string, number>; cut: Set<string>; active: boolean; group?: string }) {
+export function stockPlacer(stock: { skus: Set<string>; balance: Map<string, number>; cut: Set<string>; active: boolean; group?: string; link?: Map<string, string> }) {
   const group = stock.group ?? STOCK_GROUP;
+  // a sold SKU cut from another SKU's stock (601/1 → 501/1 at พี่เปีย)
+  const stockSku = (sku: string) => stock.link?.get(sku) ?? sku;
   const left = new Map(stock.balance);
   const short = new Map<string, number>();
   const place = (it: OrderItem, r: CatalogRow): string | null => {
-    if (!stock.active || !stock.skus.has(r.sku)) return null;
-    if (it.order && stock.cut.has(`${it.order}|${r.sku}`)) return group;
-    const n = left.get(r.sku) ?? 0;
-    if (n >= it.qty) { left.set(r.sku, n - it.qty); return group; }
-    short.set(r.sku, (short.get(r.sku) ?? 0) + it.qty);
+    const key = stockSku(r.sku);
+    if (!stock.active || !stock.skus.has(key)) return null;
+    if (it.order && stock.cut.has(`${it.order}|${key}`)) return group;
+    const n = left.get(key) ?? 0;
+    if (n >= it.qty) { left.set(key, n - it.qty); return group; }
+    short.set(key, (short.get(key) ?? 0) + it.qty);
     return null;
   };
   return { place, short };
@@ -324,6 +332,8 @@ export function buildLines(items: OrderItem[], lookup: Lookup, place?: (it: Orde
     const key = `${line.group}\u0000${line.sku}`;
     const target = lines.get(key) ?? { ...line, orders: [], stores: {} };
     target.qty += it.qty;
+    const raw = cleanSku(it.sku);
+    if (r && raw && skuKey(raw) !== skuKey(r.sku) && !target.merged?.includes(raw)) target.merged = [...(target.merged ?? []), raw];
     if (it.order && !target.orders.includes(it.order)) target.orders.push(it.order);
     if (it.order && (it.store || it.carrier)) target.stores![it.order] = storeLabel(it.store, it.carrier);
     lines.set(key, target);

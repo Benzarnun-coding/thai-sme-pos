@@ -108,7 +108,7 @@ export function opsText(f: OpsFacts): string {
     const sum = f.owed.reduce((t, x) => t + x.amount, 0);
     lines.push(`💸 ค้างจ่ายร้าน **฿${n(sum)}**: ${f.owed.slice(0, 5).map((x) => `${x.grp} ฿${n(x.amount)}`).join(' · ')}${f.owed.length > 5 ? ` · อีก ${f.owed.length - 5} ร้าน` : ''}`);
   }
-  for (const [loc, label] of [['pia', 'พี่เปีย'], ['gosell', 'GoSell']] as const) {
+  for (const [loc, label] of [['pia', 'พี่เปีย'], ['gosell', 'GoSell'], ['pk', 'PK']] as const) {
     const l = f.low.filter((x) => x.loc === loc);
     if (l.length) lines.push(`📉 สต็อก${label}เหลือน้อย: ${l.slice(0, 8).map((x) => `${x.code} #${x.size} ${n(x.qty)}`).join(' · ')}${l.length > 8 ? ` · อีก ${l.length - 8} ไซส์` : ''} · ${SITE}/catalog/stock`);
   }
