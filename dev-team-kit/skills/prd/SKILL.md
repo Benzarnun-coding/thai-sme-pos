@@ -1,6 +1,6 @@
 ---
 name: prd
-description: เขียน PRD (what & why) ก่อนเริ่มสร้างฟีเจอร์ ใช้เมื่อผู้ใช้หรือ compass ต้องกำหนดปัญหา ผู้ใช้ ตัวเลขวัดผล scope และ kill condition
+description: เขียน PRD (what & why) ก่อนเริ่มสร้างฟีเจอร์ ใช้เมื่อผู้ใช้หรือ seneca ต้องกำหนดปัญหา ผู้ใช้ ตัวเลขวัดผล scope และ kill condition
 ---
 
 # /prd

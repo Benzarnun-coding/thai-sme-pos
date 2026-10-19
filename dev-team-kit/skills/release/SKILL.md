@@ -14,7 +14,7 @@ description: งาน DevOps 3 แบบ — ตั้ง pipeline (setup), เ
 ## B — Release checklist
 
 - [ ] CI เขียวบน commit ที่จะ deploy, deploy จาก checkout ที่สะอาด
-- [ ] lookout ให้ Go (หรือ Go with risks ที่ผู้ใช้รับรู้แล้ว)
+- [ ] justice ให้ Go (หรือ Go with risks ที่ผู้ใช้รับรู้แล้ว)
 - [ ] migration ทดสอบกับข้อมูลรูปแบบจริง และเข้ากับเวอร์ชันก่อนหน้าได้
 - [ ] ของใหม่ที่เขียนออกนอกระบบปิดไว้เป็นค่าเริ่มต้น
 - [ ] รู้เวอร์ชันและคำสั่ง rollback

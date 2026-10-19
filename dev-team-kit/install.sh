@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copy the team's agents and skills into ~/.claude (user level, so they work in every project).
+# Copy the Benz Stoic Lab agents and skills into ~/.claude (user level, so they work in every project).
 # Anything with the same name is moved to ~/.claude/backup-<time>/ first, never overwritten in place.
 set -euo pipefail
 
@@ -30,4 +30,4 @@ for d in "$src"/skills/*/; do
 done
 
 [ -d "$backup" ] && echo "old files with the same names were moved to $backup"
-echo "done. start the lead with:  claude --agent helm"
+echo "done. start the lead with:  claude --agent marcus"
