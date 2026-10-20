@@ -92,9 +92,10 @@ export async function serviceAlerts(env: ServiceEnv & { DB: D1Database }, rows: 
 /**
  * The customer's Facebook name. Meta refuses the profile lookup ("missing permissions") for most customers
  * (checked 2026-10-20 on a real one), but the page's conversation with them lists the name — so that is asked next.
+ * Up to two requests (three without `page`).
  */
-export async function customerName(env: ServiceEnv, psid: string): Promise<string | null> {
-  const pg = await pageOf(env);
+export async function customerName(env: WebhookEnv, psid: string, page?: { id: string; token: string } | null): Promise<string | null> {
+  const pg = page ?? await pageOf(env);
   if (!pg) return null;
   const graph = `https://graph.facebook.com/${env.META_API_VERSION ?? 'v21.0'}`;
   const token = encodeURIComponent(pg.token);

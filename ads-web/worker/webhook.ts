@@ -11,7 +11,7 @@ import { maybeSyncPurchases } from './metaPurchases.ts';
 import { looksLikeNote, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { hashName } from './p365.ts';
 import { extractChats, saveChats } from './chatLog.ts';
-import { serviceAlerts } from './serviceAlert.ts';
+import { customerName, serviceAlerts } from './serviceAlert.ts';
 
 export interface WebhookEnv {
   DB: D1Database;
@@ -149,15 +149,14 @@ function eventTime(ts: number | undefined): string {
 
 async function store(env: WebhookEnv, rows: ReferralRow[], events: number, notes: StoredNote[] = [], echoes = 0): Promise<void> {
   const now = new Date().toISOString();
+  // One lookup for the chats and the notes of this delivery, so the name requests stay inside a fixed share of the 50.
+  const hashes = rows.length || notes.length ? await nameHashes(env, [...new Set([...rows, ...notes].map((r) => r.psid))]) : new Map<string, string>();
   const stmts = [
     bump(env.DB, 'events_total', events),
     env.DB.prepare('INSERT OR REPLACE INTO webhook_status (key, value) VALUES (?, ?)').bind('last_event_at', now),
   ];
   if (rows.length) {
-    const [map, hashes] = await Promise.all([
-      resolveAds(env, rows.map((r) => r.ad_id).filter((x): x is string => !!x)),
-      nameHashes(env, [...new Set(rows.map((r) => r.psid))]),
-    ]);
+    const map = await resolveAds(env, rows.map((r) => r.ad_id).filter((x): x is string => !!x));
     for (const r of rows) { r.campaign_id = r.ad_id ? map.get(r.ad_id) ?? null : null; r.name_hash = hashes.get(r.psid) ?? null; }
     stmts.push(
       env.DB.prepare(`INSERT OR IGNORE INTO ad_referrals (psid, at, ad_id, campaign_id, source, ref, kind, name_hash)
@@ -169,7 +168,6 @@ async function store(env: WebhookEnv, rows: ReferralRow[], events: number, notes
   // Messages the page sent (any app): shows whether Meta delivers echoes at all, notes or not.
   if (echoes) stmts.push(bump(env.DB, 'echoes_total', echoes), env.DB.prepare('INSERT OR REPLACE INTO webhook_status (key, value) VALUES (?, ?)').bind('last_echo_at', now));
   if (notes.length) {
-    const hashes = await nameHashes(env, [...new Set(notes.map((n) => n.psid))]);
     for (const n of notes) n.name_hash = hashes.get(n.psid) ?? null;
     await saveNotes(env.DB, notes);
     stmts.push(bump(env.DB, 'order_notes_total', notes.length), env.DB.prepare('INSERT OR REPLACE INTO webhook_status (key, value) VALUES (?, ?)').bind('last_order_note_at', now));
@@ -207,20 +205,21 @@ async function resolveAds(env: WebhookEnv, adIds: string[]): Promise<Map<string,
 }
 
 /**
- * The customer's profile name, hashed with the same salt as Page365 uploads so the two can be joined — the
- * name itself is never stored. Meta refuses the lookup for some users; those stay unlinked.
+ * The customer's Facebook name, hashed with the same salt as Page365 uploads so the two can be joined — the
+ * name itself is never stored. Meta refuses the profile lookup for most customers, so `customerName` falls back to
+ * the page's conversation (two requests a customer). At most `maxRequests` (+1 for the page) per delivery: the free
+ * plan allows 50 and a note delivery also fills a Page365 draft (~30); customers past the cap stay unlinked.
  */
-async function nameHashes(env: WebhookEnv, psids: string[]): Promise<Map<string, string>> {
+export async function nameHashes(env: WebhookEnv, psids: string[], maxRequests = 6): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (!psids.length || !env.META_WEBHOOK_VERIFY_TOKEN) return out;
   const pg = await pageOf(env).catch(() => null);
   if (!pg) return out;
-  for (const psid of psids.slice(0, 20)) {
-    const res = await fetch(`${GRAPH(env)}/${psid}?fields=name&access_token=${encodeURIComponent(pg.token)}`);
-    const body: any = await res.json().catch(() => ({}));
-    const h = await hashName(body.name, env.META_WEBHOOK_VERIFY_TOKEN);
+  for (const psid of psids.slice(0, Math.floor(maxRequests / 2))) {
+    const h = await hashName(await customerName(env, psid, pg).catch(() => null), env.META_WEBHOOK_VERIFY_TOKEN);
     if (h) out.set(psid, h);
   }
+  if (psids.length > maxRequests / 2) console.warn('name lookups capped', psids.length);
   return out;
 }
 
