@@ -16,6 +16,10 @@ test('complaints, refunds and wrong items are caught; questions before buying ar
   assert.equal(serviceReason('รุ่นนี้ความยาวเท่าไหร่ครับ'), 'ถามความยาว/ปลายขา');
   assert.equal(serviceReason('ปลายขากว้างกี่นิ้ว'), 'ถามความยาว/ปลายขา');
   assert.match(serviceMessage({ id: 1, at: '2026-10-20T07:40:00.000Z', reason: 'ถามความยาว/ปลายขา', text: 'ยาวกี่นิ้ว' }, null, '', true).content, /ห้ามเดาตัวเลข/);
+  // Fix #15: odd waists and 44+.
+  for (const t of ['มีเอว 31 ไหมคะ', 'เอา ไซส์33 ค่ะ', 'size 27', 'เอว43']) assert.equal(serviceReason(t), 'ขอไซส์ที่อาจไม่มี', t);
+  assert.match(serviceMessage({ id: 1, at: '2026-10-20T07:40:00.000Z', reason: 'ขอไซส์ที่อาจไม่มี', text: 'เอว 31' }, null, '', true).content, /มีไซส์นี้จริง/);
+  for (const t of ['เอว 32 ค่ะ', 'ไซส์ 30', 'เอว 310', 'เอา 3 ตัว 549']) assert.equal(serviceReason(t), null, t);
   for (const t of ['อยากได้ขากว้างค่ะ', 'ขายาวไหม เอว 30 ใส่ไซส์ไหน']) assert.equal(serviceReason(t), null, t);
   for (const t of ['ตัวนี้ไม่ตรงปกไหมคะ', 'ขอเปลี่ยนเป็นไซส์ 32 นะคะ', 'เอา 3 ตัว 549 ค่ะ', 'ส่งฟรีไหม', null]) assert.equal(serviceReason(t), null, String(t));
 });
