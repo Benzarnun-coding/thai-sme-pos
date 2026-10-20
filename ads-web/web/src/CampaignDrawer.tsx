@@ -2,9 +2,10 @@
 // settings (stage, product, rules), budget, ad sets and its history.
 
 import { useEffect, useState } from 'react';
-import { api, MODE_LABEL, sectionName, WEB_TAB, type CampaignStats, type CostRow, WINDOW_LABEL, type CampaignHistory, type CampaignView, type DailyRow, type EntityView, type Idea, type Overview, type Preview, type Window } from './api.ts';
+import { api, MODE_LABEL, sectionName, WEB_TAB, type CampaignStats, type SalesRow, type CostRow, WINDOW_LABEL, type CampaignHistory, type CampaignView, type DailyRow, type EntityView, type Idea, type Overview, type Preview, type Window } from './api.ts';
 import { ideaActionLabel, stageLabel, useCampaignActions } from './actions.tsx';
 import { DailyChart } from './Chart.tsx';
+import { formulaLines, methodLabel } from './salesFormula.ts';
 import { auditText } from './History.tsx';
 import { baht, bahtRange, cvr, num, profitTone, roasTone, when } from './fmt.ts';
 import { previewText } from './Overview.tsx';
@@ -76,6 +77,7 @@ export function CampaignDrawer({ c, data, window, preview, ideas, onClose, onRel
 
       <div className="drawer-body">
         <StatsTable c={c} />
+        <CostWorking c={c} />
 
         <CostPanel c={c} data={data} onEditSection={onEditSection} onReload={onReload} />
 
@@ -388,6 +390,42 @@ function StatsTable({ c }: { c: CampaignView }) {
           : <>คุ้มทุนที่ ROAS {num(be, 2)} · กำไรคิดแบบระวัง ({stats.cost_source === 'sheet' ? 'ทุกออเดอร์เป็นโปรที่ทุนหนักสุด' : 'ทุกออเดอร์เป็นโปรถูกสุด'}) ชี้ที่ตัวเลขเพื่อดูช่วง</>}
         {' · '}"เมื่อวาน" แทน "วันนี้" เพราะยอดวันนี้แอดมินยังติ๊กไม่ครบ
       </p>
+    </section>
+  );
+}
+
+/**
+ * วิธีคิดต้นทุน (idea #3, Max 2026-10-20): the same day-by-day working as the Sales page, for this campaign only,
+ * last 7 days. Loaded on demand — the report reads every campaign's days from Meta.
+ */
+function CostWorking({ c }: { c: CampaignView }) {
+  const [rows, setRows] = useState<SalesRow[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => { setRows(null); setOpen(false); setError(''); }, [c.id]);
+  const show = () => {
+    setOpen(!open);
+    if (rows || open) return;
+    api.salesReport('last_7d')
+      .then((r) => setRows(r.rows.filter((x) => x.campaign_id === c.id && (x.spend > 0 || x.orders > 0)).sort((a, b) => b.date.localeCompare(a.date))))
+      .catch((e) => setError(e.message));
+  };
+  return (
+    <section className="panel">
+      <div className="row between">
+        <h3>วิธีคิดต้นทุนและกำไร</h3>
+        <button className="ghost small" onClick={show}>{open ? 'ซ่อน' : 'แสดงวิธีคิด 7 วัน'}</button>
+      </div>
+      <p className="small muted">ทีละวัน ตัวเลขจริงที่ใช้คิด (ชุดเดียวกับหน้า "ยอดขายรายวัน") — วันที่อัปโหลดไฟล์ Page365 แล้วใช้ออเดอร์จริง ที่เหลือประมาณจากยอด Meta</p>
+      {open && (error ? <p className="small warn">{error}</p>
+        : rows === null ? <div className="skeleton" style={{ height: 80 }} />
+        : rows.length === 0 ? <p className="small muted">7 วันนี้ไม่มีค่าแอดหรือยอดขาย</p>
+        : rows.map((r) => (
+          <div key={r.date}>
+            <p className="small"><b>{new Date(`${r.date}T00:00:00`).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short' })}</b> · {methodLabel(r)}</p>
+            <ol className="formula">{formulaLines(r).map((l, i) => <li key={i}>{l}</li>)}</ol>
+          </div>
+        )))}
     </section>
   );
 }
