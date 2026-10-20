@@ -9,7 +9,7 @@ import { looksLikeNote, markFill, parseOrderNote, saveNotes, type StoredNote } f
 import { sendNotePurchase } from './notePurchases.ts';
 import { cleanupDrafts, cleanupOn, deleteDraft } from './draftCleanup.ts';
 import { accuracyPost, auditStep } from './fillAudit.ts';
-import { applyFill, call, findDraft, P365Error, planFill, type FillEnv, type P365Order } from './p365fill.ts';
+import { applyFill, call, CANCEL_HINT, findDraft, P365Error, planFill, type FillEnv, type P365Order } from './p365fill.ts';
 
 export interface AutoEnv extends FillEnv, DiscordEnv { DB: D1Database; /** #ออเดอร์มีปัญหา (Benz 15 Oct); falls back to the ads channel via the bot */ DISCORD_ORDER_WEBHOOK_URL?: string; /** who answers for problem bills (เนย, Benz 15 Oct); empty = the deciders */ DISCORD_ORDER_OWNER_IDS?: string }
 
@@ -159,6 +159,8 @@ export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force
       const r = await applyFill(env, note, { plan, address: plan.address, allowWarnings: true });
       await markFill(env.DB, note.mid, { by: 'auto', order_no: r.order.no, error: null });
       if (plan.warnings.length) await tell(env, note, r.order, name, plan.warnings, true);
+      // Remembered for the draft cleanup: a possibly cancelled order left unsent for 7 days is deleted.
+      if (plan.warnings.includes(CANCEL_HINT)) await env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES (?, ?)").bind(`cancel_hint:${r.order.no}`, note.at).run().catch(() => null);
       return { status: 'filled', order_no: r.order.no, reasons: plan.warnings };
     }
     const why = plan.problems.length ? plan.problems : ['ไม่เจอร่างบิล'];

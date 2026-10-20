@@ -309,7 +309,8 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   let address: PlanAddress | null = draft ? draftAddress(draft) : null;
   if (draft && opts.readAddress !== false && env.ANTHROPIC_API_KEY) {
     const read = await readAddress(env.ANTHROPIC_API_KEY, chat, env.ADDRESS_MODEL, env.ANTHROPIC_WORKSPACE_ID, note.text).catch((err) => ({ problems: [`อ่านที่อยู่ไม่สำเร็จ: ${err?.message ?? err}`] } as { problems: string[]; cancelled?: boolean; size_mismatch?: string } & Partial<PlanAddress>));
-    if (read.cancelled) problems.push('ลูกค้าขอยกเลิกในแชท (และยังไม่ได้สั่งใหม่) — เช็กก่อนว่ายังเอาไหม');
+    // A warning, not a stop (Benz 20 Oct): the reader called 5 orders cancelled 15–19 Oct and all 5 were sent.
+    if (read.cancelled) warnings.push(CANCEL_HINT);
     // A size the customer asked for that isn't made (29/31/33…): the admin's nearest made size is right (Benz 20 Oct).
     if (read.size_mismatch?.trim() && !askedSizeNotMade(read.size_mismatch, lines.map((l) => l.size), made)) problems.push(`ไซส์ไม่ตรงกับที่ลูกค้าขอ: ${read.size_mismatch.trim()}`);
     if (!address) {
@@ -406,6 +407,8 @@ export function cleanStreet(street: string, names: string[], phone: string): str
   }
   return s.replace(/\s*[,/]\s*(?=[,/]|$)/g, ' ').replace(/^[\s,/:-]+|[\s,/:-]+$/g, '').replace(/\s+/g, ' ').trim();
 }
+
+export const CANCEL_HINT = 'AI อ่านว่าลูกค้าอาจขอยกเลิกในแชท — เช็กก่อนส่งบิลว่ายังเอาไหม';
 
 /** "โน้ต 34 แต่ลูกค้าขอ 33" where the model has no 33: the sizes the customer named that the note doesn't have, none made. */
 export function askedSizeNotMade(mismatch: string, noteSizes: string[], made: Set<string>): boolean {

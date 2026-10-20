@@ -1,7 +1,8 @@
 // Deleting Page365 drafts the order-note flow made and nobody will send (Benz 20 Oct). Off until Benz switches it
 // on (meta_capi key draft_cleanup); the preview lists what it would delete. Only ever drafts linked to an order
 // note, never a bill that has moved on:
-// - a draft the customer cancelled (the chat reader said so), a day after the person was told (#29645, Benz);
+// - a draft the chat reader thought cancelled, still unsent 7 days after the note (told at day 5) — not sooner:
+//   the reader was wrong on all 5 "cancelled" orders of 15–19 Oct (Benz 20 Oct);
 // - a draft still without phone or postcode, or still empty, 7 days after the note (told once at day 5);
 // - the earlier draft when the admin types a corrected summary within 2 hours (autoFill.ts ensureDraft) — the
 //   corrected one replaces it.
@@ -47,7 +48,8 @@ export async function cleanupDrafts(env: AutoEnv, opts: { apply: boolean; limit?
   if (!drafts.length) return [];
   // …that an order note of the last 30 days points at.
   const { results } = await env.DB.prepare(
-    `SELECT fill_order_no AS no, MIN(at) AS at, MAX(CASE WHEN instr(fill_error, 'ลูกค้าขอยกเลิก') > 0 THEN 1 ELSE 0 END) AS cancelled
+    `SELECT fill_order_no AS no, MIN(at) AS at,
+            MAX(CASE WHEN instr(fill_error, 'ลูกค้าขอยกเลิก') > 0 OR EXISTS (SELECT 1 FROM meta_capi WHERE key = 'cancel_hint:' || fill_order_no) THEN 1 ELSE 0 END) AS cancelled
        FROM order_notes WHERE at >= ? AND fill_order_no IN (SELECT value FROM json_each(?)) GROUP BY fill_order_no ORDER BY MIN(at) LIMIT ?`,
   ).bind(new Date(now - 30 * DAY).toISOString(), JSON.stringify(drafts.map((d) => d.no)), opts.limit ?? 12).all<{ no: number; at: string; cancelled: number }>();
   const out: CleanupItem[] = [];
@@ -56,10 +58,10 @@ export async function cleanupDrafts(env: AutoEnv, opts: { apply: boolean; limit?
     const o = await call<P365Order>(env, `orders/${hit.id}.json`);
     const age = now - Date.parse(r.at);
     let reason = '';
-    if (r.cancelled) reason = 'ลูกค้ายกเลิกในแชท';
+    if (r.cancelled) reason = 'AI อ่านว่าลูกค้าอาจยกเลิก และยังไม่ได้ส่งบิล';
     else if (!o.items.length || !phoneOk(o) || !zipOk(o)) reason = !o.items.length ? 'ร่างยังว่าง' : !phoneOk(o) ? 'ยังไม่มีเบอร์โทร' : 'ยังไม่มีรหัสไปรษณีย์';
     if (!reason) continue;
-    const due = r.cancelled ? DAY : 7 * DAY;
+    const due = 7 * DAY;
     const action: CleanupItem['action'] = age >= due ? 'delete' : age >= due - 2 * DAY ? 'warn' : 'keep';
     out.push({ no: r.no, reason, action, note_at: r.at });
     if (!opts.apply || action === 'keep') continue;
