@@ -341,6 +341,41 @@ export function buildLines(items: OrderItem[], lookup: Lookup, place?: (it: Orde
   return [...lines.values()];
 }
 
+/**
+ * Saved lines (a round opened from history) read through today's SKU matches: a line whose SKU now reads as another of
+ * ours ("รหัสของเรา") takes that SKU and its label, and joins the line of that SKU in the round (else that SKU's
+ * usual sheet); quantities, out-of-stock ticks and order numbers add up. Lines that read as themselves are untouched.
+ */
+export function remapLines(lines: PurchaseLine[], lookup: Lookup): PurchaseLine[] {
+  const target = (l: PurchaseLine) => {
+    if (l.sku.startsWith('?')) return null;
+    const r = lookup.rows.get(skuKey(l.sku));
+    return r && skuKey(r.sku) !== skuKey(l.sku) ? r : null;
+  };
+  if (!lines.some(target)) return lines;
+  const groupOfSku = new Map<string, PurchaseLine>();
+  for (const l of lines) if (!target(l) && !groupOfSku.has(skuKey(l.sku))) groupOfSku.set(skuKey(l.sku), l);
+  const out = new Map<string, PurchaseLine>();
+  for (const l of lines) {
+    const r = target(l);
+    let line = l;
+    if (r) {
+      const home = groupOfSku.get(skuKey(r.sku));
+      const g = home ? { group: home.group, kind: home.kind, note: home.note } : groupOf(r, lookup);
+      line = { ...l, group: g.group, kind: g.kind, note: g.note, sku: r.sku, tab: r.tab, product: `${r.tab}|${spuOf(r.sku)}`, label: labelFor(r, g.kind, lookup), size: r.size, merged: [...new Set([...(l.merged ?? []), l.sku])] };
+    }
+    const key = `${line.group}\u0000${line.sku}`;
+    const prev = out.get(key);
+    if (!prev) { out.set(key, { ...line, orders: [...line.orders], stores: { ...(line.stores ?? {}) } }); continue; }
+    prev.qty += line.qty;
+    prev.missing = (prev.missing ?? 0) + (line.missing ?? 0) || undefined;
+    for (const o of line.orders) if (!prev.orders.includes(o)) prev.orders.push(o);
+    Object.assign(prev.stores ??= {}, line.stores ?? {});
+    if (line.merged?.length) prev.merged = [...new Set([...(prev.merged ?? []), ...line.merged])];
+  }
+  return [...out.values()];
+}
+
 /** Character order (digits, then Latin, then Thai), the way the team's sheets are sorted; same on every device. */
 export function textOrder(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;

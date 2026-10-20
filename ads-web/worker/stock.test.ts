@@ -58,3 +58,15 @@ test('"รหัสของเรา": a forced match replaces a SKU even when 
   const forced = buildLines(items, makeLookup(cat, new Map(), new Map(), new Map(), new Map([['39-BB-MD-30', '5012-PK-NV-30']]), new Set(['39-BB-MD-30'])));
   assert.deepEqual(forced.map((l) => [l.group, l.sku, l.qty, l.merged]), [['PK', '5012-PK-NV-30', 3, ['39-BB-MD-30']]]);
 });
+
+test('a round opened from history merges its rows as soon as "รหัสของเรา" is picked', async () => {
+  const { remapLines } = await import('../web/src/purchase.ts');
+  const cat = [...CATALOG, row({ tab: 'BB', sku: '501-BB-MD-30', code: '501', color: 'MD', size: '30', shop: 'ร้าน 501' })];
+  const saved = buildLines([item('A', '501-BB-MD-30'), item('B', '5012-PK-NV-30', 2)], makeLookup(cat, new Map()));
+  assert.equal(saved.length, 2);
+  const before = remapLines(saved, makeLookup(cat, new Map()));
+  assert.equal(before, saved, 'nothing to remap → the same lines');
+  const after = remapLines(saved.map((l) => (l.sku === '501-BB-MD-30' ? { ...l, missing: 1 } : l)),
+    makeLookup(cat, new Map(), new Map(), new Map(), new Map([['501-BB-MD-30', '5012-PK-NV-30']]), new Set(['501-BB-MD-30'])));
+  assert.deepEqual(after.map((l) => [l.group, l.sku, l.qty, l.orders, l.missing, l.merged]), [['PK', '5012-PK-NV-30', 3, ['A', 'B'], 1, ['501-BB-MD-30']]]);
+});

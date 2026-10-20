@@ -10,7 +10,7 @@ import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from '
 import { num } from './fmt.ts';
 import {
   applyMoves, buildLines, dateFromFileName, optionParts, saleItems, orderColumns, orderText, paymentWorkbook, PRICE_SOURCE_LABEL, supplierTotals, withPrices, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
-  FB_ROUND, roundFile, roundLabel, FACEBOOK_STORE, GOSELL_GROUP, isFacebookExport, MANUAL_STORE, readFacebookItems, suggestSkus, STOCK_GROUP, stockPlacer, orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
+  FB_ROUND, roundFile, roundLabel, FACEBOOK_STORE, GOSELL_GROUP, isFacebookExport, MANUAL_STORE, readFacebookItems, suggestSkus, remapLines, STOCK_GROUP, stockPlacer, orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
 } from './purchase.ts';
 import { orderPictureSheets, pictureSheets } from './pictureSheet.ts';
 import { Icon, Modal, useUi } from './ui.tsx';
@@ -146,7 +146,8 @@ export function OrdersApp() {
     const p = newPlacer();
     return { lines: buildLines(allItems, lookup, p.place), short: p.short, gsShort: p.gsShort };
   }, [viewing, data, allItems, lookup, newPlacer]);
-  const baseLines = useMemo(() => (viewing ? viewing.lines : built?.lines ?? []), [viewing, built]);
+  // A round opened from history is read through today's matches too, so "รหัสของเรา" merges its rows at once.
+  const baseLines = useMemo(() => (viewing ? remapLines(viewing.lines, lookup) : built?.lines ?? []), [viewing, built, lookup]);
   const shortList = (m: Map<string, number> | undefined) => [...(m ?? new Map<string, number>())].map(([sku, n]) => {
     const it = stock?.items.find((i) => i.sku === sku);
     return { sku, n, name: it ? `${it.code} #${it.size}` : sku };
@@ -845,6 +846,8 @@ function LabelCell({ line: l, strong, onSave, ours, onReplace, onUnmerge }: {
   const target = code ? ours.get(code)?.get(l.size) ?? null : null;
   const canReplace = !!onReplace && !l.sku.startsWith('?') && l.tab !== 'PK';
   const save = async () => {
+    // A code picked in "รหัสของเรา" is what บันทึก saves; otherwise the name.
+    if (code && target) return replace();
     if (!onSave) return;
     if (value.trim() === l.label) { setEditing(false); return; }
     setBusy(true);
@@ -872,15 +875,15 @@ function LabelCell({ line: l, strong, onSave, ours, onReplace, onUnmerge }: {
               </select>
             </label>
             {code && (target
-              ? <><small><code>{l.sku}</code> → <code>{target}</code></small> <button className="small primary" disabled={busy} onClick={replace}>ใช้รหัสนี้</button></>
+              ? <small><code>{l.sku}</code> → <code>{target}</code> · กด <b>บันทึก</b></small>
               : <small className="bad">{code} ไม่มีไซส์ {l.size || '(ไม่ทราบไซส์)'}</small>)}
             <small className="muted">SKU เปลี่ยนเป็นของเรา จำนวนรวมกับบรรทัดเดิม · จำไว้ทุกวัน ทุกหน้า (ยอดขาย ทุน สต็อก)</small>
           </span>
         )}
-        <input value={value} autoFocus disabled={busy} onChange={(e) => setValue(e.target.value)} aria-label="ชื่อในใบสั่ง"
+        <input value={value} autoFocus disabled={busy || (!!code && !!target)} onChange={(e) => setValue(e.target.value)} aria-label="ชื่อในใบสั่ง"
           onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }} />
         <span className="po-label-actions">
-          <button className="small primary" disabled={busy} onClick={save}>บันทึกชื่อ</button>
+          <button className="small primary" disabled={busy || (!!code && !target)} onClick={save}>บันทึก</button>
           <button className="link small" onClick={() => { setEditing(false); setCode(''); }}>ยกเลิก</button>
           <small className="muted">{catalog ? 'ชื่อ: ทุกไซส์ · จำไว้ทุกวัน · ลบให้ว่าง = กลับเป็นค่าเดิม' : 'ชื่อ: เฉพาะรอบนี้'}</small>
         </span>

@@ -134,7 +134,7 @@ async function syncPlace(db: D1Database, uploadId: string, user: string, loc: Lo
     ...clear,
     db.prepare(
       `WITH items AS (
-         SELECT order_no AS key, order_no AS match, upper(sku) AS sku, qty FROM purchase_items WHERE upload_id = ?1
+         SELECT order_no AS key, order_no AS match, ${RESOLVE('sku')} AS sku, qty FROM purchase_items WHERE upload_id = ?1
          UNION ALL
          SELECT CASE WHEN j.value ->> '$.source' = 'manual' OR COALESCE(j.value ->> '$.order', '') = '' THEN 'เพิ่มเอง#' || ?1 || '#' || j.key
                      ELSE 'fb:' || (j.value ->> '$.order') END,
