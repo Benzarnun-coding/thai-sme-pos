@@ -93,6 +93,7 @@ export interface Env {
   DISCORD_APP_ID?: string;
   DISCORD_REQUEST_CHANNEL_ID?: string;
   DISCORD_REQUEST_DECIDER_IDS?: string;
+  DISCORD_REQUEST_COMMAND_CHANNEL_ID?: string;
   /** Page365 login the Worker uses to fill drafts (secret; see worker/p365fill.ts) and the shop's page id */
   P365_COOKIE?: string;
   P365_PAGE_ID?: string;

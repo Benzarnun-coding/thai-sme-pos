@@ -70,6 +70,10 @@ test('interactions: command opens the form; a button from another channel or per
   const cmd = await (await requestInteraction({ type: 2, data: { name: 'ไอเดีย', options: [{ name: 'หมวด', value: 'bug' }] } }, e, ctx))!.json() as any;
   assert.equal(cmd.type, 9);
   assert.equal(cmd.data.custom_id, 'frnew:bug');
+  const elsewhere = await (await requestInteraction({ type: 2, channel_id: '42', data: { name: 'ไอเดีย' } }, { ...e, DISCORD_REQUEST_COMMAND_CHANNEL_ID: '777' }, ctx))!.json() as any;
+  assert.match(elsewhere.data.content, /<#777>/);
+  const inRoom = await (await requestInteraction({ type: 2, channel_id: '777', data: { name: 'ไอเดีย' } }, { ...e, DISCORD_REQUEST_COMMAND_CHANNEL_ID: '777' }, ctx))!.json() as any;
+  assert.equal(inRoom.type, 9);
   const off = await (await requestInteraction({ type: 2, data: { name: 'ไอเดีย' } }, { ...e, DISCORD_REQUEST_CHANNEL_ID: '' }, ctx))!.json() as any;
   assert.match(off.data.content, /ยังไม่เปิดใช้/);
   const r = await createRequest(d1, { author: 'เคน', author_id: STAFF, area: 'bug', title: 't', detail: '' });

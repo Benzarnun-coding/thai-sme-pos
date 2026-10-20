@@ -16,6 +16,8 @@ export interface RequestEnv {
   DISCORD_APPROVER_IDS?: string;
   /** Forum channel for the posts; empty = /ไอเดีย is off */
   DISCORD_REQUEST_CHANNEL_ID?: string;
+  /** The only channel where /ไอเดีย may be typed (#เสนอพัฒนาระบบ, Benz 2026-10-20); empty = anywhere */
+  DISCORD_REQUEST_COMMAND_CHANNEL_ID?: string;
   /** Who may press ให้ทำ / ไม่ทำ / ผ่าน / ไม่ผ่าน (Benz); empty = DISCORD_APPROVER_IDS */
   DISCORD_REQUEST_DECIDER_IDS?: string;
 }
@@ -237,6 +239,8 @@ export async function requestInteraction(i: any, env: RequestEnv, ctx: { waitUnt
   const cid = String(i.data?.custom_id ?? '');
   if (i.type === 2 && i.data?.name === COMMAND_NAME) {
     if (!env.DISCORD_REQUEST_CHANNEL_ID) return only('ห้องไอเดียยังไม่เปิดใช้ค่ะ 🙏 (ยังไม่ได้ตั้ง DISCORD_REQUEST_CHANNEL_ID)');
+    const here = env.DISCORD_REQUEST_COMMAND_CHANNEL_ID;
+    if (here && i.channel_id !== here) return only(`พิมพ์ /ไอเดีย ได้ในห้อง <#${here}> เท่านั้นนะคะ 🙏`);
     const area = String(i.data?.options?.find((o: any) => o.name === 'หมวด')?.value ?? 'other');
     return reply({ type: 9, data: requestModal(area) });
   }
