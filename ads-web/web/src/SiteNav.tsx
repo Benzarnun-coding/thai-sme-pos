@@ -11,6 +11,7 @@ const PAGES = [
   ['/catalog/todo', 'งานค้าง'],
   ['/gosell', 'GoSell'],
   ['/botkb', 'คลังคำตอบบอท'],
+  ['/requests', 'ไอเดียเว็บ'],
 ] as const;
 
 export type SitePath = (typeof PAGES)[number][0];

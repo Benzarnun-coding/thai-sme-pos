@@ -49,6 +49,7 @@ import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './m
 import { captureSource, planNotePurchases } from './notePurchases.ts';
 import { dayOrders, reconcile } from './orderDay.ts';
 import { adjustmentDays, seedFromSent } from './metaAdjust.ts';
+import { listRequests, registerCommand, requestInteraction } from './featureRequests.ts';
 import { pageOf, receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
@@ -88,6 +89,10 @@ export interface Env {
   DISCORD_APPROVER_IDS?: string;
   /** Discord user IDs who upload Page365 (เคน from 2026-10-16, was มอส); tagged at 10:00 if the file is missing, may press the upload buttons */
   DISCORD_UPLOADER_IDS?: string;
+  /** Feature requests (/ไอเดีย, worker/featureRequests.ts): forum channel (empty = off) and who decides (Benz) */
+  DISCORD_APP_ID?: string;
+  DISCORD_REQUEST_CHANNEL_ID?: string;
+  DISCORD_REQUEST_DECIDER_IDS?: string;
   /** Page365 login the Worker uses to fill drafts (secret; see worker/p365fill.ts) and the shop's page id */
   P365_COOKIE?: string;
   P365_PAGE_ID?: string;
@@ -743,6 +748,14 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const pg = await pageOf(env).catch(() => null);
     const page = pg ? { page: pg.name, page_id: pg.id, ...(await fetch(`https://graph.facebook.com/${v}/${pg.id}/dataset?access_token=${encodeURIComponent(pg.token)}`).then((r) => r.json() as Promise<Record<string, unknown>>).catch((e) => ({ error: String(e) }))) } : null;
     return json({ page, byAccount, owned, businesses });
+  }
+  // ---- website feature requests from Discord (/ไอเดีย) ----
+  if (path === '/api/requests' && method === 'GET') return json({ items: await listRequests(env.DB), on: !!(env.DISCORD_REQUEST_CHANNEL_ID && env.DISCORD_BOT_TOKEN) });
+  if (path === '/api/requests/register' && method === 'POST') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const r = await registerCommand(env);
+    await audit(env.DB, user, 'requests.register', 'discord', r);
+    return json(r);
   }
   // ---- answer bank for Meta's Business AI ----
   if (path === '/api/botkb' && method === 'GET') { const items = await listKb(env.DB); return json({ items, paste: kbPasteText(items.filter((x) => x.status === 'approved')) }); }
@@ -1855,6 +1868,8 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
   if (!env.DISCORD_APP_PUBLIC_KEY || !(await verifyDiscord(req, body, env.DISCORD_APP_PUBLIC_KEY))) return new Response('bad signature', { status: 401 });
   const i = JSON.parse(body);
   if (i.type === 1) return json({ type: 1 });
+  const fr = await requestInteraction(i, env, ctx);
+  if (fr) return fr;
   if (i.type !== 3) return json({ type: 4, data: { content: 'ยังไม่รองรับคำสั่งนี้', flags: 64 } });
   // The bot works in one channel only: a press from anywhere else is refused (only the presser sees the reply).
   const svc = String(i.data?.custom_id ?? '').startsWith('svcdone:');
