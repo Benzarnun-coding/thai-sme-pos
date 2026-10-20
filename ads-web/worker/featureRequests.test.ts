@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createRequest, mayPress, pickerMessage, modalValues, moveRequest, nextStatus, requestInteraction, requestMessage, threadName } from './featureRequests.ts';
+import { buildPayload, createRequest, mayPress, pickerMessage, modalValues, moveRequest, nextStatus, requestInteraction, requestMessage, threadName } from './featureRequests.ts';
 import { sqliteD1 } from './sqliteD1.ts';
 
 const schema = `CREATE TABLE feature_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, author TEXT NOT NULL, author_id TEXT,
-  area TEXT NOT NULL, title TEXT NOT NULL, detail TEXT, status TEXT NOT NULL, thread_id TEXT, updated_at TEXT NOT NULL);
+  area TEXT NOT NULL, title TEXT NOT NULL, detail TEXT, status TEXT NOT NULL, thread_id TEXT, updated_at TEXT NOT NULL,
+  run_url TEXT, run_at TEXT, runs INTEGER NOT NULL DEFAULT 0, pr_url TEXT, pr_at TEXT);
 CREATE TABLE feature_request_log (id INTEGER PRIMARY KEY AUTOINCREMENT, request_id INTEGER NOT NULL, at TEXT NOT NULL, by TEXT NOT NULL,
   from_status TEXT, to_status TEXT NOT NULL, note TEXT);`;
 const BENZ = '869116667945439323', MAX = '698435075422945301', STAFF = '1111111111';
@@ -91,4 +92,19 @@ test('interactions: command opens the form; a button from another channel or per
   assert.equal(ok.type, 7);
   assert.match(ok.data.content, /🔨 กำลังทำ/);
   assert.equal(await requestInteraction({ type: 3, data: { custom_id: 'approve:abc' } }, e, ctx), null);
+});
+
+test('the build payload carries the request, its branch and every "ไม่ผ่าน" reason', async () => {
+  const { d1 } = sqliteD1(schema);
+  const r = await createRequest(d1, { author: 'Max', author_id: MAX, area: 'ads', title: 'กรองกำไรตามรุ่น', detail: 'อยากดูเฉพาะ 501' });
+  await moveRequest(d1, r.id, 'go', 'Benz', null);
+  await moveRequest(d1, r.id, 'done', 'Benz', null);
+  const back = (await moveRequest(d1, r.id, 'fail', 'Max', 'ยังไม่มีปุ่มกรอง'))!;
+  const t = buildPayload({ ...back.r, runs: 1 }, back.log);
+  assert.match(t, /ไอเดีย #1: กรองกำไรตามรุ่น/);
+  assert.match(t, /claude\/idea-1/);
+  assert.match(t, /deployed\/idea-1-r2/);
+  assert.match(t, /รอบที่: 2/);
+  assert.match(t, /อยากดูเฉพาะ 501/);
+  assert.match(t, /- ยังไม่มีปุ่มกรอง/);
 });

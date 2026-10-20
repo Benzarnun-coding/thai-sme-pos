@@ -18,6 +18,11 @@ export interface RequestEnv {
   DISCORD_REQUEST_CHANNEL_ID?: string;
   /** The only channel where /ไอเดีย may be typed (#เสนอพัฒนาระบบ, Benz 2026-10-20); empty = anywhere */
   DISCORD_REQUEST_COMMAND_CHANNEL_ID?: string;
+  /** Claude Code routine that builds an approved request (var: trig_… id; secret: its API trigger token). Both set = on. */
+  IDEA_ROUTINE_ID?: string;
+  IDEA_ROUTINE_TOKEN?: string;
+  /** owner/name on GitHub, where the routine opens its PR (public repo: read without a token) */
+  GITHUB_REPO?: string;
   /** Who may press ให้ทำ / ไม่ทำ / ผ่าน / ไม่ผ่าน (Benz); empty = DISCORD_APPROVER_IDS */
   DISCORD_REQUEST_DECIDER_IDS?: string;
 }
@@ -28,6 +33,7 @@ export type Verb = 'go' | 'no' | 'done' | 'pass' | 'fail';
 export interface FeatureRequest {
   id: number; created_at: string; author: string; author_id: string | null; area: string; title: string;
   detail: string | null; status: Status; thread_id: string | null; updated_at: string;
+  run_url?: string | null; run_at?: string | null; runs?: number; pr_url?: string | null; pr_at?: string | null;
 }
 export interface LogRow { id: number; request_id: number; at: string; by: string; from_status: string | null; to_status: string; note: string | null }
 
@@ -76,6 +82,7 @@ export function requestMessage(r: FeatureRequest, log: LogRow[]): { content: str
     '',
     (r.detail || '-').slice(0, 1500),
     '',
+    ...(r.run_url ? [`🤖 Claude ทำรอบที่ ${r.runs ?? 1}: ${r.run_url}${r.pr_url ? ` · PR: ${r.pr_url}` : ''}`, ''] : []),
     ...log.map((l) => `\`${when(l.at)}\` ${STATUS[l.to_status as Status]?.emoji ?? ''} ${l.by}${l.from_status ? ` → ${STATUS[l.to_status as Status]?.th ?? l.to_status}` : ' เสนอไอเดีย'}${l.note ? ` — ${l.note}` : ''}`),
   ];
   const b = (style: number, label: string, verb: Verb) => ({ type: 2, style, label, custom_id: `fr:${verb}:${r.id}` });
@@ -221,6 +228,7 @@ export async function postRequest(env: RequestEnv, r: FeatureRequest, log: LogRo
  */
 export async function afterMove(env: RequestEnv, r: FeatureRequest, by: string, note: string | null): Promise<void> {
   if (!r.thread_id) return;
+  if (r.status === 'doing') await startBuild(env, r, note);
   if (r.status === 'review') await say(env, r.thread_id, r.author_id ? [r.author_id] : deciderIds(env), (m) => `${m} ${by} ทำเสร็จแล้วค่ะ 🧪 รบกวนลองใช้บนเว็บว่าตรงกับที่อยากได้ไหม แล้วกด **ผ่าน** หรือ **ไม่ผ่าน** (บอกว่าต้องแก้อะไร) ที่ข้อความแรกของโพสต์นี้นะคะ`);
   if (r.status === 'doing' && note) await say(env, r.thread_id, [], () => `↩️ ยังไม่ผ่านค่ะ — ${note}`);
   if (r.status === 'passed') await say(env, r.thread_id, [], () => `✅ ${by} ตรวจผ่านแล้วค่ะ ไอเดียนี้ใช้งานบนเว็บได้แล้ว ขอบคุณที่เสนอนะคะ 🙏`);
@@ -271,6 +279,91 @@ export async function postPicker(env: RequestEnv): Promise<{ ok: boolean; pinned
   const id = ((await res.json()) as { id: string }).id;
   const pin = await api(env, `/channels/${ch}/pins/${id}`, 'PUT').catch(() => null);
   return { ok: true, pinned: !!pin?.ok };
+}
+
+// ---- Claude builds it ----
+
+export const buildEnabled = (env: RequestEnv) => !!(env.IDEA_ROUTINE_ID && env.IDEA_ROUTINE_TOKEN);
+export const branchFor = (id: number) => `claude/idea-${id}`;
+/** Pushed by the run after a successful deploy; one per run, so a "ไม่ผ่าน" rerun needs its own. */
+export const deployTag = (r: Pick<FeatureRequest, 'id' | 'runs'>) => `deployed/idea-${r.id}-r${r.runs ?? 1}`;
+
+/** What the routine receives (it arrives as untrusted data; the routine's saved prompt says what to do with it). */
+export function buildPayload(r: FeatureRequest, log: LogRow[]): string {
+  const fails = log.filter((l) => l.from_status === 'review' && l.to_status === 'doing' && l.note).map((l) => `- ${l.note}`);
+  return [
+    `ไอเดีย #${r.id}: ${r.title}`,
+    `หมวด: ${AREAS[r.area] ?? r.area}`,
+    `เสนอโดย: ${r.author}`,
+    `branch (ถ้าต้องรอรีวิว): ${branchFor(r.id)}`,
+    `tag หลัง deploy สำเร็จ: ${deployTag({ id: r.id, runs: (r.runs ?? 0) + 1 })}`,
+    `รอบที่: ${(r.runs ?? 0) + 1}`,
+    '',
+    'รายละเอียดจากคนเสนอ:',
+    r.detail || '-',
+    ...(fails.length ? ['', 'ตรวจแล้วไม่ผ่าน ต้องแก้ (ล่าสุดอยู่ล่างสุด):', ...fails] : []),
+  ].join('\n');
+}
+
+/** Fires the routine for a request that just became กำลังทำ; says in the post where to watch it. Off = nothing. */
+export async function startBuild(env: RequestEnv, r: FeatureRequest, note: string | null): Promise<void> {
+  if (!buildEnabled(env) || !r.thread_id) return;
+  const got = await loadRequest(env.DB, r.id);
+  const res = await fetch(`https://api.anthropic.com/v1/claude_code/routines/${env.IDEA_ROUTINE_ID}/fire`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.IDEA_ROUTINE_TOKEN}`, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: buildPayload(got?.r ?? r, got?.log ?? []) }),
+  }).catch((e) => ({ ok: false, status: 0, text: async () => String(e) }) as Response);
+  if (!res.ok) {
+    const why = `${res.status} ${(await res.text()).slice(0, 200)}`;
+    console.error('idea routine', r.id, why);
+    await say(env, r.thread_id, deciderIds(env), (m) => `${m} สั่ง Claude เริ่มทำไม่สำเร็จค่ะ (${why}) — รบกวนเปิด session ทำเองนะคะ`);
+    return;
+  }
+  const url = ((await res.json()) as { claude_code_session_url?: string }).claude_code_session_url ?? null;
+  const at = new Date().toISOString();
+  await env.DB.prepare('UPDATE feature_requests SET run_url = ?, run_at = ?, runs = runs + 1 WHERE id = ?').bind(url, at, r.id).run();
+  await say(env, r.thread_id, [], () => `🤖 Claude เริ่ม${note ? 'แก้ตามที่ไม่ผ่าน' : 'ทำ'}แล้วค่ะ ดูความคืบหน้าได้ที่ ${url ?? '(ไม่มีลิงก์)'}\nทำเสร็จแล้วจะขึ้นเว็บให้เอง แล้วน้องจะแท็กคนเสนอให้มาลองใช้ค่ะ (ถ้าเรื่องนี้แตะส่วนที่ต้องให้คุณเบ้นดูก่อน จะเปิด PR รอรีวิวแทน)`);
+}
+
+/**
+ * Looks on GitHub for the PR of every request Claude is working on; a PR updated after the latest run → tell Benz in
+ * the post once per run. Public repo, so no token; at most 10 requests a call.
+ */
+export async function checkBuilds(env: RequestEnv): Promise<number> {
+  if (!buildEnabled(env) || !env.GITHUB_REPO) return 0;
+  const { results } = await env.DB.prepare(`SELECT * FROM feature_requests WHERE status = 'doing' AND run_at IS NOT NULL AND (pr_at IS NULL OR pr_at < run_at) ORDER BY id LIMIT 10`).all<FeatureRequest>();
+  const owner = env.GITHUB_REPO.split('/')[0];
+  let n = 0;
+  const gh = (path: string) => fetch(`https://api.github.com/repos/${env.GITHUB_REPO}${path}`, { headers: { 'User-Agent': 'pkjeans-ads', Accept: 'application/vnd.github+json' } })
+    .then((x) => (x.ok ? x.json() as Promise<any> : null)).catch(() => null);
+  for (const r of results) {
+    const branch = branchFor(r.id);
+    // Deployed: the run pushes tag deployed/idea-<id>-r<run> after its deploy → รอตรวจ, the asker is pinged to try it.
+    if (await gh(`/git/ref/tags/${encodeURIComponent(deployTag(r))}`)) {
+      await env.DB.prepare('UPDATE feature_requests SET pr_at = ? WHERE id = ?').bind(new Date().toISOString(), r.id).run();
+      const moved = await moveRequest(env.DB, r.id, 'done', 'Claude 🤖', null);
+      if (moved?.r.thread_id) {
+        await api(env, `/channels/${moved.r.thread_id}/messages/${moved.r.thread_id}`, 'PATCH', requestMessage(moved.r, moved.log)).catch(() => null);
+        await afterMove(env, moved.r, 'Claude 🤖', null);
+      }
+      n++;
+      continue;
+    }
+    // The PR if the run opened one; else the pushed branch, with GitHub's one-click "open a PR" page.
+    const pr = ((await gh(`/pulls?state=all&head=${owner}:${encodeURIComponent(branch)}`)) as { html_url: string; updated_at: string }[] | null)?.[0];
+    let link: string | null = pr && pr.updated_at >= r.run_at! ? pr.html_url : null;
+    if (!link && !pr) {
+      const b = await gh(`/branches/${encodeURIComponent(branch)}`) as { commit?: { commit?: { committer?: { date?: string } } } } | null;
+      const at = b?.commit?.commit?.committer?.date;
+      if (at && new Date(at).toISOString() >= r.run_at!) link = `https://github.com/${env.GITHUB_REPO}/compare/ads-web...${branch}?expand=1`;
+    }
+    if (!link) continue;
+    await env.DB.prepare('UPDATE feature_requests SET pr_url = ?, pr_at = ? WHERE id = ?').bind(link, new Date().toISOString(), r.id).run();
+    if (r.thread_id) await say(env, r.thread_id, deciderIds(env), (m) => `${m} Claude ทำเสร็จแล้ว แต่เรื่องนี้ต้องให้คุณเบ้นดูก่อนขึ้นเว็บค่ะ 🔍 ${link}\nรีวิว → merge เข้า ads-web → deploy แล้วกด **ทำเสร็จแล้ว ส่งตรวจ** ที่ข้อความแรกได้เลยค่ะ`);
+    n++;
+  }
+  return n;
 }
 
 /** Registers (or updates) /ไอเดีย for the app; Discord upserts a global command by name. */

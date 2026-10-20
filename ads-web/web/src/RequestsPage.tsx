@@ -11,6 +11,7 @@ interface LogRow { id: number; at: string; by: string; from_status: string | nul
 interface Req {
   id: number; created_at: string; author: string; area: string; title: string; detail: string | null;
   status: Status; thread_id: string | null; updated_at: string; log: LogRow[];
+  run_url: string | null; runs: number; pr_url: string | null;
 }
 
 async function call<T>(method: string, path: string): Promise<T> {
@@ -29,10 +30,11 @@ export function RequestsApp() {
   const { toast } = useUi();
   const [items, setItems] = useState<Req[] | null>(null);
   const [on, setOn] = useState(false);
+  const [build, setBuild] = useState(false);
   const [tab, setTab] = useState<Status>('new');
   const [open, setOpen] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { call<{ items: Req[]; on: boolean }>('GET', '/api/requests').then((r) => { setItems(r.items); setOn(r.on); }).catch((e) => toast(e.message, 'bad')); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { call<{ items: Req[]; on: boolean; build: boolean }>('GET', '/api/requests').then((r) => { setItems(r.items); setOn(r.on); setBuild(r.build); }).catch((e) => toast(e.message, 'bad')); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const count = (s: Status) => (items ?? []).filter((x) => x.status === s).length;
   const shown = (items ?? []).filter((x) => x.status === tab);
@@ -42,7 +44,8 @@ export function RequestsApp() {
       <SiteNav current="/requests" />
       <header className="kb-head">
         <div className="row"><HomeLogo text="ID" /><h1>ไอเดียพัฒนาเว็บ</h1></div>
-        <p className="muted small">มาจากคำสั่ง <b>/ไอเดีย</b> ใน Discord · เบ้นกด "ให้ทำ / ไม่ทำ" ที่โพสต์ในห้องไอเดีย · คนทำกด "ทำเสร็จแล้ว" · คนเสนอตรวจแล้วกด "ผ่าน / ไม่ผ่าน" · ทุกครั้งที่กดถูกบันทึกไว้ด้านล่างของแต่ละเรื่อง</p>
+        <p className="muted small">มาจากคำสั่ง <b>/ไอเดีย</b> ใน Discord · เบ้นกด "ให้ทำ / ไม่ทำ" ที่โพสต์ในห้องไอเดีย · Claude ทำเองแล้วเปิด PR ให้เบ้นรีวิว + deploy แล้วกด "ทำเสร็จแล้ว" · คนเสนอตรวจแล้วกด "ผ่าน / ไม่ผ่าน" · ทุกครั้งที่กดถูกบันทึกไว้ด้านล่างของแต่ละเรื่อง</p>
+        {on && !build && <p className="small muted">Claude ยังไม่ทำเองอัตโนมัติ (ยังไม่ได้ตั้ง IDEA_ROUTINE_ID + IDEA_ROUTINE_TOKEN) — กด "ให้ทำ" แล้วต้องเปิด session ทำเอง</p>}
         {!on && <p className="small warn">ยังไม่เปิดใช้: ตั้ง DISCORD_REQUEST_CHANNEL_ID (ห้อง Forum) ใน wrangler.jsonc แล้วกด "ลงทะเบียนคำสั่ง /ไอเดีย"</p>}
         <div className="row">
           <button className="ghost small" disabled={busy} onClick={async () => {
@@ -76,6 +79,7 @@ export function RequestsApp() {
               </div>
               <p><b>{r.title}</b></p>
               {r.detail && <p style={{ whiteSpace: 'pre-wrap' }}>{r.detail}</p>}
+              {r.run_url && <p className="small">🤖 Claude รอบที่ {r.runs}: <a href={r.run_url} target="_blank" rel="noreferrer">ดู session</a>{r.pr_url && <> · <a href={r.pr_url} target="_blank" rel="noreferrer">PR</a></>}</p>}
               <button className="ghost small" onClick={() => setOpen(open === r.id ? null : r.id)}>{open === r.id ? 'ซ่อนประวัติ' : `ประวัติ (${r.log.length})`}</button>
               {open === r.id && (
                 <ul className="small muted">

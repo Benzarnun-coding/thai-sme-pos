@@ -49,7 +49,7 @@ import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './m
 import { captureSource, planNotePurchases } from './notePurchases.ts';
 import { dayOrders, reconcile } from './orderDay.ts';
 import { adjustmentDays, seedFromSent } from './metaAdjust.ts';
-import { listRequests, postPicker, registerCommand, requestInteraction, syncTitles } from './featureRequests.ts';
+import { buildEnabled, checkBuilds, listRequests, postPicker, registerCommand, requestInteraction, syncTitles } from './featureRequests.ts';
 import { pageOf, receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
@@ -94,6 +94,9 @@ export interface Env {
   DISCORD_REQUEST_CHANNEL_ID?: string;
   DISCORD_REQUEST_DECIDER_IDS?: string;
   DISCORD_REQUEST_COMMAND_CHANNEL_ID?: string;
+  IDEA_ROUTINE_ID?: string;
+  IDEA_ROUTINE_TOKEN?: string;
+  GITHUB_REPO?: string;
   /** Page365 login the Worker uses to fill drafts (secret; see worker/p365fill.ts) and the shop's page id */
   P365_COOKIE?: string;
   P365_PAGE_ID?: string;
@@ -135,6 +138,8 @@ export default {
     // Meta's webhook comes from outside Cloudflare Access (bypassed for /webhook/* there); it is signed instead.
     if (url.pathname === '/webhook/privacy') return new Response(PRIVACY_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     if (url.pathname === '/webhook/discord' && req.method === 'POST') return discordInteraction(req, env, ctx);
+    // The idea routine pings this when it's done (no auth: it only re-reads GitHub, same as the 3-hourly sweep).
+    if (url.pathname === '/webhook/idea-check' && req.method === 'POST') return json({ found: await checkBuilds(env).catch(() => 0) });
     if (url.pathname === '/webhook/meta') {
       if (req.method === 'GET') return verifyChallenge(url, env);
       if (req.method === 'POST') return receiveWebhook(req, env, ctx);
@@ -178,6 +183,7 @@ export default {
     } else if (event.cron === SWEEP_CRON) {
       ctx.waitUntil(cronSweep(env).catch((err) => console.error('cron sweep', err)));
       ctx.waitUntil(syncTitles(env).catch((err) => console.error('request titles', err)));
+      ctx.waitUntil(checkBuilds(env).catch((err) => console.error('request builds', err)));
     } else if (event.cron === REMIND_CRON) {
       ctx.waitUntil(uploadReminder(env).catch((err) => console.error('reminder', err)));
       ctx.waitUntil(kbReminder(env).catch((err) => console.error('kb reminder', err)));
@@ -752,7 +758,11 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     return json({ page, byAccount, owned, businesses });
   }
   // ---- website feature requests from Discord (/ไอเดีย) ----
-  if (path === '/api/requests' && method === 'GET') return json({ items: await listRequests(env.DB), on: !!(env.DISCORD_REQUEST_CHANNEL_ID && env.DISCORD_BOT_TOKEN) });
+  if (path === '/api/requests' && method === 'GET') {
+    // Opening the page also looks for Claude's PRs, so Benz hears about one without waiting for the 3-hourly sweep.
+    await checkBuilds(env).catch((err) => console.error('request builds', err));
+    return json({ items: await listRequests(env.DB), on: !!(env.DISCORD_REQUEST_CHANNEL_ID && env.DISCORD_BOT_TOKEN), build: buildEnabled(env) });
+  }
   if (path === '/api/requests/picker' && method === 'POST') {
     if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
     const r = await postPicker(env);
