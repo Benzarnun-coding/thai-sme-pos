@@ -117,12 +117,23 @@ export function pickerMessage(): { content: string; components: unknown[] } {
   return {
     content: [
       '💡 **เสนอไอเดียพัฒนาเว็บ** — กดปุ่มหมวดด้านล่าง แล้วกรอกฟอร์มได้เลยค่ะ',
-      'น้องจิบิจะเปิดโพสต์ให้ คุณเบ้นกด "ให้ทำ / ไม่ทำ" · ทำเสร็จแล้วคนเสนอเป็นคนลองใช้และกด "ผ่าน / ไม่ผ่าน"',
+      'น้องจิบิเปิดโพสต์ให้ → คุณเบ้นกด "ให้ทำ / ไม่ทำ" → ทำเสร็จแล้ว**คนเสนอ**ลองใช้ แล้วกด "ผ่าน / ไม่ผ่าน"',
       '',
-      '📣 **แอด** แดชบอร์ดแอด, กฎปรับงบ, ข้อความบอทในห้องแอด · 📦 **หลังบ้าน** แคตตาล็อก สั่งของ ยอดขาย กำไร สต็อก งานค้าง',
-      '🔄 **GoSell** หน้าแปลงไฟล์ออเดอร์ · 🧾 **ออเดอร์/บิล** โน้ตในแชท → บิล Page365, ไฟล์ Page365, service ลูกค้า',
-      '🐞 **บั๊ก** ของที่เคยใช้ได้แล้วพัง · 💬 **อื่นๆ** ไม่เข้าหมวดไหน หรือหน้าใหม่ทั้งหมด',
+      '📣 **แอด** — หน้าแรกของเว็บ (แดชบอร์ดแอด) คุมแอด Meta',
+      '• ภาพรวม ROAS กำไรต่อแคมเปญ เป้ากำไร · ยอดขายรายวัน (Page365 เทียบ Meta) · ไอเดียโพสต์ · คู่แข่ง',
+      '• กฎปรับงบ + กลุ่มทดลอง/ทดสอบ/ทำเงิน/ดับ · สินค้า/ต้นทุน · ประวัติ ตั้งค่า ผู้ใช้',
+      '• บอทห้องแอด: รายงาน 08:00/20:00 ปุ่มอนุมัติหยุด/ย้าย/คัดลอก เช็กเพดานงบวันจันทร์',
+      '📦 **หลังบ้าน** — ของ สต็อก เงิน',
+      '• แคตตาล็อก (SKU รูป ราคา ร้าน) · สั่งของ (ใบสั่งต่อร้าน/โกดัง ยอดค้างจ่าย) · ยอดขาย (ชิ้น)',
+      '• กำไร (Page365 + ไฟล์เงินแพลตฟอร์ม) · สต็อกที่พี่เปีย · งานค้าง · รายงาน 07:30 ใน #report',
+      '🔄 **GoSell** — หน้าแปลงไฟล์ Bigseller → ไฟล์ Import GoSell (ขนส่ง ราคา ส่วนลด COD)',
+      '🧾 **ออเดอร์/บิล** — จากแชทลูกค้าไปเป็นบิล',
+      '• Log ออเดอร์แชท: โน้ตในแชท → บิล Page365 (สินค้า ไซส์ ที่อยู่ รหัสไปรษณีย์)',
+      '• ไฟล์ Page365 + เตือน 10:00 · service-ลูกค้า (ร้องเรียน คืนเงิน ส่งผิด)',
+      '🐞 **บั๊ก** — ของที่เคยใช้ได้แล้วพัง: หน้าไม่ขึ้น ปุ่มกดไม่ได้ ตัวเลขผิด บอทตอบผิด (บอกหน้า + เวลา)',
+      '💬 **อื่นๆ** — คลังคำตอบบอท Business AI · ระบบไอเดียนี้ · หน้าใหม่ที่ยังไม่มีในเว็บ',
       '',
+      '**จำง่ายๆ** เงินแอด → แอด · ของ/สต็อก → หลังบ้าน · แชท/บิล → ออเดอร์/บิล · ของพัง → บั๊ก',
       'เขียนให้ทำได้เร็ว: ตอนนี้ทำยังไง → ติดตรงไหน → อยากให้เป็นยังไง',
     ].join('\n'),
     components: [
@@ -242,10 +253,19 @@ async function say(env: RequestEnv, channel: string, ids: string[], text: (menti
   if (res && !res.ok) console.error('discord request say', res.status, await res.text());
 }
 
-/** Posts the picker (pickerMessage) in the command channel and pins it; pinning needs Pin/Manage Messages there. */
-export async function postPicker(env: RequestEnv): Promise<{ ok: boolean; pinned: boolean; error?: string }> {
+/**
+ * Posts the picker (pickerMessage) in the command channel and pins it, or, when the bot already pinned one there,
+ * edits that message in place (new wording, same buttons). Pinning needs Pin/Manage Messages there.
+ */
+export async function postPicker(env: RequestEnv): Promise<{ ok: boolean; pinned: boolean; updated?: boolean; error?: string }> {
   const ch = env.DISCORD_REQUEST_COMMAND_CHANNEL_ID;
   if (!ch || !env.DISCORD_BOT_TOKEN) return { ok: false, pinned: false, error: 'ยังไม่ได้ตั้ง DISCORD_REQUEST_COMMAND_CHANNEL_ID / DISCORD_BOT_TOKEN' };
+  const pins = await api(env, `/channels/${ch}/pins`, 'GET').then((x) => (x.ok ? x.json() as Promise<{ id: string; components?: any[] }[]> : [])).catch(() => []);
+  const old = pins.find((m) => JSON.stringify(m.components ?? []).includes('frpick:'));
+  if (old) {
+    const res = await api(env, `/channels/${ch}/messages/${old.id}`, 'PATCH', pickerMessage());
+    if (res.ok) return { ok: true, pinned: true, updated: true };
+  }
   const res = await api(env, `/channels/${ch}/messages`, 'POST', { ...pickerMessage(), allowed_mentions: { parse: [] } });
   if (!res.ok) return { ok: false, pinned: false, error: `Discord ${res.status}: ${(await res.text()).slice(0, 300)}` };
   const id = ((await res.json()) as { id: string }).id;
