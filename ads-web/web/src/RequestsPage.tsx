@@ -44,6 +44,7 @@ export function RequestsApp() {
       <SiteNav current="/requests" />
       <header className="kb-head">
         <div className="row"><HomeLogo text="ID" /><h1>ไอเดียพัฒนาเว็บ</h1></div>
+        <p className="muted small">ทดสอบระบบอัตโนมัติ 20 ต.ค.</p>
         <p className="muted small">มาจากคำสั่ง <b>/ไอเดีย</b> ใน Discord · เบ้นกด "ให้ทำ / ไม่ทำ" ที่โพสต์ในห้องไอเดีย · Claude ทำเองแล้วเปิด PR ให้เบ้นรีวิว + deploy แล้วกด "ทำเสร็จแล้ว" · คนเสนอตรวจแล้วกด "ผ่าน / ไม่ผ่าน" · ทุกครั้งที่กดถูกบันทึกไว้ด้านล่างของแต่ละเรื่อง</p>
         {on && !build && <p className="small muted">Claude ยังไม่ทำเองอัตโนมัติ (ยังไม่ได้ตั้ง IDEA_ROUTINE_ID + IDEA_ROUTINE_TOKEN) — กด "ให้ทำ" แล้วต้องเปิด session ทำเอง</p>}
         {!on && <p className="small warn">ยังไม่เปิดใช้: ตั้ง DISCORD_REQUEST_CHANNEL_ID (ห้อง Forum) ใน wrangler.jsonc แล้วกด "ลงทะเบียนคำสั่ง /ไอเดีย"</p>}
