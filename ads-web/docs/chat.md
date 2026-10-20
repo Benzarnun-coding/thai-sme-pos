@@ -93,3 +93,4 @@ After answer-bank fix #13: a customer said they got a zip instead of buttons and
   - The next complaint from that customer after closing opens a new case.
 - Switch: the secret `DISCORD_SERVICE_WEBHOOK_URL` (the channel's webhook). The bot posts in that webhook's channel so the button works. The bot must be able to see and send there; if it can't, the webhook posts without a button.
 - Dry run: `GET /api/service/preview?days=7` lists what would have been posted from the stored chats.
+- Test: `POST /api/service/test` posts one "[ทดสอบระบบ]" case through the real path (psid `TEST-…`, never sent to Meta).

@@ -35,7 +35,7 @@ import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './chatLog.ts';
 import { aiEnabled, askAI, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
 import { kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, setKbStatus, speaker } from './botKb.ts';
-import { closeCase, servicePreview } from './serviceAlert.ts';
+import { closeCase, serviceAlerts, servicePreview } from './serviceAlert.ts';
 import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './postIdeas.ts';
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
 import { approvalsEnabled, blockedByKillSwitch, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
@@ -761,6 +761,13 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
   if (path === '/api/chats/insights' && method === 'POST') return json(await sendChatInsights(env, url.searchParams.get('scope') === 'today' ? 'today' : 'yesterday'));
   if (path === '/api/chats/report' && method === 'POST') return json(await sendChatReport(env, url.searchParams.get('scope') === 'yesterday' ? 'yesterday' : 'today'));
+  // One test case through the real path (bot post + "จัดการจบแล้ว" button); its psid starts with TEST so it never blocks a customer.
+  if (path === '/api/service/test' && method === 'POST') {
+    if (!env.DISCORD_SERVICE_WEBHOOK_URL) throw new BadRequest('ยังไม่ได้ตั้ง DISCORD_SERVICE_WEBHOOK_URL');
+    const at = new Date().toISOString();
+    const posted = await serviceAlerts(env as any, [{ mid: `TEST-${at}`, psid: `TEST-${at}`, at, from_page: 0, text: '[ทดสอบระบบ] ส่งของผิดสีค่ะ', attachments: null, sender_app: null }]);
+    return json({ posted });
+  }
   if (path === '/api/service/preview' && method === 'GET') return json({ on: !!env.DISCORD_SERVICE_WEBHOOK_URL, cases: await servicePreview(env.DB, Math.min(30, Math.max(1, Number(url.searchParams.get('days') ?? 7)))) });
   if (path === '/api/chats/summary' && method === 'GET') return json(await chatSummary(env.DB, Math.min(30, Math.max(1, Number(url.searchParams.get('days') ?? 7)))));
   if (path === '/api/webhook/setup' && method === 'POST') {
