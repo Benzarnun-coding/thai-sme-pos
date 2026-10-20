@@ -50,7 +50,7 @@
     // #meta-chat: bot posts about chats and the answer bank (fixes with buttons, Fear's Monday reminder).
     "DISCORD_CHAT_CHANNEL_ID": "1560180109045014528",
     // /ไอเดีย feature requests (worker/featureRequests.ts): the forum channel id; empty = off. Deciders (ให้ทำ/ผ่าน) = Benz.
-    "DISCORD_REQUEST_CHANNEL_ID": "",
+    "DISCORD_REQUEST_CHANNEL_ID": "1562012646394298389",
     "DISCORD_REQUEST_DECIDER_IDS": "869116667945439323",
     // Owners: always allowed to manage users on the ผู้ใช้ page (comma separated).
     "OWNER_EMAILS": "arnun.tre@benzarnun.com,ps.maxpollawat@gmail.com",
