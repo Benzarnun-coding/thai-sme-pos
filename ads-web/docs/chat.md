@@ -86,11 +86,11 @@ After answer-bank fix #13: a customer said they got a zip instead of buttons and
   - a waist that may not be made: odd 27–43 or 44+ after เอว/ไซส์/size ("มีเอว 31 ไหม"; fix #15, the bot took orders for 31/33/35/27). A person checks the model's real sizes.
   - "…ไหม" right after = a question before buying, so it is skipped.
 - A match opens a case (one open case per customer) and the bot posts it at once to Discord "service ลูกค้า":
-  - the customer's Facebook name, read live from Meta and never stored, so Fear can search the inbox
+  - the customer's Facebook name, read live from Meta and never stored, so Fear can search the inbox. Meta refuses the profile lookup (`/{psid}?fields=name`) for most customers, so the name comes from the page's conversation with them (`conversations?user_id=…&fields=participants`) — Benz 2026-10-20, the first test had no name.
   - the time and the redacted text
   - a tag for `DISCORD_SERVICE_IDS` (Fear)
   - a **✅ จัดการจบแล้ว** button (`svcdone`; Fear + approvers), which closes the case and adds who closed it and when.
   - The next complaint from that customer after closing opens a new case.
 - Switch: the secret `DISCORD_SERVICE_WEBHOOK_URL` (the channel's webhook). The bot posts in that webhook's channel so the button works. The bot must be able to see and send there; if it can't, the webhook posts without a button.
 - Dry run: `GET /api/service/preview?days=7` lists what would have been posted from the stored chats.
-- Test: `POST /api/service/test` posts one "[ทดสอบระบบ]" case through the real path (psid `TEST-…`, never sent to Meta).
+- Test: `POST /api/service/test` posts one "[ทดสอบระบบ]" case through the real path (psid `TEST-…`, never sent to Meta), with the name of the latest real customer in the chat log so the name lookup is tested too.

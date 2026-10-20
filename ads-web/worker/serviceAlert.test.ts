@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { closeCase, serviceAlerts, serviceMessage, serviceReason } from './serviceAlert.ts';
+import { closeCase, customerName, serviceAlerts, serviceMessage, serviceReason } from './serviceAlert.ts';
 import { sqliteD1 } from './sqliteD1.ts';
 
 test('complaints, refunds and wrong items are caught; questions before buying are not', () => {
@@ -60,6 +60,18 @@ test('one open case per customer; the bot posts in the webhook channel; done clo
     assert.equal((await closeCase(d1, 1, 'Fear'))?.id, 1);
     assert.equal(await closeCase(d1, 1, 'Fear'), null);
     assert.equal(await serviceAlerts(env, [row('e', 'ยังไม่ได้เงินคืนเลยค่ะ')]), 1);
+    // Meta refuses the profile lookup for most customers: the name comes from the page's conversation instead.
+    assert.equal(await customerName(env, 'p1'), 'Somchai Jaidee');
+    globalThis.fetch = (async (u: any) => {
+      const url = String(u);
+      const r = (b: unknown) => new Response(JSON.stringify(b), { status: url.includes('fields=name') ? 400 : 200 });
+      if (url.includes('me/accounts')) return r({ data: [{ id: 'pg', name: 'Page', access_token: 'PT' }] });
+      if (url.includes('fields=name')) return r({ error: { message: 'missing permissions' } });
+      if (url.includes('/pg/conversations') && url.includes('user_id=p2')) return r({ data: [{ participants: { data: [{ id: 'pg', name: 'Page' }, { id: 'p2', name: 'Malee Dee' }] } }] });
+      return r({});
+    }) as typeof fetch;
+    assert.equal(await customerName(env, 'p2'), 'Malee Dee');
+    assert.equal(await customerName(env, 'p3'), null);
     // Switched off without the webhook secret.
     assert.equal(await serviceAlerts({ ...env, DISCORD_SERVICE_WEBHOOK_URL: undefined }, [row('f', 'ส่งผิด')]), 0);
   } finally {

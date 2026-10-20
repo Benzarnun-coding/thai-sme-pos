@@ -63,7 +63,7 @@ export function serviceMessage(c: { id: number; at: string; reason: string; text
 }
 
 /** Called for every webhook delivery: opens a case and posts it for each complaining customer without an open one. */
-export async function serviceAlerts(env: ServiceEnv & { DB: D1Database }, rows: ChatRow[]): Promise<number> {
+export async function serviceAlerts(env: ServiceEnv & { DB: D1Database }, rows: ChatRow[], nameOf = (psid: string) => customerName(env, psid)): Promise<number> {
   if (!env.DISCORD_SERVICE_WEBHOOK_URL) return 0;
   const hits = new Map<string, { row: ChatRow; reason: string }>();
   for (const r of rows) {
@@ -77,7 +77,7 @@ export async function serviceAlerts(env: ServiceEnv & { DB: D1Database }, rows: 
       SELECT ?1, ?2, ?3, ?4, 'open' WHERE NOT EXISTS (SELECT 1 FROM service_cases WHERE psid = ?1 AND status = 'open') RETURNING id`)
       .bind(row.psid, row.at, reason, row.text).first<{ id: number }>();
     if (!c) continue;
-    const name = await profileName(env, row.psid).catch(() => null);
+    const name = await nameOf(row.psid).catch(() => null);
     const ids = idList(env.DISCORD_SERVICE_IDS);
     const mention = ids.map((id) => `<@${id}>`).join(' ');
     const sent = await postCase(env, { id: c.id, at: row.at, reason, text: row.text }, name, mention, ids);
@@ -89,12 +89,21 @@ export async function serviceAlerts(env: ServiceEnv & { DB: D1Database }, rows: 
   return posted;
 }
 
-async function profileName(env: ServiceEnv, psid: string): Promise<string | null> {
+/**
+ * The customer's Facebook name. Meta refuses the profile lookup ("missing permissions") for most customers
+ * (checked 2026-10-20 on a real one), but the page's conversation with them lists the name — so that is asked next.
+ */
+export async function customerName(env: ServiceEnv, psid: string): Promise<string | null> {
   const pg = await pageOf(env);
   if (!pg) return null;
-  const res = await fetch(`https://graph.facebook.com/${env.META_API_VERSION ?? 'v21.0'}/${psid}?fields=name&access_token=${encodeURIComponent(pg.token)}`);
+  const graph = `https://graph.facebook.com/${env.META_API_VERSION ?? 'v21.0'}`;
+  const token = encodeURIComponent(pg.token);
+  const res = await fetch(`${graph}/${psid}?fields=name&access_token=${token}`);
   const body: any = await res.json().catch(() => ({}));
-  return typeof body.name === 'string' && body.name.trim() ? body.name.trim() : null;
+  if (typeof body.name === 'string' && body.name.trim()) return body.name.trim();
+  const conv: any = await fetch(`${graph}/${pg.id}/conversations?platform=messenger&user_id=${encodeURIComponent(psid)}&fields=participants&access_token=${token}`).then((r) => r.json()).catch(() => ({}));
+  const who = (conv.data?.[0]?.participants?.data ?? []).find((x: any) => x?.id === psid);
+  return typeof who?.name === 'string' && who.name.trim() ? who.name.trim() : null;
 }
 
 /** The bot posts (so the button works) in the webhook's channel; if it can't, the webhook posts without a button. */

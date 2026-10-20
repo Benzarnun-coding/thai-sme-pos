@@ -35,7 +35,7 @@ import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './chatLog.ts';
 import { aiEnabled, askAI, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
 import { kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, setKbStatus, speaker } from './botKb.ts';
-import { closeCase, serviceAlerts, servicePreview } from './serviceAlert.ts';
+import { closeCase, customerName, serviceAlerts, servicePreview } from './serviceAlert.ts';
 import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './postIdeas.ts';
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
 import { approvalsEnabled, blockedByKillSwitch, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
@@ -765,7 +765,10 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (path === '/api/service/test' && method === 'POST') {
     if (!env.DISCORD_SERVICE_WEBHOOK_URL) throw new BadRequest('ยังไม่ได้ตั้ง DISCORD_SERVICE_WEBHOOK_URL');
     const at = new Date().toISOString();
-    const posted = await serviceAlerts(env as any, [{ mid: `TEST-${at}`, psid: `TEST-${at}`, at, from_page: 0, text: '[ทดสอบระบบ] ส่งของผิดสีค่ะ', attachments: null, sender_app: null }]);
+    // The name is looked up for the latest real customer, so the test shows a name the way a real case would.
+    const last = await env.DB.prepare('SELECT psid FROM chat_messages WHERE from_page = 0 ORDER BY at DESC LIMIT 1').first<{ psid: string }>();
+    const posted = await serviceAlerts(env as any, [{ mid: `TEST-${at}`, psid: `TEST-${at}`, at, from_page: 0, text: '[ทดสอบระบบ] ส่งของผิดสีค่ะ', attachments: null, sender_app: null }],
+      async () => (last ? customerName(env as any, last.psid) : null));
     return json({ posted });
   }
   if (path === '/api/service/preview' && method === 'GET') return json({ on: !!env.DISCORD_SERVICE_WEBHOOK_URL, cases: await servicePreview(env.DB, Math.min(30, Math.max(1, Number(url.searchParams.get('days') ?? 7)))) });
