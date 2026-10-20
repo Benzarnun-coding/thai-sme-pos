@@ -171,13 +171,38 @@ export async function postRequest(env: RequestEnv, r: FeatureRequest, log: LogRo
   return thread;
 }
 
-/** After a press: the post's title follows the status; the people who act next are pinged in the post. */
+/**
+ * After a press: the people who act next are pinged in the post, then the post's title follows the status. Pings go
+ * first: Discord lets a post be renamed only twice per 10 minutes, so quick presses leave the title behind (the
+ * 3-hourly sweep catches it up via syncTitles) and must not hold back the pings.
+ */
 export async function afterMove(env: RequestEnv, r: FeatureRequest, by: string, note: string | null): Promise<void> {
   if (!r.thread_id) return;
-  await api(env, `/channels/${r.thread_id}`, 'PATCH', { name: threadName(r) }).catch(() => null);
   if (r.status === 'review') await say(env, r.thread_id, deciderIds(env), (m) => `${m} ${by} ทำเสร็จแล้วค่ะ 🧪 รบกวนลองใช้บนเว็บ แล้วกด **ผ่าน** หรือ **ไม่ผ่าน** นะคะ`);
   if (r.status === 'doing' && note) await say(env, r.thread_id, [], () => `↩️ ยังไม่ผ่านค่ะ — ${note}`);
   if (r.status === 'passed' && r.author_id) await say(env, r.thread_id, [r.author_id], (m) => `${m} ไอเดียนี้ขึ้นเว็บแล้วค่ะ ✅ ขอบคุณที่เสนอนะคะ`);
+  await rename(env, r);
+}
+
+/** Renames the post unless Discord's rename limit is hit; a short timeout so a held request can't eat the Worker's time. */
+async function rename(env: RequestEnv, r: FeatureRequest): Promise<boolean> {
+  const res = await Promise.race([
+    api(env, `/channels/${r.thread_id}`, 'PATCH', { name: threadName(r) }).catch(() => null),
+    new Promise<null>((ok) => setTimeout(() => ok(null), 5000)),
+  ]);
+  if (res && !res.ok) console.error('discord request rename', r.id, res.status, (await res.text()).slice(0, 200));
+  return !!res?.ok;
+}
+
+/** 3-hourly: titles of posts changed in the last day are set again, so a rename Discord refused catches up. */
+export async function syncTitles(env: RequestEnv): Promise<number> {
+  if (!env.DISCORD_REQUEST_CHANNEL_ID || !env.DISCORD_BOT_TOKEN) return 0;
+  const since = new Date(Date.now() - 86_400_000).toISOString();
+  const { results } = await env.DB.prepare('SELECT * FROM feature_requests WHERE thread_id IS NOT NULL AND updated_at >= ? ORDER BY id LIMIT 20').bind(since).all<FeatureRequest>();
+  const cur = await Promise.all(results.map((r) => api(env, `/channels/${r.thread_id}`, 'GET').then((x) => (x.ok ? x.json() as Promise<{ name?: string }> : null)).catch(() => null)));
+  let n = 0;
+  for (const [k, r] of results.entries()) if (cur[k] && cur[k]!.name !== threadName(r) && (await rename(env, r))) n++;
+  return n;
 }
 
 async function say(env: RequestEnv, channel: string, ids: string[], text: (mention: string) => string): Promise<void> {
