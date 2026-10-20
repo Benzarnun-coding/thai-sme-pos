@@ -42,7 +42,7 @@ export function RequestsApp() {
       <SiteNav current="/requests" />
       <header className="kb-head">
         <div className="row"><HomeLogo text="ID" /><h1>ไอเดียพัฒนาเว็บ</h1></div>
-        <p className="muted small">มาจากคำสั่ง <b>/ไอเดีย</b> ใน Discord · เบ้นกด "ให้ทำ / ไม่ทำ" และ "ผ่าน / ไม่ผ่าน" ที่โพสต์ในห้องไอเดีย · คนทำกด "ทำเสร็จแล้ว" · ทุกครั้งที่กดถูกบันทึกไว้ด้านล่างของแต่ละเรื่อง</p>
+        <p className="muted small">มาจากคำสั่ง <b>/ไอเดีย</b> ใน Discord · เบ้นกด "ให้ทำ / ไม่ทำ" ที่โพสต์ในห้องไอเดีย · คนทำกด "ทำเสร็จแล้ว" · คนเสนอตรวจแล้วกด "ผ่าน / ไม่ผ่าน" · ทุกครั้งที่กดถูกบันทึกไว้ด้านล่างของแต่ละเรื่อง</p>
         {!on && <p className="small warn">ยังไม่เปิดใช้: ตั้ง DISCORD_REQUEST_CHANNEL_ID (ห้อง Forum) ใน wrangler.jsonc แล้วกด "ลงทะเบียนคำสั่ง /ไอเดีย"</p>}
         <div className="row">
           <button className="ghost small" disabled={busy} onClick={async () => {

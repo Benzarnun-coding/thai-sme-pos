@@ -21,13 +21,17 @@ test('statuses only move along the agreed path', () => {
   assert.equal(nextStatus('passed', 'done'), null);
 });
 
-test('Benz decides; the approvers may also say it is built; others may not press', () => {
+test('Benz decides; the approvers say it is built; the person who asked checks it (Benz may too)', () => {
   const e = env({} as D1Database);
-  assert.ok(mayPress(e, 'go', BENZ));
-  assert.ok(!mayPress(e, 'go', MAX));
-  assert.ok(mayPress(e, 'done', MAX));
-  assert.ok(!mayPress(e, 'done', STAFF));
-  assert.ok(!mayPress(e, 'pass', STAFF));
+  assert.ok(mayPress(e, 'go', BENZ, STAFF));
+  assert.ok(!mayPress(e, 'go', MAX, STAFF));
+  assert.ok(!mayPress(e, 'go', STAFF, STAFF), 'asking is not approving');
+  assert.ok(mayPress(e, 'done', MAX, STAFF));
+  assert.ok(!mayPress(e, 'done', STAFF, STAFF));
+  assert.ok(mayPress(e, 'pass', STAFF, STAFF));
+  assert.ok(mayPress(e, 'fail', STAFF, STAFF));
+  assert.ok(mayPress(e, 'pass', BENZ, STAFF));
+  assert.ok(!mayPress(e, 'pass', MAX, STAFF), 'someone else cannot check it');
 });
 
 test('a request walks new → doing → review → doing (fail, with reason) → review → passed, every press logged', async () => {

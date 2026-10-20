@@ -2,7 +2,8 @@
 // the forum channel DISCORD_REQUEST_CHANNEL_ID with buttons. Each request walks:
 //   new ──ให้ทำ──▶ doing ──ทำเสร็จแล้ว──▶ review ──ผ่าน──▶ passed
 //    └──ไม่ทำ──▶ dropped                      └──ไม่ผ่าน (reason)──▶ doing
-// Benz (DISCORD_REQUEST_DECIDER_IDS) decides; whoever builds it (DISCORD_APPROVER_IDS or a decider) presses ทำเสร็จแล้ว.
+// Benz (DISCORD_REQUEST_DECIDER_IDS) decides ให้ทำ / ไม่ทำ; whoever builds it (DISCORD_APPROVER_IDS or a decider) presses
+// ทำเสร็จแล้ว; the person who asked checks it (ผ่าน / ไม่ผ่าน, Benz 2026-10-20), and a decider may check for them.
 // Every press is a row in feature_request_log; the post's title carries the status emoji. Page: /requests.
 // Off until DISCORD_REQUEST_CHANNEL_ID is set (the command answers that it's not switched on).
 
@@ -48,11 +49,16 @@ const MOVES: Record<Verb, { from: Status; to: Status }> = {
 export const nextStatus = (from: Status, verb: Verb): Status | null => (MOVES[verb]?.from === from ? MOVES[verb].to : null);
 
 export const deciderIds = (env: RequestEnv) => idList(env.DISCORD_REQUEST_DECIDER_IDS).length ? idList(env.DISCORD_REQUEST_DECIDER_IDS) : idList(env.DISCORD_APPROVER_IDS);
-/** Deciders press every button; "ทำเสร็จแล้ว" may also be pressed by the approvers (the people who build). Empty lists = anyone. */
-export function mayPress(env: RequestEnv, verb: Verb, userId: string): boolean {
+/**
+ * Deciders press every button; "ทำเสร็จแล้ว" may also be pressed by the approvers (the people who build); "ผ่าน /
+ * ไม่ผ่าน" by the person who asked, since they know what they wanted. Empty decider list = anyone.
+ */
+export function mayPress(env: RequestEnv, verb: Verb, userId: string, authorId: string | null): boolean {
   const deciders = deciderIds(env);
-  const allowed = verb === 'done' ? [...deciders, ...idList(env.DISCORD_APPROVER_IDS)] : deciders;
-  return !allowed.length || allowed.includes(userId);
+  const allowed = verb === 'done' ? [...deciders, ...idList(env.DISCORD_APPROVER_IDS)]
+    : verb === 'pass' || verb === 'fail' ? [...deciders, ...(authorId ? [authorId] : [])]
+    : deciders;
+  return !deciders.length || allowed.includes(userId);
 }
 
 /** The forum post's title: status emoji + #id + title (Discord caps thread names at 100). */
@@ -178,9 +184,9 @@ export async function postRequest(env: RequestEnv, r: FeatureRequest, log: LogRo
  */
 export async function afterMove(env: RequestEnv, r: FeatureRequest, by: string, note: string | null): Promise<void> {
   if (!r.thread_id) return;
-  if (r.status === 'review') await say(env, r.thread_id, deciderIds(env), (m) => `${m} ${by} ทำเสร็จแล้วค่ะ 🧪 รบกวนลองใช้บนเว็บ แล้วกด **ผ่าน** หรือ **ไม่ผ่าน** นะคะ`);
+  if (r.status === 'review') await say(env, r.thread_id, r.author_id ? [r.author_id] : deciderIds(env), (m) => `${m} ${by} ทำเสร็จแล้วค่ะ 🧪 รบกวนลองใช้บนเว็บว่าตรงกับที่อยากได้ไหม แล้วกด **ผ่าน** หรือ **ไม่ผ่าน** (บอกว่าต้องแก้อะไร) ที่ข้อความแรกของโพสต์นี้นะคะ`);
   if (r.status === 'doing' && note) await say(env, r.thread_id, [], () => `↩️ ยังไม่ผ่านค่ะ — ${note}`);
-  if (r.status === 'passed' && r.author_id) await say(env, r.thread_id, [r.author_id], (m) => `${m} ไอเดียนี้ขึ้นเว็บแล้วค่ะ ✅ ขอบคุณที่เสนอนะคะ`);
+  if (r.status === 'passed') await say(env, r.thread_id, [], () => `✅ ${by} ตรวจผ่านแล้วค่ะ ไอเดียนี้ใช้งานบนเว็บได้แล้ว ขอบคุณที่เสนอนะคะ 🙏`);
   await rename(env, r);
 }
 
@@ -250,7 +256,7 @@ export async function requestInteraction(i: any, env: RequestEnv, ctx: { waitUnt
   const id = Number(fr ? fr[2] : ff![1]);
   const cur = await loadRequest(env.DB, id);
   if (!cur || cur.r.thread_id !== i.channel_id) return only('ไม่พบไอเดียนี้ในโพสต์นี้ค่ะ');
-  if (!mayPress(env, verb, userId)) return only(`ปุ่มนี้${verb === 'done' ? 'สำหรับคนทำ' : 'ให้คุณเบ้นกด'}นะคะ 🙏 (Discord ID ของคุณ: ${userId})`);
+  if (!mayPress(env, verb, userId, cur.r.author_id)) return only(`ปุ่มนี้${verb === 'done' ? 'สำหรับคนทำ' : verb === 'pass' || verb === 'fail' ? `ให้คุณ${cur.r.author} (คนเสนอ) เป็นคนตรวจ` : 'ให้คุณเบ้นกด'}นะคะ 🙏 (Discord ID ของคุณ: ${userId})`);
   if (nextStatus(cur.r.status, verb) === null) return reply({ type: 7, data: requestMessage(cur.r, cur.log) });
   // "ไม่ผ่าน" asks what to fix first; the reason goes into the log and the post.
   if (verb === 'fail' && fr) return reply({ type: 9, data: failModal(id) });
