@@ -198,12 +198,12 @@ export default {
         return;
       }
       // Monday 08:00 Bangkok: after the run, ask whether the shop-wide daily cap may grow (goal.ts).
-      // Monday and Thursday 08:00: น้องจิบิ's new-post ideas for Max (postIdeas.ts).
+      // Monday and Thursday 08:00: อูนิ's new-post ideas for Max (postIdeas.ts).
       const day = new Date(Date.now() + 7 * 3_600_000).getUTCDay(), morning = new Date().getUTCHours() < 6;
       ctx.waitUntil(runAutomation(env, meta, { trigger: 'schedule' })
         .then(() => (morning && day === 1 ? scaleCheck(env).catch((err) => console.error('scale', err)) : null))
         .then(() => (morning && (day === 1 || day === 4) ? sendPostIdeas(env).catch((err) => console.error('ideas', err)) : null))
-        // Monday and Thursday: น้องจิบิ's fixes for Meta's Business AI, each with approve / reject buttons (botKb.ts).
+        // Monday and Thursday: อูนิ's fixes for Meta's Business AI, each with approve / reject buttons (botKb.ts).
         .then(() => (morning && (day === 1 || day === 4) && aiEnabled(env) ? kbRound(env, 'fix').catch((err) => console.error('kb', err)) : null))
         // 20:00: how today is doing against the goal's daily pace.
         .then(() => (!morning ? eveningPace(env).catch((err) => console.error('pace', err)) : null)));
@@ -1550,7 +1550,7 @@ function finite<T extends object | undefined>(m: T): T {
 }
 
 /** 07:30 Discord note: yesterday's real numbers (Page365) when the file is in; the reminder waits until 10:00. */
-/** น้องจิบิ's chat report to #meta-chat: yesterday (07:30) or today so far (button). */
+/** อูนิ's chat report to #meta-chat: yesterday (07:30) or today so far (button). */
 async function sendChatReport(env: Env, scope: 'yesterday' | 'today'): Promise<{ sent: boolean; threads: number }> {
   if (!env.DISCORD_CHAT_WEBHOOK_URL) throw new BadRequest('ยังไม่ได้ตั้ง DISCORD_CHAT_WEBHOOK_URL');
   const day = scope === 'yesterday' ? bkkDate(1) : bkkDate(0);
@@ -1600,9 +1600,9 @@ async function kbRound(env: Env, mode: 'fix' | 'faq'): Promise<{ proposed: numbe
   if (approvalsEnabled(env)) {
     const mention = idList(env.DISCORD_DECIDER_IDS).map((id) => `<@${id}>`).join(' ');
     if (mode === 'faq') {
-      await postBot(env, { content: `📚 น้องจิบิทำ **คลังคำตอบบอทชุดแรก ${r.items.length} ข้อ** จากแชทจริงแล้วค่ะ ${mention ? `คุณ ${mention} ` : ''}รบกวนตรวจและกดอนุมัติที่หน้า https://pkjeans-ads.ads-web.workers.dev/botkb นะคะ 🙏` }, true);
+      await postBot(env, { content: `📚 อูนิทำ **คลังคำตอบบอทชุดแรก ${r.items.length} ข้อ** จากแชทจริงแล้วค่ะ ${mention ? `คุณ ${mention} ` : ''}รบกวนตรวจและกดอนุมัติที่หน้า https://pkjeans-ads.ads-web.workers.dev/botkb นะคะ 🙏` }, true);
     } else if (r.items.length) {
-      await postBot(env, { content: `🛠 น้องจิบิตรวจคำตอบบอท Meta AI (${list.length} แชทตั้งแต่รอบก่อน) เจอ **${r.items.length} เรื่องที่ควรแก้** ค่ะ ${mention ? `คุณ ${mention} ` : ''}กดทีละข้อได้เลยนะคะ 🙏` }, true);
+      await postBot(env, { content: `🛠 อูนิตรวจคำตอบบอท Meta AI (${list.length} แชทตั้งแต่รอบก่อน) เจอ **${r.items.length} เรื่องที่ควรแก้** ค่ะ ${mention ? `คุณ ${mention} ` : ''}กดทีละข้อได้เลยนะคะ 🙏` }, true);
       for (const it of r.items) {
         const id = await postBot(env, kbMessage(it, ''));
         if (id) await env.DB.prepare('UPDATE bot_kb SET message_id = ? WHERE id = ?').bind(id, it.id).run();
@@ -1624,14 +1624,14 @@ async function kbReminder(env: Env, test = false): Promise<string | void> {
     method: 'POST',
     headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      content: `${test ? '🧪 **ข้อความทดสอบ** (หน้าตาการเตือนทุกวันจันทร์ 10:00)\n' : ''}📌 ${day === 2 ? 'น้องจิบิเตือนอีกรอบค่ะ' : 'ถึงรอบอัปเดตบอทแล้วค่ะ'} คุณ ${mention || 'ทีม'} 🙏 มี **คำตอบที่แม็กซ์อนุมัติแล้ว ${n} ข้อ** รอใส่ในบอท Business AI\n1) เปิด https://pkjeans-ads.ads-web.workers.dev/botkb แล้วกด "คัดลอกทั้งหมด"\n2) Meta Business Suite → Business AI → วางในส่วนคำถาม-คำตอบ / คำแนะนำ\n3) กดปุ่ม **ใส่บอทแล้ว** ด้านล่าง น้องจะจดวันที่ไว้วัดผลค่ะ`,
+      content: `${test ? '🧪 **ข้อความทดสอบ** (หน้าตาการเตือนทุกวันจันทร์ 10:00)\n' : ''}📌 ${day === 2 ? 'อูนิเตือนอีกรอบค่ะ' : 'ถึงรอบอัปเดตบอทแล้วค่ะ'} คุณ ${mention || 'ทีม'} 🙏 มี **คำตอบที่แม็กซ์อนุมัติแล้ว ${n} ข้อ** รอใส่ในบอท Business AI\n1) เปิด https://pkjeans-ads.ads-web.workers.dev/botkb แล้วกด "คัดลอกทั้งหมด"\n2) Meta Business Suite → Business AI → วางในส่วนคำถาม-คำตอบ / คำแนะนำ\n3) กดปุ่ม **ใส่บอทแล้ว** ด้านล่าง น้องจะจดวันที่ไว้วัดผลค่ะ`,
       components: [{ type: 1, components: [{ type: 2, style: 3, label: '✅ ใส่บอทแล้ว', custom_id: 'kbapplied:all' }] }],
       allowed_mentions: { users: ids },
     }),
   }).then(async (res) => { if (res.ok) return 'ok'; const t = await res.text(); console.error('kb reminder', res.status, t); return `${res.status} ${t.slice(0, 200)}`; });
 }
 
-/** น้องจิบิ's AI read of a day's chats → #meta-chat. One model call per day; tokens are logged in audit. */
+/** อูนิ's AI read of a day's chats → #meta-chat. One model call per day; tokens are logged in audit. */
 async function sendChatInsights(env: Env, scope: 'yesterday' | 'today'): Promise<{ sent: boolean; customers: number; read: number; input_tokens: number; output_tokens: number }> {
   if (!aiEnabled(env)) throw new BadRequest('ยังไม่ได้ตั้ง ANTHROPIC_API_KEY');
   if (!env.DISCORD_CHAT_WEBHOOK_URL) throw new BadRequest('ยังไม่ได้ตั้ง DISCORD_CHAT_WEBHOOK_URL');
@@ -1643,7 +1643,7 @@ async function sendChatInsights(env: Env, scope: 'yesterday' | 'today'): Promise
   if (!list.length) return { sent: false, customers: 0, read: 0, input_tokens: 0, output_tokens: 0 };
   const t = transcript(list);
   const ai = await askAI(env, INSIGHT_SYSTEM, insightPrompt(thai, t, list.length));
-  const head = `🧠 **น้องจิบิอ่านแชท ${scope === 'yesterday' ? thai : `วันนี้ ${thai} (ถึงตอนนี้)`}** · ${list.length} คน${t.used < list.length ? ` (อ่าน ${t.used})` : ''}\n`;
+  const head = `🧠 **อูนิอ่านแชท ${scope === 'yesterday' ? thai : `วันนี้ ${thai} (ถึงตอนนี้)`}** · ${list.length} คน${t.used < list.length ? ` (อ่าน ${t.used})` : ''}\n`;
   const sent = await pushDiscord(head + ai.text + citeKey(ai.text, list.slice(0, t.used)), env.DISCORD_CHAT_WEBHOOK_URL).catch(() => false);
   await audit(env.DB, 'ai', 'chat.insights', day, { model: ai.model, input_tokens: ai.input_tokens, output_tokens: ai.output_tokens, customers: list.length, read: t.used, sent: !!sent, text: ai.text.slice(0, 4000) }).catch(() => null);
   return { sent: !!sent, customers: list.length, read: t.used, input_tokens: ai.input_tokens, output_tokens: ai.output_tokens };
@@ -1963,7 +1963,7 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
     }
     if ((p.kind as string) === 'test') {
       await mark(verb === 'approve' ? 'approved' : 'rejected');
-      return reply(`✅ **น้องจิบิได้รับแล้วค่ะ** — ${who} กด "${verb === 'approve' ? 'อนุมัติ' : verb === 'reject' ? 'ไม่' : 'ย้ายไปทดสอบ'}" · บอทพร้อมใช้งาน (ข้อความนี้เป็นการทดสอบ ไม่ได้แตะแอดจริง)`);
+      return reply(`✅ **อูนิได้รับแล้วค่ะ** — ${who} กด "${verb === 'approve' ? 'อนุมัติ' : verb === 'reject' ? 'ไม่' : 'ย้ายไปทดสอบ'}" · บอทพร้อมใช้งาน (ข้อความนี้เป็นการทดสอบ ไม่ได้แตะแอดจริง)`);
     }
     if (verb === 'approve' && p.kind === 'pause') {
       await metaFor(env).setStatus(p.entity_id, 'PAUSED');

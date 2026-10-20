@@ -93,7 +93,7 @@ export function SettingsPage({ costsLoaded, campaignNames, onSaved }: { costsLoa
 
       <section className="card">
         <h2>เป้ากำไรและการขยายงบ</h2>
-        <p className="muted small">กำไรสุทธิ = ยอดขายจริง − ทุนสินค้า − ค่าใช้จ่ายต่อออเดอร์ − ค่าแอด (ยังไม่หักค่าใช้จ่ายคงที่) · ทุกเช้าวันจันทร์ ถ้า MER จริง 7 วันถึงเกณฑ์ น้องจิบิจะถามใน Discord ว่าจะขยายเพดานงบรวมไหม</p>
+        <p className="muted small">กำไรสุทธิ = ยอดขายจริง − ทุนสินค้า − ค่าใช้จ่ายต่อออเดอร์ − ค่าแอด (ยังไม่หักค่าใช้จ่ายคงที่) · ทุกเช้าวันจันทร์ ถ้า MER จริง 7 วันถึงเกณฑ์ อูนิจะถามใน Discord ว่าจะขยายเพดานงบรวมไหม</p>
         <div className="grid2">
           <label>เป้ากำไรสุทธิต่อเดือน (฿)<input type="number" min={0} step={1000} value={s.goal.monthly_net} onChange={(e) => setS({ ...s, goal: { ...s.goal, monthly_net: Number(e.target.value) } })} /></label>
           <label>MER จริง 7 วันขั้นต่ำก่อนขยายเพดานงบ<input type="number" min={1} step={0.01} value={s.goal.scale_mer} onChange={(e) => setS({ ...s, goal: { ...s.goal, scale_mer: Number(e.target.value) } })} /></label>
@@ -307,12 +307,12 @@ function DiscordCard() {
     <section className="card">
       <h2>บอท Discord (ปุ่มอนุมัติ)</h2>
       <p className="muted small">การหยุดแคมเปญและการย้ายลงกลุ่มดับ จะส่งเป็นคำถามพร้อมปุ่มในห้องรายงานแอด ให้คนกดอนุมัติก่อน · ปรับงบ ±20% ยังทำเองอัตโนมัติ</p>
-      <p className="muted small">จันทร์และพฤหัส 08:00 น้องจิบิส่งไอเดียโพสต์ใหม่ให้แม็กซ์ (สินค้าไหนควรทำโพสต์เพิ่ม/ลองเปิด/ยังไม่ต้องทำ จากออเดอร์จริง 14 วัน)</p>
+      <p className="muted small">จันทร์และพฤหัส 08:00 อูนิส่งไอเดียโพสต์ใหม่ให้แม็กซ์ (สินค้าไหนควรทำโพสต์เพิ่ม/ลองเปิด/ยังไม่ต้องทำ จากออเดอร์จริง 14 วัน)</p>
       <button className="ghost" disabled={busy} onClick={async () => {
         setBusy(true);
         try { const r = await api.sendPostIdeas(); toast(`ส่งไอเดียแล้ว ${r.ideas} ข้อ`, 'ok'); } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
       }}>{busy ? 'กำลังส่ง…' : 'ส่งไอเดียโพสต์ให้แม็กซ์ตอนนี้'}</button>
-      <p className="muted small">10:00 ถ้ายังไม่มีไฟล์ Page365 ของเมื่อวาน น้องจิบิจะแท็กคนอัปโหลด (เคน) ให้กด "อัปโหลดแล้ว"</p>
+      <p className="muted small">10:00 ถ้ายังไม่มีไฟล์ Page365 ของเมื่อวาน อูนิจะแท็กคนอัปโหลด (เคน) ให้กด "อัปโหลดแล้ว"</p>
       <div className="row">
         {([[undefined, 'ส่งข้อความทดสอบเข้า Discord'], ['upload', 'ทดสอบเตือนอัปโหลด Page365']] as const).map(([kind, label]) => (
           <button key={label} className="ghost" disabled={busy} onClick={async () => {

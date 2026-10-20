@@ -254,7 +254,7 @@ export async function postOrderChannel(env: AutoEnv, body: (mention: string) => 
     const ids = (env.DISCORD_ORDER_OWNER_IDS || env.DISCORD_DECIDER_IDS || '').split(',').map((x) => x.trim()).filter(Boolean);
     const r = await fetch(env.DISCORD_ORDER_WEBHOOK_URL, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'น้องจิบิ', content: body(ids.map((id) => `<@${id}>`).join(' ')), allowed_mentions: { users: ids } }),
+      body: JSON.stringify({ username: 'อูนิ', content: body(ids.map((id) => `<@${id}>`).join(' ')), allowed_mentions: { users: ids } }),
     });
     if (r.ok) return;
     console.error('order webhook', r.status);

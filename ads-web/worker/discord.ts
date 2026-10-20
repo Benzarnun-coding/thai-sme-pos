@@ -40,7 +40,7 @@ export async function verifyDiscord(req: Request, body: string, publicKeyHex: st
 const STAGE_TH: Record<string, string> = { experiment: 'ทดลอง', testing: 'ทดสอบ', winning: 'ทำเงิน', retest: 'ดับ → ทดสอบใหม่' };
 
 /**
- * The question as Discord shows it: น้องจิบิ (the bot's persona) asks the deciders, lays out what the rule saw,
+ * The question as Discord shows it: อูนิ (the bot's persona) asks the deciders, lays out what the rule saw,
  * the choices and which one she'd pick, with a button for each choice.
  */
 export function proposalMessage(p: Proposal, mention = ''): { content: string; components: unknown[] } {
@@ -50,10 +50,10 @@ export function proposalMessage(p: Proposal, mention = ''): { content: string; c
   const seen = typeof d.observed === 'number' ? `ROAS ${d.window === 'last_3d' ? '3' : '7'} วัน${d.actual ? ' (ยอดขายจริง Page365)' : ''} **${d.observed.toFixed(2)}** เทียบเกณฑ์ ${d.threshold.toFixed(2)}${x !== null ? ` (${Math.round(x * 100)}% ของเกณฑ์)` : ''}` : p.plan;
   let body: string[];
   if ((p.kind as string) === 'test') {
-    body = [`น้องจิบิขอทดสอบปุ่มกับ${who}ค่ะ 🙏 กดปุ่มไหนก็ได้ ข้อความนี้ไม่แตะแอดจริงนะคะ`];
+    body = [`อูนิขอทดสอบปุ่มกับ${who}ค่ะ 🙏 กดปุ่มไหนก็ได้ ข้อความนี้ไม่แตะแอดจริงนะคะ`];
   } else if (p.kind === 'cap') {
     body = [
-      `น้องจิบิขอถาม${who}ค่ะ 🙏 ขยายเพดานงบรวมต่อวันไหมคะ`,
+      `อูนิขอถาม${who}ค่ะ 🙏 ขยายเพดานงบรวมต่อวันไหมคะ`,
       `📊 MER จริง 7 วัน (ยอดขาย Page365 ÷ ค่าแอด) **${Number(d.mer).toFixed(2)}** ผ่านเกณฑ์ ${Number(d.need).toFixed(2)} แล้วค่ะ · กำไรสุทธิ 7 วัน ${Math.round(d.net7 ?? 0).toLocaleString('th-TH')} บาท`,
       `เพดานงบรวม **${Number(d.from).toLocaleString('th-TH')} → ${Number(d.to).toLocaleString('th-TH')}** บาท/วัน (+${d.pct}%) — กฎจะค่อยๆ เพิ่มงบตัวที่ทำกำไรได้ถึงเพดานใหม่ ครั้งละไม่เกิน 20%`,
       '',
@@ -63,7 +63,7 @@ export function proposalMessage(p: Proposal, mention = ''): { content: string; c
     ];
   } else if (p.kind === 'dup') {
     body = [
-      `น้องจิบิขอถาม${who}ค่ะ 🙏 แคมเปญ **"${p.entity_name}"** ขายดีจนงบชนเพดานแล้ว คัดลอกเพิ่มไหมคะ`,
+      `อูนิขอถาม${who}ค่ะ 🙏 แคมเปญ **"${p.entity_name}"** ขายดีจนงบชนเพดานแล้ว คัดลอกเพิ่มไหมคะ`,
       `📊 ROAS 3 วัน${d.actual ? ' (ยอดขายจริง Page365)' : ''} **${Number(d.roas).toFixed(2)}** = ${(Number(d.roas) / Number(d.breakeven)).toFixed(1)}× คุ้มทุน (${Number(d.breakeven).toFixed(2)}) · ${d.purchases} ออเดอร์ · งบตอนนี้ ${Number(d.budget).toLocaleString('th-TH')}/วัน (เพดาน)`,
       `ถ้าคัดลอก: ได้แคมเปญใหม่หน้าตาเดียวกัน (ชุดโฆษณา + โฆษณาเดิม) งบ **${Number(d.new_budget).toLocaleString('th-TH')}/วัน** เปิดทันที อยู่กลุ่ม "ทดสอบ" ให้กฎดูแลต่อ — ตัวเดิมไม่ถูกแตะ จะได้ไม่เริ่มเรียนรู้ใหม่`,
       '',
@@ -75,7 +75,7 @@ export function proposalMessage(p: Proposal, mention = ''): { content: string; c
     const advise = x !== null && x < 0.8 ? 'ข้อ 1 หยุดเลยค่ะ เพราะต่ำกว่าเกณฑ์มาก ปล่อยไว้จะเสียเงินต่อ'
       : 'ข้อ 3 ย้ายไปกลุ่มทดสอบค่ะ เพราะต่ำกว่าเกณฑ์ไม่มาก ยังขายได้อยู่ ให้กฎกลุ่มทดสอบค่อยๆ ลดงบแทนการหยุดทันที';
     body = [
-      `น้องจิบิขอถาม${who}ค่ะ 🙏 แคมเปญ **"${p.entity_name}"** ควรทำยังไงดีคะ`,
+      `อูนิขอถาม${who}ค่ะ 🙏 แคมเปญ **"${p.entity_name}"** ควรทำยังไงดีคะ`,
       `📊 ${seen}`,
       `กฎ \`${p.rule_id}\` บอกให้ **หยุดแคมเปญ** ค่ะ`,
       '',
@@ -88,7 +88,7 @@ export function proposalMessage(p: Proposal, mention = ''): { content: string; c
     ];
   } else {
     body = [
-      `น้องจิบิขอถาม${who}ค่ะ 🙏 แคมเปญ **"${p.entity_name}"** ควรย้ายกลุ่มไหมคะ`,
+      `อูนิขอถาม${who}ค่ะ 🙏 แคมเปญ **"${p.entity_name}"** ควรย้ายกลุ่มไหมคะ`,
       `📊 ${seen}`,
       `กฎ \`${p.rule_id}\` บอกให้ย้าย **${STAGE_TH[d.move_from] ?? d.move_from ?? 'ไม่มีกลุ่ม'} → ${STAGE_TH[d.move_to] ?? d.move_to}** ค่ะ (กลุ่มดับจะลดงบ 20% ทุก 48 ชม. และหยุดถ้า 7 วันยังไม่ฟื้น)`,
       '',
@@ -126,7 +126,7 @@ export async function postProposal(env: DiscordEnv, p: Proposal): Promise<string
 export function uploadReminderMessage(date: string, thai: string, mention: string, note = ''): { content: string; components: unknown[] } {
   return {
     content: [
-      `📂 น้องจิบิเตือนค่ะ ${mention ? `คุณ ${mention}` : 'ทีม'} 🙏 ยังไม่มีไฟล์ Page365 ของ **${thai}** เลยค่ะ`,
+      `📂 อูนิเตือนค่ะ ${mention ? `คุณ ${mention}` : 'ทีม'} 🙏 ยังไม่มีไฟล์ Page365 ของ **${thai}** เลยค่ะ`,
       'รบกวน export ออเดอร์ของเมื่อวาน (ตัวกรองเดียวกับชีต "รวม") แล้วอัปโหลดที่หน้า **ยอดขายรายวัน** นะคะ',
       'อัปโหลดเสร็จแล้วกด **"อัปโหลดแล้ว"** ได้เลยค่ะ น้องจะเช็กให้',
       ...(note ? ['', note] : []),

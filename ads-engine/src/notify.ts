@@ -50,7 +50,7 @@ export async function pushDiscord(text: string, url?: string): Promise<boolean> 
   let ok = true;
   for (const [i, content] of chunks.entries()) {
     if (i) await new Promise((r) => setTimeout(r, 400)); // webhooks allow a few posts per second
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content, username: 'น้องจิบิ' }) });
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content, username: 'อูนิ' }) });
     if (!res.ok) { console.error('Discord push failed:', res.status, await res.text()); ok = false; }
   }
   return ok;
