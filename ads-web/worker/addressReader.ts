@@ -12,7 +12,7 @@ export const AddressSchema = z.object({
   found: z.boolean().describe('true only if the chat contains a full shipping address for this order'),
   name: z.string().describe("recipient's name as written for the parcel (not the Facebook name), '' if none"),
   phone: z.string().describe('recipient phone, digits only, \'\' if none'),
-  street: z.string().describe('house number, village/moo, soi, road, building — everything before ตำบล/แขวง'),
+  street: z.string().describe('house number, village/moo, soi, road, building — everything before ตำบล/แขวง; never the recipient name or phone number'),
   subdistrict: z.string().describe('ตำบล or แขวง, without the prefix'),
   district: z.string().describe('อำเภอ or เขต, without the prefix'),
   province: z.string().describe('จังหวัด, full name, without the prefix'),

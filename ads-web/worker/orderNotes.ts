@@ -24,8 +24,24 @@ const LIST_LINE = /^[-•*·]?\s*[\u0E00-\u0E7Fa-z ]{0,30}\(\s*([a-z]{0,4}\d+[a-
 /** One message → its items, or null when it is not an order note (no payment + total, or other text in it). */
 const PAY_TAIL = String.raw`\s*(?:บาท|บ\.?|\.-)?\s*(?:k-?bank|kb|scb|ktb|bbl|bay|ttb|gsb|pp|promptpay|กสิกร|ไทยพาณิชย์|กรุงไทย|กรุงเทพ|กรุงศรี|ออมสิน|พร้อมเพย์)?`;
 
+const BANKS = String.raw`k-?bank|kb|scb|ktb|bbl|bay|ttb|gsb|กสิกร|ไทยพาณิชย์|กรุงไทย|กรุงเทพ|กรุงศรี|ออมสิน`;
+
+/**
+ * What admins type that means the same as the plain form (20 Oct): a bank for "โอน" ("kb 399", "kb โอน499",
+ * "KB โอน 998"), and slips with the keyboard still in Thai ("หผ34" = sz34, "ทi9" = ni9, "3ตัส" = 3ตัว).
+ */
+function normaliseNote(text: string | null | undefined): string {
+  return (text ?? '').replace(/ /g, ' ')
+    .replace(new RegExp(`(^|\\s)(?:${BANKS})\\s*(?=โอน)`, 'gi'), '$1')
+    .replace(new RegExp(`(^|\\s)(?:${BANKS})\\s*(?=\\d)`, 'gi'), '$1โอน ')
+    .replace(/หผ(?=\s*\d)/g, 'sz')
+    .replace(/(^|[\s,])ท(?=i9)/gi, '$1n')
+    .replace(/(\d)\s*ตัส/g, '$1ตัว')
+    .trim();
+}
+
 export function parseOrderNote(text: string | null | undefined): ParsedNote | null {
-  const t = (text ?? '').replace(/ /g, ' ').trim();
+  const t = normaliseNote(text);
   if (!t || t.length > 400) return null;
   // Payment + total may be on its own line or at the end of the last item line.
   // …or first, on its own line ("cod249\n501/3 34" — some admins write the total first).
@@ -100,10 +116,11 @@ function parseLine(line: string): NoteItem[] | null {
 /** "501/1/2" → 501/1, 501/2 · "Ni9-1-2-5" → NI9-1, NI9-2, NI9-5 · "200" → 200. */
 export function expandCode(raw: string): string[] {
   const c = raw.toUpperCase();
-  const sep = c.includes('/') ? '/' : c.includes('-') ? '-' : '';
-  if (!sep) return [c];
-  const [base, ...colours] = c.split(sep);
-  return colours.filter(Boolean).map((v) => `${base}${sep}${v}`);
+  // The first separator splits model from colours; the colours may be split by either ("NI9-1/3/4", 20 Oct).
+  const i = c.search(/[/-]/);
+  if (i < 0) return [c];
+  const base = c.slice(0, i), sep = c[i];
+  return c.slice(i + 1).split(/[/-]/).filter(Boolean).map((v) => `${base}${sep}${v}`);
 }
 
 /** The first part of the shop's SKU: 501/1 → 5011, NI9-3 → NI93 (5011-PK-MD-30, NI93-PK-BR-32). */

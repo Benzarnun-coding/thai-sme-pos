@@ -77,12 +77,35 @@ export async function findDraft(env: P365Env, psid: string, at: string, maxCheck
   return null;
 }
 
+/**
+ * The product a note's code means, by the first word of Page365's product name (20 Oct):
+ * the same code ("501/1"); the same code written with other separators when it has a separator or letters
+ * ("009/1" = 009-1, "SK004" = SK-004 — but "204" is not "20-4", a different product); or, for a code without a
+ * colour, the model's only colour ("205" = 205/1, "204" = 204/1).
+ */
+export function pickProduct<T extends { name: string }>(products: T[], code: string): T | undefined {
+  const key = code.toUpperCase();
+  const first = (x: T) => x.name.trim().toUpperCase().split(/\s+/)[0];
+  const bare = (c: string) => c.replace(/[/-]/g, '');
+  const exact = products.find((x) => first(x) === key);
+  if (exact) return exact;
+  if (/[/-]|[A-Z]/.test(key)) {
+    const same = products.filter((x) => bare(first(x)) === bare(key));
+    if (same.length === 1) return same[0];
+  }
+  if (/^\d+$/.test(key)) {
+    const family = products.filter((x) => new RegExp(`^${key}[/-][0-9A-Z]+$`).test(first(x)));
+    if (family.length === 1) return family[0];
+  }
+  return undefined;
+}
+
 /** Page365 product + size for one line: product whose name starts with the code, variant whose SKU ends with the size. */
 async function findVariant(env: P365Env, it: NoteItem, cache: Map<string, { productId: number; variants: Variant[] } | null>): Promise<{ productId: number; variant: Variant | null; sizes: string[] } | null> {
   const key = it.code.toUpperCase();
   if (!cache.has(key)) {
     const found = await call<{ products: { id: number; name: string }[] }>(env, `products.json?for_browser=true&page=1&search=${encodeURIComponent(it.code)}`);
-    const p = found.products.find((x) => x.name.trim().toUpperCase().split(/\s+/)[0] === key);
+    const p = pickProduct(found.products, key);
     if (!p) cache.set(key, null);
     else {
       const full = await call<{ id: number; variants: Variant[] }>(env, `products/${p.id}.json`);
@@ -220,7 +243,7 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   // A size that isn't made: show what the customer actually wrote about size, so the admin can ask them again.
   const said = missingSize ? sizeLines(chat) : [];
   const ids = lines.map((l) => l.product_id).filter((x) => x != null);
-  if (new Set(ids).size !== ids.length) problems.push('มีรุ่นเดียวกันหลายไซส์ในใบเดียว — ตอนนี้ยังให้คนใส่เอง');
+  // The same model in several sizes is one Page365 item per size (20 Oct; the read-back below checks Page365 kept them).
 
   const allFound = lines.every((l) => l.price != null);
   const subtotal = lines.reduce((t, l) => t + (l.price ?? 0) * l.qty, 0);
@@ -308,7 +331,7 @@ export async function applyFill(env: FillEnv, note: { psid: string; at: string; 
     const it = pool.splice(i >= 0 ? i : 0, 1)[0];
     return { id: it.id, name: it.name, note: it.note, price: l.price ?? 0, quantity: l.qty, product_id: l.variant_id };
   });
-  const a = plan.address;
+  const a = plan.address ? { ...plan.address, street: cleanStreet(plan.address.street, [plan.address.name, added.customer_name ?? ''], plan.address.phone) } : null;
   const name = billName(plan.order.no, plan.lines[0]?.sku ?? null, a?.name || added.customer_name || '', plan.lines.map((l) => l.code));
   const customer = a ? {
     customer_name: name,
@@ -329,4 +352,23 @@ export async function applyFill(env: FillEnv, note: { psid: string; at: string; 
     throw new P365Error(`ใส่แล้วแต่ไม่ตรง: ในร่าง ${got} ยอด ${done.total} (ต้องการ ${want} ยอด ${plan.total}) — เปิดร่าง #${plan.order.no} ใน Page365 เพื่อแก้เอง`);
   }
   return { plan, order: done };
+}
+
+/**
+ * The house-number line without the recipient's name or phone (20 Oct: 10 bills had the name, 3 the phone, in the
+ * address — Page365 copies what the customer typed, the chat reader sometimes too). Name and phone have their own fields.
+ */
+export function cleanStreet(street: string, names: string[], phone: string): string {
+  let s = ` ${street ?? ''} `;
+  // Phone numbers in any spacing, and their labels.
+  s = s.replace(/(?:เบอร์(?:โทร)?|โทร\.?|tel\.?|ติดต่อ)\s*:?\s*/gi, ' ');
+  s = s.replace(/(?<!\d)0\d(?:[\s-]?\d){7,8}(?!\d)/g, ' ');
+  if (phone) s = s.split(phone).join(' ');
+  // The recipient's name (with or without คุณ/ชื่อ), word by word for full names.
+  s = s.replace(/(?:ชื่อ(?:ผู้รับ)?|ผู้รับ|คุณ)\s*:?\s*/g, ' ');
+  for (const n of names) {
+    const words = n.replace(/^[A-Z]{1,3}-\d{4}\s+/, '').split(/\s+/).filter((w) => w.length >= 2 && !/\d/.test(w));
+    for (const w of words) s = s.split(w).join(' ');
+  }
+  return s.replace(/\s*[,/]\s*(?=[,/]|$)/g, ' ').replace(/^[\s,/:-]+|[\s,/:-]+$/g, '').replace(/\s+/g, ' ').trim();
 }
