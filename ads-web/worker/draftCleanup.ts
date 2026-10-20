@@ -37,12 +37,12 @@ const zipOk = (o: P365Order) => /^\d{5}$/.test(o.structural_address?.postal_code
  */
 export async function cleanupDrafts(env: AutoEnv, opts: { apply: boolean; limit?: number }): Promise<CleanupItem[]> {
   const now = Date.now();
-  // Page365's open drafts (newest first, 50 a page), those at least a day old…
+  // Page365's open drafts (newest first, a page at a time), those at least a day old…
   const drafts: { id: number; no: number; created_at: string }[] = [];
-  for (let page = 1; page <= 4; page++) {
+  for (let page = 1; page <= 6; page++) {
     const list = await call<{ orders: { id: number; no: number; stage: string; created_at: string }[] }>(env, `orders.json?page=${page}&stage=draft`);
     drafts.push(...list.orders.filter((o) => o.stage === 'draft' && now - Date.parse(o.created_at) >= DAY));
-    if (list.orders.length < 50) break;
+    if (!list.orders.length) break;
   }
   if (!drafts.length) return [];
   // …that an order note of the last 30 days points at.
