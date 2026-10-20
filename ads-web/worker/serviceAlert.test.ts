@@ -11,6 +11,12 @@ test('complaints, refunds and wrong items are caught; questions before buying ar
   assert.equal(serviceReason('ส่งผิดไซส์มาค่ะ สั่ง 32 ได้ 34'), 'ส่งผิด');
   assert.equal(serviceReason('ขอส่งของคืนได้ไหมคะ'), 'ขอคืน/เปลี่ยนสินค้า');
   assert.equal(serviceReason('โดนเก็บเงินซ้ำค่ะ'), 'ร้องเรียน');
+  // Fix #14: leg length / hem width questions.
+  assert.equal(serviceReason('ขายาวกี่นิ้วคะ'), 'ถามความยาว/ปลายขา');
+  assert.equal(serviceReason('รุ่นนี้ความยาวเท่าไหร่ครับ'), 'ถามความยาว/ปลายขา');
+  assert.equal(serviceReason('ปลายขากว้างกี่นิ้ว'), 'ถามความยาว/ปลายขา');
+  assert.match(serviceMessage({ id: 1, at: '2026-10-20T07:40:00.000Z', reason: 'ถามความยาว/ปลายขา', text: 'ยาวกี่นิ้ว' }, null, '', true).content, /ห้ามเดาตัวเลข/);
+  for (const t of ['อยากได้ขากว้างค่ะ', 'ขายาวไหม เอว 30 ใส่ไซส์ไหน']) assert.equal(serviceReason(t), null, t);
   for (const t of ['ตัวนี้ไม่ตรงปกไหมคะ', 'ขอเปลี่ยนเป็นไซส์ 32 นะคะ', 'เอา 3 ตัว 549 ค่ะ', 'ส่งฟรีไหม', null]) assert.equal(serviceReason(t), null, String(t));
 });
 

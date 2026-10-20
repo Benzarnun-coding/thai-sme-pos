@@ -1,6 +1,6 @@
 // Customer-service alerts (Benz 2026-10-20, after answer-bank fix #13: the bot answered a "wrong item, refund"
 // complaint with its own refund policy and the customer got angrier). The moment a customer's message reads as a
-// complaint, a refund, a wrong / not-as-pictured item, the bot posts it to Discord "service ลูกค้า" with the
+// complaint, a refund, a wrong / not-as-pictured item, or asks a leg length the bot doesn't know (fix #14), the bot posts it to Discord "service ลูกค้า" with the
 // customer's Facebook name (so Fear can search the inbox) and tags Fear; whoever answered presses "จัดการจบแล้ว".
 // One open case per customer. The name goes to Discord only; D1 keeps the redacted text like chat_messages.
 // Nothing here replies to the customer. Switched on by the secret DISCORD_SERVICE_WEBHOOK_URL.
@@ -26,6 +26,9 @@ const REASONS: [string, RegExp][] = [
   ['ส่งผิด', new RegExp(`(?:ส่ง(?:มา)?ผิด|ได้(?:ของ|สินค้า|รับ(?:ของ)?)?ผิด|ผิด(?:แบบ|รุ่น|สี|ไซส์|ไซซ์)|สั่ง[^\\n]{0,30}แต่ได้)${NOT_Q}`)],
   ['ขอคืน/เปลี่ยนสินค้า', /(?:คืน|เปลี่ยน)(?:สินค้า|ของ)|ส่ง(?:ของ|สินค้า)?คืน|เคลม/],
   ['ร้องเรียน', /ร้องเรียน|ไม่พอใจ|ผิดหวัง|โกง|หลอกลวง|แย่มาก|ชำรุด|ของเสีย|(?:เก็บ|ตัด)เงินซ้ำ|เก็บเงิน\s?2\s?(?:ครั้ง|รอบ)/],
+  // Answer-bank fix #14 (Benz 2026-10-20): the bot made up "ขากว้าง 10 นิ้ว / ยาว 16 นิ้วทุกไซส์". A question about a
+  // length or width needs a number ("…กี่นิ้ว", "…เท่าไหร่"), so "อยากได้ขากว้าง" (the wide-leg cut) is not one.
+  ['ถามความยาว/ปลายขา', /(?:ยาว|ปลายขา|ขากว้าง|กว้าง|ขา)[^\n]{0,15}(?:กี่|เท่าไ)/],
 ];
 
 /** Why a customer's message needs a person, or null. */
@@ -43,7 +46,7 @@ export function serviceMessage(c: { id: number; at: string; reason: string; text
     `👤 **ชื่อในเฟซ:** ${name ?? '(Meta ไม่ให้ชื่อ — ค้นจากเวลาใน inbox)'}`,
     `🕑 **ทักเมื่อ:** ${bkk(c.at)} น.`,
     `💬 **ลูกค้าพิมพ์:** ${(c.text ?? '').replace(/\s+/g, ' ').slice(0, 600)}`,
-    'เรื่องคืนเงิน/ส่งผิด/ไม่ตรงปก บอทห้ามตอบนโยบายเอง — ตอบลูกค้าใน Page365 แล้ว' + (withButton ? 'กด **✅ จัดการจบแล้ว** ค่ะ' : 'ตอบใต้ข้อความนี้ว่าจัดการแล้วค่ะ (ปุ่มยังไม่ขึ้น: ต้องเพิ่มบอทเข้าห้องนี้)'),
+    (c.reason === 'ถามความยาว/ปลายขา' ? 'บอทไม่มีข้อมูลความยาวขา/ปลายขา ห้ามเดาตัวเลข' : 'เรื่องคืนเงิน/ส่งผิด/ไม่ตรงปก บอทห้ามตอบนโยบายเอง') + ' — ตอบลูกค้าใน Page365 แล้ว' + (withButton ? 'กด **✅ จัดการจบแล้ว** ค่ะ' : 'ตอบใต้ข้อความนี้ว่าจัดการแล้วค่ะ (ปุ่มยังไม่ขึ้น: ต้องเพิ่มบอทเข้าห้องนี้)'),
   ];
   return {
     content: lines.join('\n').slice(0, 1950),
