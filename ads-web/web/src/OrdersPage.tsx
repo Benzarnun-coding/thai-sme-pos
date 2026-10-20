@@ -717,8 +717,13 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
     return [...seen.values()];
   }, [g.lines]);
   const [bulk, setBulk] = useState('');
+  // Rows ticked for the bulk move; none ticked = the whole group.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [setAll, setSetAll] = useState('');
   const missingHere = g.lines.reduce((n, l) => n + (missing.get(lineKey(l)) ?? 0), 0);
+  const pickedLines = g.lines.filter((l) => picked.has(l.sku));
+  const toMove = pickedLines.length ? pickedLines : g.lines;
+  const togglePick = (sku: string) => setPicked((p) => { const n = new Set(p); if (n.has(sku)) n.delete(sku); else n.add(sku); return n; });
   const total = g.kind === 'review' ? null : supplierTotals([g], missing)[0];
   /** Move a row this round; with "จำไว้ทุกวัน" also make it the product's supplier from now on. */
   const move = async (l: PurchaseLine, to: string, remember: boolean) => {
@@ -762,15 +767,16 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
           )}
           {movable && g.lines.length > 1 && (
             <div className="po-bulk">
-              <span className="small">ย้ายทั้ง {num(g.lines.length)} รายการไป (รอบนี้)</span>
+              <span className="small">{pickedLines.length ? `ย้ายที่ติ๊ก ${num(pickedLines.length)} รายการไป (รอบนี้)` : `ย้ายทั้ง ${num(g.lines.length)} รายการไป (รอบนี้) · ติ๊กช่องหน้าแถวเพื่อเลือกเฉพาะบางรายการ`}</span>
               <input value={bulk} onChange={(e) => setBulk(e.target.value)} list="po-targets" placeholder="เลือกหรือพิมพ์ร้าน/โกดัง" aria-label="ย้ายทั้งกลุ่มไป" />
-              <button className="small primary" disabled={!bulk.trim()} onClick={() => { g.lines.forEach((l) => onMove(l.sku, bulk.trim())); setBulk(''); }}>ย้าย</button>
+              <button className="small primary" disabled={!bulk.trim()} onClick={() => { toMove.forEach((l) => onMove(l.sku, bulk.trim())); setBulk(''); setPicked(new Set()); }}>ย้าย</button>
             </div>
           )}
           <div className="table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
+                  {movable && g.lines.length > 1 && <th className="center"><input type="checkbox" aria-label="เลือกทั้งหมดในกลุ่ม" checked={pickedLines.length === g.lines.length} onChange={(e) => setPicked(e.target.checked ? new Set(g.lines.map((l) => l.sku)) : new Set())} /></th>}
                   <th>{g.kind === 'review' ? 'SKU ใน Bigseller' : 'รหัสสินค้า'}</th><th>ไซส์</th><th className="num">จำนวน</th>
                   <th>{g.kind === 'review' ? 'ปัญหา / ตัวเลือกสินค้า' : 'SKU'}</th><th>ร้านขาย · เลขคำสั่งซื้อ</th>
                   {g.kind !== 'review' && <th className="center">ของไม่มี</th>}
@@ -785,6 +791,7 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
                   const firstOfProduct = g.lines.findIndex((x) => `${x.tab}|${spuOf(x.sku)}` === product) === i;
                   return (
                     <tr key={l.sku} id={rowId(g.name, l.sku)} className={`${firstOfProduct && i > 0 ? 'group-start' : ''} ${missing.get(lineKey(l)) ? 'po-missing' : ''} ${found.has(`${g.name}\u0000${l.sku}`) ? 'po-found' : ''}`}>
+                      {movable && g.lines.length > 1 && <td className="center"><input type="checkbox" aria-label={`เลือก ${l.sku}`} checked={picked.has(l.sku)} onChange={() => togglePick(l.sku)} /></td>}
                       <td><LabelCell line={l} strong={!!firstOfProduct || g.kind === 'review'} onSave={onLabel(l) ? (text) => onLabel(l)!(l, text) : null} ours={ours} onReplace={onReplace} onUnmerge={onUnmerge} /></td>
                       <td>{l.size || '—'}</td>
                       <td className="num"><b>{num(l.qty)}</b></td>

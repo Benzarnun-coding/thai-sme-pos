@@ -71,7 +71,7 @@ rules, the monthly goal or the sheet.
   BBW products with นอร์ท still go to นอร์ท). Unknown SKUs → "ตรวจสอบ" (match, or add via `/catalog?q=SKU&add=1`);
   their size comes from the SKU's last part, or Bigseller's option text after the last comma (`optionParts`).
 - Moves: any row, any group, also in a reopened round, can go to any supplier/warehouse for that round only
-  (`applyMoves`, keyed by SKU; "ย้อนกลับไป …" undoes; whole group at once); "จำไว้ทุกวัน" also sets the product's
+  (`applyMoves`, keyed by SKU; "ย้อนกลับไป …" undoes; whole group at once, or only the rows ticked in the group's first column — idea #6); "จำไว้ทุกวัน" also sets the product's
   supplier. A reopened round saves itself after each change.
 - Label: a name typed on the page (`catalog_labels`, per product, every size; rows not in the catalog: that round
   only), else our code + colour name, plus the supplier's code from column M in brackets only when it looks like a code
