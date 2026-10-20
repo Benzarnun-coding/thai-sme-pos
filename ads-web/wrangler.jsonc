@@ -45,6 +45,8 @@
     "CHAT_BOT_APP_IDS": "",
     // Who pastes approved answers into Business AI each Monday (Fear); empty = tag the deciders.
     "DISCORD_KB_UPDATER_IDS": "1179672160122458124",
+    // Discord "service ลูกค้า": complaints / refunds / wrong items tag these people (Fear); the webhook URL is the secret DISCORD_SERVICE_WEBHOOK_URL.
+    "DISCORD_SERVICE_IDS": "1179672160122458124",
     // #meta-chat: bot posts about chats and the answer bank (fixes with buttons, Fear's Monday reminder).
     "DISCORD_CHAT_CHANNEL_ID": "1560180109045014528",
     // Owners: always allowed to manage users on the ผู้ใช้ page (comma separated).

@@ -35,6 +35,7 @@ import { pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './chatLog.ts';
 import { aiEnabled, askAI, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
 import { kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, setKbStatus, speaker } from './botKb.ts';
+import { closeCase, servicePreview } from './serviceAlert.ts';
 import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './postIdeas.ts';
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
 import { approvalsEnabled, blockedByKillSwitch, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
@@ -78,6 +79,9 @@ export interface Env {
   DISCORD_KB_UPDATER_IDS?: string;
   /** #meta-chat: the bot posts everything about chats and the answer bank here (needs View + Send there) */
   DISCORD_CHAT_CHANNEL_ID?: string;
+  /** Discord "service ลูกค้า" (secret webhook URL, the switch) and who answers there (Fear) — worker/serviceAlert.ts */
+  DISCORD_SERVICE_WEBHOOK_URL?: string;
+  DISCORD_SERVICE_IDS?: string;
   CHAT_AI_MODEL?: string;
   /** Discord user IDs allowed to press the buttons (comma separated); empty = anyone in the channel */
   DISCORD_APPROVER_IDS?: string;
@@ -753,6 +757,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
   if (path === '/api/chats/insights' && method === 'POST') return json(await sendChatInsights(env, url.searchParams.get('scope') === 'today' ? 'today' : 'yesterday'));
   if (path === '/api/chats/report' && method === 'POST') return json(await sendChatReport(env, url.searchParams.get('scope') === 'yesterday' ? 'yesterday' : 'today'));
+  if (path === '/api/service/preview' && method === 'GET') return json({ on: !!env.DISCORD_SERVICE_WEBHOOK_URL, cases: await servicePreview(env.DB, Math.min(30, Math.max(1, Number(url.searchParams.get('days') ?? 7)))) });
   if (path === '/api/chats/summary' && method === 'GET') return json(await chatSummary(env.DB, Math.min(30, Math.max(1, Number(url.searchParams.get('days') ?? 7)))));
   if (path === '/api/webhook/setup' && method === 'POST') {
     const r = await setupWebhook(env, `${url.origin}/webhook/meta`).catch((err) => { throw new BadRequest(err.message); });
@@ -1838,7 +1843,8 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
   if (i.type === 1) return json({ type: 1 });
   if (i.type !== 3) return json({ type: 4, data: { content: 'ยังไม่รองรับคำสั่งนี้', flags: 64 } });
   // The bot works in one channel only: a press from anywhere else is refused (only the presser sees the reply).
-  if (env.DISCORD_CHANNEL_ID && i.channel_id !== env.DISCORD_CHANNEL_ID && i.channel_id !== env.DISCORD_CHAT_CHANNEL_ID) return json({ type: 4, data: { content: 'บอทนี้ใช้ได้เฉพาะห้องรายงานแอด', flags: 64 } });
+  const svc = String(i.data?.custom_id ?? '').startsWith('svcdone:');
+  if (env.DISCORD_CHANNEL_ID && !svc && i.channel_id !== env.DISCORD_CHANNEL_ID && i.channel_id !== env.DISCORD_CHAT_CHANNEL_ID) return json({ type: 4, data: { content: 'บอทนี้ใช้ได้เฉพาะห้องรายงานแอด', flags: 64 } });
   const who = i.member?.user?.global_name || i.member?.user?.username || i.user?.username || 'ไม่ทราบชื่อ';
   // Only the listed people may decide (empty list = anyone in the channel); the refusal shows the presser their ID.
   const userId = String(i.member?.user?.id ?? i.user?.id ?? '');
@@ -1850,6 +1856,17 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
     const n = await markApplied(env.DB);
     await audit(env.DB, `discord:${who}`, 'botkb.applied', 'bot_kb', { n });
     return json({ type: 7, data: { content: `✅ **ใส่บอทแล้วค่ะ** ${n} ข้อ — ${who} อัปเดต ${new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' })} ขอบคุณค่ะ 🙏 น้องจะเทียบให้ว่าหลังแก้บอทตอบผิดน้อยลงไหมนะคะ`, components: [] } });
+  }
+  if (verb0 === 'svcdone') {
+    // service ลูกค้า: Fear (or Benz/Max) closes the case; it must be a case posted in this channel.
+    const allowed = [...approvers, ...idList(env.DISCORD_SERVICE_IDS)];
+    if (allowed.length && !allowed.includes(userId)) return json({ type: 4, data: { content: `ปุ่มนี้สำหรับคนตอบลูกค้าค่ะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
+    const row = await env.DB.prepare('SELECT channel_id FROM service_cases WHERE id = ?').bind(Number(arg0)).first<{ channel_id: string | null }>();
+    if (!row || row.channel_id !== i.channel_id) return json({ type: 4, data: { content: 'ไม่พบเคสนี้ในห้องนี้ค่ะ', flags: 64 } });
+    const done = await closeCase(env.DB, Number(arg0), `discord:${who}`);
+    const when = new Date().toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' });
+    const before = String(i.message?.content ?? '').split('\n').filter((l: string) => !l.includes('จัดการจบแล้ว')).join('\n');
+    return json({ type: 7, data: { content: `${before}\n${done ? `✅ **จัดการจบแล้ว** — ${who} · ${when}` : '✅ เคสนี้ปิดไปแล้วค่ะ'}`.slice(0, 2000), components: [] } });
   }
   if (verb0 === 'kbok' || verb0 === 'kbno') {
     if (approvers.length && !approvers.includes(userId)) return json({ type: 4, data: { content: `ขอโทษค่ะ ปุ่มนี้ให้กดได้เฉพาะคุณเบ้นกับคุณแม็กซ์นะคะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });

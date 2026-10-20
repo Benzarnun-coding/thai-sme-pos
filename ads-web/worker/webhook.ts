@@ -10,6 +10,7 @@ import { maybeSyncPurchases } from './metaPurchases.ts';
 import { looksLikeNote, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { hashName } from './p365.ts';
 import { extractChats, saveChats } from './chatLog.ts';
+import { serviceAlerts } from './serviceAlert.ts';
 
 export interface WebhookEnv {
   DB: D1Database;
@@ -82,6 +83,8 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
   if (misses.length) ctx.waitUntil(recordMisses(env as any, misses).catch((err) => console.error('note miss', err)));
   const chats = extractChats(body.entry ?? []);
   if (chats.length) ctx.waitUntil(saveChats(env.DB, chats).catch((err) => console.error('chat store', err)));
+  // A complaint / refund / wrong item: posted at once to Discord "service ลูกค้า" for Fear (serviceAlert.ts).
+  if (chats.some((c) => !c.from_page)) ctx.waitUntil(serviceAlerts(env as any, chats).catch((err) => console.error('service alert', err)));
   return new Response('ok', { status: 200 });
 }
 
