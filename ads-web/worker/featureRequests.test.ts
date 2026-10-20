@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildPayload, createRequest, mayPress, pickerMessage, modalValues, moveRequest, nextStatus, requestInteraction, requestMessage, threadName } from './featureRequests.ts';
+import { buildPayload, postExtras, createRequest, mayPress, pickerMessage, modalValues, moveRequest, nextStatus, requestInteraction, requestMessage, threadName } from './featureRequests.ts';
 import { sqliteD1 } from './sqliteD1.ts';
 
 const schema = `CREATE TABLE feature_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, author TEXT NOT NULL, author_id TEXT,
@@ -107,4 +107,18 @@ test('the build payload carries the request, its branch and every "ไม่ผ�
   assert.match(t, /รอบที่: 2/);
   assert.match(t, /อยากดูเฉพาะ 501/);
   assert.match(t, /- ยังไม่มีปุ่มกรอง/);
+});
+
+test('pictures and later messages in the post reach Claude; bot messages and non-images are left out', () => {
+  const msgs = [ // Discord returns newest first
+    { type: 0, author: { id: '9', username: 'max' }, content: 'ปุ่มอยู่มุมขวา', attachments: [{ url: 'https://cdn.discordapp.com/a.png', content_type: 'image/png' }, { url: 'https://cdn.discordapp.com/b.pdf', content_type: 'application/pdf' }] },
+    { type: 0, author: { id: 'BOT', bot: true }, content: 'มีไอเดียใหม่ค่ะ', attachments: [] },
+    { type: 0, author: { id: '9', global_name: 'Max' }, content: 'แบบนี้', attachments: [] },
+  ];
+  const ex = postExtras(msgs, 'BOT');
+  assert.deepEqual(ex.map((x) => x.text), ['แบบนี้', 'ปุ่มอยู่มุมขวา']);
+  const t = buildPayload({ id: 7, title: 't', area: 'ads', author: 'Max', detail: 'd', runs: 0 } as any, [], ex);
+  assert.match(t, /- Max: แบบนี้/);
+  assert.match(t, /https:\/\/cdn.discordapp.com\/a.png/);
+  assert.doesNotMatch(t, /b\.pdf/);
 });

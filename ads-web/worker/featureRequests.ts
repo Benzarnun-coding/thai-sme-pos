@@ -142,6 +142,7 @@ export function pickerMessage(): { content: string; components: unknown[] } {
       '',
       '**จำง่ายๆ** เงินแอด → แอด · ของ/สต็อก → หลังบ้าน · แชท/บิล → ออเดอร์/บิล · ของพัง → บั๊ก',
       'เขียนให้ทำได้เร็ว: ตอนนี้ทำยังไง → ติดตรงไหน → อยากให้เป็นยังไง',
+      '📎 มีรูปหน้าจอ: ส่งฟอร์มแล้วแนบรูปในโพสต์ที่น้องเปิดให้ได้เลยค่ะ',
     ].join('\n'),
     components: [
       { type: 1, components: [b('ads', '📣'), b('backoffice', '📦'), b('gosell', '🔄')] },
@@ -217,7 +218,7 @@ export async function postRequest(env: RequestEnv, r: FeatureRequest, log: LogRo
   if (!res.ok) { console.error('discord request post', res.status, await res.text()); return null; }
   const thread = ((await res.json()) as { id: string }).id;
   await env.DB.prepare('UPDATE feature_requests SET thread_id = ? WHERE id = ?').bind(thread, r.id).run();
-  await say(env, thread, deciderIds(env), (m) => `${m} มีไอเดียใหม่ค่ะ 🙏 กด **ให้ทำ** หรือ **ไม่ทำ** ที่ข้อความแรกของโพสต์นี้ได้เลยนะคะ`);
+  await say(env, thread, deciderIds(env), (m) => `${m} มีไอเดียใหม่ค่ะ 🙏 กด **ให้ทำ** หรือ **ไม่ทำ** ที่ข้อความแรกของโพสต์นี้ได้เลยนะคะ\n📎 คนเสนอแนบรูปหน้าจอ หรือพิมพ์อธิบายเพิ่มในโพสต์นี้ได้เลยค่ะ Claude จะดูทั้งหมดก่อนเริ่มทำ`);
   return thread;
 }
 
@@ -289,7 +290,28 @@ export const branchFor = (id: number) => `claude/idea-${id}`;
 export const deployTag = (r: Pick<FeatureRequest, 'id' | 'runs'>) => `deployed/idea-${r.id}-r${r.runs ?? 1}`;
 
 /** What the routine receives (it arrives as untrusted data; the routine's saved prompt says what to do with it). */
-export function buildPayload(r: FeatureRequest, log: LogRow[]): string {
+export interface PostExtra { by: string; text: string; images: string[] }
+
+/**
+ * What people added in the post after the form: clarifications and screenshots (images only), oldest first, the
+ * bot's own messages left out. Discord gives the bot message text and attachments only with the Message Content
+ * intent switched on for the app.
+ */
+export function postExtras(messages: any[], botId: string | null): PostExtra[] {
+  return messages
+    .filter((m) => !m.author?.bot && m.author?.id !== botId && m.type === 0)
+    .map((m) => ({
+      by: m.author?.global_name || m.author?.username || '?',
+      text: String(m.content ?? '').trim().slice(0, 1000),
+      images: (m.attachments ?? []).filter((a: any) => String(a.content_type ?? '').startsWith('image/')).map((a: any) => String(a.url)),
+    }))
+    .filter((x) => x.text || x.images.length)
+    .reverse();
+}
+
+export function buildPayload(r: FeatureRequest, log: LogRow[], extras: PostExtra[] = []): string {
+  const images = extras.flatMap((x) => x.images).slice(0, 10);
+  const notes = extras.filter((x) => x.text).map((x) => `- ${x.by}: ${x.text}`);
   const fails = log.filter((l) => l.from_status === 'review' && l.to_status === 'doing' && l.note).map((l) => `- ${l.note}`);
   return [
     `ไอเดีย #${r.id}: ${r.title}`,
@@ -301,8 +323,16 @@ export function buildPayload(r: FeatureRequest, log: LogRow[]): string {
     '',
     'รายละเอียดจากคนเสนอ:',
     r.detail || '-',
+    ...(notes.length ? ['', 'ข้อความเพิ่มเติมในโพสต์ (เก่าไปใหม่):', ...notes] : []),
+    ...(images.length ? ['', 'รูปประกอบ (ลิงก์ Discord หมดอายุในไม่กี่ชั่วโมง ดาวน์โหลดก่อนเริ่ม):', ...images] : []),
     ...(fails.length ? ['', 'ตรวจแล้วไม่ผ่าน ต้องแก้ (ล่าสุดอยู่ล่างสุด):', ...fails] : []),
   ].join('\n');
+}
+
+/** The post's later messages (up to 100); nothing if Discord refuses. */
+async function readPost(env: RequestEnv, thread: string): Promise<PostExtra[]> {
+  const msgs = await api(env, `/channels/${thread}/messages?limit=100`, 'GET').then((x) => (x.ok ? x.json() as Promise<any[]> : [])).catch(() => []);
+  return postExtras(msgs, env.DISCORD_APP_ID ?? null);
 }
 
 /** Fires the routine for a request that just became กำลังทำ; says in the post where to watch it. Off = nothing. */
@@ -312,7 +342,7 @@ export async function startBuild(env: RequestEnv, r: FeatureRequest, note: strin
   const res = await fetch(`https://api.anthropic.com/v1/claude_code/routines/${env.IDEA_ROUTINE_ID}/fire`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${env.IDEA_ROUTINE_TOKEN}`, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: buildPayload(got?.r ?? r, got?.log ?? []) }),
+    body: JSON.stringify({ text: buildPayload(got?.r ?? r, got?.log ?? [], await readPost(env, r.thread_id)) }),
   }).catch((e) => ({ ok: false, status: 0, text: async () => String(e) }) as Response);
   if (!res.ok) {
     const why = `${res.status} ${(await res.text()).slice(0, 200)}`;
@@ -403,7 +433,7 @@ export async function requestInteraction(i: any, env: RequestEnv, ctx: { waitUnt
     const r = await createRequest(env.DB, { author: who, author_id: userId, area: cid.slice(6), title: v.title, detail: v.detail ?? '' });
     const got = await loadRequest(env.DB, r.id);
     ctx.waitUntil(postRequest(env, r, got?.log ?? []).catch((e) => console.error('request post', e)));
-    return only(`💡 รับไอเดีย **#${r.id} ${r.title}** แล้วค่ะ ขอบคุณนะคะ 🙏 น้องเปิดโพสต์ในห้องไอเดียให้แล้ว คุณเบ้นจะมากดให้ทำ/ไม่ทำค่ะ`);
+    return only(`💡 รับไอเดีย **#${r.id} ${r.title}** แล้วค่ะ ขอบคุณนะคะ 🙏 น้องเปิดโพสต์ในห้องไอเดียให้แล้ว\n📎 มีรูปหน้าจอประกอบ ส่งในโพสต์นั้นได้เลยค่ะ (ก่อนคุณเบ้นกดให้ทำ)`);
   }
   const fr = /^fr:(go|no|done|pass|fail):(\d+)$/.exec(cid);
   const ff = /^frfail:(\d+)$/.exec(cid);
