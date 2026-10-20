@@ -42,6 +42,7 @@ export function OrderNotesPage() {
       </div>
       <DaySales date={date} refresh={tick} />
       <SessionBanner />
+      <Accuracy refresh={tick} />
       <AutoSwitch />
       <CleanupSwitch />
       <NoteMisses refresh={tick} />
@@ -175,6 +176,42 @@ function AutoSwitch() {
       </span>
       <button className="ghost small" onClick={flip}>{on ? 'ปิด' : 'เปิดอัตโนมัติ'}</button>
     </div>
+  );
+}
+
+interface AccDay { date: string; notes: number; bills: number; checked: number; ok: number; edited: number; stopped: number; stopped_kept: number; deleted: number; open: number; misses: number; edits: Record<string, number>; reasons: Record<string, { n: number; kept: number }>; address: Record<string, number> }
+const EDIT_TH: Record<string, string> = { size: 'ไซส์', items: 'รุ่น', qty: 'จำนวน', total: 'ยอด', payment: 'โอน/ปลายทาง', 'n/a': 'เทียบไม่ได้' };
+
+/** How the bills behind the notes ended up in Page365 (worker/fillAudit.ts), per day. */
+function Accuracy({ refresh }: { refresh: number }) {
+  const [d, setD] = useState<{ days: AccDay[]; edited: { no: number; date: string; edits: string[] }[] } | null>(null);
+  useEffect(() => { fetch('/api/order-notes/accuracy?days=7').then((r) => r.json()).then(setD).catch(() => {}); }, [refresh]);
+  if (!d || !d.days.some((x) => x.checked)) return null;
+  const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : '–');
+  const reasons: Record<string, { n: number; kept: number }> = {};
+  for (const x of d.days) for (const [k, v] of Object.entries(x.reasons)) { reasons[k] = reasons[k] ?? { n: 0, kept: 0 }; reasons[k].n += v.n; reasons[k].kept += v.kept; }
+  return (
+    <details className="card" style={{ marginBottom: 12 }} open>
+      <summary><strong>ความแม่นยำใส่บิล (7 วัน)</strong> <span className="muted small">เทียบบิลจริงใน Page365 หลังส่งแล้ว กับบรรทัดสรุปของแอดมิน · ตรวจบิลที่อายุเกิน 20 ชม. ทีละไม่กี่ใบ</span></summary>
+      <table className="table small">
+        <thead><tr><th>วัน</th><th>สรุป</th><th>ตรวจแล้ว</th><th>ระบบใส่ ไม่ต้องแก้</th><th>แอดมินแก้</th><th>ระบบหยุด (ไม่จำเป็น)</th><th>อ่านไม่ออก</th><th>ถูกลบ</th></tr></thead>
+        <tbody>
+          {d.days.map((x) => (
+            <tr key={x.date}>
+              <td>{thaiDay(x.date)}</td><td>{x.notes}</td><td>{x.checked}{x.open ? <span className="muted"> (+{x.open} ยังไม่ส่ง)</span> : null}</td>
+              <td className="good">{x.ok} <span className="muted">{pct(x.ok, x.ok + x.edited)}</span></td>
+              <td>{x.edited ? `${x.edited} (${Object.entries(x.edits).map(([k, v]) => `${EDIT_TH[k] ?? k} ${v}`).join(', ')})` : 0}</td>
+              <td>{x.stopped} {x.stopped ? <span className="muted">({x.stopped_kept})</span> : null}</td>
+              <td>{x.misses}</td><td>{x.deleted}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {Object.keys(reasons).length > 0 && (
+        <p className="small"><b>ระบบหยุดเพราะ:</b> {Object.entries(reasons).sort((a, b) => b[1].n - a[1].n).map(([k, v]) => `${k} ${v.n}${v.kept ? ` (ไม่จำเป็น ${v.kept})` : ''}`).join(' · ')}</p>
+      )}
+      {d.edited.length > 0 && <p className="small muted">บิลที่แอดมินแก้: {d.edited.map((e) => `#${e.no} ${e.edits.map((k) => EDIT_TH[k] ?? k).join('+')}`).join(' · ')}</p>}
+    </details>
   );
 }
 

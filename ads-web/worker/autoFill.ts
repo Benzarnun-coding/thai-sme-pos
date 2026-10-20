@@ -8,6 +8,7 @@ import { postToDeciders, type DiscordEnv } from './discord.ts';
 import { looksLikeNote, markFill, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { sendNotePurchase } from './notePurchases.ts';
 import { cleanupDrafts, cleanupOn, deleteDraft } from './draftCleanup.ts';
+import { accuracyPost, auditStep } from './fillAudit.ts';
 import { applyFill, call, findDraft, P365Error, planFill, type FillEnv, type P365Order } from './p365fill.ts';
 
 export interface AutoEnv extends FillEnv, DiscordEnv { DB: D1Database; /** #ออเดอร์มีปัญหา (Benz 15 Oct); falls back to the ads channel via the bot */ DISCORD_ORDER_WEBHOOK_URL?: string; /** who answers for problem bills (เนย, Benz 15 Oct); empty = the deciders */ DISCORD_ORDER_OWNER_IDS?: string }
@@ -246,7 +247,7 @@ export async function tell(env: AutoEnv, note: StoredNote, draft: P365Order | nu
 }
 
 /** The problem channel (#ออเดอร์มีปัญหา), tagging the person in charge; the ads channel via the bot if not set. */
-async function postOrderChannel(env: AutoEnv, body: (mention: string) => string): Promise<void> {
+export async function postOrderChannel(env: AutoEnv, body: (mention: string) => string): Promise<void> {
   if (env.DISCORD_ORDER_WEBHOOK_URL) {
     const ids = (env.DISCORD_ORDER_OWNER_IDS || env.DISCORD_DECIDER_IDS || '').split(',').map((x) => x.trim()).filter(Boolean);
     const r = await fetch(env.DISCORD_ORDER_WEBHOOK_URL, {
@@ -268,6 +269,11 @@ export async function cronSweep(env: AutoEnv): Promise<void> {
   if (!(await autoFillOn(env.DB))) return;
   await sweepNotes(env, { force: true }).catch((err) => console.error('sweep', err));
   if (await cleanupOn(env.DB)) await cleanupDrafts(env, { apply: true }).catch((err) => console.error('cleanup', err));
+  // 09:15 Bangkok: yesterday's accuracy to the problem channel (fillAudit.ts), after one more audit step.
+  if ((new Date().getUTCHours() + 7) % 24 === 9) {
+    await auditStep(env, { force: true }).catch((err) => console.error('audit', err));
+    await accuracyPost(env).catch((err) => console.error('accuracy post', err));
+  }
   const hour = (new Date().getUTCHours() + 7) % 24;
   const last = await env.DB.prepare('SELECT max(at) AS at FROM chat_messages').first<{ at: string | null }>().catch(() => null);
   if (hour >= 10 && hour < 23 && last?.at && Date.now() - Date.parse(last.at) > 3 * 3_600_000) {

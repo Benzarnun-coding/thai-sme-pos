@@ -43,6 +43,7 @@ import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, 
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
 import { cleanupDrafts, cleanupOn, setCleanup } from './draftCleanup.ts';
+import { accuracy, auditStep } from './fillAudit.ts';
 import { autoFillNote, autoFillOn, cronSweep, customerFor, loadMisses, setAutoFill, sweepNotes, tell, tellMiss } from './autoFill.ts';
 import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './metaPurchases.ts';
 import { captureSource, planNotePurchases } from './notePurchases.ts';
@@ -495,6 +496,9 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     await audit(env.DB, user, 'p365.auto_fill', on ? 'on' : 'off', {});
     return json({ on });
   }
+  // Accuracy of the order-note flow (fillAudit.ts): per day + recent edited bills; a step by hand for backfilling.
+  if (path === '/api/order-notes/accuracy' && method === 'GET') return json(await accuracy(env.DB, Math.min(Number(url.searchParams.get('days') ?? 7) || 7, 30)));
+  if (path === '/api/order-notes/audit-run' && method === 'POST') return json({ written: await auditStep(env, { force: true, limit: 15 }) });
   // Deleting drafts nobody will send (draftCleanup.ts): GET = switch + what it would do now (nothing deleted).
   if (path === '/api/order-notes/cleanup' && method === 'GET') return json({ on: await cleanupOn(env.DB), preview: await cleanupDrafts(env, { apply: false, limit: 20 }) });
   if (path === '/api/order-notes/cleanup' && method === 'PUT') {

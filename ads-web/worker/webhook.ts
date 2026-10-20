@@ -6,6 +6,7 @@
 // for 30 days with phone numbers, e-mails, long numbers and addresses removed first (chatLog.ts).
 
 import { autoFillNote, recordMisses, sendNoteSale, sweepNotes } from './autoFill.ts';
+import { auditStep } from './fillAudit.ts';
 import { maybeSyncPurchases } from './metaPurchases.ts';
 import { looksLikeNote, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { hashName } from './p365.ts';
@@ -78,7 +79,9 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
     .catch((err) => console.error('webhook store', err)));
   // Webhook deliveries are the clock for sending Page365 purchases to Meta (at most every 10 minutes; off by default)
   // and for the fill sweep (a note whose draft never opened or whose fill was cut short; at most every 5 minutes).
-  if (!notes.length) ctx.waitUntil(maybeSyncPurchases(env as any).catch((err) => console.error('capi', err)).then(() => sweepNotes(env as any)).catch((err) => console.error('sweep', err)));
+  if (!notes.length) ctx.waitUntil(maybeSyncPurchases(env as any).catch((err) => console.error('capi', err)).then(() => sweepNotes(env as any))
+    // Nothing to sweep: a few bills' accuracy check instead (fillAudit.ts, every 10 minutes at most).
+    .then((r) => (r ? null : auditStep(env as any))).catch((err) => console.error('sweep/audit', err)));
   // A note the parser can't read: a person is told at once (it is also kept, so the format can be learnt).
   if (misses.length) ctx.waitUntil(recordMisses(env as any, misses).catch((err) => console.error('note miss', err)));
   const chats = extractChats(body.entry ?? []);
