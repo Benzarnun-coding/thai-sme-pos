@@ -124,7 +124,7 @@ export function pickerMessage(): { content: string; components: unknown[] } {
   return {
     content: [
       '💡 **เสนอไอเดียพัฒนาเว็บ** — กดปุ่มหมวดด้านล่าง แล้วกรอกฟอร์มได้เลยค่ะ',
-      'น้องจิบิเปิดโพสต์ให้ → คุณเบ้นกด "ให้ทำ / ไม่ทำ" → ทำเสร็จแล้ว**คนเสนอ**ลองใช้ แล้วกด "ผ่าน / ไม่ผ่าน"',
+      'อูนิเปิดโพสต์ให้ → คุณเบ้นกด "ให้ทำ / ไม่ทำ" → ทำเสร็จแล้ว**คนเสนอ**ลองใช้ แล้วกด "ผ่าน / ไม่ผ่าน"',
       '',
       '📣 **แอด** — หน้าแรกของเว็บ (แดชบอร์ดแอด) คุมแอด Meta',
       '• ภาพรวม ROAS กำไรต่อแคมเปญ เป้ากำไร · ยอดขายรายวัน (Page365 เทียบ Meta) · ไอเดียโพสต์ · คู่แข่ง',
@@ -362,7 +362,8 @@ export async function startBuild(env: RequestEnv, r: FeatureRequest, note: strin
  */
 export async function checkBuilds(env: RequestEnv): Promise<number> {
   if (!buildEnabled(env) || !env.GITHUB_REPO) return 0;
-  const { results } = await env.DB.prepare(`SELECT * FROM feature_requests WHERE status = 'doing' AND run_at IS NOT NULL AND (pr_at IS NULL OR pr_at < run_at) ORDER BY id LIMIT 10`).all<FeatureRequest>();
+  // Every request still being built: the deploy tag can come after Benz was told about a PR (he merged + deployed it).
+  const { results } = await env.DB.prepare(`SELECT * FROM feature_requests WHERE status = 'doing' AND run_at IS NOT NULL ORDER BY id LIMIT 10`).all<FeatureRequest>();
   const owner = env.GITHUB_REPO.split('/')[0];
   let n = 0;
   const gh = (path: string) => fetch(`https://api.github.com/repos/${env.GITHUB_REPO}${path}`, { headers: { 'User-Agent': 'pkjeans-ads', Accept: 'application/vnd.github+json' } })
@@ -382,6 +383,7 @@ export async function checkBuilds(env: RequestEnv): Promise<number> {
     }
     // The PR if the run opened one; else the pushed branch, with GitHub's one-click "open a PR" page.
     const pr = ((await gh(`/pulls?state=all&head=${owner}:${encodeURIComponent(branch)}`)) as { html_url: string; updated_at: string }[] | null)?.[0];
+    if (r.pr_at && r.pr_at >= r.run_at!) continue; // already told about this run's PR
     let link: string | null = pr && pr.updated_at >= r.run_at! ? pr.html_url : null;
     if (!link && !pr) {
       const b = await gh(`/branches/${encodeURIComponent(branch)}`) as { commit?: { commit?: { committer?: { date?: string } } } } | null;
