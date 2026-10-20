@@ -196,7 +196,7 @@ function CleanupSwitch() {
   return (
     <div className={`banner ${st.on ? 'info' : ''}`}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
-        <span><b>ลบร่างที่ไม่มีใครส่ง: {st.on ? 'เปิด' : 'ปิด'}</b> — ลูกค้ายกเลิก (ร่างว่าง, หลัง 1 วัน) · ไม่มีเบอร์/รหัสไปรษณีย์หรือร่างว่าง (หลัง 7 วัน, เตือนวันที่ 5) · สรุปแก้ภายใน 2 ชม. แทนร่างเดิม — เฉพาะร่าง ไม่แตะบิลที่ส่งแล้ว</span>
+        <span><b>ลบร่างที่ไม่มีใครส่ง: {st.on ? 'เปิด' : 'ปิด'}</b> — ลูกค้ายกเลิก (หลัง 1 วัน) · ไม่มีเบอร์/รหัสไปรษณีย์หรือร่างว่าง (หลัง 7 วัน, เตือนวันที่ 5) · สรุปแก้ภายใน 2 ชม. แทนร่างเดิม — เฉพาะร่าง ไม่แตะบิลที่ส่งแล้ว</span>
         <span style={{ display: 'flex', gap: 6 }}>
           <button className="ghost small" onClick={() => setOpen(!open)}>ดูรายการ ({st.preview.length})</button>
           <button className="ghost small" onClick={flip}>{st.on ? 'ปิด' : 'เปิด'}</button>

@@ -1,7 +1,7 @@
 // Deleting Page365 drafts the order-note flow made and nobody will send (Benz 20 Oct). Off until Benz switches it
 // on (meta_capi key draft_cleanup); the preview lists what it would delete. Only ever drafts linked to an order
 // note, never a bill that has moved on:
-// - a draft the customer cancelled (the chat reader said so), still empty, a day after the person was told;
+// - a draft the customer cancelled (the chat reader said so), a day after the person was told (#29645, Benz);
 // - a draft still without phone or postcode, or still empty, 7 days after the note (told once at day 5);
 // - the earlier draft when the admin types a corrected summary within 2 hours (autoFill.ts ensureDraft) — the
 //   corrected one replaces it.
@@ -37,23 +37,29 @@ const zipOk = (o: P365Order) => /^\d{5}$/.test(o.structural_address?.postal_code
  */
 export async function cleanupDrafts(env: AutoEnv, opts: { apply: boolean; limit?: number }): Promise<CleanupItem[]> {
   const now = Date.now();
+  // Page365's open drafts (newest first, 50 a page), those at least a day old…
+  const drafts: { id: number; no: number; created_at: string }[] = [];
+  for (let page = 1; page <= 4; page++) {
+    const list = await call<{ orders: { id: number; no: number; stage: string; created_at: string }[] }>(env, `orders.json?page=${page}&stage=draft`);
+    drafts.push(...list.orders.filter((o) => o.stage === 'draft' && now - Date.parse(o.created_at) >= DAY));
+    if (list.orders.length < 50) break;
+  }
+  if (!drafts.length) return [];
+  // …that an order note of the last 30 days points at.
   const { results } = await env.DB.prepare(
     `SELECT fill_order_no AS no, MIN(at) AS at, MAX(CASE WHEN instr(fill_error, 'ลูกค้าขอยกเลิก') > 0 THEN 1 ELSE 0 END) AS cancelled
-       FROM order_notes WHERE fill_order_no IS NOT NULL AND at >= ? AND at <= ? AND (fill_error IS NULL OR instr(fill_error, 'ลบร่างแล้ว') = 0)
-      GROUP BY fill_order_no ORDER BY MIN(at) LIMIT ?`,
-  ).bind(new Date(now - 30 * DAY).toISOString(), new Date(now - DAY).toISOString(), opts.limit ?? 12).all<{ no: number; at: string; cancelled: number }>();
+       FROM order_notes WHERE at >= ? AND fill_order_no IN (SELECT value FROM json_each(?)) GROUP BY fill_order_no ORDER BY MIN(at) LIMIT ?`,
+  ).bind(new Date(now - 30 * DAY).toISOString(), JSON.stringify(drafts.map((d) => d.no)), opts.limit ?? 12).all<{ no: number; at: string; cancelled: number }>();
   const out: CleanupItem[] = [];
   for (const r of results) {
-    const list = await call<{ orders: { id: number; no: number; stage: string }[] }>(env, `orders.json?page=1&stage=draft&search=${r.no}`).catch(() => null);
-    const hit = list?.orders.find((o) => o.no === r.no && o.stage === 'draft');
-    if (!hit) continue;
+    const hit = drafts.find((d) => d.no === r.no)!;
     const o = await call<P365Order>(env, `orders/${hit.id}.json`);
     const age = now - Date.parse(r.at);
     let reason = '';
-    if (r.cancelled && !o.items.length) reason = 'ลูกค้ายกเลิกในแชท ร่างยังว่าง';
+    if (r.cancelled) reason = 'ลูกค้ายกเลิกในแชท';
     else if (!o.items.length || !phoneOk(o) || !zipOk(o)) reason = !o.items.length ? 'ร่างยังว่าง' : !phoneOk(o) ? 'ยังไม่มีเบอร์โทร' : 'ยังไม่มีรหัสไปรษณีย์';
     if (!reason) continue;
-    const due = r.cancelled && !o.items.length ? DAY : 7 * DAY;
+    const due = r.cancelled ? DAY : 7 * DAY;
     const action: CleanupItem['action'] = age >= due ? 'delete' : age >= due - 2 * DAY ? 'warn' : 'keep';
     out.push({ no: r.no, reason, action, note_at: r.at });
     if (!opts.apply || action === 'keep') continue;
