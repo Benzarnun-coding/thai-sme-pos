@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createRequest, mayPress, modalValues, moveRequest, nextStatus, requestInteraction, requestMessage, threadName } from './featureRequests.ts';
+import { createRequest, mayPress, pickerMessage, modalValues, moveRequest, nextStatus, requestInteraction, requestMessage, threadName } from './featureRequests.ts';
 import { sqliteD1 } from './sqliteD1.ts';
 
 const schema = `CREATE TABLE feature_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, author TEXT NOT NULL, author_id TEXT,
@@ -74,6 +74,10 @@ test('interactions: command opens the form; a button from another channel or per
   assert.match(elsewhere.data.content, /<#777>/);
   const inRoom = await (await requestInteraction({ type: 2, channel_id: '777', data: { name: 'ไอเดีย' } }, { ...e, DISCORD_REQUEST_COMMAND_CHANNEL_ID: '777' }, ctx))!.json() as any;
   assert.equal(inRoom.type, 9);
+  const pick = await (await requestInteraction({ type: 3, channel_id: '777', data: { custom_id: 'frpick:gosell' } }, e, ctx))!.json() as any;
+  assert.equal(pick.type, 9, 'a หมวด button opens the same form');
+  assert.equal(pick.data.custom_id, 'frnew:gosell');
+  assert.deepEqual((pickerMessage().components as any[]).flatMap((r) => r.components.map((c: any) => c.custom_id)), ['frpick:ads', 'frpick:backoffice', 'frpick:gosell', 'frpick:orders', 'frpick:bug', 'frpick:other']);
   const off = await (await requestInteraction({ type: 2, data: { name: 'ไอเดีย' } }, { ...e, DISCORD_REQUEST_CHANNEL_ID: '' }, ctx))!.json() as any;
   assert.match(off.data.content, /ยังไม่เปิดใช้/);
   const r = await createRequest(d1, { author: 'เคน', author_id: STAFF, area: 'bug', title: 't', detail: '' });

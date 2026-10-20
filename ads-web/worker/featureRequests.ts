@@ -108,6 +108,30 @@ export function requestModal(area: string) {
   };
 }
 
+/**
+ * The pinned message in #เสนอพัฒนาระบบ: one button per หมวด opens the same form as /ไอเดีย. Buttons need nothing from
+ * Discord's command settings, so everyone can use them (typing /ไอเดีย didn't reach some of the team, 2026-10-20).
+ */
+export function pickerMessage(): { content: string; components: unknown[] } {
+  const b = (area: string, emoji: string) => ({ type: 2, style: area === 'bug' ? 4 : 1, label: `${emoji} ${AREAS[area]}`, custom_id: `frpick:${area}` });
+  return {
+    content: [
+      '💡 **เสนอไอเดียพัฒนาเว็บ** — กดปุ่มหมวดด้านล่าง แล้วกรอกฟอร์มได้เลยค่ะ',
+      'น้องจิบิจะเปิดโพสต์ให้ คุณเบ้นกด "ให้ทำ / ไม่ทำ" · ทำเสร็จแล้วคนเสนอเป็นคนลองใช้และกด "ผ่าน / ไม่ผ่าน"',
+      '',
+      '📣 **แอด** แดชบอร์ดแอด, กฎปรับงบ, ข้อความบอทในห้องแอด · 📦 **หลังบ้าน** แคตตาล็อก สั่งของ ยอดขาย กำไร สต็อก งานค้าง',
+      '🔄 **GoSell** หน้าแปลงไฟล์ออเดอร์ · 🧾 **ออเดอร์/บิล** โน้ตในแชท → บิล Page365, ไฟล์ Page365, service ลูกค้า',
+      '🐞 **บั๊ก** ของที่เคยใช้ได้แล้วพัง · 💬 **อื่นๆ** ไม่เข้าหมวดไหน หรือหน้าใหม่ทั้งหมด',
+      '',
+      'เขียนให้ทำได้เร็ว: ตอนนี้ทำยังไง → ติดตรงไหน → อยากให้เป็นยังไง',
+    ].join('\n'),
+    components: [
+      { type: 1, components: [b('ads', '📣'), b('backoffice', '📦'), b('gosell', '🔄')] },
+      { type: 1, components: [b('orders', '🧾'), b('bug', '🐞'), b('other', '💬')] },
+    ],
+  };
+}
+
 export const failModal = (id: number) => ({
   custom_id: `frfail:${id}`,
   title: 'ไม่ผ่าน — ต้องแก้อะไร',
@@ -218,6 +242,17 @@ async function say(env: RequestEnv, channel: string, ids: string[], text: (menti
   if (res && !res.ok) console.error('discord request say', res.status, await res.text());
 }
 
+/** Posts the picker (pickerMessage) in the command channel and pins it; pinning needs Pin/Manage Messages there. */
+export async function postPicker(env: RequestEnv): Promise<{ ok: boolean; pinned: boolean; error?: string }> {
+  const ch = env.DISCORD_REQUEST_COMMAND_CHANNEL_ID;
+  if (!ch || !env.DISCORD_BOT_TOKEN) return { ok: false, pinned: false, error: 'ยังไม่ได้ตั้ง DISCORD_REQUEST_COMMAND_CHANNEL_ID / DISCORD_BOT_TOKEN' };
+  const res = await api(env, `/channels/${ch}/messages`, 'POST', { ...pickerMessage(), allowed_mentions: { parse: [] } });
+  if (!res.ok) return { ok: false, pinned: false, error: `Discord ${res.status}: ${(await res.text()).slice(0, 300)}` };
+  const id = ((await res.json()) as { id: string }).id;
+  const pin = await api(env, `/channels/${ch}/pins/${id}`, 'PUT').catch(() => null);
+  return { ok: true, pinned: !!pin?.ok };
+}
+
 /** Registers (or updates) /ไอเดีย for the app; Discord upserts a global command by name. */
 export async function registerCommand(env: RequestEnv): Promise<{ ok: boolean; status: number; body: string }> {
   if (!env.DISCORD_BOT_TOKEN || !env.DISCORD_APP_ID) return { ok: false, status: 0, body: 'ยังไม่ได้ตั้ง DISCORD_BOT_TOKEN / DISCORD_APP_ID' };
@@ -243,6 +278,10 @@ export async function requestInteraction(i: any, env: RequestEnv, ctx: { waitUnt
     if (here && i.channel_id !== here) return only(`พิมพ์ /ไอเดีย ได้ในห้อง <#${here}> เท่านั้นนะคะ 🙏`);
     const area = String(i.data?.options?.find((o: any) => o.name === 'หมวด')?.value ?? 'other');
     return reply({ type: 9, data: requestModal(area) });
+  }
+  if (i.type === 3 && cid.startsWith('frpick:')) {
+    if (!env.DISCORD_REQUEST_CHANNEL_ID) return only('ห้องไอเดียยังไม่เปิดใช้ค่ะ');
+    return reply({ type: 9, data: requestModal(cid.slice(7)) });
   }
   if (i.type === 5 && cid.startsWith('frnew:')) {
     if (!env.DISCORD_REQUEST_CHANNEL_ID) return only('ห้องไอเดียยังไม่เปิดใช้ค่ะ');

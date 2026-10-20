@@ -50,6 +50,11 @@ export function RequestsApp() {
             try { const r = await call<{ ok: boolean; status: number; body: string }>('POST', '/api/requests/register'); toast(r.ok ? 'ลงทะเบียน /ไอเดีย แล้ว (อาจใช้เวลาสักครู่กว่าจะขึ้นใน Discord)' : `Discord ตอบ ${r.status}: ${r.body}`, r.ok ? 'ok' : 'bad'); }
             catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
           }}>ลงทะเบียนคำสั่ง /ไอเดีย</button>
+          <button className="small" disabled={busy} onClick={async () => {
+            setBusy(true);
+            try { const r = await call<{ ok: boolean; pinned: boolean; error?: string }>('POST', '/api/requests/picker'); toast(r.ok ? (r.pinned ? 'โพสต์ปุ่มและปักหมุดใน #เสนอพัฒนาระบบ แล้ว' : 'โพสต์ปุ่มแล้ว แต่ปักหมุดไม่ได้ (บอทไม่มีสิทธิ์ Pin Messages) — ปักหมุดเองได้เลย') : (r.error ?? 'ไม่สำเร็จ'), r.ok ? 'ok' : 'bad'); }
+            catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
+          }}>โพสต์ปุ่ม "เสนอไอเดีย" ใน Discord</button>
         </div>
       </header>
 

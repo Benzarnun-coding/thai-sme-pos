@@ -4,6 +4,8 @@ Benz 2026-10-20: the team asks for website changes in Discord, and each request 
 
 - `/ไอเดีย` (slash command, option หมวด; only in `DISCORD_REQUEST_COMMAND_CHANNEL_ID` = #เสนอพัฒนาระบบ, elsewhere it says where) → a form (ชื่อเรื่อง, อยากได้อะไร) → row in `feature_requests` + a post in the
   forum channel `DISCORD_REQUEST_CHANNEL_ID` (title `💡 #id ชื่อ`, the forum tag whose name matches the หมวด if one exists).
+- Pinned picker in #เสนอพัฒนาระบบ (`pickerMessage`, posted by the owner button "โพสต์ปุ่ม เสนอไอเดีย" on `/requests`): one
+  button per หมวด (`frpick:<area>`) opens the same form. Added because typing /ไอเดีย didn't work for part of the team.
 - Status path, one button set per status on the post's first message:
   `💡 ไอเดียใหม่` →(ให้ทำ)→ `🔨 กำลังทำ` →(ทำเสร็จแล้ว)→ `🧪 รอตรวจ` →(ผ่าน)→ `✅ ผ่านแล้ว`;
   ไม่ทำ → `❌ ไม่ทำ`; ไม่ผ่าน asks for a reason and goes back to กำลังทำ.

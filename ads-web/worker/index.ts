@@ -49,7 +49,7 @@ import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './m
 import { captureSource, planNotePurchases } from './notePurchases.ts';
 import { dayOrders, reconcile } from './orderDay.ts';
 import { adjustmentDays, seedFromSent } from './metaAdjust.ts';
-import { listRequests, registerCommand, requestInteraction, syncTitles } from './featureRequests.ts';
+import { listRequests, postPicker, registerCommand, requestInteraction, syncTitles } from './featureRequests.ts';
 import { pageOf, receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
@@ -753,6 +753,12 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
   // ---- website feature requests from Discord (/ไอเดีย) ----
   if (path === '/api/requests' && method === 'GET') return json({ items: await listRequests(env.DB), on: !!(env.DISCORD_REQUEST_CHANNEL_ID && env.DISCORD_BOT_TOKEN) });
+  if (path === '/api/requests/picker' && method === 'POST') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const r = await postPicker(env);
+    await audit(env.DB, user, 'requests.picker', 'discord', r);
+    return json(r);
+  }
   if (path === '/api/requests/register' && method === 'POST') {
     if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
     const r = await registerCommand(env);
