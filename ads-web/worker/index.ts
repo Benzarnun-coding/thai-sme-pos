@@ -41,6 +41,7 @@ import { approvalsEnabled, blockedByKillSwitch, editMessage, expireOld, idList, 
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
+import { cleanupDrafts, cleanupOn, setCleanup } from './draftCleanup.ts';
 import { autoFillNote, autoFillOn, cronSweep, customerFor, loadMisses, setAutoFill, sweepNotes, tell, tellMiss } from './autoFill.ts';
 import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './metaPurchases.ts';
 import { captureSource, planNotePurchases } from './notePurchases.ts';
@@ -488,6 +489,15 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const on = (await body())?.on === true;
     await setAutoFill(env.DB, on);
     await audit(env.DB, user, 'p365.auto_fill', on ? 'on' : 'off', {});
+    return json({ on });
+  }
+  // Deleting drafts nobody will send (draftCleanup.ts): GET = switch + what it would do now (nothing deleted).
+  if (path === '/api/order-notes/cleanup' && method === 'GET') return json({ on: await cleanupOn(env.DB), preview: await cleanupDrafts(env, { apply: false, limit: 20 }) });
+  if (path === '/api/order-notes/cleanup' && method === 'PUT') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const on = (await body())?.on === true;
+    await setCleanup(env.DB, on);
+    await audit(env.DB, user, 'p365.draft_cleanup', on ? 'on' : 'off', {});
     return json({ on });
   }
   // A sample "needs a person" message into the order-problems channel, so the team sees what it looks like.

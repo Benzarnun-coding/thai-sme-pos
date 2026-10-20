@@ -43,6 +43,7 @@ export function OrderNotesPage() {
       <DaySales date={date} refresh={tick} />
       <SessionBanner />
       <AutoSwitch />
+      <CleanupSwitch />
       <NoteMisses refresh={tick} />
       <OrderNotesList date={date} dayLabel={date === todayBkk() ? 'วันนี้' : thaiDay(date)} refresh={tick} live={date === todayBkk()} />
     </>
@@ -173,6 +174,35 @@ function AutoSwitch() {
         <b>ใส่บิลอัตโนมัติ: {on ? 'เปิด' : 'ปิด'}</b> — {on ? 'แอดมินพิมพ์สรุปแล้ว ระบบเปิดร่าง + ใส่สินค้า/ที่อยู่เองทันที ใบที่ติดปัญหาแจ้งใน Discord (ชื่อลูกค้า + เลขบิล) · บิลยังเป็นร่าง แอดมินกด "ส่งบิล" เอง' : 'ต้องกดปุ่ม "ใส่ใน Page365" / "ใส่ทุกใบที่ผ่าน" เอง'}
       </span>
       <button className="ghost small" onClick={flip}>{on ? 'ปิด' : 'เปิดอัตโนมัติ'}</button>
+    </div>
+  );
+}
+
+/** Deleting drafts nobody will send (worker/draftCleanup.ts): off until Benz switches it on, with a preview. */
+function CleanupSwitch() {
+  const { toast } = useUi();
+  const [st, setSt] = useState<{ on: boolean; preview: { no: number; reason: string; action: string }[] } | null>(null);
+  const [open, setOpen] = useState(false);
+  const load = () => fetch('/api/order-notes/cleanup').then((r) => r.json()).then(setSt).catch(() => {});
+  useEffect(() => { load(); }, []);
+  async function flip() {
+    const r = await fetch('/api/order-notes/cleanup', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: !st?.on }) });
+    const j = await r.json();
+    if (!r.ok) { toast(j.error ?? 'เปลี่ยนไม่ได้', 'bad'); return; }
+    toast(j.on ? 'เปิดลบร่างอัตโนมัติแล้ว' : 'ปิดลบร่างอัตโนมัติแล้ว', 'ok'); load();
+  }
+  if (!st) return null;
+  const label = { delete: 'จะลบ', warn: 'จะเตือน (อีก 2 วันลบ)', keep: 'ยังไม่ถึงเวลา' } as Record<string, string>;
+  return (
+    <div className={`banner ${st.on ? 'info' : ''}`}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
+        <span><b>ลบร่างที่ไม่มีใครส่ง: {st.on ? 'เปิด' : 'ปิด'}</b> — ลูกค้ายกเลิก (ร่างว่าง, หลัง 1 วัน) · ไม่มีเบอร์/รหัสไปรษณีย์หรือร่างว่าง (หลัง 7 วัน, เตือนวันที่ 5) · สรุปแก้ภายใน 2 ชม. แทนร่างเดิม — เฉพาะร่าง ไม่แตะบิลที่ส่งแล้ว</span>
+        <span style={{ display: 'flex', gap: 6 }}>
+          <button className="ghost small" onClick={() => setOpen(!open)}>ดูรายการ ({st.preview.length})</button>
+          <button className="ghost small" onClick={flip}>{st.on ? 'ปิด' : 'เปิด'}</button>
+        </span>
+      </div>
+      {open && (st.preview.length ? <ul className="small">{st.preview.map((p) => <li key={p.no}>#{p.no} — {p.reason} · <b>{label[p.action] ?? p.action}</b></li>)}</ul> : <p className="small muted">ตอนนี้ไม่มีร่างที่เข้าเงื่อนไข</p>)}
     </div>
   );
 }

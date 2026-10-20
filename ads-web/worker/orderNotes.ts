@@ -9,17 +9,30 @@
 
 import type { OrderItem, StoredOrder } from './p365.ts';
 
-export interface NoteItem { code: string; prefix: string; size: string; qty: number }
+/** size '' = not written (fine for a model with one size, e.g. free size); colour = a Thai colour name instead of a colour code ("980 ดำกรม") */
+export interface NoteItem { code: string; prefix: string; size: string; qty: number; colour?: string }
 export interface ParsedNote { items: NoteItem[]; payment: 'cod' | 'transfer' | null; total: number | null; unknown: string[] }
 
 // "30", "sz30", "size30", "w30", "เอว30" — a size, written with or without a prefix.
 const SIZE_WORD = /^(?:sz|size|w|เอว|ไซส์|ไซซ์)\.?/i;
-const SIZE = /^(?:sz|size|w|เอว|ไซส์|ไซซ์)?\.?(?:(2[4-9]|[34]\d|50)|xs|s|m|l|xl|xxl|[2-5]xl|f|free)$/i;
-const CODE = /^[a-z]{0,4}\d+[a-z0-9]*(?:[/-][a-z0-9]+)*$/i;
+const SIZE = /^(?:sz|size|w|เอว|ไซส์|ไซซ์)?\.?(?:(2[4-9]|[34]\d|50)|xs|s|m|l|xl|xxl|[2-5]xl|f|fe|free|freesize)$/i;
+const CODE = /^[a-z]{0,4}-?\d+[a-z0-9]*(?:[/-][a-z0-9]+)*$/i;
 // "sz34", "ไซส์ 34", "เอว34" alone on a line: the size for the list lines.
 const SIZE_ONLY = /^(?:sz|size|w|เอว|ไซส์|ไซซ์)\.?\s*((?:2[4-9]|[34]\d|50)|xs|s|m|l|xl|xxl|[2-5]xl)$/i;
 // "- สีเทา (16-10) 1 ตัว" / "• ดำ (501/3) 2 ตัว sz32": a colour word or two, the code in brackets, quantity, optional size.
 const LIST_LINE = /^[-•*·]?\s*[\u0E00-\u0E7Fa-z ]{0,30}\(\s*([a-z]{0,4}\d+[a-z0-9]*(?:[/-][a-z0-9]+)*)\s*\)\s*(?:(\d{1,2})\s*(?:ตัว|ชิ้น|ตว)?)?\s*(?:(?:sz|size|เอว|ไซส์)\.?\s*((?:2[4-9]|[34]\d|50)|xs|s|m|l|xl|xxl|[2-5]xl))?$/i;
+
+// Thai colour names as admins write them ("ดำกรม", "สีเทา", "เขียวมะนาว"): only these words, so a name never passes.
+const COLOUR = '(?:สี)?(?:ดำ|เทา|กรม|ขาว|แดง|น้ำเงิน|เขียว|กากี|ครีม|น้ำตาล|ชมพู|เหลือง|ฟ้า|ม่วง|ส้ม|มิดไนท์|มะนาว|ทหาร|เข้ม|อ่อน|ยีนส์|ซีด|สนิม|ลาย|เลือดหมู|ฟอก|ทอง|เงิน)+';
+const CODE_SRC = '[a-z]{0,4}-?\\d+[a-z0-9]*(?:[/-][a-z0-9]+)*';
+// "980 ดำกรม 1", "980 สีเทา 2ตัว", "C01 ดำแดง L 1": a code, a colour name, an optional size, an optional quantity.
+const CODE_COLOUR = new RegExp(`^(${CODE_SRC})\\s+(${COLOUR})(?:\\s+(xs|s|m|l|xl|xxl|[2-5]xl|f|fe|free|freesize|2[4-9]|[34]\\d|50))?\\s*(\\d{1,2})?\\s*(?:ตัว|ชิ้น)?$`, 'i');
+// "ดำแดง1" under "C01 L": a colour and quantity for the code on the line above.
+const COLOUR_ONLY = new RegExp(`^(${COLOUR})\\s*(\\d{1,2})?\\s*(?:ตัว|ชิ้น)?$`);
+// "980-32" alone: a code whose model has one size.
+const CODE_ONLY = new RegExp(`^(${CODE_SRC})(?:\\s*[,/ ]\\s*(${CODE_SRC}))*$`, 'i');
+const FREE = /^(?:f|fe|free|freesize)$/i;
+const sizeOf = (raw: string | undefined) => { const s = (raw ?? '').replace(SIZE_WORD, '').toUpperCase(); return FREE.test(s) ? 'F' : s; };
 
 /** One message → its items, or null when it is not an order note (no payment + total, or other text in it). */
 const PAY_TAIL = String.raw`\s*(?:บาท|บ\.?|\.-)?\s*(?:k-?bank|kb|scb|ktb|bbl|bay|ttb|gsb|pp|promptpay|กสิกร|ไทยพาณิชย์|กรุงไทย|กรุงเทพ|กรุงศรี|ออมสิน|พร้อมเพย์)?`;
@@ -58,8 +71,28 @@ export function parseOrderNote(text: string | null | undefined): ParsedNote | nu
   // List style (15 Oct): "- สีเทา (16-10) 1 ตัว" lines + a size line "sz34" for all of them.
   const sizeLine = lines.map((l) => l.match(SIZE_ONLY)).find(Boolean);
   const listSize = sizeLine ? sizeLine[1].toUpperCase() : null;
+  // The last line with one code, so colour-only lines below it ("C01 L" / "ดำแดง1" / "ดำเทา1") can take its place.
+  let above: { at: number; code: string; size: string; used: boolean } | null = null;
   for (const line of lines) {
     if (SIZE_ONLY.test(line)) continue;
+    const cc = line.match(CODE_COLOUR);
+    if (cc) {
+      const code = expandCode(cc[1])[0];
+      items.push({ code, prefix: skuPrefix(code), size: sizeOf(cc[3]), qty: cc[4] ? Number(cc[4]) : 1, colour: cc[2].replace(/^สี/, '') });
+      above = null;
+      continue;
+    }
+    const co = line.match(COLOUR_ONLY);
+    if (co && above) {
+      if (!above.used) { items.splice(above.at, 1); above.used = true; }
+      items.push({ code: above.code, prefix: skuPrefix(above.code), size: above.size, qty: co[2] ? Number(co[2]) : 1, colour: co[1].replace(/^สี/, '') });
+      continue;
+    }
+    if (CODE_ONLY.test(line)) {
+      const codes = line.split(/\s*[, ]\s*|\s+\/\s+/).filter(Boolean);
+      // Every word a code: no size ("2XL", "34"), no quantity, nothing postcode-long among them.
+      if (codes.every((c) => CODE.test(c) && !SIZE.test(c) && !/^\d{1,2}$/.test(c) && !/\d{5,}/.test(c))) { for (const c of codes) for (const code of expandCode(c)) items.push({ code, prefix: skuPrefix(code), size: '', qty: 1 }); above = null; continue; }
+    }
     const li = line.match(LIST_LINE);
     if (li) {
       const size = (li[3] ?? listSize ?? '').toUpperCase();
@@ -73,7 +106,11 @@ export function parseOrderNote(text: string | null | undefined): ParsedNote | nu
     const plain = line.replace(/(?:^|\s)x\s*(\d{1,2})(?=\s|$)/gi, ' $1').replace(/(\d{1,2})\s*(?:ตัว|ชิ้น|ตว)(?=\s|$)/g, '$1').trim();
     if (plain.length > 60 || /[฀-๿]/.test(plain.replace(/เอว|ไซส์|ไซซ์/g, ''))) return null;
     const parsed = parseLine(plain);
-    if (parsed) { items.push(...parsed); continue; }
+    if (parsed) {
+      above = parsed.length === 1 ? { at: items.length, code: parsed[0].code, size: parsed[0].size, used: false } : null;
+      items.push(...parsed);
+      continue;
+    }
     // An unread line is kept only if it can't be customer details: no phone/postcode-length numbers, no @, and
     // every word either has a digit or is short ("501 ดำ", a name or a phone number → the whole message is dropped).
     if (/\d{5,}|@/.test(line) || !line.split(/\s+/).every((w) => /\d/.test(w) || w.length <= 4)) return null;
@@ -109,7 +146,7 @@ function parseLine(line: string): NoteItem[] | null {
   if (rest.length > 1 || (rest.length === 1 && !/^(?:[1-9]|1\d|20)$/.test(rest[0]))) return null;
   if (!codes.every((c) => CODE.test(c) && !SIZE.test(c))) return null;
   const qty = rest.length ? Number(rest[0]) : 1;
-  const size = tok[sizeAt].replace(SIZE_WORD, '').toUpperCase();
+  const size = sizeOf(tok[sizeAt]);
   return codes.flatMap((c) => expandCode(c)).map((code) => ({ code, prefix: skuPrefix(code), size, qty }));
 }
 

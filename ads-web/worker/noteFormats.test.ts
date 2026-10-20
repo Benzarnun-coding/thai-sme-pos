@@ -42,6 +42,11 @@ export const NOTE_FORMATS: [string, string][] = [
   ["301/1/3 หผ34\ncod 349", "301/1 34, 301/3 34 | cod 349"], // 20 Oct: หผ = sz
   ["cod599\n801/1 32 3ตัส", "801/1 32 ×3 | cod 599"], // 20 Oct: ตัส = ตัว
   ["009-1 sz30 1\n009-1 sz32 1\n009-2 sz30 1\ncod 947", "009-1 30, 009-1 32, 009-2 30 | cod 947"], // same model, several sizes
+  ["980 สีดำกรม  1\ncod  149", "980 - | cod 149"], // 20 Oct: colour name (980 ดำกรม = 980-31)
+  ["980 freesize 1\ncod 149", "980 F | cod 149"], // free size
+  ["980-32\n980-29\n980-31\ncod  447", "980-32 -, 980-29 -, 980-31 - | cod 447"], // code only, one-size model
+  ["cod607\nC01 L\nดำแดง1\nดำเทา1", "C01 L, C01 L | cod 607"], // colour lines under a code
+  ["SH-001  2XL  1\nSH-002  2XL  1\ncod  428", "SH-001 2XL, SH-002 2XL | cod 428"], // 20 Oct: CN letter sizes
 ];
 
 /** Shop messages that must never become notes (customer details, chat). */
@@ -55,7 +60,7 @@ const NOT_NOTES = [
 
 const show = (t: string) => {
   const p = parseOrderNote(t);
-  return p && `${p.items.map((i) => `${i.code} ${i.size}${i.qty > 1 ? ` ×${i.qty}` : ''}`).join(', ')} | ${p.payment} ${p.total}`;
+  return p && `${p.items.map((i) => `${i.code} ${i.size || '-'}${i.qty > 1 ? ` ×${i.qty}` : ''}`).join(', ')} | ${p.payment} ${p.total}`;
 };
 
 test('every format the admins have typed is read', () => {

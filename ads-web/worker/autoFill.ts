@@ -7,6 +7,7 @@
 import { postToDeciders, type DiscordEnv } from './discord.ts';
 import { looksLikeNote, markFill, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { sendNotePurchase } from './notePurchases.ts';
+import { cleanupDrafts, cleanupOn, deleteDraft } from './draftCleanup.ts';
 import { applyFill, call, findDraft, P365Error, planFill, type FillEnv, type P365Order } from './p365fill.ts';
 
 export interface AutoEnv extends FillEnv, DiscordEnv { DB: D1Database; /** #ออเดอร์มีปัญหา (Benz 15 Oct); falls back to the ads channel via the bot */ DISCORD_ORDER_WEBHOOK_URL?: string; /** who answers for problem bills (เนย, Benz 15 Oct); empty = the deciders */ DISCORD_ORDER_OWNER_IDS?: string }
@@ -59,7 +60,7 @@ const bkk = (iso: string) => new Date(Date.parse(iso) + 7 * 3_600_000).toISOStri
  * (the morning round, an admin) is taken as this note's, and a second note within 2 hours of one already filled
  * is a correction, left for a person.
  */
-export async function ensureDraft(env: AutoEnv, note: StoredNote): Promise<{ draft: P365Order | null; billed?: P365Order; why?: string }> {
+export async function ensureDraft(env: AutoEnv, note: StoredNote): Promise<{ draft: P365Order | null; billed?: P365Order; why?: string; replaced?: number }> {
   const t = Date.parse(note.at);
   const who = await customerFor(env, note.psid);
   let draft: P365Order | null = null;
@@ -80,6 +81,15 @@ export async function ensureDraft(env: AutoEnv, note: StoredNote): Promise<{ dra
   if (draft?.items.length) {
     const other = await otherNoteOn(env.DB, draft.no, note.mid);
     if (other && Math.abs(Date.parse(other.at) - t) <= SAME_ORDER_MS) {
+      // A corrected summary replaces the earlier one (Benz 20 Oct): the draft the earlier note filled is deleted
+      // and a new one opened for this note — only while it is still a draft, and only with cleanup switched on.
+      if (draft.stage === 'draft' && who && (await cleanupOn(env.DB))) {
+        await deleteDraft(env, draft);
+        await env.DB.prepare('UPDATE order_notes SET filled_at = NULL, fill_error = ? WHERE mid = ?').bind(`ต้องให้คนดู: ลบร่างแล้ว (แทนด้วยสรุปตอน ${bkk(note.at)} น.)`, other.mid).run();
+        const fresh = await openDraft(env, who.customer_id);
+        if (!fresh) return { draft: null, why: `ลบร่าง #${draft.no} (สรุปเดิม) แล้ว แต่เปิดร่างใหม่ไม่ได้ — เปิดร่างเองในแชท` };
+        return { draft: fresh, replaced: draft.no };
+      }
       return { draft, why: `สรุปซ้ำ: ร่าง #${draft.no} ใส่ไปแล้วจากสรุปตอน ${bkk(other.at)} น. — ถ้าเป็นการแก้ ให้แก้ในร่างเอง` };
     }
     // Filled from an older order note: this is a new order and gets its own draft. Items a person put in: theirs.
@@ -257,6 +267,7 @@ async function postOrderChannel(env: AutoEnv, body: (mention: string) => string)
 export async function cronSweep(env: AutoEnv): Promise<void> {
   if (!(await autoFillOn(env.DB))) return;
   await sweepNotes(env, { force: true }).catch((err) => console.error('sweep', err));
+  if (await cleanupOn(env.DB)) await cleanupDrafts(env, { apply: true }).catch((err) => console.error('cleanup', err));
   const hour = (new Date().getUTCHours() + 7) % 24;
   const last = await env.DB.prepare('SELECT max(at) AS at FROM chat_messages').first<{ at: string | null }>().catch(() => null);
   if (hour >= 10 && hour < 23 && last?.at && Date.now() - Date.parse(last.at) > 3 * 3_600_000) {

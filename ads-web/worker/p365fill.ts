@@ -35,6 +35,7 @@ export async function call<T>(env: P365Env, path: string, init: { method?: strin
   if (res.status === 401 || res.status === 302) throw new P365Error('ล็อกอิน Page365 หมดอายุ — ต้องตั้ง P365_COOKIE ใหม่', 'session');
   const text = await res.text();
   if (!res.ok) throw new P365Error(`Page365 ${init.method ?? 'GET'} ${path.split('?')[0]}: ${res.status} ${text.slice(0, 200)}`);
+  if (!text.trim()) return null as T; // DELETE answers with no body
   try { return JSON.parse(text) as T; } catch { throw new P365Error(`Page365 ${path.split('?')[0]}: ตอบกลับไม่ใช่ JSON`); }
 }
 
@@ -101,11 +102,30 @@ export function pickProduct<T extends { name: string }>(products: T[], code: str
 }
 
 /** Page365 product + size for one line: product whose name starts with the code, variant whose SKU ends with the size. */
+/**
+ * The team's colour names that differ from Page365's product names (Benz 20 Oct: "980 ดำกรม" = 980-31, named
+ * "น้ำเงิน" in Page365). Other colours are matched by the colour word in the product name.
+ */
+export const COLOUR_ALIASES: Record<string, Record<string, string>> = { '980': { 'ดำกรม': '31' } };
+
+/** Among a model's colour products ("980-31 กางเกงผ้ายืด Sports น้ำเงิน"), the one a colour name means. */
+export function pickColour<T extends { name: string }>(products: T[], code: string, colour: string): T | undefined {
+  const key = code.toUpperCase();
+  const first = (x: T) => x.name.trim().toUpperCase().split(/\s+/)[0];
+  const family = products.filter((x) => new RegExp(`^${key.replace(/[/-]/g, '[/-]?')}[/-][0-9A-Z]+$`).test(first(x)));
+  const alias = COLOUR_ALIASES[key]?.[colour];
+  if (alias) return family.find((x) => first(x).replace(/^.*[/-]/, '') === alias);
+  const c = colour.replace(/^สี/, '');
+  const named = family.filter((x) => x.name.replace(/\s+/g, '').replace(/สี/g, '').includes(c));
+  return named.length === 1 ? named[0] : undefined;
+}
+
+/** Page365 product + size for one line: the product by code (and colour name), the variant by size. */
 async function findVariant(env: P365Env, it: NoteItem, cache: Map<string, { productId: number; variants: Variant[] } | null>): Promise<{ productId: number; variant: Variant | null; sizes: string[] } | null> {
-  const key = it.code.toUpperCase();
+  const key = `${it.code.toUpperCase()}|${it.colour ?? ''}`;
   if (!cache.has(key)) {
     const found = await call<{ products: { id: number; name: string }[] }>(env, `products.json?for_browser=true&page=1&search=${encodeURIComponent(it.code)}`);
-    const p = pickProduct(found.products, key);
+    const p = it.colour ? pickColour(found.products, it.code, it.colour) : pickProduct(found.products, it.code);
     if (!p) cache.set(key, null);
     else {
       const full = await call<{ id: number; variants: Variant[] }>(env, `products/${p.id}.json`);
@@ -114,8 +134,12 @@ async function findVariant(env: P365Env, it: NoteItem, cache: Map<string, { prod
   }
   const prod = cache.get(key);
   if (!prod) return null;
-  const v = prod.variants.find((x) => (x.code ?? '').toUpperCase().endsWith(`-${it.size}`) || x.name.replace(/\s+/g, '').toUpperCase() === `ไซส์${it.size}`);
-  const sizes = prod.variants.map((x) => (x.code ?? '').split('-').pop() || x.name.replace(/\D/g, '')).filter(Boolean);
+  const sizeOf = (x: Variant) => (x.code ?? '').split('-').pop()?.toUpperCase() || x.name.replace(/\D/g, '');
+  // No size written, or free size: the model's only size (free-size models have one variant, "…-FE").
+  const v = !it.size || it.size === 'F'
+    ? (prod.variants.length === 1 ? prod.variants[0] : prod.variants.find((x) => /^(FE|F|FREE)$/.test(sizeOf(x)) || /free/i.test(x.name)))
+    : prod.variants.find((x) => (x.code ?? '').toUpperCase().endsWith(`-${it.size}`) || x.name.replace(/\s+/g, '').toUpperCase() === `ไซส์${it.size}`);
+  const sizes = prod.variants.map(sizeOf).filter(Boolean);
   return { productId: prod.productId, variant: v ?? null, sizes };
 }
 
@@ -226,6 +250,7 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   const lines: PlanLine[] = [];
   let missingSize = false;
   const notes: string[] = [];
+  const made = new Set<string>();
   for (const it of parsed.items) {
     // "E200" when Page365's model is "200": a stray letter before a numeric code — tried without it, and said so.
     let found = await findVariant(env, it, cache);
@@ -235,9 +260,11 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
       if (found) notes.push(`อ่าน ${it.code} เป็น ${bare}`);
     }
     const hit = found?.variant ? { productId: found.productId, variant: found.variant } : null;
-    if (!found) problems.push(`ไม่พบรุ่น ${it.code} ใน Page365`);
-    else if (!hit) { problems.push(`${it.code} ไม่มีไซส์ ${it.size} — รุ่นนี้มี ${found.sizes.join(', ')} · ต้องถามลูกค้าใหม่`); missingSize = true; }
+    const what = `${it.code}${it.colour ? ` สี${it.colour}` : ''}`;
+    if (!found) problems.push(it.colour ? `ไม่พบ ${what} ใน Page365 (ชื่อสีไม่ตรงกับในร้าน — บอกเบนซ์ให้เพิ่มชื่อสีนี้)` : `ไม่พบรุ่น ${it.code} ใน Page365`);
+    else if (!hit) { problems.push(it.size ? `${what} ไม่มีไซส์ ${it.size} — รุ่นนี้มี ${found.sizes.join(', ')} · ต้องถามลูกค้าใหม่` : `${what} ไม่ได้ระบุไซส์ — รุ่นนี้มี ${found.sizes.join(', ')}`); missingSize = true; }
     else if (hit.variant.stockable !== false && hit.variant.available < it.qty) problems.push(`${hit.variant.code ?? it.code} เหลือ ${hit.variant.available} ตัว ไม่พอ ${it.qty}`);
+    if (found) for (const z of found.sizes) made.add(z);
     lines.push({ code: it.code, size: it.size, qty: it.qty, product_id: hit?.productId ?? null, variant_id: hit?.variant.id ?? null, sku: hit?.variant.code ?? null, price: hit?.variant.price ?? null, available: hit?.variant.available ?? null });
   }
   // A size that isn't made: show what the customer actually wrote about size, so the admin can ask them again.
@@ -267,7 +294,13 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
 
   // The price agreed in the chat wins: a note whose total differs (other than by the COD fee) is not filled.
   const chat_total = chatTotal(chat, note.at);
-  if (total != null && chat_total != null && chat_total !== total && chat_total + shipping !== total) problems.push(`ในแชทตกลงยอด ${chat_total} แต่สรุปไว้ ${total} — เช็กกับลูกค้า/แอดมิน`);
+  // The note's total is the price (a special price for a customer who haggled is fine, Benz 20 Oct): a different
+  // total in the chat is filled anyway and sent to a person to check — 27 bills stopped on it 15–20 Oct, and every
+  // one ended at the note's total.
+  if (total != null && chat_total != null && chat_total !== total && chat_total + shipping !== total) warnings.push(`ในแชทตกลงยอด ${chat_total} แต่สรุปไว้ ${total} — ถ้าเป็นราคาพิเศษไม่ต้องทำอะไร`);
+  // Sizes 38 and up cost 60 more a piece, except NI9 (Benz 20 Oct). When the chat didn't agree this very total, ask.
+  const big = lines.filter((l) => Number(l.size) >= 38 && !/^NI9/i.test(l.code)).reduce((n, l) => n + l.qty, 0);
+  if (big && total != null && chat_total !== total) warnings.push(`มี ${big} ตัวไซส์ 38 ขึ้นไป (บวกตัวละ 60 ยกเว้น NI9) — เช็กว่ายอด ${total} บวกแล้ว`);
   // No total written in the chat is fine: the admin's note is the trigger and its total is the price (Benz 15 Oct).
 
   // The chat is read whenever a key is set, also when Page365 already has the address: it is what catches a
@@ -277,7 +310,8 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   if (draft && opts.readAddress !== false && env.ANTHROPIC_API_KEY) {
     const read = await readAddress(env.ANTHROPIC_API_KEY, chat, env.ADDRESS_MODEL, env.ANTHROPIC_WORKSPACE_ID, note.text).catch((err) => ({ problems: [`อ่านที่อยู่ไม่สำเร็จ: ${err?.message ?? err}`] } as { problems: string[]; cancelled?: boolean; size_mismatch?: string } & Partial<PlanAddress>));
     if (read.cancelled) problems.push('ลูกค้าขอยกเลิกในแชท (และยังไม่ได้สั่งใหม่) — เช็กก่อนว่ายังเอาไหม');
-    if (read.size_mismatch?.trim()) problems.push(`ไซส์ไม่ตรงกับที่ลูกค้าขอ: ${read.size_mismatch.trim()}`);
+    // A size the customer asked for that isn't made (29/31/33…): the admin's nearest made size is right (Benz 20 Oct).
+    if (read.size_mismatch?.trim() && !askedSizeNotMade(read.size_mismatch, lines.map((l) => l.size), made)) problems.push(`ไซส์ไม่ตรงกับที่ลูกค้าขอ: ${read.size_mismatch.trim()}`);
     if (!address) {
       if (read.problems.length) warnings.push(...read.problems.map((p) => `ที่อยู่: ${p}`));
       // A doubt alone (a name, a house number) doesn't keep the address off the bill: whatever is complete
@@ -371,4 +405,10 @@ export function cleanStreet(street: string, names: string[], phone: string): str
     for (const w of words) s = s.split(w).join(' ');
   }
   return s.replace(/\s*[,/]\s*(?=[,/]|$)/g, ' ').replace(/^[\s,/:-]+|[\s,/:-]+$/g, '').replace(/\s+/g, ' ').trim();
+}
+
+/** "โน้ต 34 แต่ลูกค้าขอ 33" where the model has no 33: the sizes the customer named that the note doesn't have, none made. */
+export function askedSizeNotMade(mismatch: string, noteSizes: string[], made: Set<string>): boolean {
+  const named = (mismatch.match(/\b(2[4-9]|[34]\d|50)\b/g) ?? []).filter((z) => !noteSizes.includes(z));
+  return named.length > 0 && made.size > 0 && named.every((z) => !made.has(z));
 }
