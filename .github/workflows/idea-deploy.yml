@@ -1,0 +1,61 @@
+# Deploys a /ไอเดีย change that the Claude Code routine finished (ads-web/docs/requests.md, Benz 2026-10-20).
+# The routine pushes claude/idea-<id> and tag deploy/idea-<id>-r<run> on that commit; this job checks the commit is
+# on top of ads-web and stays out of money/Meta/customer code, tests, deploys, moves ads-web to it, and tags
+# deployed/idea-<id>-r<run> — the Worker sees that tag and asks the person who asked to try it.
+# Secret (GitHub → Settings → Secrets and variables → Actions): CLOUDFLARE_API_TOKEN (Workers Scripts Edit + D1 Edit).
+name: idea-deploy
+
+on:
+  push:
+    tags: ['deploy/idea-*']
+
+permissions:
+  contents: write
+
+# One deploy at a time, in order.
+concurrency:
+  group: ads-web-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: On top of ads-web, no guarded files
+        run: |
+          git fetch -q origin ads-web
+          if ! git merge-base --is-ancestor origin/ads-web HEAD; then
+            echo "::error::not on top of the latest ads-web — rebase claude/idea-* and tag again"; exit 1
+          fi
+          bad=$(git diff --name-only origin/ads-web HEAD | grep -E '^(ads-engine/|\.github/|ads-web/wrangler\.jsonc$|ads-web/worker/(engine|run|apply|metaPurchases|notePurchases|metaAdjust|p365fill|autoFill|access|auth|users|roles|discord|webhook|featureRequests)\.ts$)' || true)
+          if [ -n "$bad" ]; then echo "::error::needs Benz's review, touches: $bad"; exit 1; fi
+          git diff --stat origin/ads-web HEAD
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Test
+        working-directory: ads-web
+        run: npm ci --no-audit --no-fund && npm test && npm run typecheck
+
+      - name: Deploy
+        working-directory: ads-web
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: bbad0b69f4554a5d9e58085286f3eb9b
+        run: npm run deploy
+
+      - name: Move ads-web to it and mark deployed
+        run: |
+          git push origin HEAD:refs/heads/ads-web
+          done_tag="deployed/${GITHUB_REF_NAME#deploy/}"
+          git tag "$done_tag" && git push origin "$done_tag"
+
+      - name: Tell the Worker
+        if: always()
+        run: curl -s -X POST https://pkjeans-ads.ads-web.workers.dev/webhook/idea-check || true

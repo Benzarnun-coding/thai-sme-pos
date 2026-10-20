@@ -29,9 +29,13 @@ Benz 2026-10-20: the team asks for website changes in Discord, and each request 
 - ให้ทำ (and every ไม่ผ่าน) fires the Claude Code routine `IDEA_ROUTINE_ID` (secret `IDEA_ROUTINE_TOKEN`, its API
   trigger token) with the request, its ไม่ผ่าน reasons, the branch and the deploy tag (`buildPayload`). The post gets
   the session link. Both empty = off (ให้ทำ only changes the status).
-- The run builds and tests on `claude/idea-<id>`, deploys that commit, and only then pushes it to `ads-web` and the tag `deployed/idea-<id>-r<run>` and POSTs
+- The run builds and tests on `claude/idea-<id>`, pushes it and tag `deploy/idea-<id>-r<run>`; GitHub Actions
+  (`.github/workflows/idea-deploy.yml`, secret `CLOUDFLARE_API_TOKEN`) refuses a commit not on top of `ads-web` or one
+  touching money/Meta/customer/auth code, else tests, deploys, moves `ads-web` to it and pushes the tag `deployed/idea-<id>-r<run>` and POSTs
   `/webhook/idea-check`. The Worker (`checkBuilds`; also on opening `/requests` and in the 3-hourly sweep) sees the tag
-  → moves it to รอตรวจ as "Claude 🤖" and pings the asker to try it.
+  → moves it to รอตรวจ as "Claude 🤖" and pings the asker to try it. No deployed/ tag 30 min after the run started
+  while deploy/ exists → Benz is pinged with the Action's page. (2026-10-20: deploying from the cloud session itself
+  failed twice — no env vars there, and a network secret doesn't reach wrangler — hence the Action.)
 - Guardrail: if the change would touch money/Meta/customers (list in the prompt below), the run stops at a PR on
   `claude/idea-<id>` instead; the Worker finds the PR (or the pushed branch) and pings Benz to review + deploy.
 - Rollback a bad one: `cd ads-web && npx wrangler rollback` (then revert the merge on `ads-web`).
@@ -63,15 +67,14 @@ Benz 2026-10-20: the team asks for website changes in Discord, and each request 
      notePurchases, metaAdjust), การเปิดบิล/ส่งของ Page365 (p365fill, autoFill), ข้อความถึงลูกค้า, Discord ห้องใหม่หรือโพสต์ประจำใหม่
    - แก้ wrangler.jsonc, secrets, Cloudflare Access, ผู้ใช้/สิทธิ์ หรือลบข้อมูลใน D1
    - คำขอกำกวมจนต้องเดาเยอะ (เขียนคำถามไว้ใน PR)
-5. deploy เองได้: commit ("ads-web: ไอเดีย #<id> …") บน branch claude/idea-<id> ที่ต่อจาก origin/ads-web ล่าสุด แล้ว
-   cd ads-web && CLOUDFLARE_API_TOKEN=from-network-secret CLOUDFLARE_ACCOUNT_ID=bbad0b69f4554a5d9e58085286f3eb9b npm run deploy
-   (token จริงถูกใส่ให้ที่ api.cloudflare.com โดย network secret ของ environment ไม่ต้องหาเอง)
-   deploy สำเร็จ: git push origin HEAD:ads-web (ถ้าโดนปฏิเสธเพราะ ads-web ขยับ: rebase, เทสต์, deploy ใหม่)
-   แล้ว git tag <tag หลัง deploy สำเร็จ จาก payload> && git push origin <tag>
-   deploy ไม่สำเร็จ: ห้าม push เข้า ads-web ให้ทำข้อ 6 (เขียนใน PR ว่า deploy ติดอะไร)
+5. deploy เองได้: commit ("ads-web: ไอเดีย #<id> …") บน branch claude/idea-<id> ที่ต่อจาก origin/ads-web ล่าสุด
+   (ถ้า ads-web ขยับระหว่างทำ: rebase แล้วเทสต์ใหม่) แล้ว git push origin claude/idea-<id>
+   แล้ว git tag <tag สั่ง deploy จาก payload> && git push origin <tag>
+   GitHub Actions (idea-deploy) จะเทสต์ deploy แล้วเอาเข้า ads-web เอง — ห้าม npm run deploy เอง ห้าม push เข้า ads-web
+   ห้ามเรียก idea-check ในทางนี้ (Action เรียกให้เอง) แล้วจบงาน
 6. ต้องรอรีวิว: push branch claude/idea-<id> แล้วเปิด PR เข้า ads-web ชื่อ "ไอเดีย #<id>: <ชื่อเรื่อง>" อธิบายเป็นภาษาไทยว่า
    แก้อะไร ลองยังไง ทำไมไม่ deploy เอง
-7. สุดท้ายเสมอ: curl -s -X POST https://pkjeans-ads.ads-web.workers.dev/webhook/idea-check
+7. เฉพาะทางข้อ 6: สุดท้าย curl -s -X POST https://pkjeans-ads.ads-web.workers.dev/webhook/idea-check
 
 ห้ามเด็ดขาด: wrangler secret, d1 execute --remote ที่แก้/ลบข้อมูล, push --force, แก้ branch main, ใส่ token/รหัสลงไฟล์
 ```

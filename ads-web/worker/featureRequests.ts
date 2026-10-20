@@ -288,6 +288,10 @@ export const buildEnabled = (env: RequestEnv) => !!(env.IDEA_ROUTINE_ID && env.I
 export const branchFor = (id: number) => `claude/idea-${id}`;
 /** Pushed by the run after a successful deploy; one per run, so a "ไม่ผ่าน" rerun needs its own. */
 export const deployTag = (r: Pick<FeatureRequest, 'id' | 'runs'>) => `deployed/idea-${r.id}-r${r.runs ?? 1}`;
+/** Pushed by the run to ask GitHub Actions (.github/workflows/idea-deploy.yml) to test, deploy and push it to ads-web. */
+export const deployAskTag = (r: Pick<FeatureRequest, 'id' | 'runs'>) => `deploy/idea-${r.id}-r${r.runs ?? 1}`;
+/** How long the Action may take before a missing deployed/ tag counts as a failed deploy. */
+const DEPLOY_WAIT_MS = 30 * 60_000;
 
 /** What the routine receives (it arrives as untrusted data; the routine's saved prompt says what to do with it). */
 export interface PostExtra { by: string; text: string; images: string[] }
@@ -318,7 +322,7 @@ export function buildPayload(r: FeatureRequest, log: LogRow[], extras: PostExtra
     `หมวด: ${AREAS[r.area] ?? r.area}`,
     `เสนอโดย: ${r.author}`,
     `branch (ถ้าต้องรอรีวิว): ${branchFor(r.id)}`,
-    `tag หลัง deploy สำเร็จ: ${deployTag({ id: r.id, runs: (r.runs ?? 0) + 1 })}`,
+    `tag สั่ง deploy: ${deployAskTag({ id: r.id, runs: (r.runs ?? 0) + 1 })}`,
     `รอบที่: ${(r.runs ?? 0) + 1}`,
     '',
     'รายละเอียดจากคนเสนอ:',
@@ -384,6 +388,15 @@ export async function checkBuilds(env: RequestEnv): Promise<number> {
     // The PR if the run opened one; else the pushed branch, with GitHub's one-click "open a PR" page.
     const pr = ((await gh(`/pulls?state=all&head=${owner}:${encodeURIComponent(branch)}`)) as { html_url: string; updated_at: string }[] | null)?.[0];
     if (r.pr_at && r.pr_at >= r.run_at!) continue; // already told about this run's PR
+    // Asked GitHub to deploy: wait for it; after DEPLOY_WAIT_MS without the deployed/ tag, Benz looks at the Action.
+    if (await gh(`/git/ref/tags/${encodeURIComponent(deployAskTag(r))}`)) {
+      if (Date.now() - Date.parse(r.run_at!) < DEPLOY_WAIT_MS) continue;
+      const actions = `https://github.com/${env.GITHUB_REPO}/actions/workflows/idea-deploy.yml`;
+      await env.DB.prepare('UPDATE feature_requests SET pr_url = ?, pr_at = ? WHERE id = ?').bind(actions, new Date().toISOString(), r.id).run();
+      if (r.thread_id) await say(env, r.thread_id, deciderIds(env), (m) => `${m} Claude ทำเสร็จแล้ว แต่ deploy อัตโนมัติไม่ผ่านค่ะ 🔍 ${actions}\nดูว่าติดอะไร (เช่นแตะไฟล์ที่ต้องรีวิว หรือ ads-web ขยับ) แล้ว merge + deploy เอง หรือกดไม่ผ่านให้ Claude ทำใหม่ได้ค่ะ`);
+      n++;
+      continue;
+    }
     let link: string | null = pr && pr.updated_at >= r.run_at! ? pr.html_url : null;
     if (!link && !pr) {
       const b = await gh(`/branches/${encodeURIComponent(branch)}`) as { commit?: { commit?: { committer?: { date?: string } } } } | null;

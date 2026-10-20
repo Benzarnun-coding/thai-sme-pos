@@ -103,7 +103,7 @@ test('the build payload carries the request, its branch and every "ไม่ผ�
   const t = buildPayload({ ...back.r, runs: 1 }, back.log);
   assert.match(t, /ไอเดีย #1: กรองกำไรตามรุ่น/);
   assert.match(t, /claude\/idea-1/);
-  assert.match(t, /deployed\/idea-1-r2/);
+  assert.match(t, /deploy\/idea-1-r2/);
   assert.match(t, /รอบที่: 2/);
   assert.match(t, /อยากดูเฉพาะ 501/);
   assert.match(t, /- ยังไม่มีปุ่มกรอง/);
