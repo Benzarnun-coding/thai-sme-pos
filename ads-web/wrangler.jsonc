@@ -56,7 +56,7 @@
     "DISCORD_REQUEST_COMMAND_CHANNEL_ID": "1562014820729880646",
     // ให้ทำ fires this Claude Code routine (claude.ai/code/routines, API trigger; token = secret IDEA_ROUTINE_TOKEN).
     // Empty = nobody builds automatically. It opens a PR on claude/idea-<id> in GITHUB_REPO; Benz merges + deploys.
-    "IDEA_ROUTINE_ID": "",
+    "IDEA_ROUTINE_ID": "trig_01NdKdodWjSGfsAR2EuMtUJ5",
     "GITHUB_REPO": "Benzarnun-coding/thai-sme-pos",
     // Owners: always allowed to manage users on the ผู้ใช้ page (comma separated).
     "OWNER_EMAILS": "arnun.tre@benzarnun.com,ps.maxpollawat@gmail.com",
