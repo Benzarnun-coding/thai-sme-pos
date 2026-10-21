@@ -397,3 +397,18 @@ test('order search terms: pasted lists split on spaces, commas and new lines; 4+
   assert.deepEqual(orderTerms(' '), []);
   assert.equal(orderTerms(Array.from({ length: 50 }, (_, i) => `order${i}`).join(' ')).length, 30, 'at most 30 at a time');
 });
+
+test('B1: one SKU in two groups — moving the shop row leaves the พี่เปีย row; rows meeting in one group merge', async () => {
+  const { applyMoves, moveKey } = await import('../web/src/purchase.ts');
+  const base = { kind: 'supplier' as const, sku: '5011-PK-MD-30', tab: 'PK', product: 'PK|5011-PK-MD', label: '501/1', size: '30', note: '' };
+  const lines = [
+    { ...base, group: 'พี่เปีย', kind: 'warehouse' as const, qty: 2, orders: ['A1', 'A2'] },
+    { ...base, group: 'PK', qty: 1, orders: ['A3'] },
+  ];
+  const moved = applyMoves(lines, new Map([[moveKey('PK', '5011-PK-MD-30'), 'CN']]), new Set());
+  assert.deepEqual(moved.map((l) => [l.group, l.qty, l.orders]), [['พี่เปีย', 2, ['A1', 'A2']], ['CN', 1, ['A3']]]);
+  const both = applyMoves(lines, new Map([[moveKey('PK', '5011-PK-MD-30'), 'พี่เปีย']]), new Set(['พี่เปีย']));
+  assert.deepEqual(both.map((l) => [l.group, l.qty, l.orders]), [['พี่เปีย', 3, ['A1', 'A2', 'A3']]], 'one line per group + SKU (saved rounds key by it)');
+  // an old SKU-only key still moves every row of that SKU
+  assert.deepEqual(applyMoves(lines, new Map([['5011-PK-MD-30', 'CN']]), new Set()).map((l) => [l.group, l.qty]), [['CN', 3]]);
+});

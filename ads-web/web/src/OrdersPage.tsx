@@ -9,7 +9,7 @@ import { SkuMatch } from './SkuMatch.tsx';
 import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from './catalog.ts';
 import { num } from './fmt.ts';
 import {
-  applyMoves, buildLines, dateFromFileName, optionParts, saleItems, orderColumns, orderText, paymentWorkbook, PRICE_SOURCE_LABEL, supplierTotals, withPrices, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
+  applyMoves, moveKey, buildLines, dateFromFileName, optionParts, saleItems, orderColumns, orderText, paymentWorkbook, PRICE_SOURCE_LABEL, supplierTotals, withPrices, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
   FB_ROUND, roundFile, roundLabel, FACEBOOK_STORE, GOSELL_GROUP, isFacebookExport, MANUAL_STORE, readFacebookItems, suggestSkus, remapLines, STOCK_GROUP, stockPlacer, orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
 } from './purchase.ts';
 import { orderPictureSheets, pictureSheets } from './pictureSheet.ts';
@@ -63,11 +63,16 @@ export function OrdersApp() {
   const [pictures, setPictures] = useState<PurchaseGroup | null>(null);
   // Rows found by the order-number search: `${group}\u0000${sku}`, highlighted and scrolled to.
   const [found, setFound] = useState<Set<string>>(new Set());
-  // ตรวจสอบ rows moved by hand this round: Bigseller SKU (or "?name · option") → supplier/warehouse
+  // rows moved by hand this round: moveKey(group before the move, SKU) → supplier/warehouse
   const [moves, setMoves] = useState<Map<string, string>>(new Map());
   // Out of stock, as ticked on the page after the supplier answered: lineKey → pieces. Saved to D1 on every tick.
   const [missing, setMissingMap] = useState<Map<string, number>>(new Map());
-  const moveLine = (sku: string, to: string) => setMoves((m) => { const n = new Map(m); if (to.trim()) n.set(sku, to.trim()); else n.delete(sku); return n; });
+  const moveLine = (l: PurchaseLine, to: string) => setMoves((m) => {
+    const n = new Map(m), k = moveKey(l.from ?? l.group, l.sku);
+    n.delete(l.sku); // a key from before moves were per group
+    if (to.trim()) n.set(k, to.trim()); else n.delete(k);
+    return n;
+  });
 
   useEffect(() => { api.purchases().then((r) => setHistory(r.uploads)).catch(() => {}); }, []);
   // Owed vs paid per round and supplier, last 60 days (from the rounds as saved + payments recorded).
@@ -234,8 +239,8 @@ export function OrdersApp() {
         const typed = (extra ?? []).filter((x) => x.source === 'manual').map(fromExtra);
         setFb(fbItems.length ? { file: 'ที่บันทึกไว้กับรอบนี้', items: fbItems } : null);
         setManual(typed);
-        // A move is keyed by SKU, so only a SKU that sits in one group both now and as saved can be moved back; a SKU
-        // split over groups (e.g. พี่เปีย for TikTok, GoSell for Facebook, PK for the rest) is left as the page puts it.
+        // Only a SKU that sits in one group both now and as saved can be moved back (which of its rows moved is not
+        // saved); a SKU split over groups (e.g. พี่เปีย for TikTok, GoSell for Facebook, PK for the rest) is left as the page puts it.
         const groupsOf = (list: { sku: string; group: string }[]) => {
           const m = new Map<string, Set<string>>();
           for (const l of list) m.set(l.sku, (m.get(l.sku) ?? new Set()).add(l.group));
@@ -243,7 +248,7 @@ export function OrdersApp() {
         };
         const fresh = groupsOf(buildLines([...items, ...fbItems, ...typed], lookup, newPlacer().place));
         const was = groupsOf(saved.map((l) => ({ sku: l.sku, group: l.grp })));
-        setMoves(new Map([...was].filter(([sku, g]) => g.size === 1 && fresh.get(sku)?.size === 1 && !fresh.get(sku)!.has([...g][0])).map(([sku, g]) => [sku, [...g][0]])));
+        setMoves(new Map([...was].filter(([sku, g]) => g.size === 1 && fresh.get(sku)?.size === 1 && !fresh.get(sku)!.has([...g][0])).map(([sku, g]) => [moveKey([...fresh.get(sku)!][0], sku), [...g][0]])));
         // names typed for rows not in the catalog (catalog products get theirs from catalog_labels)
         setLabelEdits(new Map(saved.filter((l) => !l.tab && l.label && l.label !== '(ไม่มี SKU)' && l.label !== l.sku && !l.label.startsWith(spuOf(l.sku))).map((l) => [l.sku, l.label])));
         setMissingMap(new Map(saved.filter((l) => l.missing > 0).map((l) => [lineKey({ sku: l.sku }), l.missing])));
@@ -330,7 +335,8 @@ export function OrdersApp() {
       await api.setLabels(items);
       const now = new Date().toISOString();
       setMeta((m) => (m ? { ...m, labels: [...m.labels.filter((x) => !gone.has(x.key) && !(items.length && x.key === `${items[0].tab}|${items[0].spu}`)), ...(name ? [{ key: `${l.tab}|${items[0].spu}`, tab: l.tab, spu: items[0].spu, label: name, updated_by: '', updated_at: now }] : [])] } : m));
-      toast(name ? `เปลี่ยนชื่อในใบสั่งเป็น "${name}" · ${onlySize ? `เฉพาะไซส์ ${l.size}` : 'ทุกไซส์'} ใช้ทุกวัน` : 'กลับไปใช้รหัส + สีจากแคตตาล็อก', 'ok');
+      toast(name ? `เปลี่ยนชื่อในใบสั่งเป็น "${name}" · ${onlySize ? `เฉพาะไซส์ ${l.size}` : 'ทุกไซส์'} ใช้ทุกวัน`
+        : onlySize ? `ไซส์ ${l.size} กลับไปใช้ชื่อเดียวกับไซส์อื่นของสินค้านี้` : 'กลับไปใช้รหัส + สีจากแคตตาล็อก (ทุกไซส์)', 'ok');
     } catch (e: any) { toast(e.message, 'bad'); }
   }
 
@@ -587,7 +593,7 @@ export function OrdersApp() {
 
           {groups.map((g) => (
             <GroupCard
-              key={g.name} group={g} open={open.has(g.name)} onToggle={() => toggle(g.name)} found={found}
+              key={`${viewing?.upload.id ?? `${data?.file ?? ''}|${date}#${round}`}|${g.name}`} group={g} open={open.has(g.name)} onToggle={() => toggle(g.name)} found={found}
               missing={missing} onMissing={canEdit ? setLineMissing : null} onPrice={canEdit ? setPrice : null}
               onLabel={(l) => (l.tab && !l.sku.startsWith('?') ? (canEdit ? setLabel : null) : (!viewing || canEdit ? setLabel : null))}
               canRemember={canEdit} movable={!viewing || canEdit} targets={targets} onMove={moveLine}
@@ -709,7 +715,7 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
   group: PurchaseGroup; open: boolean; onToggle: () => void; found: Set<string>; missing: Map<string, number>; onMissing: ((l: PurchaseLine, n: number) => Promise<void>) | null;
   onPrice: ((l: PurchaseLine, price: number | null) => Promise<void>) | null;
   onLabel: (l: PurchaseLine) => ((l: PurchaseLine, text: string, onlySize?: boolean) => Promise<void>) | null;
-  canRemember: boolean; movable: boolean; targets: string[]; onMove: (sku: string, to: string) => void;
+  canRemember: boolean; movable: boolean; targets: string[]; onMove: (l: PurchaseLine, to: string) => void;
   matchRows: CatalogRow[]; onMatched: ((a: CatalogAlias) => void) | null;
   ours: Map<string, Map<string, string>>; onReplace: ((from: string, to: string) => Promise<void>) | null; onUnmerge: ((from: string) => Promise<void>) | null;
   onSupplier: (items: { tab: string; spu: string }[], shop: string) => Promise<void>; onExcel: () => void; onPrint: () => void; onPictures: () => void; busy: boolean;
@@ -731,7 +737,7 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
   const total = g.kind === 'review' ? null : supplierTotals([g], missing)[0];
   /** Move a row this round; with "จำไว้ทุกวัน" also make it the product's supplier from now on. */
   const move = async (l: PurchaseLine, to: string, remember: boolean) => {
-    onMove(l.sku, to);
+    onMove(l, to);
     if (remember && to && l.kind !== 'review' && l.tab) await onSupplier([{ tab: l.tab, spu: spuOf(l.sku) }], to);
   };
   return (
@@ -773,7 +779,7 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
             <div className="po-bulk">
               <span className="small">{pickedLines.length ? `ย้ายที่ติ๊ก ${num(pickedLines.length)} รายการไป (รอบนี้)` : `ย้ายทั้ง ${num(g.lines.length)} รายการไป (รอบนี้) · ติ๊กช่องหน้าแถวเพื่อเลือกเฉพาะบางรายการ`}</span>
               <input value={bulk} onChange={(e) => setBulk(e.target.value)} list="po-targets" placeholder="เลือกหรือพิมพ์ร้าน/โกดัง" aria-label="ย้ายทั้งกลุ่มไป" />
-              <button className="small primary" disabled={!bulk.trim()} onClick={() => { toMove.forEach((l) => onMove(l.sku, bulk.trim())); setBulk(''); setPicked(new Set()); }}>ย้าย</button>
+              <button className="small primary" disabled={!bulk.trim()} onClick={() => { toMove.forEach((l) => onMove(l, bulk.trim())); setBulk(''); setPicked(new Set()); }}>ย้าย</button>
             </div>
           )}
           <div className="table-wrap">
@@ -818,7 +824,7 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
                         <td>
                           <div className="po-move">
                             <ShopInput placeholder="เลือกหรือพิมพ์" action="ย้าย" remember={canRemember && g.kind !== 'review'} onSubmit={(to, remember) => move(l, to, remember)} />
-                            {l.moved && <button className="link small" onClick={() => onMove(l.sku, '')}>ย้อนกลับไป {l.from}</button>}
+                            {l.moved && <button className="link small" onClick={() => onMove(l, '')}>ย้อนกลับไป {l.from}</button>}
                             {g.kind === 'review' && !l.sku.startsWith('?') && onMatched && (
                               <SkuMatch alias={l.sku} rows={matchRows} onMatched={onMatched}
                                 initialQuery={(() => { const o = optionParts(l.note.split(' · ').slice(1).join(' · ')); return `${o.model} ${o.size}`.trim(); })()} />
@@ -906,7 +912,7 @@ function LabelCell({ line: l, strong, onSave, ours, onReplace, onUnmerge }: {
   return (
     <span className="po-label">
       {strong ? <b>{l.label}</b> : <span className="muted">{l.label}</span>}
-      {(onSave || canReplace) && <button className="link small po-label-btn" onClick={() => { setValue(l.label); setEditing(true); }} title="แก้ชื่อ หรือเปลี่ยนเป็นรหัสของเรา">แก้</button>}
+      {(onSave || canReplace) && <button className="link small po-label-btn" onClick={() => { setValue(l.label); setOnlySize(false); setEditing(true); }} title="แก้ชื่อ หรือเปลี่ยนเป็นรหัสของเรา">แก้</button>}
       {merged}
     </span>
   );

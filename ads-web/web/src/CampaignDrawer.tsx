@@ -406,6 +406,7 @@ function CostWorking({ c }: { c: CampaignView }) {
   const show = () => {
     setOpen(!open);
     if (rows || open) return;
+    setError('');
     api.salesReport('last_7d')
       .then((r) => setRows(r.rows.filter((x) => x.campaign_id === c.id && (x.spend > 0 || x.orders > 0)).sort((a, b) => b.date.localeCompare(a.date))))
       .catch((e) => setError(e.message));

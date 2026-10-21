@@ -512,14 +512,21 @@ export function orderBlocks(items: OrderItem[], lookup: Lookup, group: string, i
 }
 
 /**
+ * Key of a move: the group the row is in before any move + its SKU. A SKU can sit in two groups of one round (พี่เปีย
+ * while its stock lasts, the shop for the rest), and moving one must not drag the other (QA B1, 2026-10-21). Plain SKU
+ * keys still work (moves restored by older code, tests).
+ */
+export const moveKey = (group: string, sku: string) => `${group}\u0000${sku}`;
+
+/**
  * Rows moved by hand to another supplier or warehouse (picked or typed), for this round only: a supplier is out of
- * stock and another one has it, or a ตรวจสอบ row whose SKU is not in the catalog. Keyed by SKU (one line per SKU per
- * round). A moved catalog product is labelled with our own code + colour, since the old supplier's code means nothing
+ * stock and another one has it, or a ตรวจสอบ row whose SKU is not in the catalog. Keyed by `moveKey` (group + SKU);
+ * rows of one SKU that end up in the same group are merged into one line. A moved catalog product is labelled with our own code + colour, since the old supplier's code means nothing
  * to the new one; a ตรวจสอบ row shows its SKU without the size part (or Bigseller's option text when it has no SKU).
  */
 export function applyMoves(lines: PurchaseLine[], moves: Map<string, string>, warehouses: Set<string>, lookup: Lookup | null = null): PurchaseLine[] {
-  return lines.map((l) => {
-    const to = moves.get(l.sku)?.trim();
+  return mergeSameRows(lines.map((l) => {
+    const to = (moves.get(moveKey(l.group, l.sku)) ?? moves.get(l.sku))?.trim();
     if (!to || to === l.group) return l;
     const kind: GroupKind = warehouses.has(to) ? 'warehouse' : 'supplier';
     if (l.kind === 'review') {
@@ -537,7 +544,25 @@ export function applyMoves(lines: PurchaseLine[], moves: Map<string, string>, wa
     }
     const r = lookup?.rows.get(skuKey(l.sku));
     return { ...l, group: to, kind, label: r ? labelFor(r, 'warehouse', lookup) : l.label, note: '', moved: true, from: l.group };
-  });
+  }));
+}
+
+/** One line per group + SKU (saved rounds key lines that way): pieces added up, order numbers and stores joined. */
+function mergeSameRows(lines: PurchaseLine[]): PurchaseLine[] {
+  const by = new Map<string, PurchaseLine>();
+  for (const l of lines) {
+    const k = moveKey(l.group, l.sku);
+    const a = by.get(k);
+    if (!a) { by.set(k, l); continue; }
+    by.set(k, {
+      ...a, qty: a.qty + l.qty, orders: [...new Set([...a.orders, ...l.orders])],
+      stores: a.stores || l.stores ? { ...a.stores, ...l.stores } : undefined,
+      missing: (a.missing ?? 0) + (l.missing ?? 0) || undefined,
+      merged: a.merged || l.merged ? [...new Set([...(a.merged ?? []), ...(l.merged ?? [])])] : undefined,
+      moved: a.moved || l.moved, from: a.from ?? l.from,
+    });
+  }
+  return [...by.values()];
 }
 
 // ---- out of stock → the เก็บตกแทน file ----
