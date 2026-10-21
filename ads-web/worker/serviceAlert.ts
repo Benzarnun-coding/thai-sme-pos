@@ -21,24 +21,28 @@ export interface ServiceEnv extends WebhookEnv {
 
 // "…ไหม/มั้ย" after it = a question before buying ("จะไม่ตรงปกไหม"), not a complaint.
 const NOT_Q = String.raw`(?!\s*(?:ไหม|มั้ย|มัย|รึเปล่า|หรือเปล่า|ป่าว|หรือไม่))`;
-const REASONS: [string, RegExp][] = [
+// Worry or a condition before buying ("กลัวไม่ตรงปก", "ถ้าไม่ตรงปกคืนได้ไหม", "อย่าส่งผิด", "ไม่ตรงปกไม่รับนะ"): not a
+// complaint about a parcel. Seen 21 Oct in the 7-day dry run (170 cases, most of them noise).
+const WORRY = /กลัว|กล้ว|ถ้า|หาก|อย่า|ไม่รับ|เคยสั่ง|ขอดูสินค้าก่อน|(?<!ไม่)ตรงปกนะ/;
+const REASONS: [string, RegExp, RegExp?][] = [
   ['ขอคืนเงิน', /คืนเงิน|เงินคืน|โอนคืน|refund/i],
-  ['สินค้าไม่ตรงปก', new RegExp(`(?:ไม่ตรงปก|ไม่ตรงกับ(?:รูป|ภาพ|ที่สั่ง)|ไม่เหมือน(?:ใน)?(?:รูป|ภาพ))${NOT_Q}`)],
-  ['ส่งผิด', new RegExp(`(?:ส่ง(?:มา)?ผิด|ได้(?:ของ|สินค้า|รับ(?:ของ)?)?ผิด|ผิด(?:แบบ|รุ่น|สี|ไซส์|ไซซ์)|สั่ง[^\\n]{0,30}แต่ได้)${NOT_Q}`)],
-  ['ขอคืน/เปลี่ยนสินค้า', /(?:คืน|เปลี่ยน)(?:สินค้า|ของ)|ส่ง(?:ของ|สินค้า)?คืน|เคลม/],
+  ['สินค้าไม่ตรงปก', new RegExp(`(?:ไม่ตรงปก|ไม่ตรงกับ(?:รูป|ภาพ|ที่สั่ง)|ไม่เหมือน(?:ใน)?(?:รูป|ภาพ))${NOT_Q}`), WORRY],
+  ['ส่งผิด', new RegExp(`(?:ส่ง(?:มา)?ผิด|ได้(?:ของ|สินค้า|รับ(?:ของ)?)?ผิด|ผิด(?:แบบ|รุ่น|สี|ไซส์|ไซซ์)|สั่ง[^\\n]{0,30}แต่ได้)${NOT_Q}`), WORRY],
+  ['ขอคืน/เปลี่ยนสินค้า', /(?:คืน|เปลี่ยน)(?:สินค้า|ของ)|ส่ง(?:ของ|สินค้า)?คืน|เคลม/, WORRY],
   ['ร้องเรียน', /ร้องเรียน|ไม่พอใจ|ผิดหวัง|โกง|หลอกลวง|แย่มาก|ชำรุด|ของเสีย|(?:เก็บ|ตัด)เงินซ้ำ|เก็บเงิน\s?2\s?(?:ครั้ง|รอบ)/],
-  // Answer-bank fix #14 (Benz 2026-10-20): the bot made up "ขากว้าง 10 นิ้ว / ยาว 16 นิ้วทุกไซส์". A question about a
-  // length or width needs a number ("…กี่นิ้ว", "…เท่าไหร่"), so "อยากได้ขากว้าง" (the wide-leg cut) is not one.
-  ['ถามความยาว/ปลายขา', /(?:ยาว|ปลายขา|ขากว้าง|กว้าง|ขา)[^\n]{0,15}(?:กี่|เท่าไ)/],
-  // Fix #15: the bot took orders for waists not made (31 / 33 / 35, 27, 43). Odd waists 27–43 and 44+ are passed to
-  // a person, who checks the model's real sizes; the even ones the shop makes are left to the bot.
-  ['ขอไซส์ที่อาจไม่มี', /(?:เอว|ไซส์|ไซซ์|ไซต์|ไซ้|size|sz)\s*(?:2[79]|3[13579]|4[13]|4[4-9]|[5-9]\d)(?!\d)/i],
+  // Answer-bank fix #14 (Benz 2026-10-20): the bot made up "ขากว้าง 10 นิ้ว / ยาว 16 นิ้วทุกไซส์". A length or width
+  // question asks a number right after the word ("ยาวกี่นิ้ว", "ปลายขากว้างเท่าไหร่"); "ขาสั้นคาร์โก้ มีกี่สี" and
+  // a price question ("ขายาวราคาเท่าไร") are not.
+  ['ถามความยาว/ปลายขา', /(?:ยาว|กว้าง|ปลายขา)\s*(?:มี|ขา)?\s*(?:กี่|เท่าไ)/, /ราคา/],
+  // Fix #15: the bot took orders for waists not made. The 21 Oct dry run showed 29/31/33/35 are ordered all day (the
+  // shop sells them), so only the far ends go to a person: 27 and under, 41 and over.
+  ['ขอไซส์ที่อาจไม่มี', /(?:เอว|ไซส์|ไซซ์|ไซต์|ไซ้|size|sz)\s*(?:1\d|2[0-7]|4[1-9]|[5-9]\d)(?!\d)/i],
 ];
 
 /** Why a customer's message needs a person, or null. */
 export function serviceReason(text: string | null): string | null {
   if (!text) return null;
-  for (const [label, re] of REASONS) if (re.test(text)) return label;
+  for (const [label, re, not] of REASONS) if (re.test(text) && !not?.test(text)) return label;
   return null;
 }
 

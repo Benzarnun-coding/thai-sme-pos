@@ -17,7 +17,11 @@ test('complaints, refunds and wrong items are caught; questions before buying ar
   assert.equal(serviceReason('ปลายขากว้างกี่นิ้ว'), 'ถามความยาว/ปลายขา');
   assert.match(serviceMessage({ id: 1, at: '2026-10-20T07:40:00.000Z', reason: 'ถามความยาว/ปลายขา', text: 'ยาวกี่นิ้ว' }, null, '', true).content, /ห้ามเดาตัวเลข/);
   // Fix #15: odd waists and 44+.
-  for (const t of ['มีเอว 31 ไหมคะ', 'เอา ไซส์33 ค่ะ', 'size 27', 'เอว43']) assert.equal(serviceReason(t), 'ขอไซส์ที่อาจไม่มี', t);
+  for (const t of ['มีเอว 44 ไหมคะ', 'size 27', 'เอว43', 'สีดำสนิทไซส์43']) assert.equal(serviceReason(t), 'ขอไซส์ที่อาจไม่มี', t);
+  // 21 Oct dry run: 29/31/33/35 are sold every day; worry before buying and price questions are not cases.
+  for (const t of ['มีเอว 31 ไหมคะ', 'เอว33', 'สีเทาเอว35ครับ', 'แฟนกลัวไม่ตรงปก', 'ถ้าไม่ตรงปกคืนได้ไหมครับ', 'ไม่ตรงปกไม่รับนะครับ', 'อย่าส่งผิด',
+    'ขายาวละครับราคาเท่าไร', 'ที่ขอดูรุ่น SH-002 ขาสั้นคาร์โก้ มีกี่สีและขนาดไซส์']) assert.equal(serviceReason(t), null, t);
+  assert.equal(serviceReason('กางเกงที่ได้รับไม่ตรงปกนะคับผม'), 'สินค้าไม่ตรงปก');
   assert.match(serviceMessage({ id: 1, at: '2026-10-20T07:40:00.000Z', reason: 'ขอไซส์ที่อาจไม่มี', text: 'เอว 31' }, null, '', true).content, /มีไซส์นี้จริง/);
   for (const t of ['เอว 32 ค่ะ', 'ไซส์ 30', 'เอว 310', 'เอา 3 ตัว 549']) assert.equal(serviceReason(t), null, t);
   for (const t of ['อยากได้ขากว้างค่ะ', 'ขายาวไหม เอว 30 ใส่ไซส์ไหน']) assert.equal(serviceReason(t), null, t);

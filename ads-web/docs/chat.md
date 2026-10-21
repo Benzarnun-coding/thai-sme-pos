@@ -83,7 +83,8 @@ After answer-bank fix #13: a customer said they got a zip instead of buttons and
   - return / exchange (คืน/เปลี่ยนสินค้า, ส่งคืน, เคลม)
   - complaint (ร้องเรียน, ไม่พอใจ, ชำรุด, เก็บเงินซ้ำ …)
   - a leg length / hem width question with a number word ("ขายาวกี่นิ้ว", "ปลายขากว้างเท่าไหร่"; fix #14, the bot made up "ยาว 16 นิ้วทุกไซส์")
-  - a waist that may not be made: odd 27–43 or 44+ after เอว/ไซส์/size ("มีเอว 31 ไหม"; fix #15, the bot took orders for 31/33/35/27). A person checks the model's real sizes.
+  - a waist that may not be made: 27 and under or 41 and over after เอว/ไซส์/size (fix #15). 29/31/33/35 were in at first; the 21 Oct dry run (170 cases in 7 days) showed they are ordered all day, so they were dropped.
+  - Worry or a condition before buying (กลัว, ถ้า/หาก, อย่า, ไม่รับ, เคยสั่ง …) is not a complaint; a length question with ราคา is a price question. After this the same 7 days give ~55 cases (~8 a day).
   - "…ไหม" right after = a question before buying, so it is skipped.
 - A match opens a case (one open case per customer) and the bot posts it at once to Discord "service ลูกค้า":
   - the customer's Facebook name, read live from Meta and never stored, so Fear can search the inbox. Meta refuses the profile lookup (`/{psid}?fields=name`) for most customers, so the name comes from the page's conversation with them (`conversations?user_id=…&fields=participants`) — Benz 2026-10-20, the first test had no name.
