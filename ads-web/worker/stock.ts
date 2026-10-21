@@ -128,13 +128,15 @@ async function syncPlace(db: D1Database, uploadId: string, user: string, loc: Lo
   // Deleted round, no starting balance yet, or a day the starting balance already covered: nothing to cut.
   if (!date || !from || date <= from) { await db.batch(clear); return; }
   // An extra item's SKU as the page reads it: through a forced match, or a match of a SKU the catalog doesn't know.
+  // `raw` must be qualified (p.sku): a bare "sku" inside these subqueries is catalog_aliases.sku / catalog.sku, which
+  // silently skipped every matched SKU (idea #7, 2026-10-21: 501-BB-MD-31 → 5011-PK-MD-31 never cut at พี่เปีย).
   const RESOLVE = (raw: string) => `upper(COALESCE((SELECT a.sku FROM catalog_aliases a WHERE a.alias = upper(${raw})
       AND (a.force = 1 OR NOT EXISTS (SELECT 1 FROM catalog c WHERE upper(c.sku) = upper(${raw})))), ${raw}))`;
   const [, , , cut, missing] = await db.batch([
     ...clear,
     db.prepare(
       `WITH items AS (
-         SELECT order_no AS key, order_no AS match, ${RESOLVE('sku')} AS sku, qty FROM purchase_items WHERE upload_id = ?1
+         SELECT p.order_no AS key, p.order_no AS match, ${RESOLVE('p.sku')} AS sku, p.qty FROM purchase_items p WHERE p.upload_id = ?1
          UNION ALL
          SELECT CASE WHEN j.value ->> '$.source' = 'manual' OR COALESCE(j.value ->> '$.order', '') = '' THEN 'เพิ่มเอง#' || ?1 || '#' || j.key
                      ELSE 'fb:' || (j.value ->> '$.order') END,
