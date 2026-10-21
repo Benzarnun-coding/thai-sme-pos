@@ -4,6 +4,7 @@
 // name, the bill number and the reasons, for a person. The bill stays a draft: an admin still opens it in
 // Page365 and presses "ส่งบิล". Switch: meta_capi key auto_fill (on/off), on the settings page.
 
+import { DISCORD_PERSONA } from '../../ads-engine/src/notify.ts';
 import { postToDeciders, type DiscordEnv } from './discord.ts';
 import { looksLikeNote, markFill, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { sendNotePurchase } from './notePurchases.ts';
@@ -254,7 +255,7 @@ export async function postOrderChannel(env: AutoEnv, body: (mention: string) => 
     const ids = (env.DISCORD_ORDER_OWNER_IDS || env.DISCORD_DECIDER_IDS || '').split(',').map((x) => x.trim()).filter(Boolean);
     const r = await fetch(env.DISCORD_ORDER_WEBHOOK_URL, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'อูนิ', content: body(ids.map((id) => `<@${id}>`).join(' ')), allowed_mentions: { users: ids } }),
+      body: JSON.stringify({ ...DISCORD_PERSONA, content: body(ids.map((id) => `<@${id}>`).join(' ')), allowed_mentions: { users: ids } }),
     });
     if (r.ok) return;
     console.error('order webhook', r.status);

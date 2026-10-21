@@ -31,7 +31,7 @@ import { opsFacts, opsText } from './opsDigest.ts';
 import { deleteMove, gosellCut, saveMoves, stockData, syncRoundStock, validateMoves } from './stock.ts';
 import { deletePurchase, findOrders, ledger, listPurchases, orderTerms, purchaseExtra, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveAlias, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
-import { pushDiscord } from '../../ads-engine/src/notify.ts';
+import { DISCORD_PERSONA, pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './chatLog.ts';
 import { aiEnabled, askAI, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
 import { kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, setKbStatus, speaker } from './botKb.ts';
@@ -55,6 +55,8 @@ import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, 
 
 export interface Env {
   DB: D1Database;
+  /** The built dashboard (dist); /webhook/uni.jpg serves the bot's picture from it */
+  ASSETS?: Fetcher;
   META_ACCESS_TOKEN?: string;
   META_AD_ACCOUNT_ID: string;
   META_API_VERSION?: string;
@@ -136,6 +138,8 @@ export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     // Meta's webhook comes from outside Cloudflare Access (bypassed for /webhook/* there); it is signed instead.
+    // น้องอูนิ's picture: Discord fetches it for every webhook post, so it sits on the path Access lets through.
+    if (url.pathname === '/webhook/uni.jpg' && env.ASSETS) return env.ASSETS.fetch(new Request(new URL('/uni.jpg', url)));
     if (url.pathname === '/webhook/privacy') return new Response(PRIVACY_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     if (url.pathname === '/webhook/discord' && req.method === 'POST') return discordInteraction(req, env, ctx);
     // The idea routine pings this when it's done (no auth: it only re-reads GitHub, same as the 3-hourly sweep).
@@ -624,6 +628,15 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     return json(r);
   }
 
+  // The bot account itself (questions with buttons): picture via its own profile, name via its nickname in the server.
+  if (path === '/api/discord/persona' && method === 'POST') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    if (!env.DISCORD_BOT_TOKEN || !env.DISCORD_CHANNEL_ID || !env.ASSETS) throw new BadRequest('ยังตั้งค่าบอท Discord ไม่ครบ');
+    const r = await setBotPersona(env);
+    await audit(env.DB, user, 'discord.persona', 'discord', r);
+    if (!r.avatar && !r.nick) throw new BadRequest(`Discord ไม่ยอม: ${r.error ?? '?'}`);
+    return json(r);
+  }
   if (path === '/api/discord/test' && method === 'POST') {
     if (!approvalsEnabled(env)) throw new BadRequest('ยังตั้งค่าบอท Discord ไม่ครบ (DISCORD_BOT_TOKEN / DISCORD_APP_PUBLIC_KEY / DISCORD_CHANNEL_ID)');
     if (url.searchParams.get('kind') === 'upload') {
@@ -1550,6 +1563,25 @@ function finite<T extends object | undefined>(m: T): T {
 }
 
 /** 07:30 Discord note: yesterday's real numbers (Page365) when the file is in; the reminder waits until 10:00. */
+/** Gives the Discord bot น้องอูนิ's picture (its profile) and name (nickname in the server of DISCORD_CHANNEL_ID). */
+async function setBotPersona(env: Env): Promise<{ avatar: boolean; nick: boolean; error?: string }> {
+  const api = (path: string, init?: RequestInit) => fetch(`https://discord.com/api/v10${path}`, { ...init, headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' } });
+  const img = new Uint8Array(await (await env.ASSETS!.fetch(new Request('https://assets.local/uni.jpg'))).arrayBuffer());
+  let bin = '';
+  for (const b of img) bin += String.fromCharCode(b);
+  const errors: string[] = [];
+  const a = await api('/users/@me', { method: 'PATCH', body: JSON.stringify({ avatar: `data:image/jpeg;base64,${btoa(bin)}` }) });
+  if (!a.ok) errors.push(`รูป ${a.status} ${(await a.text()).slice(0, 200)}`);
+  const ch: any = await api(`/channels/${env.DISCORD_CHANNEL_ID}`).then((r) => r.json()).catch(() => ({}));
+  let nick = false;
+  if (ch.guild_id) {
+    const n = await api(`/guilds/${ch.guild_id}/members/@me`, { method: 'PATCH', body: JSON.stringify({ nick: DISCORD_PERSONA.username }) });
+    nick = n.ok;
+    if (!n.ok) errors.push(`ชื่อ ${n.status} ${(await n.text()).slice(0, 200)}`);
+  } else errors.push('หาเซิร์ฟเวอร์ของห้องไม่เจอ');
+  return { avatar: a.ok, nick, ...(errors.length ? { error: errors.join(' · ') } : {}) };
+}
+
 /** อูนิ's chat report to #meta-chat: yesterday (07:30) or today so far (button). */
 async function sendChatReport(env: Env, scope: 'yesterday' | 'today'): Promise<{ sent: boolean; threads: number }> {
   if (!env.DISCORD_CHAT_WEBHOOK_URL) throw new BadRequest('ยังไม่ได้ตั้ง DISCORD_CHAT_WEBHOOK_URL');

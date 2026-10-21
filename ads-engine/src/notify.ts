@@ -31,6 +31,9 @@ export async function pushLine(text: string, token?: string, to?: string): Promi
 }
 
 /** Discord incoming webhook. Messages over 2,000 characters are split. Silent no-op when the URL is missing. */
+/** How every webhook post shows in Discord (Benz 2026-10-21): name น้องอูนิ + the cat picture served by ads-web. */
+export const DISCORD_PERSONA = { username: 'น้องอูนิ', avatar_url: 'https://pkjeans-ads.ads-web.workers.dev/webhook/uni.jpg' };
+
 export async function pushDiscord(text: string, url?: string): Promise<boolean> {
   if (!url) return false;
   const chunks: string[] = [];
@@ -50,7 +53,7 @@ export async function pushDiscord(text: string, url?: string): Promise<boolean> 
   let ok = true;
   for (const [i, content] of chunks.entries()) {
     if (i) await new Promise((r) => setTimeout(r, 400)); // webhooks allow a few posts per second
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content, username: 'อูนิ' }) });
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content, ...DISCORD_PERSONA }) });
     if (!res.ok) { console.error('Discord push failed:', res.status, await res.text()); ok = false; }
   }
   return ok;

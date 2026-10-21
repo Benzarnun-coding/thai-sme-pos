@@ -321,6 +321,11 @@ function DiscordCard() {
           }}>{busy ? 'กำลังส่ง…' : label}</button>
         ))}
       </div>
+      <p className="muted small">ทุกข้อความใน Discord ขึ้นชื่อ "น้องอูนิ" กับรูปแมว · ปุ่มนี้เปลี่ยนรูปและชื่อของตัวบอท (ข้อความที่มีปุ่ม) ให้ตรงกัน กดครั้งเดียวพอ</p>
+      <button className="ghost" disabled={busy} onClick={async () => {
+        setBusy(true);
+        try { const r = await api.discordPersona(); toast(r.error ? `ทำได้บางส่วน: ${r.error}` : 'บอทเป็นน้องอูนิแล้ว', r.error ? 'bad' : 'ok'); } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
+      }}>{busy ? 'กำลังเปลี่ยน…' : 'เปลี่ยนบอทเป็นน้องอูนิ (รูป + ชื่อ)'}</button>
     </section>
   );
 }

@@ -5,6 +5,7 @@
 // One open case per customer. The name goes to Discord only; D1 keeps the redacted text like chat_messages.
 // Nothing here replies to the customer. Switched on by the secret DISCORD_SERVICE_WEBHOOK_URL.
 
+import { DISCORD_PERSONA } from '../../ads-engine/src/notify.ts';
 import type { ChatRow } from './chatLog.ts';
 import { idList } from './discord.ts';
 import { pageOf, type WebhookEnv } from './webhook.ts';
@@ -125,7 +126,7 @@ async function postCase(env: ServiceEnv, c: Parameters<typeof serviceMessage>[0]
   const res = await fetch(`${hook}?wait=true`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...serviceMessage(c, name, mention, false), allowed_mentions }),
+    body: JSON.stringify({ ...serviceMessage(c, name, mention, false), ...DISCORD_PERSONA, allowed_mentions }),
   });
   if (!res.ok) { console.error('discord service webhook', res.status, await res.text()); return null; }
   return { channel_id: channel, message_id: ((await res.json()) as { id: string }).id };
