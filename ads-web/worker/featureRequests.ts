@@ -56,17 +56,19 @@ const MOVES: Record<Verb, { from: Status; to: Status }> = {
 };
 export const nextStatus = (from: Status, verb: Verb): Status | null => (MOVES[verb]?.from === from ? MOVES[verb].to : null);
 
-export const deciderIds = (env: RequestEnv) => idList(env.DISCORD_REQUEST_DECIDER_IDS).length ? idList(env.DISCORD_REQUEST_DECIDER_IDS) : idList(env.DISCORD_APPROVER_IDS);
+/** Who decides (Benz): DISCORD_REQUEST_DECIDER_IDS only — no fallback, so a missing or mistyped list locks the buttons. */
+export const deciderIds = (env: RequestEnv) => idList(env.DISCORD_REQUEST_DECIDER_IDS);
 /**
  * Deciders press every button; "ทำเสร็จแล้ว" may also be pressed by the approvers (the people who build); "ผ่าน /
- * ไม่ผ่าน" by the person who asked, since they know what they wanted. Empty decider list = anyone.
+ * ไม่ผ่าน" by the person who asked, since they know what they wanted. Fail-closed: nobody listed = nobody may press
+ * (QA by Marcus 2026-10-21: an empty list used to let anyone approve).
  */
 export function mayPress(env: RequestEnv, verb: Verb, userId: string, authorId: string | null): boolean {
   const deciders = deciderIds(env);
   const allowed = verb === 'done' ? [...deciders, ...idList(env.DISCORD_APPROVER_IDS)]
     : verb === 'pass' || verb === 'fail' ? [...deciders, ...(authorId ? [authorId] : [])]
     : deciders;
-  return !deciders.length || allowed.includes(userId);
+  return !!userId && allowed.includes(userId);
 }
 
 /** The forum post's title: status emoji + #id + title (Discord caps thread names at 100). */
@@ -215,7 +217,13 @@ export async function postRequest(env: RequestEnv, r: FeatureRequest, log: LogRo
     applied_tags: tag ? [tag.id] : [],
     message: { ...requestMessage(r, log), allowed_mentions: { parse: [] } },
   });
-  if (!res.ok) { console.error('discord request post', res.status, await res.text()); return null; }
+  if (!res.ok) {
+    const why = `${res.status} ${(await res.text()).slice(0, 200)}`;
+    console.error('discord request post', r.id, why);
+    // Tell Benz in the command channel; the 3-hourly sweep tries again (syncTitles).
+    if (env.DISCORD_REQUEST_COMMAND_CHANNEL_ID) await say(env, env.DISCORD_REQUEST_COMMAND_CHANNEL_ID, deciderIds(env), (m) => `${m} เปิดโพสต์ของไอเดีย #${r.id} "${r.title}" (${r.author}) ไม่สำเร็จค่ะ (${why}) — น้องจะลองใหม่ทุก 3 ชั่วโมง ถ้ายังไม่ขึ้นรบกวนเช็กสิทธิ์บอทในห้องไอเดียนะคะ`);
+    return null;
+  }
   const thread = ((await res.json()) as { id: string }).id;
   await env.DB.prepare('UPDATE feature_requests SET thread_id = ? WHERE id = ?').bind(thread, r.id).run();
   await say(env, thread, deciderIds(env), (m) => `${m} มีไอเดียใหม่ค่ะ 🙏 กด **ให้ทำ** หรือ **ไม่ทำ** ที่ข้อความแรกของโพสต์นี้ได้เลยนะคะ\n📎 คนเสนอแนบรูปหน้าจอ หรือพิมพ์อธิบายเพิ่มในโพสต์นี้ได้เลยค่ะ Claude จะดูทั้งหมดก่อนเริ่มทำ`);
@@ -250,7 +258,10 @@ async function rename(env: RequestEnv, r: FeatureRequest): Promise<boolean> {
 export async function syncTitles(env: RequestEnv): Promise<number> {
   if (!env.DISCORD_REQUEST_CHANNEL_ID || !env.DISCORD_BOT_TOKEN) return 0;
   const since = new Date(Date.now() - 86_400_000).toISOString();
-  const { results } = await env.DB.prepare('SELECT * FROM feature_requests WHERE thread_id IS NOT NULL AND updated_at >= ? ORDER BY id LIMIT 20').bind(since).all<FeatureRequest>();
+  // Posts that never opened (Discord refused): try again, at most 5 a sweep.
+  const { results: unposted } = await env.DB.prepare(`SELECT * FROM feature_requests WHERE thread_id IS NULL AND status = 'new' ORDER BY id LIMIT 5`).all<FeatureRequest>();
+  for (const r of unposted) { const got = await loadRequest(env.DB, r.id); await postRequest(env, r, got?.log ?? []).catch(() => null); }
+  const { results } = await env.DB.prepare('SELECT * FROM feature_requests WHERE thread_id IS NOT NULL AND updated_at >= ? ORDER BY updated_at DESC LIMIT 20').bind(since).all<FeatureRequest>();
   const cur = await Promise.all(results.map((r) => api(env, `/channels/${r.thread_id}`, 'GET').then((x) => (x.ok ? x.json() as Promise<{ name?: string }> : null)).catch(() => null)));
   let n = 0;
   for (const [k, r] of results.entries()) if (cur[k] && cur[k]!.name !== threadName(r) && (await rename(env, r))) n++;
@@ -371,7 +382,10 @@ export async function startBuild(env: RequestEnv, r: FeatureRequest, note: strin
   if (!res.ok) {
     const why = `${res.status} ${(await res.text()).slice(0, 200)}`;
     console.error('idea routine', r.id, why);
-    await say(env, r.thread_id, deciderIds(env), (m) => `${m} สั่ง Claude เริ่มทำไม่สำเร็จค่ะ (${why}) — รบกวนเปิด session ทำเองนะคะ`);
+    await say(env, r.thread_id, deciderIds(env), (m) => `${m} สั่ง Claude เริ่มทำไม่สำเร็จค่ะ (${why}) — ลองกดใหม่ หรือเปิด session ทำเองนะคะ`,
+      answered ? [{ type: 1, components: [{ type: 2, style: 1, label: '▶️ ลองส่งให้ Claude อีกครั้ง', custom_id: `fragain:${r.id}` }] }] : undefined);
+    // let the button work again right away
+    if (answered) await env.DB.prepare('UPDATE feature_requests SET run_at = NULL WHERE id = ? AND runs = ?').bind(r.id, r.runs ?? 0).run().catch(() => null);
     return;
   }
   const url = ((await res.json()) as { claude_code_session_url?: string }).claude_code_session_url ?? null;
@@ -480,7 +494,15 @@ export async function requestInteraction(i: any, env: RequestEnv, ctx: { waitUnt
     if (!v.title) return only('ต้องมีชื่อเรื่องค่ะ');
     const r = await createRequest(env.DB, { author: who, author_id: userId, area: cid.slice(6), title: v.title, detail: v.detail ?? '' });
     const got = await loadRequest(env.DB, r.id);
-    ctx.waitUntil(postRequest(env, r, got?.log ?? []).catch((e) => console.error('request post', e)));
+    // The post opens after the reply (Discord waits 3 s at most); if it fails, the asker's message is corrected.
+    const token = String(i.token ?? '');
+    ctx.waitUntil(postRequest(env, r, got?.log ?? []).then(async (thread) => {
+      if (thread || !token || !env.DISCORD_APP_ID) return;
+      await fetch(`https://discord.com/api/v10/webhooks/${env.DISCORD_APP_ID}/${token}/messages/@original`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: `💡 รับไอเดีย **#${r.id} ${r.title}** ไว้แล้วค่ะ แต่เปิดโพสต์ในห้องไอเดียไม่สำเร็จ 🙏 แจ้งคุณเบ้นแล้ว น้องจะลองเปิดใหม่ให้เองค่ะ` }),
+      }).catch(() => null);
+    }).catch((e) => console.error('request post', e)));
     return only(`💡 รับไอเดีย **#${r.id} ${r.title}** แล้วค่ะ ขอบคุณนะคะ 🙏 น้องเปิดโพสต์ในห้องไอเดียให้แล้ว\n📎 มีรูปหน้าจอประกอบ ส่งในโพสต์นั้นได้เลยค่ะ (ก่อนคุณเบ้นกดให้ทำ)`);
   }
   const again = /^fragain:(\d+)$/.exec(cid);
@@ -491,6 +513,10 @@ export async function requestInteraction(i: any, env: RequestEnv, ctx: { waitUnt
     const ok = [...deciderIds(env), ...(cur.r.author_id ? [cur.r.author_id] : [])];
     if (ok.length && !ok.includes(userId)) return only(`ปุ่มนี้สำหรับคุณ${cur.r.author} (คนเสนอ) หรือคุณเบ้นค่ะ 🙏`);
     if (cur.r.status !== 'doing') return only('ไอเดียนี้ไม่ได้อยู่ในสถานะกำลังทำแล้วค่ะ');
+    // One run per answer: claim it (a second press within 5 minutes, or a double click, is refused).
+    const now = new Date().toISOString(), before = new Date(Date.now() - 5 * 60_000).toISOString();
+    const claim = await env.DB.prepare(`UPDATE feature_requests SET run_at = ?1 WHERE id = ?2 AND status = 'doing' AND (run_at IS NULL OR run_at < ?3)`).bind(now, cur.r.id, before).run();
+    if (!claim.meta.changes) return only('ส่งให้ Claude ทำต่อไปแล้วค่ะ รอสักครู่นะคะ');
     ctx.waitUntil(startBuild(env, cur.r, null, true).catch((e) => console.error('request again', e)));
     return reply({ type: 7, data: { content: `${String(i.message?.content ?? '').slice(0, 1800)}\n\n▶️ ${who} ส่งคำตอบให้ Claude ทำต่อแล้วค่ะ`, components: [] } });
   }
@@ -506,6 +532,7 @@ export async function requestInteraction(i: any, env: RequestEnv, ctx: { waitUnt
   // "ไม่ผ่าน" asks what to fix first; the reason goes into the log and the post.
   if (verb === 'fail' && fr) return reply({ type: 9, data: failModal(id) });
   const note = ff ? modalValues(i.data).note || null : null;
+  if (ff && !note) return only('ต้องบอกว่าต้องแก้อะไรค่ะ 🙏 กด ไม่ผ่าน ใหม่แล้วพิมพ์เหตุผลนะคะ');
   const moved = await moveRequest(env.DB, id, verb, who, note);
   if (!moved) { const now = await loadRequest(env.DB, id); return reply({ type: 7, data: requestMessage(now!.r, now!.log) }); }
   ctx.waitUntil(afterMove(env, moved.r, who, note).catch((e) => console.error('request after', e)));

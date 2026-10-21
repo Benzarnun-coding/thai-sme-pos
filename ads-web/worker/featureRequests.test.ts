@@ -11,6 +11,9 @@ CREATE TABLE feature_request_log (id INTEGER PRIMARY KEY AUTOINCREMENT, request_
 const BENZ = '869116667945439323', MAX = '698435075422945301', STAFF = '1111111111';
 const env = (db: D1Database) => ({ DB: db, DISCORD_REQUEST_CHANNEL_ID: '555555', DISCORD_REQUEST_DECIDER_IDS: BENZ, DISCORD_APPROVER_IDS: `${BENZ},${MAX}` });
 const ctx = { waitUntil: () => {} };
+// No test reaches Discord, GitHub or Anthropic: every fetch answers 503 and is recorded.
+const calls: string[] = [];
+globalThis.fetch = (async (url: string) => { calls.push(String(url)); return new Response('offline in tests', { status: 503 }); }) as typeof fetch;
 
 test('statuses only move along the agreed path', () => {
   assert.equal(nextStatus('new', 'go'), 'doing');
@@ -128,4 +131,26 @@ test("Claude's questions are read from the PR body (PR #17's shape)", () => {
   assert.deepEqual(prQuestions(body), ['2 ตัวที่ไม่ถูกตัดคือ SKU อะไร', 'บันทึกรอบ 1 ใหม่หรือยัง']);
   assert.deepEqual(prQuestions('## แก้อะไร\n- ปุ่มใหม่'), []);
   assert.deepEqual(prQuestions(null), []);
+});
+
+test('fail-closed: no decider list means nobody may approve (no fallback to the approvers)', () => {
+  const e = { DB: {} as D1Database, DISCORD_APPROVER_IDS: `${BENZ},${MAX}` };
+  assert.ok(!mayPress(e, 'go', MAX, STAFF));
+  assert.ok(!mayPress(e, 'go', BENZ, STAFF));
+  assert.ok(!mayPress({ DB: {} as D1Database }, 'go', STAFF, STAFF));
+  assert.ok(!mayPress(env({} as D1Database), 'go', '', STAFF), 'an unknown presser is refused');
+});
+
+test('ไม่ผ่าน needs a real reason; "ตอบแล้ว" pressed twice runs Claude once', async () => {
+  const { d1 } = sqliteD1(schema);
+  const e = env(d1);
+  const r = await createRequest(d1, { author: 'เคน', author_id: STAFF, area: 'bug', title: 't', detail: '' });
+  await d1.prepare("UPDATE feature_requests SET thread_id = '999', status = 'review' WHERE id = ?").bind(r.id).run();
+  const blank = await (await requestInteraction({ type: 5, channel_id: '999', member: { user: { id: STAFF } }, data: { custom_id: `frfail:${r.id}`, components: [{ type: 1, components: [{ custom_id: 'note', value: '   ' }] }] } }, e, ctx))!.json() as any;
+  assert.match(blank.data.content, /ต้องบอก/);
+  assert.equal((await d1.prepare('SELECT status FROM feature_requests WHERE id = ?').bind(r.id).first<{ status: string }>())!.status, 'review');
+  await d1.prepare("UPDATE feature_requests SET status = 'doing' WHERE id = ?").bind(r.id).run();
+  const press = () => requestInteraction({ type: 3, channel_id: '999', member: { user: { id: STAFF } }, data: { custom_id: `fragain:${r.id}` }, message: { content: 'q' } }, e, ctx).then((x) => x!.json() as Promise<any>);
+  assert.equal((await press()).type, 7);
+  assert.match((await press()).data.content, /ส่งให้ Claude ทำต่อไปแล้ว/);
 });

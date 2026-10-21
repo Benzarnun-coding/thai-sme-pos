@@ -13,7 +13,7 @@ Benz 2026-10-20: the team asks for website changes in Discord, and each request 
 - Status path, one button set per status on the post's first message:
   `💡 ไอเดียใหม่` →(ให้ทำ)→ `🔨 กำลังทำ` →(ทำเสร็จแล้ว)→ `🧪 รอตรวจ` →(ผ่าน)→ `✅ ผ่านแล้ว`;
   ไม่ทำ → `❌ ไม่ทำ`; ไม่ผ่าน asks for a reason and goes back to กำลังทำ.
-- Who presses: ให้ทำ / ไม่ทำ = `DISCORD_REQUEST_DECIDER_IDS` (Benz; empty = `DISCORD_APPROVER_IDS`);
+- Who presses: ให้ทำ / ไม่ทำ = `DISCORD_REQUEST_DECIDER_IDS` (Benz; empty or mistyped = nobody, fail-closed since Marcus's QA 2026-10-21);
   ทำเสร็จแล้ว = those plus `DISCORD_APPROVER_IDS`; ผ่าน / ไม่ผ่าน = **the person who asked** (they know what they
   wanted; Benz 2026-10-20), or a decider for them. The asker is pinged at รอตรวจ, Benz when a new one comes in; then the post's title follows the status. Discord allows 2 renames per post per
   10 minutes, so after quick presses the title lags; the 3-hourly sweep (`syncTitles`) sets it again.
@@ -41,6 +41,8 @@ Benz 2026-10-20: the team asks for website changes in Discord, and each request 
 - Questions: when the PR has a "คำถาม" list (`prQuestions`), the bot posts it in the idea's post tagging the asker
   (and Benz) with a button "ตอบแล้ว ให้ Claude ทำต่อ" (asker or decider); pressing it reruns the routine with the post's
   messages — the answers — in the payload.
+- If Discord refuses to open the post, Benz is pinged in the command channel, the asker's reply is corrected, and the
+  3-hourly sweep tries again. "ตอบแล้ว" is claimed once per 5 minutes (no double runs); a blank ไม่ผ่าน reason is refused.
 - Rollback a bad one: `cd ads-web && npx wrangler rollback` (then revert the merge on `ads-web`).
 
 ### Setting up the routine (once, Benz, claude.ai/code → Routines → New)
