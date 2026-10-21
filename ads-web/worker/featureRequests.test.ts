@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildPayload, postExtras, createRequest, mayPress, pickerMessage, modalValues, moveRequest, nextStatus, requestInteraction, requestMessage, threadName } from './featureRequests.ts';
+import { buildPayload, prQuestions, postExtras, createRequest, mayPress, pickerMessage, modalValues, moveRequest, nextStatus, requestInteraction, requestMessage, threadName } from './featureRequests.ts';
 import { sqliteD1 } from './sqliteD1.ts';
 
 const schema = `CREATE TABLE feature_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, author TEXT NOT NULL, author_id TEXT,
@@ -121,4 +121,11 @@ test('pictures and later messages in the post reach Claude; bot messages and non
   assert.match(t, /- Max: แบบนี้/);
   assert.match(t, /https:\/\/cdn.discordapp.com\/a.png/);
   assert.doesNotMatch(t, /b\.pdf/);
+});
+
+test("Claude's questions are read from the PR body (PR #17's shape)", () => {
+  const body = '## ทำไมไม่ deploy เอง\nยังเดาสาเหตุอยู่ คำถามถึงมอส/เบ้น:\n1. 2 ตัวที่ไม่ถูกตัดคือ SKU อะไร\n2. บันทึกรอบ 1 ใหม่หรือยัง\n\n---\n_Generated_';
+  assert.deepEqual(prQuestions(body), ['2 ตัวที่ไม่ถูกตัดคือ SKU อะไร', 'บันทึกรอบ 1 ใหม่หรือยัง']);
+  assert.deepEqual(prQuestions('## แก้อะไร\n- ปุ่มใหม่'), []);
+  assert.deepEqual(prQuestions(null), []);
 });

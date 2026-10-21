@@ -38,6 +38,9 @@ Benz 2026-10-20: the team asks for website changes in Discord, and each request 
   failed twice — no env vars there, and a network secret doesn't reach wrangler — hence the Action.)
 - Guardrail: if the change would touch money/Meta/customers (list in the prompt below), the run stops at a PR on
   `claude/idea-<id>` instead; the Worker finds the PR (or the pushed branch) and pings Benz to review + deploy.
+- Questions: when the PR has a "คำถาม" list (`prQuestions`), the bot posts it in the idea's post tagging the asker
+  (and Benz) with a button "ตอบแล้ว ให้ Claude ทำต่อ" (asker or decider); pressing it reruns the routine with the post's
+  messages — the answers — in the payload.
 - Rollback a bad one: `cd ads-web && npx wrangler rollback` (then revert the merge on `ads-web`).
 
 ### Setting up the routine (once, Benz, claude.ai/code → Routines → New)
@@ -72,7 +75,8 @@ Benz 2026-10-20: the team asks for website changes in Discord, and each request 
    GitHub Actions (idea-deploy) จะเทสต์ deploy แล้วเอาเข้า ads-web เอง — ห้าม npm run deploy เอง ห้าม push เข้า ads-web
    ห้ามเรียก idea-check ในทางนี้ (Action เรียกให้เอง) แล้วจบงาน
 6. ต้องรอรีวิว: push branch claude/idea-<id> แล้วเปิด PR เข้า ads-web ชื่อ "ไอเดีย #<id>: <ชื่อเรื่อง>" อธิบายเป็นภาษาไทยว่า
-   แก้อะไร ลองยังไง ทำไมไม่ deploy เอง
+   แก้อะไร ลองยังไง ทำไมไม่ deploy เอง ถ้ามีคำถามถึงคนเสนอ ใส่หัวข้อ "## คำถามถึงคนเสนอ" แล้วเป็นข้อ 1. 2. สั้นๆ ภาษาง่าย
+   (บอทจะส่งคำถามให้คนเสนอตอบในโพสต์ แล้วสั่งคุณทำต่อพร้อมคำตอบ)
 7. เฉพาะทางข้อ 6: สุดท้าย curl -s -X POST https://pkjeans-ads.ads-web.workers.dev/webhook/idea-check
 
 ห้ามเด็ดขาด: wrangler secret, d1 execute --remote ที่แก้/ลบข้อมูล, push --force, แก้ branch main, ใส่ token/รหัสลงไฟล์

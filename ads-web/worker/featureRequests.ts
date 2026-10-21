@@ -257,8 +257,8 @@ export async function syncTitles(env: RequestEnv): Promise<number> {
   return n;
 }
 
-async function say(env: RequestEnv, channel: string, ids: string[], text: (mention: string) => string): Promise<void> {
-  const res = await api(env, `/channels/${channel}/messages`, 'POST', { content: text(ids.map((id) => `<@${id}>`).join(' ')).slice(0, 2000), allowed_mentions: { users: ids } }).catch(() => null);
+async function say(env: RequestEnv, channel: string, ids: string[], text: (mention: string) => string, components?: unknown[]): Promise<void> {
+  const res = await api(env, `/channels/${channel}/messages`, 'POST', { content: text(ids.map((id) => `<@${id}>`).join(' ')).slice(0, 2000), allowed_mentions: { users: ids }, ...(components ? { components } : {}) }).catch(() => null);
   if (res && !res.ok) console.error('discord request say', res.status, await res.text());
 }
 
@@ -342,8 +342,25 @@ async function readPost(env: RequestEnv, thread: string): Promise<PostExtra[]> {
   return postExtras(msgs, env.DISCORD_APP_ID ?? null);
 }
 
+/**
+ * The questions Claude wrote in its PR for the person who asked: list lines after the first line that mentions
+ * "คำถาม", up to the next heading or rule. At most 5.
+ */
+export function prQuestions(body: string | null | undefined): string[] {
+  const lines = String(body ?? '').split('\n');
+  const start = lines.findIndex((l) => l.includes('คำถาม'));
+  if (start < 0) return [];
+  const out: string[] = [];
+  for (const l of lines.slice(start + 1)) {
+    if (/^\s*(#|---)/.test(l)) break;
+    const m = /^\s*(?:\d+[.)]|[-*•])\s+(.+)$/.exec(l);
+    if (m) out.push(m[1].trim());
+  }
+  return out.slice(0, 5);
+}
+
 /** Fires the routine for a request that just became กำลังทำ; says in the post where to watch it. Off = nothing. */
-export async function startBuild(env: RequestEnv, r: FeatureRequest, note: string | null): Promise<void> {
+export async function startBuild(env: RequestEnv, r: FeatureRequest, note: string | null, answered = false): Promise<void> {
   if (!buildEnabled(env) || !r.thread_id) return;
   const got = await loadRequest(env.DB, r.id);
   const res = await fetch(`https://api.anthropic.com/v1/claude_code/routines/${env.IDEA_ROUTINE_ID}/fire`, {
@@ -360,7 +377,7 @@ export async function startBuild(env: RequestEnv, r: FeatureRequest, note: strin
   const url = ((await res.json()) as { claude_code_session_url?: string }).claude_code_session_url ?? null;
   const at = new Date().toISOString();
   await env.DB.prepare('UPDATE feature_requests SET run_url = ?, run_at = ?, runs = runs + 1 WHERE id = ?').bind(url, at, r.id).run();
-  await say(env, r.thread_id, [], () => `🤖 Claude เริ่ม${note ? 'แก้ตามที่ไม่ผ่าน' : 'ทำ'}แล้วค่ะ ดูความคืบหน้าได้ที่ ${url ?? '(ไม่มีลิงก์)'}\nทำเสร็จแล้วจะขึ้นเว็บให้เอง แล้วน้องจะแท็กคนเสนอให้มาลองใช้ค่ะ (ถ้าเรื่องนี้แตะส่วนที่ต้องให้คุณเบ้นดูก่อน จะเปิด PR รอรีวิวแทน)`);
+  await say(env, r.thread_id, [], () => `🤖 Claude เริ่ม${answered ? 'ทำต่อจากคำตอบในโพสต์นี้' : note ? 'แก้ตามที่ไม่ผ่าน' : 'ทำ'}แล้วค่ะ ดูความคืบหน้าได้ที่ ${url ?? '(ไม่มีลิงก์)'}\nทำเสร็จแล้วจะขึ้นเว็บให้เอง แล้วน้องจะแท็กคนเสนอให้มาลองใช้ค่ะ (ถ้าเรื่องนี้แตะส่วนที่ต้องให้คุณเบ้นดูก่อน จะเปิด PR รอรีวิวแทน)`);
 }
 
 /**
@@ -389,7 +406,7 @@ export async function checkBuilds(env: RequestEnv): Promise<number> {
       continue;
     }
     // The PR if the run opened one; else the pushed branch, with GitHub's one-click "open a PR" page.
-    const pr = ((await gh(`/pulls?state=all&head=${owner}:${encodeURIComponent(branch)}`)) as { html_url: string; updated_at: string }[] | null)?.[0];
+    const pr = ((await gh(`/pulls?state=all&head=${owner}:${encodeURIComponent(branch)}`)) as { html_url: string; updated_at: string; body: string | null }[] | null)?.[0];
     if (r.pr_at && r.pr_at >= r.run_at!) continue; // already told about this run's PR
     // Asked GitHub to deploy (branch still there = not done): wait; after DEPLOY_WAIT_MS, Benz looks at the Action.
     if (await gh(`/git/ref/heads/${deployBranch(r)}`)) {
@@ -408,7 +425,20 @@ export async function checkBuilds(env: RequestEnv): Promise<number> {
     }
     if (!link) continue;
     await env.DB.prepare('UPDATE feature_requests SET pr_url = ?, pr_at = ? WHERE id = ?').bind(link, new Date().toISOString(), r.id).run();
-    if (r.thread_id) await say(env, r.thread_id, deciderIds(env), (m) => `${m} Claude ทำเสร็จแล้ว แต่เรื่องนี้ต้องให้คุณเบ้นดูก่อนขึ้นเว็บค่ะ 🔍 ${link}\nรีวิว → merge เข้า ads-web → deploy แล้วกด **ทำเสร็จแล้ว ส่งตรวจ** ที่ข้อความแรกได้เลยค่ะ`);
+    if (!r.thread_id) { n++; continue; }
+    // Claude's questions go to the person who asked: answer in the post, then "ตอบแล้ว" sends it back to Claude.
+    const qs = pr ? prQuestions(pr.body) : [];
+    if (qs.length) {
+      const asker = r.author_id ? [r.author_id] : [];
+      await say(env, r.thread_id, [...asker, ...deciderIds(env).filter((id) => !asker.includes(id))], (m) => [
+        `${m} Claude มีคำถามก่อนทำต่อค่ะ 🙋`,
+        ...qs.map((q, i) => `${i + 1}. ${q}`),
+        '',
+        `${r.author_id ? `คุณ ${r.author}` : 'คนเสนอ'} ตอบในโพสต์นี้ได้เลยค่ะ (แนบรูปได้) แล้วกด **ตอบแล้ว ให้ Claude ทำต่อ** · ที่ Claude ทำไว้: ${link}`,
+      ].join('\n'), [{ type: 1, components: [{ type: 2, style: 1, label: '▶️ ตอบแล้ว ให้ Claude ทำต่อ', custom_id: `fragain:${r.id}` }] }]);
+    } else {
+      await say(env, r.thread_id, deciderIds(env), (m) => `${m} Claude ทำเสร็จแล้ว แต่เรื่องนี้ต้องให้คุณเบ้นดูก่อนขึ้นเว็บค่ะ 🔍 ${link}\nรีวิว → merge เข้า ads-web → deploy แล้วกด **ทำเสร็จแล้ว ส่งตรวจ** ที่ข้อความแรกได้เลยค่ะ`);
+    }
     n++;
   }
   return n;
@@ -452,6 +482,17 @@ export async function requestInteraction(i: any, env: RequestEnv, ctx: { waitUnt
     const got = await loadRequest(env.DB, r.id);
     ctx.waitUntil(postRequest(env, r, got?.log ?? []).catch((e) => console.error('request post', e)));
     return only(`💡 รับไอเดีย **#${r.id} ${r.title}** แล้วค่ะ ขอบคุณนะคะ 🙏 น้องเปิดโพสต์ในห้องไอเดียให้แล้ว\n📎 มีรูปหน้าจอประกอบ ส่งในโพสต์นั้นได้เลยค่ะ (ก่อนคุณเบ้นกดให้ทำ)`);
+  }
+  const again = /^fragain:(\d+)$/.exec(cid);
+  if (i.type === 3 && again) {
+    // The asker answered Claude's questions in the post: run Claude again with the post (answers included).
+    const cur = await loadRequest(env.DB, Number(again[1]));
+    if (!cur || cur.r.thread_id !== i.channel_id) return only('ไม่พบไอเดียนี้ในโพสต์นี้ค่ะ');
+    const ok = [...deciderIds(env), ...(cur.r.author_id ? [cur.r.author_id] : [])];
+    if (ok.length && !ok.includes(userId)) return only(`ปุ่มนี้สำหรับคุณ${cur.r.author} (คนเสนอ) หรือคุณเบ้นค่ะ 🙏`);
+    if (cur.r.status !== 'doing') return only('ไอเดียนี้ไม่ได้อยู่ในสถานะกำลังทำแล้วค่ะ');
+    ctx.waitUntil(startBuild(env, cur.r, null, true).catch((e) => console.error('request again', e)));
+    return reply({ type: 7, data: { content: `${String(i.message?.content ?? '').slice(0, 1800)}\n\n▶️ ${who} ส่งคำตอบให้ Claude ทำต่อแล้วค่ะ`, components: [] } });
   }
   const fr = /^fr:(go|no|done|pass|fail):(\d+)$/.exec(cid);
   const ff = /^frfail:(\d+)$/.exec(cid);
