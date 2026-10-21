@@ -1833,19 +1833,20 @@ async function salesDigest(env: Env, date: string, remindIfMissing = false): Pro
   const n = (f: (o: typeof orders[number]) => number) => orders.reduce((t, o) => t + f(o), 0);
   const revenue = n((o) => o.total), cost = n((o) => o.cost ?? 0), fees = n((o) => orderFees(o, settings.order_fees));
   const organic = orders.filter((o) => o.match === 'none');
+  // Spend for that day. Meta (development tier) sometimes refuses a call; the message used to drop the ad cost
+  // silently then, so the net looked missing. Now: yesterday direct, else the cached 30-day series, else say so.
   let ads: number | null = null;
-  try {
-    // Spend for that day: yesterday is cheap; older days come from the cached 30-day series.
-    const rows = date === bkkDate(1) ? await metaFor(env).dailyCampaignInsights('yesterday') : await (await metaData(env)).data.dailyAll('last_30d');
-    const day = rows.filter((d) => d.date === date);
-    ads = day.length ? day.reduce((t, d) => t + d.spend, 0) : null;
-  } catch { ads = null; }
+  let adsError = '';
+  const spendOf = (rows: { date: string; spend: number }[]) => { const day = rows.filter((d) => d.date === date); return day.length ? day.reduce((t, d) => t + d.spend, 0) : null; };
+  if (date === bkkDate(1)) ads = await metaFor(env).dailyCampaignInsights('yesterday').then(spendOf).catch((err) => { adsError = String(err?.message ?? err); return null; });
+  if (ads === null) ads = await metaData(env).then((m) => m.data.dailyAll('last_30d')).then(spendOf).catch((err) => { adsError = String(err?.message ?? err); return null; });
   const b = (x: number) => Math.round(x).toLocaleString('th-TH');
   const gross = revenue - cost - fees;
   const lines = [
     `📊 **ของจริง ${thai}** (Page365 ${orders.length} ออเดอร์)`,
     `ยอดขาย ${b(revenue)} · ทุนสินค้า ${b(cost)} (${revenue ? Math.round((cost / revenue) * 100) : 0}%) · ค่าใช้จ่ายต่อออเดอร์ ${b(fees)}`,
     `กำไรขั้นต้น **${b(gross)}**${ads === null ? '' : ` · ค่าแอด ${b(ads)} (${revenue ? Math.round((ads / revenue) * 100) : 0}% ของยอด) · กำไรสุทธิ **${b(gross - ads)}** · MER ${ads ? (revenue / ads).toFixed(2) : '–'}`}`,
+    ...(ads === null ? [`⚠️ ยังไม่หักค่าแอด — ดึงค่าแอดของวันนี้จาก Meta ไม่ได้${adsError ? ` (${adsError.slice(0, 120)})` : ' (Meta ยังไม่มีตัวเลขวันนั้น)'} · ดูกำไรสุทธิที่หน้ายอดขายรายวันแทนค่ะ`] : []),
     `ไม่ใช่แอด ${organic.length} ออเดอร์ ${b(n((o) => (o.match === 'none' ? o.total : 0)))} (${orders.length ? Math.round((organic.length / orders.length) * 100) : 0}%) · จับคู่แอดได้ ${orders.length - organic.length}/${orders.length}`,
   ];
   await pushDiscord(lines.join('\n'), env.DISCORD_WEBHOOK_URL);
