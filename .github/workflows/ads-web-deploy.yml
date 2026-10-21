@@ -1,0 +1,61 @@
+# Deploys ads-web exactly as it is on branch ads-web, for sessions that can't reach Cloudflare themselves
+# (cloud sessions: the network layer drops the Authorization header to api.cloudflare.com, 2026-10-21).
+# Trigger: push the ads-web commit to branch claude/deploy/ads-web (git push origin origin/ads-web:refs/heads/claude/deploy/ads-web).
+# Same rules as CLAUDE.md: only what is on ads-web, tests + typecheck first, pending migrations, then deploy.
+# Secrets (e.g. DISCORD_SERVICE_WEBHOOK_URL) are not set here — that stays a person's switch.
+name: ads-web-deploy
+
+on:
+  push:
+    branches: ['claude/deploy/ads-web']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ads-web-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Exactly the ads-web head
+        run: |
+          git fetch -q origin ads-web
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/ads-web)" ]; then
+            echo "::error::HEAD is not origin/ads-web — push the ads-web commit itself"; exit 1
+          fi
+          git log --oneline -1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Test
+        working-directory: ads-web
+        run: npm ci --no-audit --no-fund && npm test && npm run typecheck
+
+      - name: Migrations
+        working-directory: ads-web
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: bbad0b69f4554a5d9e58085286f3eb9b
+        run: |
+          npx wrangler d1 migrations list DB --remote
+          npx wrangler d1 migrations apply DB --remote
+
+      - name: Deploy
+        working-directory: ads-web
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: bbad0b69f4554a5d9e58085286f3eb9b
+        run: npm run deploy
+
+      - name: Clean up the trigger branch
+        if: always()
+        run: git push origin --delete "$GITHUB_REF_NAME" || true

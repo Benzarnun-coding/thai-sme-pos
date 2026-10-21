@@ -35,3 +35,16 @@ The repo is public on GitHub (`Benzarnun-coding/thai-sme-pos`); work happens on 
 - Never put the Meta token in a cloud environment: anything run there could change live campaigns.
 
 The working rules in `CLAUDE.md` apply unchanged (a cloud session is already its own clean copy).
+
+## Deploying from a cloud session (2026-10-21)
+
+The cloud network layer drops the `Authorization` header to `api.cloudflare.com`, so `wrangler` can't log in even
+with `CLOUDFLARE_API_TOKEN` set. Deploy through GitHub Actions instead (`.github/workflows/ads-web-deploy.yml`, uses
+the repo secret `CLOUDFLARE_API_TOKEN`): push the commit to `ads-web` first, then
+
+```bash
+git push origin origin/ads-web:refs/heads/claude/deploy/ads-web
+```
+
+It checks the commit is exactly `ads-web`'s head, runs tests + typecheck, applies pending D1 migrations, deploys and
+deletes the trigger branch. Worker secrets are not set there; a person sets those with `wrangler secret put`.
