@@ -73,7 +73,7 @@ rules, the monthly goal or the sheet.
 - Moves: any row, any group, also in a reopened round, can go to any supplier/warehouse for that round only
   (`applyMoves`, keyed by SKU; "ย้อนกลับไป …" undoes; whole group at once, or only the rows ticked in the group's first column — idea #6); "จำไว้ทุกวัน" also sets the product's
   supplier. A reopened round saves itself after each change.
-- Label: a name typed on the page (`catalog_labels`, per product, every size; rows not in the catalog: that round
+- Label: a name typed on the page (`catalog_labels`, per product, every size, or with "เฉพาะไซส์ …" ticked for one size under key tab|SKU, which wins; saving for every size clears the per-size ones; rows not in the catalog: that round
   only), else our code + colour name, plus the supplier's code from column M in brackets only when it looks like a code
   (`supplierCodeOf`). BB's column M is mostly notes ("มีทุกร้าน", "ร้าน ส.") shown on screen as "หมายเหตุชีต", never
   printed. Labels are recomputed when a saved round is reopened.
