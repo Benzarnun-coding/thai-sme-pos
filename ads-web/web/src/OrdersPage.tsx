@@ -160,6 +160,11 @@ export function OrdersApp() {
   const lines = useMemo(() => withPrices(applyMoves(baseLines, moves, warehouses, lookup), lookup)
     .map((l) => (labelEdits.get(l.sku) ? { ...l, label: labelEdits.get(l.sku)! } : l)), [baseLines, moves, warehouses, lookup, labelEdits]);
   const groups = useMemo(() => groupLines(lines), [lines]);
+  // Rows in the พี่เปีย group whose SKU is not one of our stock products (e.g. a supplier's SKU moved there by hand) are never cut.
+  const uncutLines = useMemo(() => {
+    const skus = new Set((stock?.items ?? []).map((i) => i.sku));
+    return stock ? lines.filter((l) => l.group === STOCK_GROUP && l.qty > 0 && !skus.has(l.sku)) : [];
+  }, [lines, stock]);
   const pieces = groups.reduce((n, g) => n + g.pieces, 0);
   const pia = useMemo(() => missingGroup(lines, missing, lookup), [lines, missing, lookup]);
   const review = groups.find((g) => g.kind === 'review');
@@ -527,6 +532,12 @@ export function OrdersApp() {
           {stockShort.length > 0 && (
             <div className="card warn-card small">
               <b>สต็อก{STOCK_GROUP}ไม่พอ</b> · {stockShort.map((x) => `${x.name} ${num(x.n)} ตัว`).join(' · ')} → อยู่ใบเดิม (ไม่ตัดสต็อก) · ย้ายไป {STOCK_GROUP} เองได้ถ้ามีของจริง · <a href="/catalog/stock">ดูสต็อก</a>
+            </div>
+          )}
+
+          {uncutLines.length > 0 && (
+            <div className="card warn-card small">
+              <b>ไม่ตัดสต็อก{STOCK_GROUP}</b> · SKU ไม่อยู่ในรายการสต็อก: {uncutLines.map((l) => `${l.sku} ${num(l.qty)} ตัว`).join(' · ')} → ใช้ SKU ของ PK (501/1, 501/2, 501/3, 701/1, 701/2 ไซส์ 28–36) แล้วย้ายใหม่
             </div>
           )}
 
