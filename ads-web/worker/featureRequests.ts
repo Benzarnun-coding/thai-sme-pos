@@ -288,8 +288,11 @@ export const buildEnabled = (env: RequestEnv) => !!(env.IDEA_ROUTINE_ID && env.I
 export const branchFor = (id: number) => `claude/idea-${id}`;
 /** Pushed by the run after a successful deploy; one per run, so a "ไม่ผ่าน" rerun needs its own. */
 export const deployTag = (r: Pick<FeatureRequest, 'id' | 'runs'>) => `deployed/idea-${r.id}-r${r.runs ?? 1}`;
-/** Pushed by the run to ask GitHub Actions (.github/workflows/idea-deploy.yml) to test, deploy and push it to ads-web. */
-export const deployAskTag = (r: Pick<FeatureRequest, 'id' | 'runs'>) => `deploy/idea-${r.id}-r${r.runs ?? 1}`;
+/**
+ * Pushed by the run to ask GitHub Actions (.github/workflows/idea-deploy.yml) to test, deploy and push it to ads-web.
+ * A branch, not a tag: the cloud session may push claude/* branches only.
+ */
+export const deployBranch = (r: Pick<FeatureRequest, 'id' | 'runs'>) => `claude/deploy/idea-${r.id}-r${r.runs ?? 1}`;
 /** How long the Action may take before a missing deployed/ tag counts as a failed deploy. */
 const DEPLOY_WAIT_MS = 30 * 60_000;
 
@@ -322,7 +325,7 @@ export function buildPayload(r: FeatureRequest, log: LogRow[], extras: PostExtra
     `หมวด: ${AREAS[r.area] ?? r.area}`,
     `เสนอโดย: ${r.author}`,
     `branch (ถ้าต้องรอรีวิว): ${branchFor(r.id)}`,
-    `tag สั่ง deploy: ${deployAskTag({ id: r.id, runs: (r.runs ?? 0) + 1 })}`,
+    `branch สั่ง deploy: ${deployBranch({ id: r.id, runs: (r.runs ?? 0) + 1 })}`,
     `รอบที่: ${(r.runs ?? 0) + 1}`,
     '',
     'รายละเอียดจากคนเสนอ:',
@@ -388,8 +391,8 @@ export async function checkBuilds(env: RequestEnv): Promise<number> {
     // The PR if the run opened one; else the pushed branch, with GitHub's one-click "open a PR" page.
     const pr = ((await gh(`/pulls?state=all&head=${owner}:${encodeURIComponent(branch)}`)) as { html_url: string; updated_at: string }[] | null)?.[0];
     if (r.pr_at && r.pr_at >= r.run_at!) continue; // already told about this run's PR
-    // Asked GitHub to deploy: wait for it; after DEPLOY_WAIT_MS without the deployed/ tag, Benz looks at the Action.
-    if (await gh(`/git/ref/tags/${encodeURIComponent(deployAskTag(r))}`)) {
+    // Asked GitHub to deploy (branch still there = not done): wait; after DEPLOY_WAIT_MS, Benz looks at the Action.
+    if (await gh(`/git/ref/heads/${deployBranch(r)}`)) {
       if (Date.now() - Date.parse(r.run_at!) < DEPLOY_WAIT_MS) continue;
       const actions = `https://github.com/${env.GITHUB_REPO}/actions/workflows/idea-deploy.yml`;
       await env.DB.prepare('UPDATE feature_requests SET pr_url = ?, pr_at = ? WHERE id = ?').bind(actions, new Date().toISOString(), r.id).run();

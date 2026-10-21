@@ -29,12 +29,12 @@ Benz 2026-10-20: the team asks for website changes in Discord, and each request 
 - ให้ทำ (and every ไม่ผ่าน) fires the Claude Code routine `IDEA_ROUTINE_ID` (secret `IDEA_ROUTINE_TOKEN`, its API
   trigger token) with the request, its ไม่ผ่าน reasons, the branch and the deploy tag (`buildPayload`). The post gets
   the session link. Both empty = off (ให้ทำ only changes the status).
-- The run builds and tests on `claude/idea-<id>`, pushes it and tag `deploy/idea-<id>-r<run>`; GitHub Actions
+- The run builds and tests on `claude/idea-<id>`, pushes it to branch `claude/deploy/idea-<id>-r<run>` (the cloud session can't push tags: 403 on 2026-10-21, idea #8); GitHub Actions
   (`.github/workflows/idea-deploy.yml`, secret `CLOUDFLARE_API_TOKEN`) refuses a commit not on top of `ads-web` or one
-  touching money/Meta/customer/auth code, else tests, deploys, moves `ads-web` to it and pushes the tag `deployed/idea-<id>-r<run>` and POSTs
+  touching money/Meta/customer/auth code, else tests, deploys, moves `ads-web` to it, deletes the branch and pushes the tag `deployed/idea-<id>-r<run>` and POSTs
   `/webhook/idea-check`. The Worker (`checkBuilds`; also on opening `/requests` and in the 3-hourly sweep) sees the tag
   → moves it to รอตรวจ as "Claude 🤖" and pings the asker to try it. No deployed/ tag 30 min after the run started
-  while deploy/ exists → Benz is pinged with the Action's page. (2026-10-20: deploying from the cloud session itself
+  while the claude/deploy/ branch is still there → Benz is pinged with the Action's page. (2026-10-20: deploying from the cloud session itself
   failed twice — no env vars there, and a network secret doesn't reach wrangler — hence the Action.)
 - Guardrail: if the change would touch money/Meta/customers (list in the prompt below), the run stops at a PR on
   `claude/idea-<id>` instead; the Worker finds the PR (or the pushed branch) and pings Benz to review + deploy.
@@ -67,9 +67,8 @@ Benz 2026-10-20: the team asks for website changes in Discord, and each request 
      notePurchases, metaAdjust), การเปิดบิล/ส่งของ Page365 (p365fill, autoFill), ข้อความถึงลูกค้า, Discord ห้องใหม่หรือโพสต์ประจำใหม่
    - แก้ wrangler.jsonc, secrets, Cloudflare Access, ผู้ใช้/สิทธิ์ หรือลบข้อมูลใน D1
    - คำขอกำกวมจนต้องเดาเยอะ (เขียนคำถามไว้ใน PR)
-5. deploy เองได้: commit ("ads-web: ไอเดีย #<id> …") บน branch claude/idea-<id> ที่ต่อจาก origin/ads-web ล่าสุด
-   (ถ้า ads-web ขยับระหว่างทำ: rebase แล้วเทสต์ใหม่) แล้ว git push origin claude/idea-<id>
-   แล้ว git tag <tag สั่ง deploy จาก payload> && git push origin <tag>
+5. deploy เองได้: commit ("ads-web: ไอเดีย #<id> …") ต่อจาก origin/ads-web ล่าสุด (ถ้า ads-web ขยับระหว่างทำ: rebase แล้วเทสต์ใหม่)
+   แล้ว git push origin HEAD:<branch สั่ง deploy จาก payload>   (ห้ามใช้ tag: ระบบไม่ให้ push tag)
    GitHub Actions (idea-deploy) จะเทสต์ deploy แล้วเอาเข้า ads-web เอง — ห้าม npm run deploy เอง ห้าม push เข้า ads-web
    ห้ามเรียก idea-check ในทางนี้ (Action เรียกให้เอง) แล้วจบงาน
 6. ต้องรอรีวิว: push branch claude/idea-<id> แล้วเปิด PR เข้า ads-web ชื่อ "ไอเดีย #<id>: <ชื่อเรื่อง>" อธิบายเป็นภาษาไทยว่า

@@ -1,13 +1,14 @@
 # Deploys a /ไอเดีย change that the Claude Code routine finished (ads-web/docs/requests.md, Benz 2026-10-20).
-# The routine pushes claude/idea-<id> and tag deploy/idea-<id>-r<run> on that commit; this job checks the commit is
-# on top of ads-web and stays out of money/Meta/customer code, tests, deploys, moves ads-web to it, and tags
-# deployed/idea-<id>-r<run> — the Worker sees that tag and asks the person who asked to try it.
+# The routine pushes the finished commit to branch claude/deploy/idea-<id>-r<run> (its git access may push claude/*
+# branches but not tags, 2026-10-21); this job checks the commit is on top of ads-web and stays out of
+# money/Meta/customer code, tests, deploys, moves ads-web to it, tags deployed/idea-<id>-r<run> and deletes the
+# branch — the Worker sees the tag and asks the person who asked to try it.
 # Secret (GitHub → Settings → Secrets and variables → Actions): CLOUDFLARE_API_TOKEN (Workers Scripts Edit + D1 Edit).
 name: idea-deploy
 
 on:
   push:
-    tags: ['deploy/idea-*']
+    branches: ['claude/deploy/idea-*']
 
 permissions:
   contents: write
@@ -53,8 +54,9 @@ jobs:
       - name: Move ads-web to it and mark deployed
         run: |
           git push origin HEAD:refs/heads/ads-web
-          done_tag="deployed/${GITHUB_REF_NAME#deploy/}"
+          done_tag="deployed/${GITHUB_REF_NAME#claude/deploy/}"
           git tag "$done_tag" && git push origin "$done_tag"
+          git push origin --delete "$GITHUB_REF_NAME"
 
       - name: Tell the Worker
         if: always()
