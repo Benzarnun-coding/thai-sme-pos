@@ -5,6 +5,7 @@
 
 import type { CampaignDayRow, DailyRow, HourlyConversion } from '../../ads-engine/src/meta.ts';
 import type { Entity, Level, Metrics, Window } from '../../ads-engine/src/types.ts';
+import { windowDates } from './conversionStore.ts';
 import { MockMeta } from './mock.ts';
 import type { MetaLike } from './run.ts';
 
@@ -80,13 +81,34 @@ export async function loadMetaData(db: D1Database, meta: MetaLike, fresh: boolea
 
   const base = await cached('entities', 'entities', async () => ({ account: await meta.accountName(), entities: await meta.listEntities() }));
 
+  const insights = async (level: Level, window: Window) =>
+    new Map(Object.entries(await cached(`ins:${level}:${window}`, settled(window) ? 'past' : 'insights', async () => Object.fromEntries(await meta.insights(level, window)))));
+
+  /**
+   * Every campaign by day. Since ~13 Oct 2026 Meta answers the one-call daily report (time_increment=1) almost
+   * empty (฿5 for a week that spent ~100,000) while the plain report the overview uses is fine. So the daily rows
+   * are checked against that window total; when they hold less than half of it, each day is fetched as its own
+   * one-day report (cached; past days for 12 h) instead.
+   */
+  async function dailyAll(window: Window): Promise<CampaignDayRow[]> {
+    const rows = await cached(`dailyall:${window}`, settled(window) ? 'past' : 'daily', () => meta.dailyCampaignInsights(window));
+    const sum = (xs: Iterable<{ spend: number }>) => [...xs].reduce((t, r) => t + r.spend, 0);
+    const want = sum((await insights('campaign', window).catch(() => new Map<string, Metrics>())).values());
+    if (!(want > 0) || sum(rows) >= want * 0.5) return rows;
+    const out: CampaignDayRow[] = [];
+    for (const date of windowDates(window).slice(-31)) {
+      const day = await insights('campaign', `range:${date}:${date}` as Window);
+      for (const [campaign_id, m] of day) out.push({ campaign_id, date, spend: m.spend, impressions: m.impressions, clicks: m.clicks, purchases: m.purchases, purchase_value: m.purchase_value });
+    }
+    return out;
+  }
+
   return {
     account: base.account,
     entities: base.entities,
-    insights: async (level, window) =>
-      new Map(Object.entries(await cached(`ins:${level}:${window}`, settled(window) ? 'past' : 'insights', async () => Object.fromEntries(await meta.insights(level, window))))),
+    insights,
     daily: (campaignId, window) => cached(`daily:${campaignId}:${window}`, 'daily', () => meta.dailyInsights(campaignId, window)),
-    dailyAll: (window) => cached(`dailyall:${window}`, settled(window) ? 'past' : 'daily', () => meta.dailyCampaignInsights(window)),
+    dailyAll,
     hourly: (date) => cached(`hourly:${date}`, 'daily', () => meta.hourlyConversions(date)),
     fetchedAt: () => (times.length ? times.reduce((a, b) => (a < b ? a : b)) : new Date().toISOString()),
     warning: () => warning,
