@@ -69,9 +69,10 @@ Benz 2026-10-20: the team asks for website changes in Discord, and each request 
    - แตะ ads-engine/ หรือ worker ส่วนที่เปลี่ยนงบ/สถานะแอด/ส่ง conversion ไป Meta (engine.ts, run.ts, apply, metaPurchases,
      notePurchases, metaAdjust), การเปิดบิล/ส่งของ Page365 (p365fill, autoFill), ข้อความถึงลูกค้า, Discord ห้องใหม่หรือโพสต์ประจำใหม่
    - แก้ wrangler.jsonc, secrets, Cloudflare Access, ผู้ใช้/สิทธิ์ หรือลบข้อมูลใน D1
-   - คำขอกำกวมจนต้องเดาเยอะ (เขียนคำถามไว้ใน PR)
-5. deploy เองได้: commit ("ads-web: ไอเดีย #<id> …") ต่อจาก origin/ads-web ล่าสุด (ถ้า ads-web ขยับระหว่างทำ: rebase แล้วเทสต์ใหม่)
-   แล้ว git push origin HEAD:<branch สั่ง deploy จาก payload>   (ห้ามใช้ tag: ระบบไม่ให้ push tag)
+   - คำขอกำกวมจนต้องเดาเยอะ หรือเป็นบั๊กที่ยืนยันสาเหตุกับข้อมูลจริงไม่ได้ (เขียนคำถามไว้ใน PR — อย่าเดาสาเหตุแล้ว deploy)
+5. deploy เองได้: commit ("ads-web: ไอเดีย #<id> …") แล้ว git fetch origin && git rebase origin/ads-web (ทุกครั้ง แม้เริ่มจาก
+   claude/idea-<id> ของรอบก่อน: Action ไม่ทำงานถ้าไม่ได้อยู่บน ads-web ล่าสุด) เทสต์ใหม่ แล้ว
+   git push origin HEAD:<branch สั่ง deploy จาก payload>   (ห้ามใช้ tag: ระบบไม่ให้ push tag)
    GitHub Actions (idea-deploy) จะเทสต์ deploy แล้วเอาเข้า ads-web เอง — ห้าม npm run deploy เอง ห้าม push เข้า ads-web
    ห้ามเรียก idea-check ในทางนี้ (Action เรียกให้เอง) แล้วจบงาน
 6. ต้องรอรีวิว: push branch claude/idea-<id> แล้วเปิด PR เข้า ads-web ชื่อ "ไอเดีย #<id>: <ชื่อเรื่อง>" อธิบายเป็นภาษาไทยว่า
