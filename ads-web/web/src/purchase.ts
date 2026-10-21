@@ -283,7 +283,8 @@ export function sizeFromSku(sku: string): string {
 
 /** The name typed on the page for the product, else our code + colour (+ supplier code). */
 export function labelFor(r: CatalogRow, kind: GroupKind, lookup: Lookup | null): string {
-  return lookup?.labels.get(`${r.tab}|${spuOf(r.sku)}`) || labelOf(r, kind);
+  // a name typed for this one size (key tab|SKU) wins over the product's (tab|SPU)
+  return lookup?.labels.get(`${r.tab}|${r.sku}`) || lookup?.labels.get(`${r.tab}|${spuOf(r.sku)}`) || labelOf(r, kind);
 }
 
 /** Bigseller items → one line per (group, SKU) with quantities added up. */

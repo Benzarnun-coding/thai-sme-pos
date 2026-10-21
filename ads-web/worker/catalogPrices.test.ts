@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { groupProducts, normaliseRow, overrideOf, planPrices, type CatalogRow } from '../web/src/catalog.ts';
-import { makeLookup, priceOf } from '../web/src/purchase.ts';
+import { labelFor, makeLookup, priceOf } from '../web/src/purchase.ts';
 
 const row = (o: Record<string, unknown>): CatalogRow => normaliseRow(o);
 const ROWS: CatalogRow[] = [
@@ -56,4 +56,10 @@ test('save plan: same for every size → one price for the product; else per siz
 test('a SKU without a size part is its own product key', () => {
   assert.deepEqual(planPrices('CN', 'X1', [{ sku: 'X1', sheet: 100, typed: 120 }], new Map()), [{ tab: 'CN', spu: 'X1', price: 120 }]);
   assert.deepEqual(planPrices('CN', 'X1', [{ sku: 'X1', sheet: 100, typed: 100 }], new Map([['CN|X1', 120]])), [{ tab: 'CN', spu: 'X1', price: null }]);
+});
+
+test('order-sheet name typed for one size wins over the product name', () => {
+  const lookup = makeLookup(ROWS, new Map(), new Map(), new Map([['PK|5011-PK-MD', 'ทั้งตัว'], ['PK|5011-PK-MD-32', 'ไซส์เดียว']]));
+  assert.equal(labelFor(ROWS[0], 'warehouse', lookup), 'ทั้งตัว');
+  assert.equal(labelFor(ROWS[1], 'warehouse', lookup), 'ไซส์เดียว');
 });

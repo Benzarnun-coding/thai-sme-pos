@@ -315,18 +315,22 @@ export function OrdersApp() {
    * What the sheets call a row. A catalog product: remembered for every size and every day (empty = back to code +
    * colour). A row not in the catalog: this round only.
    */
-  async function setLabel(l: PurchaseLine, text: string) {
+  async function setLabel(l: PurchaseLine, text: string, onlySize = false) {
     const name = text.trim();
     if (!l.tab || l.sku.startsWith('?')) {
       setLabelEdits((m) => { const n = new Map(m); if (name) n.set(l.sku, name); else n.delete(l.sku); return n; });
       return;
     }
-    const spu = spuOf(l.sku), key = `${l.tab}|${spu}`;
+    const spu = spuOf(l.sku);
+    // one size: stored under its own SKU; every size: under the product, and sizes named on their own are cleared
+    const own = (meta?.labels ?? []).filter((x) => x.tab === l.tab && x.spu !== spu && spuOf(x.spu) === spu).map((x) => x.spu);
+    const items = onlySize ? [{ tab: l.tab, spu: l.sku, label: name }] : [{ tab: l.tab, spu, label: name }, ...own.map((o) => ({ tab: l.tab, spu: o, label: '' }))];
+    const gone = new Set(items.filter((i) => !i.label).map((i) => `${i.tab}|${i.spu}`));
     try {
-      await api.setLabels([{ tab: l.tab, spu, label: name }]);
+      await api.setLabels(items);
       const now = new Date().toISOString();
-      setMeta((m) => (m ? { ...m, labels: [...m.labels.filter((x) => x.key !== key), ...(name ? [{ key, tab: l.tab, spu, label: name, updated_by: '', updated_at: now }] : [])] } : m));
-      toast(name ? `เปลี่ยนชื่อในใบสั่งเป็น "${name}" · ทุกไซส์ ใช้ทุกวัน` : 'กลับไปใช้รหัส + สีจากแคตตาล็อก', 'ok');
+      setMeta((m) => (m ? { ...m, labels: [...m.labels.filter((x) => !gone.has(x.key) && !(items.length && x.key === `${items[0].tab}|${items[0].spu}`)), ...(name ? [{ key: `${l.tab}|${items[0].spu}`, tab: l.tab, spu: items[0].spu, label: name, updated_by: '', updated_at: now }] : [])] } : m));
+      toast(name ? `เปลี่ยนชื่อในใบสั่งเป็น "${name}" · ${onlySize ? `เฉพาะไซส์ ${l.size}` : 'ทุกไซส์'} ใช้ทุกวัน` : 'กลับไปใช้รหัส + สีจากแคตตาล็อก', 'ok');
     } catch (e: any) { toast(e.message, 'bad'); }
   }
 
@@ -704,7 +708,7 @@ function Sources({ bigseller, fb, manual, rows, busy, onFile, onRemoveFb, onAdd,
 function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPrice, onLabel, canRemember, movable, targets, onMove, matchRows, onMatched, ours, onReplace, onUnmerge, onSupplier, onExcel, onPrint, onPictures, busy }: {
   group: PurchaseGroup; open: boolean; onToggle: () => void; found: Set<string>; missing: Map<string, number>; onMissing: ((l: PurchaseLine, n: number) => Promise<void>) | null;
   onPrice: ((l: PurchaseLine, price: number | null) => Promise<void>) | null;
-  onLabel: (l: PurchaseLine) => ((l: PurchaseLine, text: string) => Promise<void>) | null;
+  onLabel: (l: PurchaseLine) => ((l: PurchaseLine, text: string, onlySize?: boolean) => Promise<void>) | null;
   canRemember: boolean; movable: boolean; targets: string[]; onMove: (sku: string, to: string) => void;
   matchRows: CatalogRow[]; onMatched: ((a: CatalogAlias) => void) | null;
   ours: Map<string, Map<string, string>>; onReplace: ((from: string, to: string) => Promise<void>) | null; onUnmerge: ((from: string) => Promise<void>) | null;
@@ -792,7 +796,7 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
                   return (
                     <tr key={l.sku} id={rowId(g.name, l.sku)} className={`${firstOfProduct && i > 0 ? 'group-start' : ''} ${missing.get(lineKey(l)) ? 'po-missing' : ''} ${found.has(`${g.name}\u0000${l.sku}`) ? 'po-found' : ''}`}>
                       {movable && g.lines.length > 1 && <td className="center"><input type="checkbox" aria-label={`เลือก ${l.sku}`} checked={picked.has(l.sku)} onChange={() => togglePick(l.sku)} /></td>}
-                      <td><LabelCell line={l} strong={!!firstOfProduct || g.kind === 'review'} onSave={onLabel(l) ? (text) => onLabel(l)!(l, text) : null} ours={ours} onReplace={onReplace} onUnmerge={onUnmerge} /></td>
+                      <td><LabelCell line={l} strong={!!firstOfProduct || g.kind === 'review'} onSave={onLabel(l) ? (text, onlySize) => onLabel(l)!(l, text, onlySize) : null} ours={ours} onReplace={onReplace} onUnmerge={onUnmerge} /></td>
                       <td>{l.size || '—'}</td>
                       <td className="num"><b>{num(l.qty)}</b></td>
                       <td className="small">
@@ -841,13 +845,14 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
  * this round only. Empty + save = back to the default.
  */
 function LabelCell({ line: l, strong, onSave, ours, onReplace, onUnmerge }: {
-  line: PurchaseLine; strong: boolean; onSave: ((text: string) => Promise<void>) | null;
+  line: PurchaseLine; strong: boolean; onSave: ((text: string, onlySize: boolean) => Promise<void>) | null;
   ours: Map<string, Map<string, string>>; onReplace: ((from: string, to: string) => Promise<void>) | null; onUnmerge: ((from: string) => Promise<void>) | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(l.label);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
+  const [onlySize, setOnlySize] = useState(false);
   const catalog = !!l.tab && !l.sku.startsWith('?');
   // "รหัสของเรา": the same size of one of our codes; picking it makes this SKU read as ours (merged with our row).
   const target = code ? ours.get(code)?.get(l.size) ?? null : null;
@@ -858,7 +863,7 @@ function LabelCell({ line: l, strong, onSave, ours, onReplace, onUnmerge }: {
     if (!onSave) return;
     if (value.trim() === l.label) { setEditing(false); return; }
     setBusy(true);
-    try { await onSave(value.trim()); setEditing(false); } finally { setBusy(false); }
+    try { await onSave(value.trim(), onlySize && !!l.size); setEditing(false); } finally { setBusy(false); }
   };
   const replace = async () => {
     if (!onReplace || !target) return;
@@ -892,7 +897,8 @@ function LabelCell({ line: l, strong, onSave, ours, onReplace, onUnmerge }: {
         <span className="po-label-actions">
           <button className="small primary" disabled={busy || (!!code && !target)} onClick={save}>บันทึก</button>
           <button className="link small" onClick={() => { setEditing(false); setCode(''); }}>ยกเลิก</button>
-          <small className="muted">{catalog ? 'ชื่อ: ทุกไซส์ · จำไว้ทุกวัน · ลบให้ว่าง = กลับเป็นค่าเดิม' : 'ชื่อ: เฉพาะรอบนี้'}</small>
+          {catalog && l.size && <label className="small"><input type="checkbox" checked={onlySize} onChange={(e) => setOnlySize(e.target.checked)} /> เฉพาะไซส์ {l.size}</label>}
+          <small className="muted">{catalog ? `ชื่อ: ${onlySize ? `เฉพาะไซส์ ${l.size}` : 'ทุกไซส์'} · จำไว้ทุกวัน · ลบให้ว่าง = กลับเป็นค่าเดิม` : 'ชื่อ: เฉพาะรอบนี้'}</small>
         </span>
       </span>
     );
