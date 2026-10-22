@@ -43,6 +43,11 @@ Benz 2026-10-20: the team asks for website changes in Discord, and each request 
   messages — the answers — in the payload.
 - If Discord refuses to open the post, Benz is pinged in the command channel, the asker's reply is corrected, and the
   3-hourly sweep tries again. "ตอบแล้ว" is claimed once per 5 minutes (no double runs); a blank ไม่ผ่าน reason is refused.
+- Waiting for Benz (guarded code, or Claude unsure): the bot posts what changed / why it waits (from the PR's
+  "แก้อะไร" / "ทำไม…" sections, `prSection`) with "✅ อนุมัติขึ้นเว็บ" (deciders only) and "🔍 ดูโค้ด". The press
+  (`shipIdea`, secret `GITHUB_TOKEN`: fine-grained, this repo, Contents + Pull requests read/write) opens the PR if
+  needed, merges it into ads-web and pushes the merge to `claude/deploy/idea-<id>-r<run>` → idea-deploy deploys and
+  tags it as usual. A branch with no PR yet is given 10 minutes before the bot falls back to the compare link.
 - Rollback a bad one: `cd ads-web && npx wrangler rollback` (then revert the merge on `ads-web`).
 
 ### Setting up the routine (once, Benz, claude.ai/code → Routines → New)

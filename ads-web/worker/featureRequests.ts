@@ -23,6 +23,8 @@ export interface RequestEnv {
   IDEA_ROUTINE_TOKEN?: string;
   /** owner/name on GitHub, where the routine opens its PR (public repo: read without a token) */
   GITHUB_REPO?: string;
+  /** secret, fine-grained (this repo: Contents + Pull requests read/write): the "อนุมัติขึ้นเว็บ" button merges + deploys */
+  GITHUB_TOKEN?: string;
   /** Who may press ให้ทำ / ไม่ทำ / ผ่าน / ไม่ผ่าน (Benz); empty = DISCORD_APPROVER_IDS */
   DISCORD_REQUEST_DECIDER_IDS?: string;
 }
@@ -370,6 +372,20 @@ export function prQuestions(body: string | null | undefined): string[] {
   return out.slice(0, 5);
 }
 
+/** A section of Claude's PR description (the heading containing `word`), as plain lines, at most `max` characters. */
+export function prSection(body: string | null | undefined, word: string, max = 600): string {
+  const lines = String(body ?? '').split('\n');
+  const start = lines.findIndex((l) => /^\s*#/.test(l) && l.includes(word));
+  if (start < 0) return '';
+  const out: string[] = [];
+  for (const l of lines.slice(start + 1)) {
+    if (/^\s*(#|---)/.test(l)) break;
+    if (l.trim()) out.push(l.trim().replace(/`/g, ''));
+  }
+  const text = out.join('\n');
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
 /** Fires the routine for a request that just became กำลังทำ; says in the post where to watch it. Off = nothing. */
 export async function startBuild(env: RequestEnv, r: FeatureRequest, note: string | null, answered = false): Promise<void> {
   if (!buildEnabled(env) || !r.thread_id) return;
@@ -404,7 +420,7 @@ export async function checkBuilds(env: RequestEnv): Promise<number> {
   const { results } = await env.DB.prepare(`SELECT * FROM feature_requests WHERE status = 'doing' AND run_at IS NOT NULL ORDER BY id LIMIT 10`).all<FeatureRequest>();
   const owner = env.GITHUB_REPO.split('/')[0];
   let n = 0;
-  const gh = (path: string) => fetch(`https://api.github.com/repos/${env.GITHUB_REPO}${path}`, { headers: { 'User-Agent': 'pkjeans-ads', Accept: 'application/vnd.github+json' } })
+  const gh = (path: string) => fetch(`https://api.github.com/repos/${env.GITHUB_REPO}${path}`, { headers: ghHeaders(env) })
     .then((x) => (x.ok ? x.json() as Promise<any> : null)).catch(() => null);
   // A tag or branch exists: the API, else the public web page — Workers share IPs, so GitHub's unauthenticated API
   // limit (60/h) is often used up and answers 403 (idea #9, 2026-10-22: its deployed tag went unseen).
@@ -439,27 +455,70 @@ export async function checkBuilds(env: RequestEnv): Promise<number> {
     if (!link && !pr) {
       const b = await gh(`/branches/${encodeURIComponent(branch)}`) as { commit?: { commit?: { committer?: { date?: string } } } } | null;
       const at = b?.commit?.commit?.committer?.date;
+      // The run usually opens its PR seconds after pushing: give it 10 minutes before falling back to the branch.
+      if (at && Date.now() - Date.parse(at) < 10 * 60_000) continue;
       if (at && new Date(at).toISOString() >= r.run_at!) link = `https://github.com/${env.GITHUB_REPO}/compare/ads-web...${branch}?expand=1`;
     }
     if (!link) continue;
     await env.DB.prepare('UPDATE feature_requests SET pr_url = ?, pr_at = ? WHERE id = ?').bind(link, new Date().toISOString(), r.id).run();
     if (!r.thread_id) { n++; continue; }
-    // Claude's questions go to the person who asked: answer in the post, then "ตอบแล้ว" sends it back to Claude.
+    // Benz sees what changed and why it waits, in plain words, with "อนุมัติขึ้นเว็บ"; Claude's questions go to the
+    // person who asked (answer in the post, then "ตอบแล้ว" sends it back to Claude).
     const qs = pr ? prQuestions(pr.body) : [];
-    if (qs.length) {
-      const asker = r.author_id ? [r.author_id] : [];
-      await say(env, r.thread_id, [...asker, ...deciderIds(env).filter((id) => !asker.includes(id))], (m) => [
-        `${m} Claude มีคำถามก่อนทำต่อค่ะ 🙋`,
-        ...qs.map((q, i) => `${i + 1}. ${q}`),
-        '',
-        `${r.author_id ? `คุณ ${r.author}` : 'คนเสนอ'} ตอบในโพสต์นี้ได้เลยค่ะ (แนบรูปได้) แล้วกด **ตอบแล้ว ให้ Claude ทำต่อ** · ที่ Claude ทำไว้: ${link}`,
-      ].join('\n'), [{ type: 1, components: [{ type: 2, style: 1, label: '▶️ ตอบแล้ว ให้ Claude ทำต่อ', custom_id: `fragain:${r.id}` }] }]);
-    } else {
-      await say(env, r.thread_id, deciderIds(env), (m) => `${m} Claude ทำเสร็จแล้ว แต่เรื่องนี้ต้องให้คุณเบ้นดูก่อนขึ้นเว็บค่ะ 🔍 ${link}\nรีวิว → merge เข้า ads-web → deploy แล้วกด **ทำเสร็จแล้ว ส่งตรวจ** ที่ข้อความแรกได้เลยค่ะ`);
-    }
+    const what = pr ? prSection(pr.body, 'แก้อะไร') : '';
+    const why = pr ? prSection(pr.body, 'ทำไม', 300) : '';
+    const asker = qs.length && r.author_id ? [r.author_id] : [];
+    const buttons: unknown[] = [];
+    if (env.GITHUB_TOKEN) buttons.push({ type: 2, style: 3, label: '✅ อนุมัติขึ้นเว็บ', custom_id: `frship:${r.id}` });
+    if (qs.length) buttons.push({ type: 2, style: 1, label: '▶️ ตอบแล้ว ให้ Claude ทำต่อ', custom_id: `fragain:${r.id}` });
+    buttons.push({ type: 2, style: 5, label: '🔍 ดูโค้ด', url: link });
+    await say(env, r.thread_id, [...deciderIds(env), ...asker.filter((id) => !deciderIds(env).includes(id))], (m) => [
+      `${m} Claude ทำ #${r.id} เสร็จแล้ว แต่เรื่องนี้ต้องให้คุณเบ้นอนุมัติก่อนขึ้นเว็บค่ะ`,
+      ...(what ? ['', `📝 **แก้อะไร**`, what] : []),
+      ...(why ? ['', `⚠️ **ทำไมต้องรอ**`, why] : []),
+      ...(qs.length ? ['', `🙋 **Claude ถาม${r.author_id ? `คุณ ${r.author}` : 'คนเสนอ'}**`, ...qs.map((q, i) => `${i + 1}. ${q}`), 'ตอบในโพสต์นี้ได้เลย (แนบรูปได้) แล้วกด **ตอบแล้ว ให้ Claude ทำต่อ**'] : []),
+      '',
+      env.GITHUB_TOKEN ? 'คุณเบ้น: ถ้าโอเคกด **✅ อนุมัติขึ้นเว็บ** ได้เลย ระบบจะ merge + deploy ให้เองค่ะ' : 'รีวิว → merge เข้า ads-web → deploy (บอก Claude ใน session ได้ค่ะ)',
+    ].join('\n'), [{ type: 1, components: buttons }]);
     n++;
   }
   return n;
+}
+
+const ghHeaders = (env: RequestEnv): Record<string, string> => ({
+  'User-Agent': 'pkjeans-ads', Accept: 'application/vnd.github+json', 'Content-Type': 'application/json',
+  ...(env.GITHUB_TOKEN ? { Authorization: `Bearer ${env.GITHUB_TOKEN}` } : {}),
+});
+
+/**
+ * "✅ อนุมัติขึ้นเว็บ" (Benz 2026-10-22): merge Claude's PR into ads-web (opening it first if the run only pushed the
+ * branch), then push the merge to claude/deploy/idea-<id>-r<run> so the idea-deploy Action tests, deploys and tags it —
+ * the Worker then moves the idea to รอตรวจ and pings the asker as usual. Failures are said in the post.
+ */
+export async function shipIdea(env: RequestEnv, r: FeatureRequest, by: string): Promise<void> {
+  if (!r.thread_id || !env.GITHUB_TOKEN || !env.GITHUB_REPO) return;
+  const repo = `https://api.github.com/repos/${env.GITHUB_REPO}`;
+  const call = (path: string, method: string, body?: unknown) => fetch(`${repo}${path}`, { method, headers: ghHeaders(env), body: body === undefined ? undefined : JSON.stringify(body) });
+  const fail = async (what: string, res: Response | null) => {
+    const why = res ? `${res.status} ${(await res.text()).slice(0, 200)}` : 'ติดต่อ GitHub ไม่ได้';
+    await say(env, r.thread_id!, deciderIds(env), (m) => `${m} ขึ้นเว็บไม่สำเร็จค่ะ — ${what} (${why}) รบกวนบอก Claude ใน session ให้ช่วยดูนะคะ`);
+  };
+  const branch = branchFor(r.id), owner = env.GITHUB_REPO.split('/')[0];
+  const list = await call(`/pulls?state=open&head=${owner}:${encodeURIComponent(branch)}`, 'GET').catch(() => null);
+  let pr = list?.ok ? ((await list.json()) as { number: number }[])[0] : undefined;
+  if (!pr) {
+    const made = await call('/pulls', 'POST', { title: `ไอเดีย #${r.id}: ${r.title}`, head: branch, base: 'ads-web', body: `อนุมัติขึ้นเว็บจาก Discord โดย ${by}` }).catch(() => null);
+    if (!made?.ok) return fail('เปิด PR ไม่ได้', made);
+    pr = (await made.json()) as { number: number };
+  }
+  const merged = await call(`/pulls/${pr.number}/merge`, 'PUT', { merge_method: 'merge', commit_title: `ads-web: ไอเดีย #${r.id} (อนุมัติโดย ${by})` }).catch(() => null);
+  if (!merged?.ok) return fail(`merge PR #${pr.number} ไม่ได้ (อาจชนกับโค้ดใหม่)`, merged);
+  const sha = ((await merged.json()) as { sha: string }).sha;
+  const ref = `refs/heads/${deployBranch(r)}`;
+  let pushed = await call('/git/refs', 'POST', { ref, sha }).catch(() => null);
+  if (pushed && pushed.status === 422) pushed = await call(`/git/${ref}`, 'PATCH', { sha, force: true }).catch(() => null);
+  if (!pushed?.ok) return fail('สั่ง deploy ไม่ได้', pushed);
+  await say(env, r.thread_id, [], () => `⏳ ${by} อนุมัติแล้ว merge PR #${pr!.number} แล้ว กำลังขึ้นเว็บค่ะ (ประมาณ 1 นาที) เสร็จแล้วน้องจะแท็กคนเสนอให้มาลองนะคะ`);
 }
 
 /** Registers (or updates) /ไอเดีย for the app; Discord upserts a global command by name. */
@@ -508,6 +567,16 @@ export async function requestInteraction(i: any, env: RequestEnv, ctx: { waitUnt
       }).catch(() => null);
     }).catch((e) => console.error('request post', e)));
     return only(`💡 รับไอเดีย **#${r.id} ${r.title}** แล้วค่ะ ขอบคุณนะคะ 🙏 น้องเปิดโพสต์ในห้องไอเดียให้แล้ว\n📎 มีรูปหน้าจอประกอบ ส่งในโพสต์นั้นได้เลยค่ะ (ก่อนคุณเบ้นกดให้ทำ)`);
+  }
+  const ship = /^frship:(\d+)$/.exec(cid);
+  if (i.type === 3 && ship) {
+    const cur = await loadRequest(env.DB, Number(ship[1]));
+    if (!cur || cur.r.thread_id !== i.channel_id) return only('ไม่พบไอเดียนี้ในโพสต์นี้ค่ะ');
+    if (!mayPress(env, 'go', userId, cur.r.author_id)) return only(`ปุ่มนี้ให้คุณเบ้นกดนะคะ 🙏 (Discord ID ของคุณ: ${userId})`);
+    if (cur.r.status !== 'doing') return only('ไอเดียนี้ไม่ได้รอขึ้นเว็บแล้วค่ะ');
+    if (!env.GITHUB_TOKEN) return only('ยังไม่ได้ตั้ง GITHUB_TOKEN ค่ะ');
+    ctx.waitUntil(shipIdea(env, cur.r, who).catch((e) => console.error('request ship', e)));
+    return reply({ type: 7, data: { content: `${String(i.message?.content ?? '').slice(0, 1800)}\n\n✅ ${who} อนุมัติขึ้นเว็บแล้วค่ะ`, components: [] } });
   }
   const again = /^fragain:(\d+)$/.exec(cid);
   if (i.type === 3 && again) {
