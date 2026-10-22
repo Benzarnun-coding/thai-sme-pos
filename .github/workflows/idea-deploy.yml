@@ -1,6 +1,6 @@
 # Deploys a /ไอเดีย change that the Claude Code routine finished (ads-web/docs/requests.md, Benz 2026-10-20).
 # The routine pushes the finished commit to branch claude/deploy/idea-<id>-r<run> (its git access may push claude/*
-# branches but not tags, 2026-10-21); this job checks the commit is on top of ads-web and stays out of
+# branches but not tags, 2026-10-21); this job puts the commit on top of ads-web (rebasing if ads-web moved) and checks it stays out of
 # money/Meta/customer code, tests, deploys, moves ads-web to it, tags deployed/idea-<id>-r<run> and deletes the
 # branch — the Worker sees the tag and asks the person who asked to try it.
 # Secret (GitHub → Settings → Secrets and variables → Actions): CLOUDFLARE_API_TOKEN (Workers Scripts Edit + D1 Edit).
@@ -28,9 +28,13 @@ jobs:
 
       - name: On top of ads-web, no guarded files
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch -q origin ads-web
+          # Another session may have pushed to ads-web since the routine finished (idea #10 was lost that way,
+          # 2026-10-22): put the idea's commits on top of it; a real conflict stops here.
           if ! git merge-base --is-ancestor origin/ads-web HEAD; then
-            echo "::error::not on top of the latest ads-web — rebase claude/idea-* and tag again"; exit 1
+            git rebase origin/ads-web || { git rebase --abort; echo "::error::conflicts with the latest ads-web — rebase claude/idea-* by hand"; exit 1; }
           fi
           bad=$(git diff --name-only origin/ads-web HEAD | grep -E '^(ads-engine/|\.github/|ads-web/wrangler\.jsonc$|ads-web/worker/(engine|run|apply|metaPurchases|notePurchases|metaAdjust|p365fill|autoFill|access|auth|users|roles|discord|webhook|featureRequests)\.ts$)' || true)
           if [ -n "$bad" ]; then echo "::error::needs Benz's review, touches: $bad"; exit 1; fi
@@ -52,8 +56,22 @@ jobs:
         run: npm run deploy
 
       - name: Move ads-web to it and mark deployed
+        working-directory: ads-web
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: bbad0b69f4554a5d9e58085286f3eb9b
         run: |
-          git push origin HEAD:refs/heads/ads-web
+          # ads-web can move while this job runs. Then: rebase onto it, test and deploy again, so that what is
+          # live is always exactly ads-web's head with the idea on top (a failed push used to leave the idea
+          # deployed but missing from ads-web, and the next deploy removed it).
+          pushed=""
+          for i in 1 2 3; do
+            if git push origin HEAD:refs/heads/ads-web; then pushed=1; break; fi
+            git fetch -q origin ads-web
+            git rebase origin/ads-web || { git rebase --abort; echo "::error::conflicts with the latest ads-web"; exit 1; }
+            npm test && npm run typecheck && npm run deploy
+          done
+          [ -n "$pushed" ] || { echo "::error::ads-web kept moving — deploy again"; exit 1; }
           done_tag="deployed/${GITHUB_REF_NAME#claude/deploy/}"
           git tag "$done_tag" && git push origin "$done_tag"
           git push origin --delete "$GITHUB_REF_NAME"

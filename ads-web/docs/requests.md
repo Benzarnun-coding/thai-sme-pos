@@ -30,8 +30,8 @@ Benz 2026-10-20: the team asks for website changes in Discord, and each request 
   trigger token) with the request, its ไม่ผ่าน reasons, the branch and the deploy tag (`buildPayload`). The post gets
   the session link. Both empty = off (ให้ทำ only changes the status).
 - The run builds and tests on `claude/idea-<id>`, pushes it to branch `claude/deploy/idea-<id>-r<run>` (the cloud session can't push tags: 403 on 2026-10-21, idea #8); GitHub Actions
-  (`.github/workflows/idea-deploy.yml`, secret `CLOUDFLARE_API_TOKEN`) refuses a commit not on top of `ads-web` or one
-  touching money/Meta/customer/auth code, else tests, deploys, moves `ads-web` to it, deletes the branch and pushes the tag `deployed/idea-<id>-r<run>` and POSTs
+  (`.github/workflows/idea-deploy.yml`, secret `CLOUDFLARE_API_TOKEN`) puts the commit on top of the latest `ads-web` (rebase; a conflict stops it), refuses one
+  touching money/Meta/customer/auth code, else tests, deploys, moves `ads-web` to it (if `ads-web` moved meanwhile: rebase, test and deploy again, up to 3 times — idea #10 was lost on 22 Oct when that push was rejected), deletes the branch and pushes the tag `deployed/idea-<id>-r<run>` and POSTs
   `/webhook/idea-check`. The Worker (`checkBuilds`; also on opening `/requests` and in the 3-hourly sweep) sees the tag
   → moves it to รอตรวจ as "Claude 🤖" and pings the asker to try it. No deployed/ tag 30 min after the run started
   while the claude/deploy/ branch is still there → Benz is pinged with the Action's page. (2026-10-20: deploying from the cloud session itself
