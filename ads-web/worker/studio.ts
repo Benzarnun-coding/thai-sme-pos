@@ -443,15 +443,34 @@ export function groupPosts(ads: ActiveAdPost[], codes: string[]): Omit<MetaPost,
     if (!p.image_url && a.image_url) p.image_url = a.image_url;
     by.set(key, p);
   }
-  // Longest codes first so "5011" isn't read as "501".
-  const sorted = [...codes].sort((x, y) => y.length - x.length);
-  for (const p of by.values()) p.code = sorted.find((c) => p.ads.some((a) => nameHasFamily(a.campaign_name, c))) ?? '';
+  // Catalog codes are sub-models ("801/1", "Ni9-1", "SH-004"); campaign names say the model ("801", "Ni9", "SH004").
+  // An exact code wins; else the model, mapped to its first sub-model in `codes` (callers pass most-SKUs first).
+  // Longest first so "5011" isn't read as "501". A hyphen between letters and digits is ignored on both sides.
+  const norm = (s: string) => s.replace(/([A-Za-z])-(?=\d)/g, '$1');
+  const exact = [...codes].sort((x, y) => y.length - x.length);
+  const models = new Map<string, string>();
+  for (const c of codes) { const m = modelOf(c); if (m !== c && !models.has(m)) models.set(m, c); }
+  const byModel = [...models.keys()].sort((x, y) => y.length - x.length);
+  const named = (p: { ads: { campaign_name: string }[] }, c: string) => p.ads.some((a) => nameHasFamily(norm(a.campaign_name), norm(c)));
+  for (const p of by.values()) {
+    const hit = exact.find((c) => named(p, c));
+    const model = hit ? undefined : byModel.find((m) => named(p, m));
+    p.code = hit ?? (model ? models.get(model)! : '');
+  }
   return [...by.values()];
+}
+
+/** "801/1" → "801", "Ni9-1" → "Ni9"; "SH-004" stays (the part before the hyphen has no digit, so it's not a sub-model). */
+export function modelOf(code: string): string {
+  const base = code.split('/')[0];
+  const m = /^(.*\d.*)-\d+$/.exec(base);
+  return m ? m[1] : base;
 }
 
 /** Read every active ad's post from Meta and upsert; posts no longer running are kept but marked inactive. */
 export async function importMetaPosts(db: D1Database, ads: ActiveAdPost[]): Promise<{ posts: number; ads: number; unread: number; new_posts: number }> {
-  const { results: codeRows } = await db.prepare(`SELECT DISTINCT code FROM catalog WHERE code != '' AND length(code) >= 2`).all<{ code: string }>();
+  // Most SKUs first: when a campaign names only the model, its biggest sub-model is taken.
+  const { results: codeRows } = await db.prepare(`SELECT code FROM catalog WHERE code != '' AND length(code) >= 2 GROUP BY code ORDER BY count(*) DESC`).all<{ code: string }>();
   const posts = groupPosts(ads, codeRows.map((r) => r.code));
   const at = now();
   const before = new Set((await db.prepare('SELECT key FROM meta_posts').all<{ key: string }>()).results.map((r) => r.key));

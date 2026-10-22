@@ -22,3 +22,13 @@ test('ads using one post become one row with summed numbers; product code from t
   const other = out.find((p) => p.key === 'creative:cr3')!;
   assert.equal(other.code, '200');
 });
+
+test('campaign names that say only the model get its first sub-model; hyphens between letters and digits ignored', async () => {
+  const { modelOf } = await import('./studio.ts');
+  assert.equal(modelOf('801/1'), '801'); assert.equal(modelOf('Ni9-1'), 'Ni9'); assert.equal(modelOf('SH-004'), 'SH-004'); assert.equal(modelOf('444'), '444');
+  const out = groupPosts([
+    ad('1', 'p1', 'REV 801 - กระบอกยืด 3 ตัว 799', 10, 0), ad('2', 'p2', 'โปรลับ Ni9 ผ้าสี', 10, 0),
+    ad('3', 'p3', 'SH004 เสื้อ', 10, 0), ad('4', 'p4', 'โพสผี 444/1 ขาสั้น', 10, 0), ad('5', 'p5', 'ขาสั้น 16 นิ้ว', 10, 0),
+  ], ['801/2', '801/1', 'Ni9-1', 'SH-004', '444/1', '444']);
+  assert.deepEqual(out.map((p) => p.code), ['801/2', 'Ni9-1', 'SH-004', '444/1', '']);
+});
