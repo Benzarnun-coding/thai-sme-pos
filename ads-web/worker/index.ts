@@ -23,7 +23,7 @@ import { campaignDay } from './transactions.ts';
 import { makeTierResolver } from './costing.ts';
 import { bkkDate, loadConversionHours, lockedHourDays, saveConversionDay, syncConversionHours, txCosting, windowDates } from './conversionStore.ts';
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
-import { friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
+import { friendlyD1Error, friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
 import { parseRange, salesData } from './sales.ts';
 import { listImportMaps, profitData, saveImportMap, saveMpOrders, validateMpOrders } from './mpOrders.ts';
@@ -174,7 +174,7 @@ export default {
     } catch (err: any) {
       if (err instanceof BadRequest) return json({ error: err.message }, 400);
       console.error(err);
-      return json({ error: err?.message ?? String(err) }, 500);
+      return json({ error: friendlyD1Error(err) }, 500);
     }
   },
 

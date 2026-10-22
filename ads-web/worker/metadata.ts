@@ -43,6 +43,15 @@ export function friendlyMetaError(err: any): string {
   return msg;
 }
 
+/** D1's free plan stops all reads for the day once the row-read quota is used (resets 00:00 UTC = 07:00 BKK). */
+export function friendlyD1Error(err: any): string {
+  const msg: string = err?.message ?? String(err);
+  if (/row read limit|exceeded D1's free tier/i.test(msg)) {
+    return 'โควตาอ่านฐานข้อมูลฟรีของ Cloudflare วันนี้เต็มแล้ว ทุกหน้าจะใช้ไม่ได้จนถึง 07:00 น. (รีเซ็ตเที่ยงคืน UTC) — แจ้งเบ้นถ้าต้องใช้ด่วน';
+  }
+  return msg;
+}
+
 /** JSON has no Infinity: cost-per metrics come back as null and are restored here. */
 function revive(data: string): any {
   return JSON.parse(data, (k, v) => ((k === 'cpa' || k === 'cost_per_message') && v === null ? Infinity : v));

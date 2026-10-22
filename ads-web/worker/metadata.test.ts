@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { loadMetaData } from './metadata.ts';
+import { friendlyD1Error, loadMetaData } from './metadata.ts';
 import { sqliteD1 } from './sqliteD1.ts';
 
 // Since ~13 Oct 2026 Meta's one-call daily report (time_increment=1) comes back almost empty while the plain
@@ -27,4 +27,10 @@ test('daily spend falls back to one-day reports when the daily report misses mos
   meta.dailyCampaignInsights = async () => [{ campaign_id: 'c1', date: '2026-10-15', spend: 9000, impressions: 0, clicks: 0, purchases: 0, purchase_value: 0 }];
   const ok = await (await loadMetaData(d1, meta, false)).dailyAll('range:2026-10-15:2026-10-15' as any);
   assert.equal(ok.length, 1);
+});
+
+test('friendlyD1Error explains the daily row-read quota in Thai and passes other errors through', () => {
+  const quota = new Error("D1_ERROR: Your account has exceeded D1's free tier daily row read limit. Upgrade to a paid plan");
+  assert.match(friendlyD1Error(quota), /โควตา/);
+  assert.equal(friendlyD1Error(new Error('boom')), 'boom');
 });
