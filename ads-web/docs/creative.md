@@ -13,6 +13,16 @@ where staff judge their output. Nothing here touches Meta, Page365 or customers.
   still records the prompt, style card and product behind every uploaded image, so the learning is the same.
 - Product photos come from a Google Drive folder, synced by name to the catalog (below).
 
+## Foundation: posts running as ads (`/studio/posts`, Benz 2026-10-22)
+
+"ดึงโพสต์จากเพจ" reads every ACTIVE ad from Meta (read only: `activeAdPosts` in ads-engine/meta.ts — ads list, the
+posts' `message,full_picture,permalink_url` 50 per call, ad-level last-14-day insights), groups ads by post
+(`groupPosts`: numbers summed, product code guessed from the campaign name with `nameHasFamily`, longest code first,
+editable) into `meta_posts` (migration 0056). Posts no longer running stay, marked inactive. Pictures: Meta's links
+expire, so right after the import the browser fetches each through `/api/catalog/image-proxy` (fbcdn is allowed),
+resizes and stores it. Numbers are Meta-tagged (real runs ~11–14% lower). The 6 posts with ≥ 1,000 spend and the best
+ROAS go into the caption agent's prompt first; any post can become a liked/disliked caption example with a reason.
+
 ## Materials (`/studio` วัตถุดิบ)
 
 | Material | Where it lives | Notes |

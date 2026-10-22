@@ -223,6 +223,38 @@ export class MetaClient {
       .filter((r) => r.purchases > 0 || r.purchase_value > 0);
   }
 
+  /**
+   * Every switched-on ad with its post: caption + full picture, and the ad's own last-14-day Meta numbers. Read only.
+   * Ads of this shop run page posts ("โพสผี"), whose text lives on the post, not on the creative, so posts are read
+   * in groups of 50 (`?ids=`); a post the token can't read falls back to the creative's own text and thumbnail.
+   */
+  async activeAdPosts(): Promise<ActiveAdPost[]> {
+    const ads = await this.getAll(`${this.accountId}/ads`, {
+      fields: 'id,name,campaign_id,campaign{name},adset_id,creative{id,body,title,image_url,thumbnail_url,effective_object_story_id,object_story_spec}',
+      effective_status: JSON.stringify(['ACTIVE']),
+    });
+    const storyIds = [...new Set(ads.map((a: any) => a.creative?.effective_object_story_id).filter(Boolean))] as string[];
+    const posts = new Map<string, { message?: string; full_picture?: string; permalink_url?: string }>();
+    for (let i = 0; i < storyIds.length; i += 50) {
+      const b = await this.get<Record<string, any>>('', { ids: storyIds.slice(i, i + 50).join(','), fields: 'message,full_picture,permalink_url' }).catch(() => ({}));
+      for (const [id, p] of Object.entries(b)) posts.set(id, p as any);
+    }
+    const stats = new Map<string, { spend: number; impressions: number; purchases: number; purchase_value: number; messages: number }>();
+    const rows = await this.getAll(`${this.accountId}/insights`, { level: 'ad', date_preset: 'last_14d', fields: 'ad_id,spend,impressions,actions,action_values' }).catch(() => []);
+    for (const r of rows) stats.set(String(r.ad_id), { spend: num(r.spend), impressions: num(r.impressions), purchases: sumPurchases(r.actions), purchase_value: sumPurchases(r.action_values), messages: sumMessages(r.actions) });
+    return ads.map((a: any) => {
+      const c = a.creative ?? {}, story = c.effective_object_story_id as string | undefined, post = story ? posts.get(story) : undefined;
+      const link = c.object_story_spec?.link_data ?? c.object_story_spec?.photo_data ?? c.object_story_spec?.video_data ?? {};
+      return {
+        ad_id: String(a.id), ad_name: a.name ?? '', campaign_id: String(a.campaign_id ?? ''), campaign_name: a.campaign?.name ?? '', adset_id: String(a.adset_id ?? ''),
+        story_id: story ?? null, creative_id: c.id ? String(c.id) : null,
+        message: post?.message ?? c.body ?? link.message ?? '', image_url: post?.full_picture ?? c.image_url ?? link.picture ?? link.image_url ?? c.thumbnail_url ?? null,
+        permalink: post?.permalink_url ?? null, post_read: !!post,
+        stats: stats.get(String(a.id)) ?? { spend: 0, impressions: 0, purchases: 0, purchase_value: 0, messages: 0 },
+      };
+    });
+  }
+
   async setStatus(id: string, status: 'ACTIVE' | 'PAUSED'): Promise<void> {
     await this.post(id, { status });
   }
@@ -279,6 +311,14 @@ function metaError(body: any): string {
   if (!e) return '';
   const extra = [e.error_user_title, e.error_user_msg].filter((x) => x && x !== e.message).join(': ');
   return [e.message, extra, e.error_subcode ? `(subcode ${e.error_subcode})` : ''].filter(Boolean).join(' — ');
+}
+
+export interface ActiveAdPost {
+  ad_id: string; ad_name: string; campaign_id: string; campaign_name: string; adset_id: string;
+  story_id: string | null; creative_id: string | null; message: string; image_url: string | null; permalink: string | null;
+  /** false = the post itself couldn't be read; message/picture came from the creative */
+  post_read: boolean;
+  stats: { spend: number; impressions: number; purchases: number; purchase_value: number; messages: number };
 }
 
 function num(v: unknown): number {

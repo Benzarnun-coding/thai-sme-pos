@@ -12,6 +12,7 @@ const PAGES = [
   ['/gosell', 'GoSell'],
   ['/botkb', 'คลังคำตอบบอท'],
   ['/requests', 'ไอเดียเว็บ'],
+  ['/studio/posts', 'โพสต์ที่ยิงอยู่'],
   ['/studio', 'วัตถุดิบ'],
   ['/studio/train', 'ห้องฝึก'],
 ] as const;

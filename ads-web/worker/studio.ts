@@ -3,6 +3,8 @@
 
 import { BadRequest } from './validate.ts';
 import { imageType } from './catalog.ts';
+import type { ActiveAdPost } from '../../ads-engine/src/meta.ts';
+import { nameHasFamily } from './postIdeas.ts';
 
 export interface StudioEnv {
   DB: D1Database;
@@ -169,11 +171,12 @@ async function goldCaptions(db: D1Database, limit = 12): Promise<{ text: string;
 
 /** Everything the caption agent is told, so a judge can see why a caption came out the way it did. */
 export async function captionPrompt(db: D1Database, product: StudioProduct, n: number): Promise<{ system: string; user: string; playbook_id: number | null }> {
-  const [playbook, examples, gold] = await Promise.all([currentPlaybook(db), listExamples(db), goldCaptions(db)]);
+  const [playbook, examples, gold, proven] = await Promise.all([currentPlaybook(db), listExamples(db), goldCaptions(db), provenPosts(db).catch(() => [])]);
   const liked = examples.filter((e) => e.liked).slice(0, 10), disliked = examples.filter((e) => !e.liked).slice(0, 10);
   const system = [
     'คุณเขียนแคปชันโพสต์ขายยีนส์ให้ร้าน PK Jeans (ขายผ่านแชท Facebook ลูกค้าไทย) ตามคู่มือและตัวอย่างด้านล่างอย่างเคร่งครัด',
     '## คู่มือ', playbook.text,
+    proven.length ? `## แคปชันที่ยิงแอดจริงอยู่ตอนนี้และขายได้ดี (ROAS จากยอดแท็ก Meta 14 วัน)\n${proven.map((p) => `- [ROAS ${p.roas.toFixed(1)}] ${p.message.replace(/\n/g, ' / ').slice(0, 600)}`).join('\n')}` : '',
     gold.length ? `## แคปชันที่ทีมอนุมัติแล้ว (เลียนแบบน้ำเสียงนี้)\n${gold.map((g) => `- [${g.hook}] ${g.text.replace(/\n/g, ' / ')}`).join('\n')}` : '',
     liked.length ? `## ตัวอย่างที่ทีมชอบ\n${liked.map((e) => `- "${e.text.replace(/\n/g, ' / ')}" — ชอบเพราะ: ${e.reason}`).join('\n')}` : '',
     disliked.length ? `## ตัวอย่างที่ทีมไม่ชอบ (อย่าทำแบบนี้)\n${disliked.map((e) => `- "${e.text.replace(/\n/g, ' / ')}" — เพราะ: ${e.reason}`).join('\n')}` : '',
@@ -335,5 +338,87 @@ export async function listCandidates(db: D1Database, code: string, kind?: string
             (SELECT count(*) FROM creative_judgements j WHERE j.winner_id IS NOT NULL AND j.winner_id != c.id AND c.id IN (j.a_id, j.b_id)) AS losses
      FROM creative_candidates c WHERE c.code = ?1 AND (?2 = '' OR c.kind = ?2) ORDER BY c.id DESC LIMIT 200`,
   ).bind(code, kind ?? '').all<Candidate & { wins: number; losses: number }>();
+  return results;
+}
+
+// ---- foundation: the posts running as ads now (read from Meta) ----
+
+export interface MetaPost {
+  key: string; story_id: string | null; message: string; image_url: string | null; permalink: string | null; post_read: number;
+  ads: { ad_id: string; ad_name: string; campaign_id: string; campaign_name: string }[];
+  spend: number; impressions: number; purchases: number; purchase_value: number; messages: number;
+  code: string; active: number; has_image: number; first_seen: string; fetched_at: string;
+}
+
+/** Ads → one row per post: numbers summed over the post's ads, product code from the first campaign name that names one. */
+export function groupPosts(ads: ActiveAdPost[], codes: string[]): Omit<MetaPost, 'has_image' | 'first_seen' | 'fetched_at' | 'active'>[] {
+  const by = new Map<string, ReturnType<typeof groupPosts>[number]>();
+  for (const a of ads) {
+    const key = a.story_id ?? (a.creative_id ? `creative:${a.creative_id}` : `ad:${a.ad_id}`);
+    const p = by.get(key) ?? { key, story_id: a.story_id, message: a.message, image_url: a.image_url, permalink: a.permalink, post_read: a.post_read ? 1 : 0, ads: [], spend: 0, impressions: 0, purchases: 0, purchase_value: 0, messages: 0, code: '' };
+    p.ads.push({ ad_id: a.ad_id, ad_name: a.ad_name, campaign_id: a.campaign_id, campaign_name: a.campaign_name });
+    p.spend += a.stats.spend; p.impressions += a.stats.impressions; p.purchases += a.stats.purchases; p.purchase_value += a.stats.purchase_value; p.messages += a.stats.messages;
+    if (!p.message && a.message) p.message = a.message;
+    if (!p.image_url && a.image_url) p.image_url = a.image_url;
+    by.set(key, p);
+  }
+  // Longest codes first so "5011" isn't read as "501".
+  const sorted = [...codes].sort((x, y) => y.length - x.length);
+  for (const p of by.values()) p.code = sorted.find((c) => p.ads.some((a) => nameHasFamily(a.campaign_name, c))) ?? '';
+  return [...by.values()];
+}
+
+/** Read every active ad's post from Meta and upsert; posts no longer running are kept but marked inactive. */
+export async function importMetaPosts(db: D1Database, ads: ActiveAdPost[]): Promise<{ posts: number; ads: number; unread: number; new_posts: number }> {
+  const { results: codeRows } = await db.prepare(`SELECT DISTINCT code FROM catalog WHERE code != '' AND length(code) >= 2`).all<{ code: string }>();
+  const posts = groupPosts(ads, codeRows.map((r) => r.code));
+  const at = now();
+  const before = new Set((await db.prepare('SELECT key FROM meta_posts').all<{ key: string }>()).results.map((r) => r.key));
+  await db.prepare('UPDATE meta_posts SET active = 0').run();
+  if (posts.length) {
+    await db.prepare(
+      `INSERT INTO meta_posts (key, story_id, message, image_url, permalink, post_read, ads, spend, impressions, purchases, purchase_value, messages, code, active, first_seen, fetched_at)
+       SELECT value ->> '$.key', value ->> '$.story_id', value ->> '$.message', value ->> '$.image_url', value ->> '$.permalink', value ->> '$.post_read', value ->> '$.ads',
+              value ->> '$.spend', value ->> '$.impressions', value ->> '$.purchases', value ->> '$.purchase_value', value ->> '$.messages', value ->> '$.code', 1, ?1, ?1
+       FROM json_each(?2) WHERE true
+       ON CONFLICT (key) DO UPDATE SET message = excluded.message, image_url = coalesce(excluded.image_url, meta_posts.image_url), permalink = excluded.permalink,
+         post_read = excluded.post_read, ads = excluded.ads, spend = excluded.spend, impressions = excluded.impressions, purchases = excluded.purchases,
+         purchase_value = excluded.purchase_value, messages = excluded.messages, active = 1, fetched_at = excluded.fetched_at,
+         code = CASE WHEN meta_posts.code = '' THEN excluded.code ELSE meta_posts.code END`,
+    ).bind(at, JSON.stringify(posts.map((p) => ({ ...p, ads: JSON.stringify(p.ads) })))).run();
+  }
+  return { posts: posts.length, ads: ads.length, unread: posts.filter((p) => !p.post_read).length, new_posts: posts.filter((p) => !before.has(p.key)).length };
+}
+
+export async function listMetaPosts(db: D1Database): Promise<MetaPost[]> {
+  const { results } = await db.prepare(
+    `SELECT key, story_id, message, image_url, permalink, post_read, ads, spend, impressions, purchases, purchase_value, messages, code, active,
+            full IS NOT NULL AS has_image, first_seen, fetched_at FROM meta_posts ORDER BY active DESC, spend DESC`,
+  ).all<Omit<MetaPost, 'ads'> & { ads: string }>();
+  return results.map((r) => ({ ...r, ads: JSON.parse(r.ads || '[]') }));
+}
+
+export async function saveMetaPostImage(db: D1Database, form: FormData): Promise<void> {
+  const key = cleanText(form.get('key'), 200);
+  if (!key) throw new BadRequest('ไม่รู้ว่าเป็นรูปของโพสต์ไหน');
+  const p = await readPicture(form);
+  await db.prepare('UPDATE meta_posts SET thumb = ?2, full = ?3, mime = ?4 WHERE key = ?1').bind(key, p.thumb, p.full, p.mime).run();
+}
+
+export async function setMetaPostCode(db: D1Database, input: any): Promise<void> {
+  await db.prepare('UPDATE meta_posts SET code = ?2 WHERE key = ?1').bind(cleanText(input?.key, 200), cleanText(input?.code, 80)).run();
+}
+
+export async function metaPostPicture(db: D1Database, key: string, size: 'thumb' | 'full'): Promise<Response> {
+  const row = await db.prepare(`SELECT ${size} AS data, mime FROM meta_posts WHERE key = ?`).bind(key).first<{ data: ArrayBuffer | null; mime: string | null }>();
+  if (!row?.data || !row.mime) return new Response('not found', { status: 404 });
+  return new Response(row.data, { headers: { 'Content-Type': row.mime, 'Cache-Control': 'private, max-age=86400' } });
+}
+
+/** Posts that sold best on real spend (Meta-tagged ROAS, ≥ 1,000 spend in 14 days): the caption agent's first examples. */
+export async function provenPosts(db: D1Database, limit = 6): Promise<{ message: string; roas: number; spend: number }[]> {
+  const { results } = await db.prepare(
+    `SELECT message, purchase_value / spend AS roas, spend FROM meta_posts WHERE spend >= 1000 AND message != '' ORDER BY purchase_value / spend DESC LIMIT ?`,
+  ).bind(limit).all<{ message: string; roas: number; spend: number }>();
   return results;
 }

@@ -44,6 +44,7 @@ export interface MetaLike extends Mutator {
   dailyInsights(campaignId: string, window: Window): Promise<DailyRow[]>;
   dailyCampaignInsights(window: Window): Promise<CampaignDayRow[]>;
   hourlyConversions(date: string): Promise<HourlyConversion[]>;
+  activeAdPosts(): Promise<import('../../ads-engine/src/meta.ts').ActiveAdPost[]>;
   copyObjects(campaignId: string): Promise<{ adsets: string[]; ads: { id: string; adset_id: string }[] }>;
   copyCampaign(campaignId: string, suffix: string): Promise<{ id: string; children: string[] }>;
 }

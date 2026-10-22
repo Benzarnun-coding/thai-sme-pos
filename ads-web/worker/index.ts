@@ -800,6 +800,15 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (path === '/api/studio/pair' && method === 'GET') return json({ pair: await studio.nextPair(env.DB, url.searchParams.get('kind') === 'image' ? 'image' : 'caption', user, url.searchParams.get('code') ?? undefined) });
   if (path === '/api/studio/judge' && method === 'POST') { await studio.judge(env.DB, await body(), user); return json({ ok: true }); }
   if (path === '/api/studio/stats' && method === 'GET') return json(await studio.stats(env.DB));
+  if (path === '/api/studio/meta-posts' && method === 'GET') return json({ posts: await studio.listMetaPosts(env.DB) });
+  if (path === '/api/studio/meta-posts/import' && method === 'POST') {
+    const r = await studio.importMetaPosts(env.DB, await metaFor(env).activeAdPosts());
+    await audit(env.DB, user, 'studio.meta_import', 'meta_posts', r);
+    return json(r);
+  }
+  if (path === '/api/studio/meta-posts/image' && method === 'POST') { await studio.saveMetaPostImage(env.DB, await req.formData().catch(() => { throw new BadRequest('อ่านไฟล์ไม่ได้'); })); return json({ ok: true }); }
+  if (path === '/api/studio/meta-posts/code' && method === 'PUT') { await studio.setMetaPostCode(env.DB, await body()); return json({ ok: true }); }
+  if (path === '/api/studio/meta-posts/picture' && method === 'GET') return studio.metaPostPicture(env.DB, url.searchParams.get('key') ?? '', url.searchParams.get('size') === 'full' ? 'full' : 'thumb');
   if (path === '/api/studio/candidates' && method === 'GET') return json({ candidates: await studio.listCandidates(env.DB, url.searchParams.get('code') ?? '', url.searchParams.get('kind') ?? undefined) });
 
   // ---- website feature requests from Discord (/ไอเดีย) ----
