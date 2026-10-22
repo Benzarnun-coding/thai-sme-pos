@@ -50,10 +50,10 @@ export function PostsApp() {
   const importNow = async () => {
     setBusy('กำลังอ่านโพสต์จาก Meta…');
     try {
-      const r = await call<{ posts: number; ads: number; unread: number; new_posts: number }>('POST', '/api/studio/meta-posts/import');
+      const r = await call<{ posts: number; ads: number; unread: number; new_posts: number; post_error: string | null }>('POST', '/api/studio/meta-posts/import');
       const list = await load();
       const pics = await fetchPictures(list);
-      toast(`ได้ ${r.posts} โพสต์จาก ${r.ads} แอดที่เปิดอยู่ (ใหม่ ${r.new_posts}) · เก็บรูป ${pics.ok}/${pics.of}${r.unread ? ` · อ่านตัวโพสต์ไม่ได้ ${r.unread} (ใช้ข้อความจากแอดแทน)` : ''}`, 'ok');
+      toast(`ได้ ${r.posts} โพสต์จาก ${r.ads} แอดที่เปิดอยู่ (ใหม่ ${r.new_posts}) · เก็บรูป ${pics.ok}/${pics.of}${r.unread ? ` · อ่านตัวโพสต์ไม่ได้ ${r.unread} (ใช้ข้อความจากแอดแทน)${r.post_error ? ` — Meta ตอบ: ${r.post_error.slice(0, 200)}` : ''}` : ''}`, 'ok');
       await load();
     } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(''); }
   };

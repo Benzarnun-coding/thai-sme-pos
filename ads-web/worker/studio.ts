@@ -115,10 +115,16 @@ export async function addStyleRef(db: D1Database, form: FormData, user: string):
   return Number(r.meta.last_row_id);
 }
 
-export async function pictureResponse(db: D1Database, table: 'style_refs' | 'creative_candidates', id: number, size: 'thumb' | 'full'): Promise<Response> {
-  const row = await db.prepare(`SELECT ${size} AS data, mime FROM ${table} WHERE id = ?`).bind(id).first<{ data: ArrayBuffer | null; mime: string | null }>();
+/** D1 hands BLOBs back as an ArrayBuffer or, on the deployed runtime, an array of numbers (catalog.ts imageResponse). */
+function blobResponse(row: { data: ArrayBuffer | number[] | null; mime: string | null } | null): Response {
   if (!row?.data || !row.mime) return new Response('not found', { status: 404 });
-  return new Response(row.data, { headers: { 'Content-Type': row.mime, 'Cache-Control': 'private, max-age=86400' } });
+  const bytes = row.data instanceof ArrayBuffer ? new Uint8Array(row.data) : Uint8Array.from(row.data);
+  return new Response(bytes, { headers: { 'Content-Type': row.mime, 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' } });
+}
+
+export async function pictureResponse(db: D1Database, table: 'style_refs' | 'creative_candidates', id: number, size: 'thumb' | 'full'): Promise<Response> {
+  const row = await db.prepare(`SELECT ${size} AS data, mime FROM ${table} WHERE id = ?`).bind(id).first<{ data: ArrayBuffer | number[] | null; mime: string | null }>();
+  return blobResponse(row);
 }
 
 // ---- caption examples + playbook ----
@@ -374,7 +380,8 @@ export async function importMetaPosts(db: D1Database, ads: ActiveAdPost[]): Prom
   const posts = groupPosts(ads, codeRows.map((r) => r.code));
   const at = now();
   const before = new Set((await db.prepare('SELECT key FROM meta_posts').all<{ key: string }>()).results.map((r) => r.key));
-  await db.prepare('UPDATE meta_posts SET active = 0').run();
+  // Pictures stored before 2026-10-22 evening were Meta's 64 px thumbnails: drop the tiny ones so they're fetched again.
+  await db.prepare('UPDATE meta_posts SET active = 0, thumb = CASE WHEN length(full) < 20000 THEN NULL ELSE thumb END, full = CASE WHEN length(full) < 20000 THEN NULL ELSE full END').run();
   if (posts.length) {
     await db.prepare(
       `INSERT INTO meta_posts (key, story_id, message, image_url, permalink, post_read, ads, spend, impressions, purchases, purchase_value, messages, code, active, first_seen, fetched_at)
@@ -410,9 +417,8 @@ export async function setMetaPostCode(db: D1Database, input: any): Promise<void>
 }
 
 export async function metaPostPicture(db: D1Database, key: string, size: 'thumb' | 'full'): Promise<Response> {
-  const row = await db.prepare(`SELECT ${size} AS data, mime FROM meta_posts WHERE key = ?`).bind(key).first<{ data: ArrayBuffer | null; mime: string | null }>();
-  if (!row?.data || !row.mime) return new Response('not found', { status: 404 });
-  return new Response(row.data, { headers: { 'Content-Type': row.mime, 'Cache-Control': 'private, max-age=86400' } });
+  const row = await db.prepare(`SELECT ${size} AS data, mime FROM meta_posts WHERE key = ?`).bind(key).first<{ data: ArrayBuffer | number[] | null; mime: string | null }>();
+  return blobResponse(row);
 }
 
 /** Posts that sold best on real spend (Meta-tagged ROAS, ≥ 1,000 spend in 14 days): the caption agent's first examples. */

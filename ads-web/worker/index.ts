@@ -802,7 +802,8 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (path === '/api/studio/stats' && method === 'GET') return json(await studio.stats(env.DB));
   if (path === '/api/studio/meta-posts' && method === 'GET') return json({ posts: await studio.listMetaPosts(env.DB) });
   if (path === '/api/studio/meta-posts/import' && method === 'POST') {
-    const r = await studio.importMetaPosts(env.DB, await metaFor(env).activeAdPosts());
+    const got = await metaFor(env).activeAdPosts();
+    const r = { ...(await studio.importMetaPosts(env.DB, got.ads)), post_error: got.post_error };
     await audit(env.DB, user, 'studio.meta_import', 'meta_posts', r);
     return json(r);
   }

@@ -228,31 +228,40 @@ export class MetaClient {
    * Ads of this shop run page posts ("โพสผี"), whose text lives on the post, not on the creative, so posts are read
    * in groups of 50 (`?ids=`); a post the token can't read falls back to the creative's own text and thumbnail.
    */
-  async activeAdPosts(): Promise<ActiveAdPost[]> {
+  async activeAdPosts(): Promise<{ ads: ActiveAdPost[]; post_error: string | null }> {
     const ads = await this.getAll(`${this.accountId}/ads`, {
       fields: 'id,name,campaign_id,campaign{name},adset_id,creative{id,body,title,image_url,thumbnail_url,effective_object_story_id,object_story_spec}',
       effective_status: JSON.stringify(['ACTIVE']),
     });
     const storyIds = [...new Set(ads.map((a: any) => a.creative?.effective_object_story_id).filter(Boolean))] as string[];
     const posts = new Map<string, { message?: string; full_picture?: string; permalink_url?: string }>();
+    let post_error: string | null = null;
     for (let i = 0; i < storyIds.length; i += 50) {
-      const b = await this.get<Record<string, any>>('', { ids: storyIds.slice(i, i + 50).join(','), fields: 'message,full_picture,permalink_url' }).catch(() => ({}));
+      const b = await this.get<Record<string, any>>('', { ids: storyIds.slice(i, i + 50).join(','), fields: 'message,full_picture,permalink_url' })
+        .catch((err) => { post_error = String(err?.message ?? err); return {}; });
       for (const [id, p] of Object.entries(b)) posts.set(id, p as any);
+    }
+    // Posts the token can't read: the creative's own thumbnail, asked for at full size (the default is 64 px).
+    const missing = [...new Set(ads.filter((a: any) => !posts.get(a.creative?.effective_object_story_id)?.full_picture).map((a: any) => a.creative?.id).filter(Boolean))] as string[];
+    const thumbs = new Map<string, string>();
+    for (let i = 0; i < missing.length; i += 50) {
+      const b = await this.get<Record<string, any>>('', { ids: missing.slice(i, i + 50).join(','), fields: 'thumbnail_url,image_url', thumbnail_width: '1080', thumbnail_height: '1080' }).catch(() => ({}));
+      for (const [id, c] of Object.entries(b)) { const u = (c as any).image_url || (c as any).thumbnail_url; if (u) thumbs.set(id, u); }
     }
     const stats = new Map<string, { spend: number; impressions: number; purchases: number; purchase_value: number; messages: number }>();
     const rows = await this.getAll(`${this.accountId}/insights`, { level: 'ad', date_preset: 'last_14d', fields: 'ad_id,spend,impressions,actions,action_values' }).catch(() => []);
     for (const r of rows) stats.set(String(r.ad_id), { spend: num(r.spend), impressions: num(r.impressions), purchases: sumPurchases(r.actions), purchase_value: sumPurchases(r.action_values), messages: sumMessages(r.actions) });
-    return ads.map((a: any) => {
+    return { post_error, ads: ads.map((a: any) => {
       const c = a.creative ?? {}, story = c.effective_object_story_id as string | undefined, post = story ? posts.get(story) : undefined;
       const link = c.object_story_spec?.link_data ?? c.object_story_spec?.photo_data ?? c.object_story_spec?.video_data ?? {};
       return {
         ad_id: String(a.id), ad_name: a.name ?? '', campaign_id: String(a.campaign_id ?? ''), campaign_name: a.campaign?.name ?? '', adset_id: String(a.adset_id ?? ''),
         story_id: story ?? null, creative_id: c.id ? String(c.id) : null,
-        message: post?.message ?? c.body ?? link.message ?? '', image_url: post?.full_picture ?? c.image_url ?? link.picture ?? link.image_url ?? c.thumbnail_url ?? null,
+        message: post?.message ?? c.body ?? link.message ?? '', image_url: post?.full_picture ?? thumbs.get(String(c.id)) ?? c.image_url ?? link.picture ?? link.image_url ?? c.thumbnail_url ?? null,
         permalink: post?.permalink_url ?? null, post_read: !!post,
         stats: stats.get(String(a.id)) ?? { spend: 0, impressions: 0, purchases: 0, purchase_value: 0, messages: 0 },
       };
-    });
+    }) };
   }
 
   async setStatus(id: string, status: 'ACTIVE' | 'PAUSED'): Promise<void> {
