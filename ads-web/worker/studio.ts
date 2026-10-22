@@ -38,19 +38,44 @@ const now = () => new Date().toISOString();
 
 export interface StudioProduct { code: string; name: string; price_min: number | null; price_max: number | null; skus: number; selling_points: string; promo: string; image_key: string | null; image_url: string | null }
 
-/** Product codes with a name, price range and the staff's notes; the picture is the catalog's first uploaded/linked one. */
-export async function listProducts(db: D1Database, q = ''): Promise<StudioProduct[]> {
-  const like = `%${q.replace(/[%_]/g, '')}%`;
-  const { results } = await db.prepare(
-    `SELECT c.code, min(c.name) AS name, min(c.price) AS price_min, max(c.price) AS price_max, count(*) AS skus,
-            coalesce(n.selling_points, '') AS selling_points, coalesce(n.promo, '') AS promo,
-            (SELECT key FROM catalog_images i WHERE i.spu = c.code OR i.spu LIKE c.code || '-%' LIMIT 1) AS image_key,
-            (SELECT image FROM catalog ci WHERE ci.code = c.code AND ci.image != '' LIMIT 1) AS image_url
-     FROM catalog c LEFT JOIN product_notes n ON n.code = c.code
-     WHERE c.code != '' AND (?1 = '' OR c.code LIKE ?2 OR c.name LIKE ?2)
-     GROUP BY c.code ORDER BY c.code LIMIT 300`,
-  ).bind(q, like).all<StudioProduct>();
-  return results;
+/**
+ * Product codes with a name, price range and the staff's notes; the picture is the catalog's uploaded one, else
+ * column J. 22 Oct 2026: the first version ran a sub-query over the whole catalog (~17k rows) per product code —
+ * millions of D1 row reads per page load, which used up the free plan's 5M/day. Now: one grouped scan, cached per
+ * catalog version in the isolate; one product is read through the code index; the rest is matched in JS.
+ */
+let productCache: { version: string; rows: Omit<StudioProduct, 'selling_points' | 'promo' | 'image_key'>[] } | null = null;
+
+export async function listProducts(db: D1Database, q = '', exact = false): Promise<StudioProduct[]> {
+  let rows: Omit<StudioProduct, 'selling_points' | 'promo' | 'image_key'>[];
+  if (exact) {
+    rows = (await db.prepare(
+      `SELECT code, min(name) AS name, min(price) AS price_min, max(price) AS price_max, count(*) AS skus, max(image) AS image_url
+       FROM catalog WHERE code = ?1 COLLATE NOCASE GROUP BY code`,
+    ).bind(q).all<typeof rows[number]>()).results;
+  } else {
+    const version = (await db.prepare(`SELECT value FROM settings WHERE key = 'catalog_version'`).first<{ value: string }>())?.value ?? '';
+    if (!productCache || productCache.version !== version) {
+      const { results } = await db.prepare(
+        `SELECT code, min(name) AS name, min(price) AS price_min, max(price) AS price_max, count(*) AS skus, max(image) AS image_url
+         FROM catalog WHERE code != '' GROUP BY code ORDER BY code`,
+      ).all<typeof rows[number]>();
+      productCache = { version, rows: results };
+    }
+    const needle = q.trim().toLowerCase();
+    rows = productCache.rows.filter((r) => !needle || r.code.toLowerCase().includes(needle) || r.name.toLowerCase().includes(needle)).slice(0, 300);
+  }
+  if (!rows.length) return [];
+  const [{ results: notes }, { results: images }] = await Promise.all([
+    db.prepare('SELECT code, selling_points, promo FROM product_notes WHERE code IN (SELECT value FROM json_each(?))').bind(JSON.stringify(rows.map((r) => r.code))).all<{ code: string; selling_points: string; promo: string }>(),
+    db.prepare('SELECT key, spu FROM catalog_images').all<{ key: string; spu: string }>(),
+  ]);
+  const note = new Map(notes.map((n) => [n.code, n]));
+  return rows.map((r) => ({
+    ...r, image_url: r.image_url || null,
+    selling_points: note.get(r.code)?.selling_points ?? '', promo: note.get(r.code)?.promo ?? '',
+    image_key: images.find((i) => i.spu === r.code || i.spu.startsWith(`${r.code}-`))?.key ?? null,
+  }));
 }
 
 export async function saveProductNote(db: D1Database, input: any, user: string): Promise<void> {
@@ -210,7 +235,7 @@ export function parseCaptions(text: string): { hook: string; text: string }[] {
 
 export async function generateCaptions(env: StudioEnv, code: string, n: number, user: string): Promise<{ batch: string; candidates: Candidate[]; tokens: { input: number; output: number } }> {
   if (!env.ANTHROPIC_API_KEY) throw new BadRequest('ยังไม่ได้ตั้ง ANTHROPIC_API_KEY');
-  const product = (await listProducts(env.DB, code)).find((p) => p.code === code);
+  const product = (await listProducts(env.DB, code, true))[0];
   if (!product) throw new BadRequest('ไม่พบรหัสสินค้านี้ในแคตตาล็อก');
   const count = Math.min(10, Math.max(2, n || 6));
   const p = await captionPrompt(env.DB, product, count);
@@ -251,7 +276,7 @@ export async function addImageCandidate(db: D1Database, form: FormData, user: st
 
 /** The prompt staff paste into ChatGPT for an image of this product in this style. */
 export async function imagePrompt(db: D1Database, code: string, styleId: number): Promise<string> {
-  const [product, card] = await Promise.all([listProducts(db, code).then((l) => l.find((p) => p.code === code)), db.prepare('SELECT * FROM style_cards WHERE id = ?').bind(styleId).first<StyleCard>()]);
+  const [product, card] = await Promise.all([listProducts(db, code, true).then((l) => l[0]), db.prepare('SELECT * FROM style_cards WHERE id = ?').bind(styleId).first<StyleCard>()]);
   if (!product) throw new BadRequest('ไม่พบรหัสสินค้านี้');
   if (!card) throw new BadRequest('ไม่พบสไตล์นี้');
   return [
