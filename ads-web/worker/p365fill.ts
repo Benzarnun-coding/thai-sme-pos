@@ -179,8 +179,12 @@ export function chatTotal(messages: ChatMessage[], until?: string): number | nul
 /** 501/1, 501/2, 501/3 ship through GoSell: their bills are named "GS-1234 …" so the team can pick them out (Benz 15 Oct). */
 export const GOSELL_CODES = /^501\/[123]$/;
 
-export function billName(no: number, firstSku: string | null, name: string, codes: string[] = []): string {
-  const wh = codes.length && codes.every((c) => GOSELL_CODES.test(c)) ? 'GS' : (firstSku ?? '').split('-')[1]?.toUpperCase() ?? '';
+/** GoSell SKUs that are sold out there: a bill with one of them goes the normal way, "PK-1234 …" (Mos, idea #9, 22 Oct). Take the SKU out when GoSell has it again. */
+export const GOSELL_OUT_OF_STOCK = ['5013-PK-BL-31'];
+
+export function billName(no: number, firstSku: string | null, name: string, codes: string[] = [], skus: (string | null)[] = []): string {
+  const goSell = codes.length > 0 && codes.every((c) => GOSELL_CODES.test(c)) && !skus.some((k) => k && GOSELL_OUT_OF_STOCK.includes(k));
+  const wh = goSell ? 'GS' : (firstSku ?? '').split('-')[1]?.toUpperCase() ?? '';
   const prefix = wh ? `${wh === 'CN' ? 'C' : wh}-${String(no).slice(-4)} ` : '';
   return `${prefix}${name.replace(/^[A-Z]{1,3}-\d{4}\s+/, '').trim()}`;
 }
@@ -325,7 +329,7 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   // GoSell models mixed with others in one bill: still one bill, but someone decides how it ships.
   if (lines.some((l) => GOSELL_CODES.test(l.code)) && !lines.every((l) => GOSELL_CODES.test(l.code))) warnings.push('บิลนี้มี 501/1–3 (ส่ง GoSell) ปนกับรุ่นอื่น — ตั้งชื่อเป็นคลังปกติ ช่วยดูว่าต้องแยกบิลไหม');
   // No recipient name in the chat: the customer's Facebook name (Page365's customer name) is used (Benz 15 Oct).
-  const bill_name = draft ? billName(draft.no, lines[0]?.sku ?? null, address?.name || draft.customer_name || '', lines.map((l) => l.code)) : null;
+  const bill_name = draft ? billName(draft.no, lines[0]?.sku ?? null, address?.name || draft.customer_name || '', lines.map((l) => l.code), lines.map((l) => l.sku)) : null;
   return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, shipping_id, shipping_option, subtotal, shipping, discount: Math.max(0, discount), total, chat_total, bill_name, address, problems, warnings, said, notes };
 }
 
@@ -367,7 +371,7 @@ export async function applyFill(env: FillEnv, note: { psid: string; at: string; 
     return { id: it.id, name: it.name, note: it.note, price: l.price ?? 0, quantity: l.qty, product_id: l.variant_id };
   });
   const a = plan.address ? { ...plan.address, street: cleanStreet(plan.address.street, [plan.address.name, added.customer_name ?? ''], plan.address.phone) } : null;
-  const name = billName(plan.order.no, plan.lines[0]?.sku ?? null, a?.name || added.customer_name || '', plan.lines.map((l) => l.code));
+  const name = billName(plan.order.no, plan.lines[0]?.sku ?? null, a?.name || added.customer_name || '', plan.lines.map((l) => l.code), plan.lines.map((l) => l.sku));
   const customer = a ? {
     customer_name: name,
     customer_phone: a.phone,
