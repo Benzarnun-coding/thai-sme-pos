@@ -45,6 +45,7 @@ const env = { P365_COOKIE: 'session=x' };
 
 test('plan: finds the customer\'s draft, prices from Page365, the promo gap as discount', async () => {
   fakePage365();
+  assert.equal(billName(21234, '5013-PK-BL-31', 'อาทิตย์', ['501/3'], ['5013-PK-BL-31']), 'PK-1234 อาทิตย์', '501/3 waist 31 is out at GoSell: PK bill');
   const plan = await planFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/1/2 30\ncod 448' });
   assert.equal(plan.order?.no, 29400);
   assert.deepEqual(plan.lines.map((l) => [l.sku, l.price, l.qty]), [['5011-PK-MD-30', 199, 1], ['5012-PK-NV-30', 199, 1]]);
