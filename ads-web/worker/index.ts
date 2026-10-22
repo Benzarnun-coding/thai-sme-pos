@@ -16,7 +16,7 @@ import {
 import { ECONOMICS_WINDOW, sectionMap, sectionTotals } from './engine.ts';
 import { MockMeta } from './mock.ts';
 import { DEFAULT_SECTION_ID, WEB_TAB, campaignEconomics, economics, profitRange, suggestProducts, type CampaignSetting, type Cod, type CostRow, type Economics, type Section } from './model.ts';
-import { capChanges, DUP_RAMP_TO, DUP_START_BUDGET, INCREASE_GAP_HOURS, MAX_COPY_OBJECTS, planRun, provenWinners, runAutomation, shopBreakeven, spaceIncreases, WINNER_MAX_BUDGET, zeroMetrics, type MetaLike } from './run.ts';
+import { capChanges, DUP_RAMP_TO, DUP_START_BUDGET, FREE_INCREASE_BELOW, INCREASE_GAP_HOURS, MAX_COPY_OBJECTS, planRun, provenWinners, runAutomation, shopBreakeven, spaceIncreases, WINNER_MAX_BUDGET, zeroMetrics, type MetaLike } from './run.ts';
 import { buildIdeas } from './ideas.ts';
 import { explainActual, explainDay, explainOrders } from './salesReport.ts';
 import { campaignDay } from './transactions.ts';
@@ -1524,7 +1524,7 @@ async function preview(env: Env) {
   const now = new Date();
   const { plan } = await planRun(env.DB, entities, (level, w) => data.insights(level, w), state, now, (w) => data.dailyAll(w));
   const [cs, be] = await Promise.all([loadCampaignSettings(env.DB), shopBreakeven(env.DB, settings, now)]);
-  spaceIncreases(plan.decisions, state, now, settings.guardrails.increase_gap_hours ?? INCREASE_GAP_HOURS);
+  spaceIncreases(plan.decisions, entities, state, now, settings.guardrails.increase_gap_hours ?? INCREASE_GAP_HOURS, settings.guardrails.free_increase_below ?? FREE_INCREASE_BELOW);
   const winners = provenWinners(entities, cs, be, settings.guardrails.winner_max_daily_budget ?? WINNER_MAX_BUDGET);
   capChanges(plan);
   const noop = { setStatus: async () => {}, setDailyBudget: async () => {} };

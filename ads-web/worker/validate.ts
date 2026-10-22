@@ -161,6 +161,7 @@ export function validateSettings(input: any, current: Settings): Settings {
     max_total_daily_budget: num(g.max_total_daily_budget, 'งบรวมสูงสุด/วัน', 1),
     ...(g.start_daily_budget === undefined ? {} : { start_daily_budget: num(g.start_daily_budget, 'งบเริ่มต้นแอดใหม่/วัน', 1) }),
     ...(g.winner_max_daily_budget === undefined ? {} : { winner_max_daily_budget: num(g.winner_max_daily_budget, 'งบสูงสุดต่อแคมเปญตัวชนะ 7 วัน', 1) }),
+    ...(g.free_increase_below === undefined ? {} : { free_increase_below: num(g.free_increase_below, 'งบที่ยังเพิ่มได้ทุกรอบ (ต่ำกว่า ฿)', 0) }),
     ...(g.increase_gap_hours === undefined ? {} : { increase_gap_hours: num(g.increase_gap_hours, 'เว้นระหว่างการเพิ่มงบ (ชม.)', 0, 336) }),
   };
   if (guardrails.min_daily_budget > guardrails.max_daily_budget) fail('งบต่ำสุด/วัน ต้องไม่มากกว่างบสูงสุด/วัน');

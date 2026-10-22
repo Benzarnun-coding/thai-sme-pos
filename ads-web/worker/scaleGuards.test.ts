@@ -12,8 +12,11 @@ const up = (id: string, rule = 'win-boost', pct = 20): Decision => ({
 test('one increase per 48 h whichever rule raised it; cuts and copies ramping are not held', () => {
   const ds = [up('a', 'win-up'), up('b'), up('c', 'win-cut', -20), up('d', 'dup-ramp'), up('e')];
   const state = { last_action: { 'win-boost:a': '2026-10-22T01:00:00Z', 'up:b': '2026-10-19T01:00:00Z', 'win-boost:c': '2026-10-22T01:00:00Z', 'up:d': '2026-10-22T01:00:00Z' } };
-  spaceIncreases(ds, state, now, 48);
-  assert.deepEqual(ds.map((d) => !!d.skipped_reason), [true, false, false, false, false]);
+  const es = ['a', 'b', 'c', 'd', 'e', 's'].map((id) => ({ level: 'campaign' as const, id, name: id, campaign_id: id, campaign_name: id, status: 'ACTIVE', daily_budget: id === 's' ? 400 : 1000, metrics: {} }));
+  ds.push(up('s'));
+  state.last_action['up:s' as keyof typeof state.last_action] = '2026-10-22T01:00:00Z';
+  spaceIncreases(ds, es, state, now, 48, 500);
+  assert.deepEqual(ds.map((d) => !!d.skipped_reason), [true, false, false, false, false, false]);
 });
 
 test('proven winners get the higher ceiling, others keep the normal one', async () => {

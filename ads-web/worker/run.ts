@@ -30,6 +30,8 @@ export const WINNER_MAX_BUDGET = 5000;
  * (Benz 2026-10-22). Rules judge 3-day ROAS: raised every 11 h, two thirds of that window was still the old budget.
  */
 export const INCREASE_GAP_HOURS = 48;
+/** Under this daily budget the gap doesn't apply: small budgets may rise every run (Benz 2026-10-22). */
+export const FREE_INCREASE_BELOW = 500;
 /** Rules that raised budgets before the `up:` state key existed, so the first run after the change still sees them. */
 const RAISE_RULES = ['win-boost', 'test-boost', 'win-up', 'test-up'];
 
@@ -94,7 +96,7 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
     report.moves = plan.moves;
     const [copies, cs, be] = await Promise.all([recentCopies(env.DB, now), loadCampaignSettings(env.DB), shopBreakeven(env.DB, settings, now)]);
     plan.decisions.push(...rampCopies(entities, copies, cs, plan.decisions, be, state, now));
-    spaceIncreases(plan.decisions, state, now, settings.guardrails.increase_gap_hours ?? INCREASE_GAP_HOURS);
+    spaceIncreases(plan.decisions, entities, state, now, settings.guardrails.increase_gap_hours ?? INCREASE_GAP_HOURS, settings.guardrails.free_increase_below ?? FREE_INCREASE_BELOW);
     const winners = provenWinners(entities, cs, be, settings.guardrails.winner_max_daily_budget ?? WINNER_MAX_BUDGET);
     if (winners.size) report.notes.push(`ตัวชนะ 7 วัน ${winners.size} แคมเปญ ใช้เพดานต่อแคมเปญ ${[...winners.values()][0].toLocaleString('th-TH')} แทน ${settings.guardrails.max_daily_budget.toLocaleString('th-TH')}`);
     capChanges(plan);
@@ -264,13 +266,18 @@ export function provenWinners(entities: Entity[], cs: Map<string, { stage_id: st
   return out;
 }
 
-/** One budget increase per campaign/ad set every `gapHours`, whichever stage rule asks (copies ramping are exempt). */
-export function spaceIncreases(decisions: Decision[], state: State, now: Date, gapHours: number): void {
+/**
+ * One budget increase per campaign/ad set every `gapHours`, whichever stage rule asks. Budgets under `freeBelow`
+ * (and copies ramping) rise as often as their rules allow: little money at stake, and they need data fast.
+ */
+export function spaceIncreases(decisions: Decision[], entities: Entity[], state: State, now: Date, gapHours: number, freeBelow: number): void {
+  const budget = new Map(entities.map((e) => [e.id, e.daily_budget]));
   for (const d of decisions) {
     if (d.skipped_reason || d.action.type !== 'budget_pct' || (d.action.pct ?? 0) <= 0 || d.rule_id === 'dup-ramp') continue;
+    if ((budget.get(d.entity.id) ?? Infinity) < freeBelow) continue;
     const last = Math.max(...['up', ...RAISE_RULES].map((r) => Date.parse(state.last_action[`${r}:${d.entity.id}`] ?? '') || 0));
     const hours = (now.getTime() - last) / 3_600_000;
-    if (hours < gapHours) d.skipped_reason = `เพิ่มงบไปแล้ว ${Math.floor(hours)} ชม.ก่อน — เว้น ${gapHours} ชม. ให้ ROAS สะท้อนงบใหม่ก่อน`;
+    if (hours < gapHours) d.skipped_reason = `เพิ่มงบไปแล้ว ${Math.floor(hours)} ชม.ก่อน — งบตั้งแต่ ${freeBelow} ขึ้นไปเว้น ${gapHours} ชม. ให้ ROAS สะท้อนงบใหม่ก่อน`;
   }
 }
 

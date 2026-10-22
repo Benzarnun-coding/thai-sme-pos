@@ -49,6 +49,8 @@ export interface Guardrails {
   winner_max_daily_budget?: number;
   /** ads-web: hours between two budget increases on one campaign/ad set, whichever rule raises it; unset = 48 */
   increase_gap_hours?: number;
+  /** ads-web: daily budgets under this skip increase_gap_hours; unset = 500 */
+  free_increase_below?: number;
 }
 
 export interface Scope {
