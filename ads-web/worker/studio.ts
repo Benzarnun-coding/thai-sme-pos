@@ -400,7 +400,7 @@ export async function importMetaPosts(db: D1Database, ads: ActiveAdPost[]): Prom
 export async function listMetaPosts(db: D1Database): Promise<MetaPost[]> {
   const { results } = await db.prepare(
     `SELECT key, story_id, message, image_url, permalink, post_read, ads, spend, impressions, purchases, purchase_value, messages, code, active,
-            full IS NOT NULL AS has_image, first_seen, fetched_at FROM meta_posts ORDER BY active DESC, spend DESC`,
+            coalesce(length(full), 0) AS has_image, first_seen, fetched_at FROM meta_posts ORDER BY active DESC, spend DESC`,
   ).all<Omit<MetaPost, 'ads'> & { ads: string }>();
   return results.map((r) => ({ ...r, ads: JSON.parse(r.ads || '[]') }));
 }

@@ -126,7 +126,7 @@ function StyleCardView({ card, busy, onChange, onDelete }: { card: StyleCard; bu
       {card.note && <p className="muted small">{card.note}</p>}
       <div className="row wrap">
         {card.refs.map((r) => (
-          <a key={r.id} href={`/api/studio/picture/ref/${r.id}?size=full`} target="_blank" rel="noreferrer" className="thumb"><img src={`/api/studio/picture/ref/${r.id}`} alt="" loading="lazy" /></a>
+          <a key={r.id} href={`/api/studio/picture/ref/${r.id}?size=full&v=2`} target="_blank" rel="noreferrer" className="thumb"><img src={`/api/studio/picture/ref/${r.id}?v=2`} alt="" loading="lazy" /></a>
         ))}
         <label className="thumb add">{up ? '…' : '+ รูป'}<input type="file" accept="image/*" multiple hidden disabled={up} onChange={(e) => upload(e.target.files)} /></label>
       </div>

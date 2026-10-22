@@ -95,6 +95,13 @@ function PostCard({ p, onChanged }: { p: MetaPost; onChanged: () => void }) {
   const [reason, setReason] = useState('');
   const [more, setMore] = useState(false);
   const roas = roasOf(p);
+  // has_image is the stored size: a new picture gets a new address, so a broken one the browser cached is never reused.
+  const pic = `/api/studio/meta-posts/picture?key=${encodeURIComponent(p.key)}&v=${p.has_image}`;
+  const [broken, setBroken] = useState<string | null>(null);
+  const why = async () => {
+    const r = await fetch(pic, { cache: 'no-store' }).catch(() => null);
+    setBroken(r ? `รูปเสีย (${r.status} ${r.headers.get('content-type') ?? ''} ${r.headers.get('content-length') ?? ''})` : 'โหลดรูปไม่ได้');
+  };
   const campaigns = [...new Map(p.ads.map((a) => [a.campaign_id, a.campaign_name])).values()];
   const addExample = async () => {
     try { await call('POST', '/api/studio/example', { text: p.message, liked: ex, reason: `${reason} (โพสต์จริง ROAS ${roas.toFixed(1)} ค่าแอด ${b(p.spend)})` }); toast('เพิ่มเป็นตัวอย่างแล้ว', 'ok'); setEx(null); setReason(''); }
@@ -102,7 +109,7 @@ function PostCard({ p, onChanged }: { p: MetaPost; onChanged: () => void }) {
   };
   return (
     <article className={`card post-card ${p.active ? '' : 'old'}`}>
-      {p.has_image ? <a href={`/api/studio/meta-posts/picture?key=${encodeURIComponent(p.key)}&size=full`} target="_blank" rel="noreferrer"><img src={`/api/studio/meta-posts/picture?key=${encodeURIComponent(p.key)}`} alt="" loading="lazy" /></a> : <div className="no-pic muted small">ไม่มีรูป</div>}
+      {p.has_image && !broken ? <a href={`${pic}&size=full`} target="_blank" rel="noreferrer"><img src={pic} alt="" loading="lazy" onError={why} /></a> : <div className="no-pic muted small">{broken ?? 'ไม่มีรูป'}</div>}
       <div className="row wrap small">
         <span className={`badge ${roas >= 3 ? 'ok' : roas < 2.3 && p.spend >= 500 ? 'warn' : ''}`}>ROAS {p.spend ? roas.toFixed(2) : '–'}</span>
         <span className="badge">฿{b(p.spend)}</span>

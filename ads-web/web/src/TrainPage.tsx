@@ -130,7 +130,7 @@ export function TrainApp() {
               {[pair.a, pair.b].map((c, i) => (
                 <article key={c.id} className="card cand">
                   <div className="row between"><span className="badge">{i === 0 ? 'A' : 'B'}{c.hook ? ` · ${m?.hooks[c.hook] ?? c.hook}` : ''}{c.style_id ? ` · ${m?.styles.find((s) => s.id === c.style_id)?.name ?? 'สไตล์'}` : ''}</span><span className="muted small">#{c.id}</span></div>
-                  {c.kind === 'image' ? <a href={`/api/studio/picture/cand/${c.id}?size=full`} target="_blank" rel="noreferrer"><img className="cand-img" src={`/api/studio/picture/cand/${c.id}?size=full`} alt="" /></a>
+                  {c.kind === 'image' ? <a href={`/api/studio/picture/cand/${c.id}?size=full&v=2`} target="_blank" rel="noreferrer"><img className="cand-img" src={`/api/studio/picture/cand/${c.id}?size=full&v=2`} alt="" /></a>
                     : edit?.id === c.id ? <textarea rows={6} value={edit.text} onChange={(e) => setEdit({ id: c.id, text: e.target.value })} /> : <p className="pre">{c.text}</p>}
                   {c.kind === 'caption' && (edit?.id === c.id ? <button className="ghost small" onClick={() => setEdit(null)}>ยกเลิกแก้</button> : <button className="ghost small" onClick={() => setEdit({ id: c.id, text: c.text ?? '' })}>✏️ แก้แล้วให้ผ่าน</button>)}
                   <button disabled={busy} onClick={() => decide(c.id, 'better')}>{edit?.id === c.id ? 'ผ่านฉบับที่แก้' : `${i === 0 ? 'A' : 'B'} ดีกว่า`}</button>
