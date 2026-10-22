@@ -112,6 +112,16 @@ export function TrainApp() {
       <header className="kb-head">
         <div className="row"><HomeLogo text="TR" /><h1>ห้องฝึก</h1></div>
         <p className="muted small">แคปชันในคู่อาจเป็นของ AI หรือโพสต์จริงที่ยิงแอดอยู่ (จาก <a href="/studio/posts">โพสต์ที่ยิงอยู่</a>) — ไม่บอกว่าอันไหนจนกว่าจะเลือก · AI เขียนแคปชันจาก <a href="/studio">วัตถุดิบ</a> · คนตัดสินทีละคู่ว่าอันไหนดีกว่า แล้วบอกเหตุผล 1 ปุ่ม · แก้ข้อความของตัวที่ชนะได้ (กลายเป็นตัวอย่างทอง) · ยังไม่มีอะไรไปถึง Meta</p>
+        <details className="card small howto">
+          <summary>วิธีใช้ (อ่านครั้งแรก)</summary>
+          <ol>
+            <li><b>แคปชัน:</b> เลือกสินค้า → "ให้ AI เขียนแคปชัน 6 แบบ" → ตัดสินคู่ด้านล่างทีละคู่</li>
+            <li><b>ภาพ:</b> เลือกสินค้า + สไตล์ → "ขอ prompt สำหรับ ChatGPT" → คัดลอกไปวางใน ChatGPT พร้อมแนบรูปสินค้าจริง (และรูปตัวอย่างสไตล์) → ได้ภาพแล้วกด "อัปโหลดภาพที่ได้" → ดูผลที่ AI ตรวจ</li>
+            <li><b>ตัดสิน:</b> กด "A ดีกว่า / B ดีกว่า" ถ้าตัวที่แพ้มีปัญหาชัด ๆ กดเหตุผลแทน (เช่น สินค้าเพี้ยน: A แพ้) · แคปชันที่เกือบดีให้กด "✏️ แก้แล้วให้ผ่าน"</li>
+            <li>บางคู่มีของจริงที่ยิงแอดอยู่ปนมา — เลือกตามที่คิดว่าดีจริง ๆ ระบบเฉลยหลังกด</li>
+            <li>ทำวันละ ~10 นาที (แคปชัน ~20 คู่ ภาพ ~10 คู่) · ของที่ผ่านไปประกอบเป็นโพสต์ที่ <a href="/studio/sets">ห้องจับคู่</a></li>
+          </ol>
+        </details>
         {stats && <p className="small">วันนี้ตัดสินแล้ว <b>{stats.today}</b> คู่ · รวม {stats.judged} · รอตัดสิน แคปชัน {stats.open.caption} / ภาพ {stats.open.image}{stats.agreement.pairs ? ` · กรรมการเห็นตรงกัน ${Math.round((stats.agreement.agreed / stats.agreement.pairs) * 100)}% (${stats.agreement.pairs} คู่)` : ''}</p>}
         {stats && <p className="small"><b>AI เทียบโพสต์จริงแบบปิดตา:</b> {stats.vs_real.pairs ? `AI ชนะ ${stats.vs_real.ai_wins}/${stats.vs_real.pairs} คู่ (${Math.round((stats.vs_real.ai_wins / stats.vs_real.pairs) * 100)}%)` : 'ยังไม่มี'} · คู่ที่มีโพสต์จริงจะถูกส่งมาก่อน ไม่บอกว่าอันไหนคือของจริงจนกว่าจะกดเลือก · เป้าก่อนให้ AI ทำงานจริง: ชนะ ≥ 50% จาก ≥ 40 คู่</p>}
         {stats && kind === 'image' && <p className="small"><b>ภาพใหม่เทียบภาพโพสต์จริงแบบปิดตา:</b> {stats.vs_real_img.pairs ? `ชนะ ${stats.vs_real_img.ai_wins}/${stats.vs_real_img.pairs} คู่ (${Math.round((stats.vs_real_img.ai_wins / stats.vs_real_img.pairs) * 100)}%)` : 'ยังไม่มี'} · เป้า ≥ 50% จาก ≥ 30 คู่{stats.held ? ` · กันไว้เพราะสินค้าเพี้ยน ${stats.held} ภาพ` : ''}</p>}

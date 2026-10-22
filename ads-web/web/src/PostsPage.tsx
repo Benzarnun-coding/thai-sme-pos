@@ -54,6 +54,8 @@ export function PostsApp() {
   const [pending, setPending] = useState<Pending | null>(null);
   // Every product code with its name, for the code boxes' suggestions (one shared list; read once).
   const [codes, setCodes] = useState<{ code: string; name: string }[]>([]);
+  const [dims, setDims] = useState<Dims>({});
+  useEffect(() => { call<{ dims: Dims }>('GET', '/api/studio/image-tags').then((r) => setDims(r.dims)).catch(() => null); }, []);
   useEffect(() => { call<{ products: { code: string; name: string }[] }>('GET', '/api/studio/products?limit=5000').then((r) => setCodes(r.products)).catch(() => null); }, []);
   useEffect(() => { call<{ pending: Pending | null }>('GET', '/api/studio/playbook/pending').then((r) => setPending(r.pending)).catch(() => null); }, []);
   const analyze = async () => {
@@ -107,14 +109,14 @@ export function PostsApp() {
         <p className="muted">ยังไม่มีข้อมูล — กด "ดึงโพสต์จากเพจ"</p>
       ) : (
         <div className="post-grid">
-          {shown.map((p) => <PostCard key={p.key} p={p} onChanged={load} codes={codes} />)}
+          {shown.map((p) => <PostCard key={p.key} p={p} onChanged={load} codes={codes} dims={dims} />)}
         </div>
       )}
     </div>
   );
 }
 
-function PostCard({ p, onChanged, codes }: { p: MetaPost; onChanged: () => void; codes: { code: string; name: string }[] }) {
+function PostCard({ p, onChanged, codes, dims }: { p: MetaPost; onChanged: () => void; codes: { code: string; name: string }[]; dims: Dims }) {
   const { toast } = useUi();
   const [code, setCode] = useState(p.code);
   const [ex, setEx] = useState<null | boolean>(null);
@@ -143,7 +145,7 @@ function PostCard({ p, onChanged, codes }: { p: MetaPost; onChanged: () => void;
         {p.messages > 0 && <span className="badge">{b(p.messages)} แชท</span>}
         {!p.active && <span className="badge warn">ไม่ได้ยิงแล้ว</span>}
         {!p.post_read && <span className="badge warn" title="อ่านตัวโพสต์ไม่ได้ ใช้ข้อความ/รูปจากแอดแทน">จากแอด</span>}
-        {p.tags && Object.values(JSON.parse(p.tags) as Record<string, string>).length > 0 && <span className="badge plain" title="ป้ายภาพจาก AI">🏷 {Object.entries(JSON.parse(p.tags) as Record<string, string>).filter(([d]) => d === 'subject' || d === 'text' || d === 'background').map(([, v]) => v).join(' · ')}</span>}
+        {p.tags && Object.values(JSON.parse(p.tags) as Record<string, string>).length > 0 && <span className="badge plain" title="ป้ายภาพจาก AI">🏷 {Object.entries(JSON.parse(p.tags) as Record<string, string>).filter(([d]) => d === 'subject' || d === 'text' || d === 'background').map(([d, v]) => dims[d]?.values[v] ?? v).join(' · ')}</span>}
       </div>
       <p className={`pre small ${more ? '' : 'clamp'}`} onClick={() => setMore((m) => !m)}>{p.message || <span className="muted">(ไม่มีข้อความ)</span>}</p>
       <p className="muted small">{campaigns.slice(0, 2).join(' · ')}{campaigns.length > 2 ? ` +${campaigns.length - 2}` : ''} · {p.ads.length} แอด{p.permalink ? <> · <a href={p.permalink} target="_blank" rel="noreferrer">เปิดโพสต์</a></> : ''}</p>
