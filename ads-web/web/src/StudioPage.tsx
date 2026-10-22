@@ -52,7 +52,7 @@ export function StudioApp() {
       <SiteNav current="/studio" />
       <header className="kb-head">
         <div className="row"><HomeLogo text="ST" /><h1>วัตถุดิบ — ห้องฝึก</h1></div>
-        <p className="muted small">สิ่งที่สอน AI เขียนแคปชันและทำภาพ: คู่มือ · สไตล์ภาพที่ชอบ · แคปชันตัวอย่าง · จุดขายต่อสินค้า — ของทั้งหมดนี้ใช้ใน <a href="/studio/train">ห้องฝึก</a> เท่านั้น ไม่ไปถึง Meta</p>
+        <p className="muted small">สิ่งที่สอน AI เขียนแคปชันและทำภาพ: คู่มือ · สไตล์ภาพที่ชอบ · แคปชันตัวอย่าง · จุดขายต่อสินค้า — ของทั้งหมดนี้ใช้ใน <a href="/studio/train">ห้องฝึก</a> เท่านั้น ไม่ไปถึง Meta · <a href="/studio-guide.pdf" target="_blank" rel="noreferrer">📖 คู่มือ (PDF)</a></p>
         {m && !m.ai && <p className="small warn">ยังไม่ได้ตั้ง ANTHROPIC_API_KEY — สร้างแคปชันไม่ได้ อัปโหลดวัตถุดิบได้</p>}
       </header>
 
