@@ -653,3 +653,83 @@ export async function checkImage(env: StudioEnv, id: number): Promise<ImageCheck
 export async function rejectCandidate(db: D1Database, id: number): Promise<void> {
   await db.prepare(`UPDATE creative_candidates SET status = 'rejected' WHERE id = ?`).bind(id).run();
 }
+
+// ---- ห้องจับคู่: passed caption × passed image of one product → a post ----
+
+export interface Passed { id: number; code: string; text: string | null; hook: string; style_id: number | null; wins: number; losses: number; edited: boolean; ai_check: string | null }
+
+/**
+ * What the judges passed for one product: captions (not real posts) that won more than they lost or that a judge
+ * edited, and images that won at least once, lost no more than they won and weren't failed by the AI's check.
+ * A caption's text is the latest judge edit when there is one.
+ */
+export async function passedFor(db: D1Database, code: string): Promise<{ captions: Passed[]; images: Passed[] }> {
+  const { results } = await db.prepare(
+    `SELECT c.id, c.kind, c.code, c.text, c.hook, c.style_id, c.ai_check,
+            (SELECT count(*) FROM creative_judgements j WHERE j.winner_id = c.id) AS wins,
+            (SELECT count(*) FROM creative_judgements j WHERE j.winner_id IS NOT NULL AND j.winner_id != c.id AND c.id IN (j.a_id, j.b_id)) AS losses,
+            (SELECT j.edited_text FROM creative_judgements j WHERE j.winner_id = c.id AND j.edited_text IS NOT NULL ORDER BY j.id DESC LIMIT 1) AS edited_text
+     FROM creative_candidates c WHERE c.code = ?1 AND c.status = 'open' AND c.hook != 'real'`,
+  ).bind(code).all<Passed & { kind: string; edited_text: string | null }>();
+  const captions = results.filter((c) => c.kind === 'caption' && (c.edited_text || c.wins > c.losses))
+    .map((c) => ({ ...c, text: c.edited_text ?? c.text, edited: !!c.edited_text }))
+    .sort((a, b) => Number(b.edited) - Number(a.edited) || b.wins - b.losses - (a.wins - a.losses));
+  const images = results.filter((c) => c.kind === 'image' && c.wins >= 1 && c.wins >= c.losses && (!c.ai_check || JSON.parse(c.ai_check).verdict !== 'fail'))
+    .map((c) => ({ ...c, edited: false })).sort((a, b) => b.wins - b.losses - (a.wins - a.losses));
+  return { captions, images };
+}
+
+/** Products that have at least one passed caption and one passed image (for the room's product list). */
+export async function readyProducts(db: D1Database): Promise<{ code: string; captions: number; images: number }[]> {
+  const { results } = await db.prepare(`SELECT DISTINCT c.code FROM creative_judgements j JOIN creative_candidates c ON c.id = j.winner_id WHERE c.hook != 'real'`).all<{ code: string }>();
+  const out: { code: string; captions: number; images: number }[] = [];
+  for (const { code } of results) {
+    const p = await passedFor(db, code);
+    if (p.captions.length || p.images.length) out.push({ code, captions: p.captions.length, images: p.images.length });
+  }
+  return out.sort((a, b) => Number(b.captions > 0 && b.images > 0) - Number(a.captions > 0 && a.images > 0) || a.code.localeCompare(b.code));
+}
+
+export interface PairCheck { match: boolean; issues: string; summary: string }
+
+/** Claude checks that the caption and the picture tell the same story: same product, same price/promo, no clash. */
+async function checkSet(env: StudioEnv, caption: string, imageId: number): Promise<PairCheck | null> {
+  if (!env.ANTHROPIC_API_KEY) return null;
+  const img = await env.DB.prepare('SELECT full, mime FROM creative_candidates WHERE id = ?').bind(imageId).first<{ full: ArrayBuffer | number[] | null; mime: string | null }>();
+  if (!img?.full || !img.mime) return null;
+  const out = await askClaude(env, 'คุณตรวจโพสต์โฆษณาของร้านยีนส์ไทยก่อนลง ตอบตามสิ่งที่เห็นเท่านั้น', [
+    imageBlock(img.full, img.mime),
+    { type: 'text', text: `แคปชันที่จะโพสต์คู่กับภาพนี้:\n${caption}\n\nภาพกับแคปชันไปด้วยกันไหม: สินค้าเดียวกัน ราคา/โปรบนภาพตรงกับในแคปชัน ไม่ขัดกัน ตอบ JSON เท่านั้น: {"match": true/false, "issues": "<สิ่งที่ขัดกัน หรือ ''>", "summary": "<1 ประโยค>"}` },
+  ], 4000, 'low');
+  const m = /\{[\s\S]*\}/.exec(out.text);
+  try { const x = JSON.parse(m?.[0] ?? ''); return { match: !!x.match, issues: cleanText(x.issues, 400), summary: cleanText(x.summary, 300) }; } catch { return null; }
+}
+
+export interface CreativeSet { id: number; code: string; caption_id: number; image_id: number; caption_text: string; ai_note: string | null; status: string; created_by: string; created_at: string; decided_by: string | null; decided_at: string | null }
+
+export async function createSet(env: StudioEnv, input: any, user: string): Promise<CreativeSet> {
+  const captionId = Number(input?.caption_id), imageId = Number(input?.image_id);
+  const [cap, img] = await Promise.all([
+    env.DB.prepare(`SELECT id, code, text FROM creative_candidates WHERE id = ? AND kind = 'caption'`).bind(captionId).first<{ id: number; code: string; text: string }>(),
+    env.DB.prepare(`SELECT id, code FROM creative_candidates WHERE id = ? AND kind = 'image'`).bind(imageId).first<{ id: number; code: string }>(),
+  ]);
+  if (!cap || !img) throw new BadRequest('เลือกแคปชันและภาพก่อน');
+  if (cap.code !== img.code) throw new BadRequest('แคปชันกับภาพต้องเป็นสินค้าเดียวกัน');
+  const text = cleanText(input?.caption_text, 3000) || cap.text;
+  const check = await checkSet(env, text, imageId).catch(() => null);
+  const r = await env.DB.prepare(
+    `INSERT INTO creative_sets (code, caption_id, image_id, caption_text, ai_note, created_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+     ON CONFLICT (caption_id, image_id) DO UPDATE SET caption_text = excluded.caption_text, ai_note = excluded.ai_note, status = 'draft', decided_by = NULL, decided_at = NULL
+     RETURNING *`,
+  ).bind(cap.code, captionId, imageId, text, check ? JSON.stringify(check) : null, user, now()).first<CreativeSet>();
+  return r!;
+}
+
+export async function listSets(db: D1Database): Promise<CreativeSet[]> {
+  return (await db.prepare(`SELECT * FROM creative_sets WHERE status != 'rejected' ORDER BY status = 'approved', id DESC LIMIT 200`).all<CreativeSet>()).results;
+}
+
+export async function decideSet(db: D1Database, id: number, status: unknown, user: string): Promise<void> {
+  if (status !== 'approved' && status !== 'rejected' && status !== 'draft') throw new BadRequest('สถานะไม่ถูกต้อง');
+  await db.prepare('UPDATE creative_sets SET status = ?2, decided_by = ?3, decided_at = ?4 WHERE id = ?1').bind(id, status, user, now()).run();
+}

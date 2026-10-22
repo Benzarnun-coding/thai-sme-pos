@@ -15,6 +15,7 @@ const PAGES = [
   ['/studio/posts', 'โพสต์ที่ยิงอยู่'],
   ['/studio', 'วัตถุดิบ'],
   ['/studio/train', 'ห้องฝึก'],
+  ['/studio/sets', 'ห้องจับคู่'],
 ] as const;
 
 export type SitePath = (typeof PAGES)[number][0];

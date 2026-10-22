@@ -1051,3 +1051,13 @@ tr:hover .po-label-btn { opacity: 1; }
 .studio .suggest { position: absolute; top: 100%; left: 0; z-index: 20; min-width: 260px; max-height: 260px; overflow: auto; margin: 4px 0 0; padding: 4px; list-style: none; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow-sm); }
 .studio .suggest li { padding: 6px 8px; border-radius: 6px; cursor: pointer; }
 .studio .suggest li:hover { background: var(--surface-2); }
+
+.studio .pick-list { display: grid; gap: 8px; max-height: 520px; overflow: auto; }
+.studio .pick { cursor: pointer; }
+.studio .pick.on, .studio .pick-img.on { outline: 2px solid var(--accent); }
+.studio .pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+.studio .pick-img { padding: 0; border-radius: 8px; overflow: hidden; aspect-ratio: 1; }
+.studio .pick-img img { width: 100%; height: 100%; object-fit: cover; }
+.studio .set-preview { display: grid; gap: 8px; margin-top: 12px; }
+.studio .fb-post { max-width: 480px; display: grid; gap: 8px; border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: var(--surface-2); }
+.studio .fb-post img { width: 100%; border-radius: 6px; }

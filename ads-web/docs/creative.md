@@ -44,6 +44,14 @@ While judging the AI's scores stay hidden; after the vote they're shown. The roo
 better-scored image was the judges' pick (`stats.ai_eye`) — high enough, and the AI can screen images instead of people.
 Product-code boxes on `/studio/posts` suggest codes + names as you type (`CodePicker`, list read once).
 
+### ห้องจับคู่ (`/studio/sets`, Benz 2026-10-22)
+
+`passedFor(code)`: captions (not real posts) that won more than they lost or that a judge edited (the edit is the
+text), and images with ≥ 1 win, no more losses than wins and no AI "fail". Products with something passed are listed
+(`readyProducts`). Pick one of each → preview as a post (caption editable) → "บันทึกเป็นชุดโพสต์": Claude checks the
+picture and caption agree (same product, same price/promo) → `creative_sets` (migration 0059) as draft → อนุมัติ /
+ไม่ใช้. Approved sets are what the ads side may take later; nothing is sent to Meta from here.
+
 ## Materials (`/studio` วัตถุดิบ)
 
 | Material | Where it lives | Notes |
