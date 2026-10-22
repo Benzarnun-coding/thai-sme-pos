@@ -1878,10 +1878,10 @@ async function copyWinner(env: Env, p: Proposal, d: { new_budget: number }, who:
   };
   try {
     const meta = metaFor(env);
-    const [settings, entities, ads] = await Promise.all([loadSettings(env.DB), meta.listEntities(), meta.adCount(p.entity_id)]);
+    const [settings, entities, objs] = await Promise.all([loadSettings(env.DB), meta.listEntities(), meta.copyObjectCount(p.entity_id)]);
     const total = sumBudget(entities), cap = settings.guardrails.max_total_daily_budget;
     if (total + d.new_budget > cap) return done('failed', `❌ คัดลอก "${p.entity_name}" ไม่ได้ค่ะ — งบรวมตอนนี้ ${total.toLocaleString('th-TH')} + ${d.new_budget} จะเกินเพดาน ${cap.toLocaleString('th-TH')} (ขยายเพดานก่อน หรือรอกฎลดตัวอื่น)`);
-    if (ads > 3) return done('failed', `❌ คัดลอก "${p.entity_name}" อัตโนมัติไม่ได้ค่ะ — มีโฆษณา ${ads} ชิ้น (Meta คัดลอกพร้อมกันได้ไม่เกิน 3) รบกวนคัดลอกใน Ads Manager แล้วตั้งงบ ${d.new_budget} นะคะ`);
+    if (objs.adsets + objs.ads > 3) return done('failed', `❌ คัดลอก "${p.entity_name}" อัตโนมัติไม่ได้ค่ะ — มีชุดโฆษณา ${objs.adsets} + โฆษณา ${objs.ads} = ${objs.adsets + objs.ads} ชิ้น (Meta คัดลอกพร้อมกันได้รวมไม่เกิน 3) รบกวนคัดลอกใน Ads Manager แล้วตั้งงบ ${d.new_budget} นะคะ`);
     const copy = await meta.copyCampaign(p.entity_id, ' (คัดลอก)');
     await meta.setDailyBudget(copy.id, d.new_budget);
     await meta.setStatus(copy.id, 'ACTIVE');

@@ -64,7 +64,7 @@ export class MetaClient {
     const res = await fetch(url);
     const body: any = await res.json();
     if (!res.ok || body.error) {
-      throw new Error(`Meta GET ${path}: ${body?.error?.message ?? res.statusText}`);
+      throw new Error(`Meta GET ${path}: ${metaError(body) || res.statusText}`);
     }
     return body as T;
   }
@@ -74,7 +74,7 @@ export class MetaClient {
     const res = await fetch(`${this.api}/${path}`, { method: 'POST', body: form });
     const body: any = await res.json();
     if (!res.ok || body.error) {
-      throw new Error(`Meta POST ${path}: ${body?.error?.message ?? res.statusText}`);
+      throw new Error(`Meta POST ${path}: ${metaError(body) || res.statusText}`);
     }
     return body;
   }
@@ -227,10 +227,16 @@ export class MetaClient {
     await this.post(id, { status });
   }
 
-  /** How many ads a campaign holds (a synchronous deep copy takes at most 3). */
-  async adCount(campaignId: string): Promise<number> {
-    const b = await this.get(`${campaignId}/ads`, { fields: 'id', limit: '10' });
-    return (b.data ?? []).length;
+  /**
+   * What a deep copy of the campaign would copy: its ad sets + ads. Meta copies at most 3 such objects in one
+   * synchronous call ("Invalid parameter" otherwise), so 1 ad set + 3 ads is already too many.
+   */
+  async copyObjectCount(campaignId: string): Promise<{ adsets: number; ads: number }> {
+    const [s, a] = await Promise.all([
+      this.get(`${campaignId}/adsets`, { fields: 'id', limit: '10' }),
+      this.get(`${campaignId}/ads`, { fields: 'id', limit: '10' }),
+    ]);
+    return { adsets: (s.data ?? []).length, ads: (a.data ?? []).length };
   }
 
   /**
@@ -252,6 +258,14 @@ export class MetaClient {
   async setDailyBudget(id: string, amount: number): Promise<void> {
     await this.post(id, { daily_budget: String(Math.round(amount * 100)) });
   }
+}
+
+/** Meta's "Invalid parameter" says little; the reason is in error_user_title/error_user_msg (and the subcode). */
+function metaError(body: any): string {
+  const e = body?.error;
+  if (!e) return '';
+  const extra = [e.error_user_title, e.error_user_msg].filter((x) => x && x !== e.message).join(': ');
+  return [e.message, extra, e.error_subcode ? `(subcode ${e.error_subcode})` : ''].filter(Boolean).join(' — ');
 }
 
 function num(v: unknown): number {

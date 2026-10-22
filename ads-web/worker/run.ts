@@ -3,7 +3,7 @@
 import { applyDecisions, sumBudget, type Mutator } from '../../ads-engine/src/apply.ts';
 import { formatReport, pushDiscord, pushLine } from '../../ads-engine/src/notify.ts';
 import type { CampaignDayRow, DailyRow, HourlyConversion } from '../../ads-engine/src/meta.ts';
-import type { Entity, Level, Metrics, RunReport, State, Window } from '../../ads-engine/src/types.ts';
+import type { Decision, Entity, Level, Metrics, RunReport, State, Window } from '../../ads-engine/src/types.ts';
 import { applyMoves, codOf, insertRun, loadCampaignSettings, loadCosts, loadSections, loadSettings, loadStages, loadState, saveState } from './db.ts';
 import { buildGroups, neededWindows, planDecisions, sectionMap, type MoveDecision, type Plan } from './engine.ts';
 import { loadOrders, orderFees } from './p365.ts';
@@ -13,6 +13,14 @@ import { approvalsEnabled, expireOld, postProposal, recentlyAsked, saveProposals
 /** Keeps a run well inside the Workers free plan's 50 outbound requests, and limits damage from a bad rule. */
 export const MAX_CHANGES_PER_RUN = 25;
 
+/** A copy made from a `dup` proposal starts here (Benz 2026-10-22: start at 50, then climb)... */
+export const DUP_START_BUDGET = 50;
+/** ...and climbs +20% per run (11 h apart) up to this, then only the testing stage's rules move it. */
+export const DUP_RAMP_TO = 1000;
+/** Spend under about one order's cost (CPA ~150) proves nothing yet, so the copy keeps climbing. */
+const DUP_RAMP_FREE_SPEND = 150;
+const DUP_RAMP_DAYS = 14;
+
 export interface MetaLike extends Mutator {
   accountName(): Promise<string>;
   listEntities(): Promise<Entity[]>;
@@ -20,7 +28,7 @@ export interface MetaLike extends Mutator {
   dailyInsights(campaignId: string, window: Window): Promise<DailyRow[]>;
   dailyCampaignInsights(window: Window): Promise<CampaignDayRow[]>;
   hourlyConversions(date: string): Promise<HourlyConversion[]>;
-  adCount(campaignId: string): Promise<number>;
+  copyObjectCount(campaignId: string): Promise<{ adsets: number; ads: number }>;
   copyCampaign(campaignId: string, suffix: string): Promise<{ id: string; children: string[] }>;
 }
 
@@ -72,6 +80,8 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
     report.totals.daily_budget_before = sumBudget(entities);
     report.notes.push(...plan.notes);
     report.moves = plan.moves;
+    const [copies, cs, be] = await Promise.all([recentCopies(env.DB, now), loadCampaignSettings(env.DB), shopBreakeven(env.DB, settings, now)]);
+    plan.decisions.push(...rampCopies(entities, copies, cs, plan.decisions, be, state, now));
     capChanges(plan);
     report.decisions = plan.decisions;
 
@@ -98,19 +108,15 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
       }
       // A winner sitting at the per-campaign cap and still well above break-even: offer a copy (new campaign at a
       // small budget) so it can grow without pushing the original past the cap. Once approved, not asked again for 7 days.
-      const be = await shopBreakeven(env.DB, settings, now);
       if (be) {
-        const [cs, done] = await Promise.all([
-          loadCampaignSettings(env.DB),
-          env.DB.prepare(`SELECT entity_id FROM proposals WHERE kind = 'dup' AND status = 'approved' AND decided_at >= ?`).bind(new Date(now.getTime() - 7 * 86_400_000).toISOString()).all<{ entity_id: string }>().then((r) => new Set(r.results.map((x) => x.entity_id))).catch(() => new Set<string>()),
-        ]);
+        const done = await env.DB.prepare(`SELECT entity_id FROM proposals WHERE kind = 'dup' AND status = 'approved' AND decided_at >= ?`).bind(new Date(now.getTime() - 7 * 86_400_000).toISOString()).all<{ entity_id: string }>().then((r) => new Set(r.results.map((x) => x.entity_id))).catch(() => new Set<string>());
         for (const c of entities) {
           const m = c.metrics.last_3d;
           if (c.level !== 'campaign' || c.status !== 'ACTIVE' || !m || c.daily_budget === null || done.has(c.id)) continue;
           if (cs.get(c.id)?.stage_id !== 'winning' || c.daily_budget < settings.guardrails.max_daily_budget * 0.9) continue;
           if (m.roas < be * 1.5 || m.purchases < 10) continue;
           hold('dup', c.id, c.name, 'dup-winner', `ROAS 3 วัน ${m.roas.toFixed(2)} ≥ 1.5× คุ้มทุน ${be.toFixed(2)} และงบชนเพดาน ${c.daily_budget}`,
-            { level: 'campaign', budget: c.daily_budget, new_budget: Math.min(1000, settings.guardrails.max_daily_budget), roas: m.roas, breakeven: be, purchases: m.purchases, actual });
+            { level: 'campaign', budget: c.daily_budget, new_budget: Math.max(DUP_START_BUDGET, settings.guardrails.min_daily_budget), roas: m.roas, breakeven: be, purchases: m.purchases, actual });
         }
       }
       await saveProposals(env.DB, proposals);
@@ -191,6 +197,39 @@ async function shopBreakeven(db: D1Database, settings: Awaited<ReturnType<typeof
   const revenue = orders.reduce((t, o) => t + o.total, 0);
   const gross = orders.reduce((t, o) => t + o.total - (o.cost ?? 0) - orderFees(o, settings.order_fees), 0);
   return revenue > 0 && gross > 0 ? revenue / gross : null;
+}
+
+/** Campaigns made by an approved copy in the last DUP_RAMP_DAYS (ids from the audit log). */
+async function recentCopies(db: D1Database, now: Date): Promise<Set<string>> {
+  const since = new Date(now.getTime() - DUP_RAMP_DAYS * 86_400_000).toISOString();
+  const { results } = await db.prepare(`SELECT detail ->> '$.copy' AS id FROM audit WHERE action = 'campaign.copy' AND at >= ?`).bind(since)
+    .all<{ id: string | null }>().catch(() => ({ results: [] as { id: string | null }[] }));
+  return new Set(results.map((r) => r.id).filter((id): id is string => !!id));
+}
+
+/**
+ * Copies climb from DUP_START_BUDGET by +20% a run while they pay: real 3-day ROAS ≥ the shop's break-even, or
+ * spend still under one order's cost. Only while the copy is active, still in "testing" (moved elsewhere = a person
+ * took over), under DUP_RAMP_TO, and no stage rule acted on it this run. Guardrails and the total cap still apply.
+ */
+export function rampCopies(entities: Entity[], copies: Set<string>, cs: Map<string, { stage_id: string | null }>, decisions: Decision[], be: number | null, state: State, now: Date): (Decision & { group: string })[] {
+  const out: (Decision & { group: string })[] = [];
+  for (const c of entities) {
+    if (c.level !== 'campaign' || !copies.has(c.id) || c.status !== 'ACTIVE' || c.daily_budget === null || c.daily_budget >= DUP_RAMP_TO) continue;
+    if (cs.get(c.id)?.stage_id !== 'testing' || decisions.some((d) => d.entity.id === c.id && !d.skipped_reason)) continue;
+    const last = state.last_action[`dup-ramp:${c.id}`];
+    if (last && now.getTime() - Date.parse(last) < 11 * 3_600_000) continue;
+    const m = c.metrics.last_3d ?? zeroMetrics();
+    const early = m.spend < DUP_RAMP_FREE_SPEND;
+    if (!early && (be === null || m.roas < be)) continue;
+    const pct = Math.round(Math.min(20, (DUP_RAMP_TO / c.daily_budget - 1) * 100));
+    out.push({
+      rule_id: 'dup-ramp', group: 'ตัวคัดลอก', entity: { level: 'campaign', id: c.id, name: c.name, campaign_name: c.campaign_name }, window: 'last_3d', metric: 'roas',
+      observed: m.roas, threshold: be ?? 0, action: { type: 'budget_pct', pct },
+      plan: `ตัวคัดลอกไต่งบ +${pct}% (${c.daily_budget} → ~${Math.round(c.daily_budget * (1 + pct / 100))}, เป้า ${DUP_RAMP_TO}) — ${early ? `ใช้เงิน 3 วัน ${Math.round(m.spend)} ยังไม่ถึง ${DUP_RAMP_FREE_SPEND}` : `ROAS 3 วัน ${m.roas.toFixed(2)} ≥ คุ้มทุน ${be!.toFixed(2)}`}: ${c.name}`,
+    });
+  }
+  return out;
 }
 
 /** Marks everything past MAX_CHANGES_PER_RUN as skipped. */
