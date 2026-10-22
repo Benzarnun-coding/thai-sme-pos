@@ -30,6 +30,12 @@ test('valid Access token → email', async () => {
   assert.equal(await authenticate(req(await token(good)), env), 'benz@example.com');
 });
 
+test('Access service token (no email) → service:<client id>; still refused for another app', async () => {
+  const { email: _e, ...svc } = good;
+  assert.equal(await authenticate(req(await token({ ...svc, common_name: 'abc.access' })), env), 'service:abc.access');
+  assert.equal(await authenticate(req(await token({ ...svc, common_name: 'abc.access', aud: ['other'] })), env), null);
+});
+
 test('refuses missing, expired, wrong audience, wrong issuer, unknown key and tampered tokens', async () => {
   assert.equal(await authenticate(req(), env), null);
   assert.equal(await authenticate(req(await token({ ...good, exp: Math.floor(Date.now() / 1000) - 1 })), env), null);

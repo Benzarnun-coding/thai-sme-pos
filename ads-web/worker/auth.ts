@@ -24,7 +24,7 @@ export async function authenticate(req: Request, env: AuthEnv): Promise<string |
   if (parts.length !== 3) return null;
   const [h, p, s] = parts;
   let header: { kid?: string; alg?: string };
-  let payload: { aud?: string | string[]; exp?: number; iss?: string; email?: string };
+  let payload: { aud?: string | string[]; exp?: number; iss?: string; email?: string; common_name?: string };
   try {
     header = JSON.parse(b64urlText(h));
     payload = JSON.parse(b64urlText(p));
@@ -43,7 +43,11 @@ export async function authenticate(req: Request, env: AuthEnv): Promise<string |
   if (!aud.includes(env.ACCESS_AUD)) return null;
   if (!payload.exp || payload.exp * 1000 < Date.now()) return null;
   if (payload.iss !== team) return null;
-  return payload.email ?? 'unknown';
+  if (payload.email) return payload.email;
+  // An Access service token (no person; Benz 2026-10-22: Claude's read-only look at production). Only tokens the
+  // Access policy lets in get a JWT for this aud. index.ts refuses every write from a `service:` principal.
+  if (payload.common_name) return `service:${payload.common_name}`;
+  return 'unknown';
 }
 
 async function certs(url: string): Promise<Jwk[]> {

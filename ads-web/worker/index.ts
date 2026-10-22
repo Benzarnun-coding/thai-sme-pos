@@ -165,6 +165,7 @@ export default {
     // What this person may change: owners from the var, then the users table, then the old cost-editor list.
     const [users, settings] = await Promise.all([roleMap(env.DB).catch(() => new Map()), loadSettings(env.DB).catch(() => ({ cost_editors: [] as string[] }))]);
     const role = roleOf(user, ownerEmails(env), users, settings.cost_editors);
+    if (user.startsWith('service:') && req.method !== 'GET') return json({ error: 'service token: read only' }, 403);
     if (!canWrite(role, req.method, url.pathname)) {
       return json({ error: role === 'viewer' ? 'บัญชีนี้ดูได้อย่างเดียว — ให้เจ้าของเพิ่มสิทธิ์ในหน้า ผู้ใช้' : role === 'costs' ? 'บัญชีนี้แก้ได้เฉพาะต้นทุน — ให้เจ้าของเพิ่มสิทธิ์ในหน้า ผู้ใช้' : 'เฉพาะเจ้าของเท่านั้นที่จัดการผู้ใช้ได้' }, 403);
     }
@@ -226,6 +227,11 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   let m: RegExpMatchArray | null;
 
   if (method === 'GET' && path === '/api/me') return json({ email: user, role, mock: env.DEV_MOCK_META === 'true' });
+  // Read-only SQL for looking into production (the Access service token, or an owner): one SELECT, ≤ 500 rows.
+  if (method === 'GET' && path === '/api/debug/sql') {
+    if (!user.startsWith('service:') && role !== 'owner') return json({ error: 'owner or service token only' }, 403);
+    return json(await readOnlyQuery(env.DB, url.searchParams.get('q') ?? ''));
+  }
 
   // ---- users (owners only for writes; roles.ts enforces it) ----
   if (path === '/api/users' && method === 'GET') {
@@ -2132,6 +2138,25 @@ async function syncIfConfigured(env: Env, actor: string): Promise<{ ok: boolean;
   } catch (err: any) {
     return { ok: false, error: err?.message ?? String(err) };
   }
+}
+
+/** One read-only statement: SELECT/WITH only, no word that writes (outside quotes), no second statement; ≤ 500 rows. */
+export function readOnlySql(q: string): string {
+  const sql = q.trim().replace(/;\s*$/, '');
+  if (!sql) throw new BadRequest('ไม่มีคำสั่ง');
+  if (sql.includes(';')) throw new BadRequest('ได้คำสั่งเดียว');
+  if (!/^(select|with)\b/i.test(sql)) throw new BadRequest('SELECT / WITH เท่านั้น');
+  if (/\b(insert|update|delete|replace|drop|alter|create|attach|detach|pragma|vacuum|reindex)\b/i.test(sql.replace(/'(?:[^']|'')*'/g, "''"))) {
+    throw new BadRequest('คำสั่งนี้เขียนข้อมูลได้ — ไม่อนุญาต');
+  }
+  return `SELECT * FROM (${sql}) LIMIT 500`;
+}
+
+async function readOnlyQuery(db: D1Database, q: string): Promise<{ rows: unknown[]; rows_read: number }> {
+  const r = await db.prepare(readOnlySql(q)).all();
+  // BLOBs come back as long number arrays: show their size instead.
+  const rows = r.results.map((row: any) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, Array.isArray(v) ? `<blob ${v.length} bytes>` : v instanceof ArrayBuffer ? `<blob ${v.byteLength} bytes>` : v])));
+  return { rows, rows_read: (r.meta as any)?.rows_read ?? 0 };
 }
 
 function json(data: unknown, status = 200): Response {

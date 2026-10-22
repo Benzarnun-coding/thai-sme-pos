@@ -48,3 +48,27 @@ git push origin origin/ads-web:refs/heads/claude/deploy/ads-web
 
 It checks the commit is exactly `ads-web`'s head, runs tests + typecheck, applies pending D1 migrations, deploys and
 deletes the trigger branch. Worker secrets are not set there; a person sets those with `wrangler secret put`.
+
+## Looking at production from a cloud session (read only, Benz 2026-10-22)
+
+A Cloudflare Access **service token** lets a session read the live site without a person's login. The Worker turns
+it into the principal `service:<client id>` (`worker/auth.ts`) and refuses every non-GET request from it
+(`worker/index.ts`), so it can read every `/api` GET and run one SELECT at a time:
+
+```bash
+curl -s -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+  --get --data-urlencode "q=SELECT count(*) n FROM meta_posts" https://pkjeans-ads.ads-web.workers.dev/api/debug/sql
+```
+
+`/api/debug/sql` takes SELECT/WITH only (no write keywords, one statement, ≤ 500 rows, BLOBs shown as their size);
+owners may call it too. Set up once (Benz):
+
+1. Zero Trust → Access → Service Auth → Service Tokens → Create, name `claude-readonly` (duration: e.g. 1 year).
+   Copy the Client ID and Client Secret (the secret is shown once).
+2. Access → Applications → the pkjeans-ads application → Policies → Add a policy: Action **Service Auth**,
+   Include → Service Token → `claude-readonly`. Not on the GoSell or webhook applications.
+3. claude.ai/code → the environment → environment variables `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`;
+   new sessions pick them up.
+
+Revoke: delete the token in step 1. The token reads everything the dashboard shows, including redacted chat text,
+so keep the environment personal.
