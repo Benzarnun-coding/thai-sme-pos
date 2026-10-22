@@ -200,7 +200,7 @@ export class MockMeta {
     this.find(id).status = status;
   }
 
-  async copyObjectCount(): Promise<{ adsets: number; ads: number }> { return { adsets: 1, ads: 1 }; }
+  async copyObjects(): Promise<{ adsets: string[]; ads: { id: string; adset_id: string }[] }> { return { adsets: ['1'], ads: [{ id: '2', adset_id: '1' }] }; }
   async copyCampaign(): Promise<{ id: string; children: string[] }> { throw new Error('คัดลอกแคมเปญไม่ได้ในโหมดจำลอง'); }
 
   async setDailyBudget(id: string, amount: number): Promise<void> {

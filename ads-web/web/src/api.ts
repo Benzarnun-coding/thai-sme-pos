@@ -109,7 +109,7 @@ export interface CampaignView extends EntityView {
   adsets: EntityView[];
 }
 
-export interface Guardrails { max_change_pct_per_run: number; min_daily_budget: number; max_daily_budget: number; max_total_daily_budget: number }
+export interface Guardrails { max_change_pct_per_run: number; min_daily_budget: number; max_daily_budget: number; max_total_daily_budget: number; start_daily_budget?: number }
 
 export interface OverviewActual { dates: number; covered: number; revenue: number; orders: number; units: number; cost: number; fees: number; gross: number; ads: number; net: number; organic_revenue: number; organic_orders: number }
 

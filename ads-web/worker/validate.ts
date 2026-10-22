@@ -159,8 +159,10 @@ export function validateSettings(input: any, current: Settings): Settings {
     min_daily_budget: num(g.min_daily_budget, 'งบต่ำสุด/วัน', 1),
     max_daily_budget: num(g.max_daily_budget, 'งบสูงสุด/วัน', 1),
     max_total_daily_budget: num(g.max_total_daily_budget, 'งบรวมสูงสุด/วัน', 1),
+    ...(g.start_daily_budget === undefined ? {} : { start_daily_budget: num(g.start_daily_budget, 'งบเริ่มต้นแอดใหม่/วัน', 1) }),
   };
   if (guardrails.min_daily_budget > guardrails.max_daily_budget) fail('งบต่ำสุด/วัน ต้องไม่มากกว่างบสูงสุด/วัน');
+  if (guardrails.start_daily_budget !== undefined && (guardrails.start_daily_budget < guardrails.min_daily_budget || guardrails.start_daily_budget > guardrails.max_daily_budget)) fail('งบเริ่มต้นแอดใหม่ต้องอยู่ระหว่างงบต่ำสุดกับงบสูงสุดต่อแคมเปญ');
   const tabs = Array.isArray(input?.sheet_tabs) ? input.sheet_tabs.map((t: unknown) => String(t).trim()).filter(Boolean) : current.sheet_tabs;
   if (tabs.length > 30) fail('แท็บได้ไม่เกิน 30 แท็บ');
   if (tabs.includes(WEB_TAB)) fail(`ชื่อแท็บ ${WEB_TAB} สงวนไว้สำหรับต้นทุนที่กรอกในเว็บ`);

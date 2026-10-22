@@ -227,31 +227,44 @@ export class MetaClient {
     await this.post(id, { status });
   }
 
-  /**
-   * What a deep copy of the campaign would copy: its ad sets + ads. Meta copies at most 3 such objects in one
-   * synchronous call ("Invalid parameter" otherwise), so 1 ad set + 3 ads is already too many.
-   */
-  async copyObjectCount(campaignId: string): Promise<{ adsets: number; ads: number }> {
+  /** The campaign's switched-on ad sets and ads: what copyCampaign copies. */
+  async copyObjects(campaignId: string): Promise<{ adsets: string[]; ads: { id: string; adset_id: string }[] }> {
     const [s, a] = await Promise.all([
-      this.get(`${campaignId}/adsets`, { fields: 'id', limit: '10' }),
-      this.get(`${campaignId}/ads`, { fields: 'id', limit: '10' }),
+      this.getAll(`${campaignId}/adsets`, { fields: 'id,status', limit: '50' }),
+      this.getAll(`${campaignId}/ads`, { fields: 'id,status,adset_id', limit: '100' }),
     ]);
-    return { adsets: (s.data ?? []).length, ads: (a.data ?? []).length };
+    const adsets = s.filter((x: any) => x.status === 'ACTIVE').map((x: any) => String(x.id));
+    const ads = a.filter((x: any) => x.status === 'ACTIVE' && adsets.includes(String(x.adset_id))).map((x: any) => ({ id: String(x.id), adset_id: String(x.adset_id) }));
+    return { adsets, ads };
   }
 
   /**
-   * Deep copy of a campaign (ad sets + ads), everything PAUSED so the caller can set the budget before anything
-   * spends; returns the new campaign id and the ids of every copied ad set and ad (to switch on afterwards).
+   * Copy of a campaign with its switched-on ad sets and ads, everything PAUSED so the caller can set the budget before
+   * anything spends; returns the new campaign id and the ids of every copied ad set and ad (to switch on afterwards).
+   * Copied one object at a time: Meta's one-call deep copy takes at most 3 objects and answers "Invalid parameter"
+   * above that (22 Oct 2026, the 801 campaign).
    */
   async copyCampaign(campaignId: string, suffix: string): Promise<{ id: string; children: string[] }> {
-    const b = await this.post(`${campaignId}/copies`, {
-      deep_copy: 'true',
+    const { adsets, ads } = await this.copyObjects(campaignId);
+    const c = await this.post(`${campaignId}/copies`, {
+      deep_copy: 'false',
       status_option: 'PAUSED',
       rename_options: JSON.stringify({ rename_strategy: 'ONLY_TOP_LEVEL_RENAME', rename_suffix: suffix }),
     });
-    if (!b.copied_campaign_id) throw new Error('Meta ไม่ได้ส่ง id แคมเปญใหม่กลับมา');
-    const children = (b.ad_object_ids ?? []).filter((o: any) => o.ad_object_type === 'ad_set' || o.ad_object_type === 'ad').map((o: any) => String(o.copied_id));
-    return { id: String(b.copied_campaign_id), children };
+    if (!c.copied_campaign_id) throw new Error('Meta ไม่ได้ส่ง id แคมเปญใหม่กลับมา');
+    const id = String(c.copied_campaign_id);
+    const children: string[] = [];
+    for (const adset of adsets) {
+      const s = await this.post(`${adset}/copies`, { campaign_id: id, deep_copy: 'false', status_option: 'PAUSED' });
+      if (!s.copied_adset_id) throw new Error(`Meta ไม่ได้ส่ง id ชุดโฆษณาใหม่กลับมา (แคมเปญใหม่ ${id})`);
+      children.push(String(s.copied_adset_id));
+      for (const ad of ads.filter((x) => x.adset_id === adset)) {
+        const n = await this.post(`${ad.id}/copies`, { adset_id: String(s.copied_adset_id), status_option: 'PAUSED' });
+        if (!n.copied_ad_id) throw new Error(`Meta ไม่ได้ส่ง id โฆษณาใหม่กลับมา (แคมเปญใหม่ ${id})`);
+        children.push(String(n.copied_ad_id));
+      }
+    }
+    return { id, children };
   }
 
   /** amount in account currency; Meta wants minor units */

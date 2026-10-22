@@ -65,7 +65,9 @@ export function SettingsPage({ costsLoaded, campaignNames, onSaved }: { costsLoa
           <label>งบรวมทุกแคมเปญสูงสุด/วัน (฿)<input type="number" value={g.max_total_daily_budget} onChange={(e) => setG('max_total_daily_budget', Number(e.target.value))} /></label>
           <label>งบต่ำสุดต่อแคมเปญ/วัน (฿)<input type="number" value={g.min_daily_budget} onChange={(e) => setG('min_daily_budget', Number(e.target.value))} /></label>
           <label>งบสูงสุดต่อแคมเปญ/วัน (฿)<input type="number" value={g.max_daily_budget} onChange={(e) => setG('max_daily_budget', Number(e.target.value))} /></label>
+          <label>งบเริ่มต้นตอนเปิดแอดใหม่/วัน (฿)<input type="number" value={g.start_daily_budget ?? 50} onChange={(e) => setG('start_daily_budget', Number(e.target.value))} /></label>
         </div>
+        <p className="muted small">แอดใหม่ที่ระบบเปิดให้ (ตัวคัดลอกจากปุ่ม "คัดลอกเลย") เริ่มที่งบนี้ แล้วไต่ +20% ทุกรอบ (08:00/20:00) ถ้า ROAS จริง 3 วันยังคุ้มทุน จนถึง 1,000/วัน แล้วให้กฎกลุ่มทดสอบดูแลต่อ</p>
       </section>
 
       <section className="card">

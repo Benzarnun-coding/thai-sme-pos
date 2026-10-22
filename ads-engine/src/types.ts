@@ -43,6 +43,8 @@ export interface Guardrails {
   max_daily_budget: number;
   /** Sum of all daily budgets in scope may never exceed this after a run */
   max_total_daily_budget: number;
+  /** ads-web: daily budget a new campaign (an approved copy) starts at before it climbs; unset = 50 */
+  start_daily_budget?: number;
 }
 
 export interface Scope {

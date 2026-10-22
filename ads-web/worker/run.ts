@@ -13,13 +13,15 @@ import { approvalsEnabled, expireOld, postProposal, recentlyAsked, saveProposals
 /** Keeps a run well inside the Workers free plan's 50 outbound requests, and limits damage from a bad rule. */
 export const MAX_CHANGES_PER_RUN = 25;
 
-/** A copy made from a `dup` proposal starts here (Benz 2026-10-22: start at 50, then climb)... */
+/** A copy made from a `dup` proposal starts here unless Settings has guardrails.start_daily_budget (Benz 2026-10-22: start at 50, then climb)... */
 export const DUP_START_BUDGET = 50;
 /** ...and climbs +20% per run (11 h apart) up to this, then only the testing stage's rules move it. */
 export const DUP_RAMP_TO = 1000;
 /** Spend under about one order's cost (CPA ~150) proves nothing yet, so the copy keeps climbing. */
 const DUP_RAMP_FREE_SPEND = 150;
 const DUP_RAMP_DAYS = 14;
+/** Ad sets + ads a copy may hold: each is copied, then switched on, one Meta call each, inside the free plan's 50 per request. */
+export const MAX_COPY_OBJECTS = 15;
 
 export interface MetaLike extends Mutator {
   accountName(): Promise<string>;
@@ -28,7 +30,7 @@ export interface MetaLike extends Mutator {
   dailyInsights(campaignId: string, window: Window): Promise<DailyRow[]>;
   dailyCampaignInsights(window: Window): Promise<CampaignDayRow[]>;
   hourlyConversions(date: string): Promise<HourlyConversion[]>;
-  copyObjectCount(campaignId: string): Promise<{ adsets: number; ads: number }>;
+  copyObjects(campaignId: string): Promise<{ adsets: string[]; ads: { id: string; adset_id: string }[] }>;
   copyCampaign(campaignId: string, suffix: string): Promise<{ id: string; children: string[] }>;
 }
 
@@ -116,7 +118,7 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
           if (cs.get(c.id)?.stage_id !== 'winning' || c.daily_budget < settings.guardrails.max_daily_budget * 0.9) continue;
           if (m.roas < be * 1.5 || m.purchases < 10) continue;
           hold('dup', c.id, c.name, 'dup-winner', `ROAS 3 วัน ${m.roas.toFixed(2)} ≥ 1.5× คุ้มทุน ${be.toFixed(2)} และงบชนเพดาน ${c.daily_budget}`,
-            { level: 'campaign', budget: c.daily_budget, new_budget: Math.max(DUP_START_BUDGET, settings.guardrails.min_daily_budget), roas: m.roas, breakeven: be, purchases: m.purchases, actual });
+            { level: 'campaign', budget: c.daily_budget, new_budget: Math.max(settings.guardrails.start_daily_budget ?? DUP_START_BUDGET, settings.guardrails.min_daily_budget), roas: m.roas, breakeven: be, purchases: m.purchases, actual });
         }
       }
       await saveProposals(env.DB, proposals);

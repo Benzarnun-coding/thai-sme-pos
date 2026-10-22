@@ -16,7 +16,7 @@ import {
 import { ECONOMICS_WINDOW, sectionMap, sectionTotals } from './engine.ts';
 import { MockMeta } from './mock.ts';
 import { DEFAULT_SECTION_ID, WEB_TAB, campaignEconomics, economics, profitRange, suggestProducts, type CampaignSetting, type Cod, type CostRow, type Economics, type Section } from './model.ts';
-import { capChanges, planRun, runAutomation, zeroMetrics, type MetaLike } from './run.ts';
+import { capChanges, DUP_RAMP_TO, DUP_START_BUDGET, MAX_COPY_OBJECTS, planRun, runAutomation, zeroMetrics, type MetaLike } from './run.ts';
 import { buildIdeas } from './ideas.ts';
 import { explainActual, explainDay, explainOrders } from './salesReport.ts';
 import { campaignDay } from './transactions.ts';
@@ -1872,27 +1872,33 @@ function parseView(w: string | null): Window {
  * Copies a winning campaign: checks the shop-wide cap and the ad count first, copies everything paused, sets the
  * copy's budget, then switches it on and puts it in the "testing" stage. Reports back by editing the question.
  */
-async function copyWinner(env: Env, p: Proposal, d: { new_budget: number }, who: string): Promise<void> {
+async function copyWinner(env: Env, p: Proposal, who: string): Promise<void> {
+  // A failed copy keeps a "try again" button (approvers only), e.g. after Meta refused it or the cap was full.
+  const retry = [{ type: 1, components: [{ type: 2, style: 1, label: '🔁 ลองคัดลอกใหม่', custom_id: `dupretry:${p.id}` }] }];
   const done = async (status: string, content: string) => {
     await env.DB.prepare('UPDATE proposals SET status = ? WHERE id = ?').bind(status, p.id).run();
-    if (p.message_id) await editMessage(env, p.message_id, content);
+    if (p.message_id) await editMessage(env, p.message_id, content, status === 'failed' ? retry : []);
   };
   try {
     const meta = metaFor(env);
-    const [settings, entities, objs] = await Promise.all([loadSettings(env.DB), meta.listEntities(), meta.copyObjectCount(p.entity_id)]);
+    const [settings, entities, objs] = await Promise.all([loadSettings(env.DB), meta.listEntities(), meta.copyObjects(p.entity_id)]);
+    // The start budget is read now (Settings), not from the question, so a retry uses today's setting.
+    const budget = Math.max(settings.guardrails.start_daily_budget ?? DUP_START_BUDGET, settings.guardrails.min_daily_budget);
     const total = sumBudget(entities), cap = settings.guardrails.max_total_daily_budget;
-    if (total + d.new_budget > cap) return done('failed', `❌ คัดลอก "${p.entity_name}" ไม่ได้ค่ะ — งบรวมตอนนี้ ${total.toLocaleString('th-TH')} + ${d.new_budget} จะเกินเพดาน ${cap.toLocaleString('th-TH')} (ขยายเพดานก่อน หรือรอกฎลดตัวอื่น)`);
-    if (objs.adsets + objs.ads > 3) return done('failed', `❌ คัดลอก "${p.entity_name}" อัตโนมัติไม่ได้ค่ะ — มีชุดโฆษณา ${objs.adsets} + โฆษณา ${objs.ads} = ${objs.adsets + objs.ads} ชิ้น (Meta คัดลอกพร้อมกันได้รวมไม่เกิน 3) รบกวนคัดลอกใน Ads Manager แล้วตั้งงบ ${d.new_budget} นะคะ`);
+    if (total + budget > cap) return done('failed', `❌ คัดลอก "${p.entity_name}" ไม่ได้ค่ะ — งบรวมตอนนี้ ${total.toLocaleString('th-TH')} + ${budget} จะเกินเพดาน ${cap.toLocaleString('th-TH')} (ขยายเพดานก่อน หรือรอกฎลดตัวอื่น)`);
+    const n = objs.adsets.length + objs.ads.length;
+    // Each object is its own Meta call (twice: copy, then switch on); the free plan allows 50 per press.
+    if (!objs.ads.length || n > MAX_COPY_OBJECTS) return done('failed', `❌ คัดลอก "${p.entity_name}" อัตโนมัติไม่ได้ค่ะ — ${objs.ads.length ? `มีชุดโฆษณา ${objs.adsets.length} + โฆษณา ${objs.ads.length} ที่เปิดอยู่ (เกิน ${MAX_COPY_OBJECTS})` : 'ไม่มีโฆษณาที่เปิดอยู่'} รบกวนคัดลอกใน Ads Manager แล้วตั้งงบ ${budget} นะคะ`);
     const copy = await meta.copyCampaign(p.entity_id, ' (คัดลอก)');
-    await meta.setDailyBudget(copy.id, d.new_budget);
+    await meta.setDailyBudget(copy.id, budget);
     await meta.setStatus(copy.id, 'ACTIVE');
     for (const id of copy.children) await meta.setStatus(id, 'ACTIVE');
     const at = new Date().toISOString();
     await applyMoves(env.DB, [{ campaign_id: copy.id, name: `${p.entity_name} (คัดลอก)`, from: null, to: 'testing' }], at);
-    await audit(env.DB, `discord:${who}`, 'campaign.copy', p.entity_id, { copy: copy.id, budget: d.new_budget, children: copy.children.length });
-    await done('approved', `🧬 **คัดลอกแล้วค่ะ** "${p.entity_name}" → แคมเปญใหม่ "${p.entity_name} (คัดลอก)" งบ **${d.new_budget}/วัน** เปิดแล้ว อยู่กลุ่มทดสอบ — ${who} อนุมัติ ขอบคุณค่ะ 🙏`);
+    await audit(env.DB, `discord:${who}`, 'campaign.copy', p.entity_id, { copy: copy.id, budget, children: copy.children.length });
+    await done('approved', `🧬 **คัดลอกแล้วค่ะ** "${p.entity_name}" → แคมเปญใหม่ "${p.entity_name} (คัดลอก)" (ชุดโฆษณา ${objs.adsets.length} · โฆษณา ${objs.ads.length}) งบเริ่ม **${budget}/วัน** เปิดแล้ว อยู่กลุ่มทดสอบ จะไต่ +20% ทุกรอบถ้ายังคุ้มทุน จนถึง ${DUP_RAMP_TO.toLocaleString('th-TH')} — ${who} อนุมัติ ขอบคุณค่ะ 🙏`);
   } catch (err: any) {
-    await done('failed', `❌ คัดลอก "${p.entity_name}" ไม่สำเร็จค่ะ: ${err?.message ?? err} — ถ้ามีแคมเปญ "(คัดลอก)" ค้างอยู่ใน Ads Manager (หยุดอยู่) ลบหรือเปิดเองได้เลยค่ะ`);
+    await done('failed', `❌ คัดลอก "${p.entity_name}" ไม่สำเร็จค่ะ: ${err?.message ?? err} — ถ้ามีแคมเปญ "(คัดลอก)" ค้างอยู่ใน Ads Manager (หยุดอยู่) ลบก่อนแล้วกดลองใหม่ได้ค่ะ`);
   }
 }
 
@@ -1966,6 +1972,14 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
   const p = await env.DB.prepare('SELECT * FROM proposals WHERE id = ?').bind(id ?? '').first<Proposal>();
   const reply = (content: string) => json({ type: 7, data: { content, components: [] } });
   if (!p) return reply('ไม่พบคำถามนี้แล้ว');
+  if (verb === 'dupretry' && p.kind === 'dup' && p.status === 'failed') {
+    if ((await loadSettings(env.DB)).kill_switch) return json({ type: 4, data: { content: '⛔ ตอนนี้เปิด kill switch อยู่ (หน้าตั้งค่า) — น้องยังไม่ทำให้นะคะ', flags: 64 } });
+    const at = new Date().toISOString();
+    const claimed = await env.DB.prepare(`UPDATE proposals SET status = 'working', decided_by = ?, decided_at = ? WHERE id = ? AND status = 'failed'`).bind(who, at, p.id).run();
+    if (!claimed.meta.changes) return reply('มีคนกดไปแล้วค่ะ');
+    ctx.waitUntil(copyWinner(env, p, who).catch(() => null));
+    return reply(`⏳ **น้องกำลังลองคัดลอกใหม่** "${p.entity_name}" ค่ะ — ${who} กด · เสร็จแล้วข้อความนี้จะเปลี่ยนนะคะ`);
+  }
   if (p.status !== 'pending') return reply(`ตัดสินไปแล้ว (${p.status}) โดย ${p.decided_by ?? '-'}`);
   // Kill switch on: nothing that touches Meta or the spend cap; the question stays open for when it's switched off.
   if (blockedByKillSwitch(verb, p.kind) && (await loadSettings(env.DB)).kill_switch) {
@@ -1980,7 +1994,7 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
       // and edit the question with the result.
       const claimed = await env.DB.prepare(`UPDATE proposals SET status = 'working', decided_by = ?, decided_at = ? WHERE id = ? AND status = 'pending'`).bind(who, at, p.id).run();
       if (!claimed.meta.changes) return reply('มีคนกดไปแล้วค่ะ');
-      ctx.waitUntil(copyWinner(env, p, d, who).catch(() => null));
+      ctx.waitUntil(copyWinner(env, p, who).catch(() => null));
       return reply(`⏳ **น้องกำลังคัดลอก** "${p.entity_name}" ค่ะ — ${who} อนุมัติ · เสร็จแล้วข้อความนี้จะเปลี่ยนนะคะ`);
     }
     if (verb === 'approve' && p.kind === 'cap') {

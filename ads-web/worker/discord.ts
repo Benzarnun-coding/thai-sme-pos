@@ -163,11 +163,11 @@ export async function postToDeciders(env: DiscordEnv, content: (mention: string)
 }
 
 /** Edit an earlier question (e.g. mark it expired) so its buttons go away. */
-export async function editMessage(env: DiscordEnv, messageId: string, content: string): Promise<void> {
+export async function editMessage(env: DiscordEnv, messageId: string, content: string, components: unknown[] = []): Promise<void> {
   await fetch(`https://discord.com/api/v10/channels/${env.DISCORD_CHANNEL_ID}/messages/${messageId}`, {
     method: 'PATCH',
     headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content, components: [] }),
+    body: JSON.stringify({ content, components }),
   }).catch(() => null);
 }
 
