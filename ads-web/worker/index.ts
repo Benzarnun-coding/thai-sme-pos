@@ -33,6 +33,7 @@ import { deletePurchase, findOrders, ledger, listPurchases, orderTerms, purchase
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveAlias, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
 import { DISCORD_PERSONA, pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './chatLog.ts';
+import * as studio from './studio.ts';
 import { aiEnabled, askAI, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
 import { kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, setKbStatus, speaker } from './botKb.ts';
 import { closeCase, customerName, serviceAlerts, servicePreview } from './serviceAlert.ts';
@@ -87,6 +88,8 @@ export interface Env {
   DISCORD_SERVICE_WEBHOOK_URL?: string;
   DISCORD_SERVICE_IDS?: string;
   CHAT_AI_MODEL?: string;
+  /** ห้องฝึก caption agent model (worker/studio.ts); default claude-opus-5-5 */
+  STUDIO_AI_MODEL?: string;
   /** Discord user IDs allowed to press the buttons (comma separated); empty = anyone in the channel */
   DISCORD_APPROVER_IDS?: string;
   /** Discord user IDs who upload Page365 (เคน from 2026-10-16, was มอส); tagged at 10:00 if the file is missing, may press the upload buttons */
@@ -771,6 +774,34 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const page = pg ? { page: pg.name, page_id: pg.id, ...(await fetch(`https://graph.facebook.com/${v}/${pg.id}/dataset?access_token=${encodeURIComponent(pg.token)}`).then((r) => r.json() as Promise<Record<string, unknown>>).catch((e) => ({ error: String(e) }))) } : null;
     return json({ page, byAccount, owned, businesses });
   }
+  // ---- ห้องฝึก (docs/creative.md) ----
+  if (path === '/api/studio/products' && method === 'GET') return json({ products: await studio.listProducts(env.DB, url.searchParams.get('q') ?? '') });
+  if (path === '/api/studio/product-note' && method === 'PUT') { const b = await body(); await studio.saveProductNote(env.DB, b, user); await audit(env.DB, user, 'studio.note', String(b?.code ?? ''), {}); return json({ ok: true }); }
+  if (path === '/api/studio/materials' && method === 'GET') {
+    const [styles, examples, playbook] = await Promise.all([studio.listStyleCards(env.DB), studio.listExamples(env.DB), studio.currentPlaybook(env.DB)]);
+    return json({ styles, examples, playbook, hooks: studio.HOOKS, reasons: studio.REASONS, ai: !!env.ANTHROPIC_API_KEY });
+  }
+  if (path === '/api/studio/style' && method === 'POST') { const id = await studio.saveStyleCard(env.DB, await body(), user); await audit(env.DB, user, 'studio.style', String(id), {}); return json({ id }); }
+  if ((m = /^\/api\/studio\/style\/(\d+)$/.exec(path)) && method === 'DELETE') { await studio.deleteStyleCard(env.DB, Number(m[1])); await audit(env.DB, user, 'studio.style.delete', m[1], {}); return json({ ok: true }); }
+  if (path === '/api/studio/style-ref' && method === 'POST') { const id = await studio.addStyleRef(env.DB, await req.formData().catch(() => { throw new BadRequest('อ่านไฟล์ไม่ได้'); }), user); return json({ id }); }
+  if ((m = /^\/api\/studio\/style-ref\/(\d+)$/.exec(path)) && method === 'DELETE') { await env.DB.prepare('DELETE FROM style_refs WHERE id = ?').bind(Number(m[1])).run(); return json({ ok: true }); }
+  if ((m = /^\/api\/studio\/picture\/(ref|cand)\/(\d+)$/.exec(path)) && method === 'GET') return studio.pictureResponse(env.DB, m[1] === 'ref' ? 'style_refs' : 'creative_candidates', Number(m[2]), url.searchParams.get('size') === 'full' ? 'full' : 'thumb');
+  if (path === '/api/studio/example' && method === 'POST') { const id = await studio.addExample(env.DB, await body(), user); return json({ id }); }
+  if ((m = /^\/api\/studio\/example\/(\d+)$/.exec(path)) && method === 'DELETE') { await env.DB.prepare('DELETE FROM caption_examples WHERE id = ?').bind(Number(m[1])).run(); return json({ ok: true }); }
+  if (path === '/api/studio/playbook' && method === 'PUT') { const id = await studio.savePlaybook(env.DB, await body(), user); await audit(env.DB, user, 'studio.playbook', String(id), {}); return json({ id }); }
+  if (path === '/api/studio/generate' && method === 'POST') {
+    const b = await body();
+    const r = await studio.generateCaptions(env, String(b?.code ?? ''), Number(b?.n ?? 6), user);
+    await audit(env.DB, user, 'studio.generate', String(b?.code ?? ''), { batch: r.batch, n: r.candidates.length, ...r.tokens });
+    return json(r);
+  }
+  if (path === '/api/studio/image-prompt' && method === 'GET') return json({ prompt: await studio.imagePrompt(env.DB, url.searchParams.get('code') ?? '', Number(url.searchParams.get('style_id'))) });
+  if (path === '/api/studio/image' && method === 'POST') { const id = await studio.addImageCandidate(env.DB, await req.formData().catch(() => { throw new BadRequest('อ่านไฟล์ไม่ได้'); }), user); await audit(env.DB, user, 'studio.image', String(id), {}); return json({ id }); }
+  if (path === '/api/studio/pair' && method === 'GET') return json({ pair: await studio.nextPair(env.DB, url.searchParams.get('kind') === 'image' ? 'image' : 'caption', user, url.searchParams.get('code') ?? undefined) });
+  if (path === '/api/studio/judge' && method === 'POST') { await studio.judge(env.DB, await body(), user); return json({ ok: true }); }
+  if (path === '/api/studio/stats' && method === 'GET') return json(await studio.stats(env.DB));
+  if (path === '/api/studio/candidates' && method === 'GET') return json({ candidates: await studio.listCandidates(env.DB, url.searchParams.get('code') ?? '', url.searchParams.get('kind') ?? undefined) });
+
   // ---- website feature requests from Discord (/ไอเดีย) ----
   if (path === '/api/requests' && method === 'GET') {
     // Opening the page also looks for Claude's PRs, so Benz hears about one without waiting for the 3-hourly sweep.

@@ -48,6 +48,10 @@ const COST_WRITES: [string, RegExp][] = [
   ['PUT', /^\/api\/purchase\/missing$/],
   ['PUT', /^\/api\/purchase\/payments$/],
   ['DELETE', /^\/api\/purchase$/],
+  // ห้องฝึก: every staff member who can edit costs may add materials and judge
+  ['POST', /^\/api\/studio\//],
+  ['PUT', /^\/api\/studio\//],
+  ['DELETE', /^\/api\/studio\//],
 ];
 
 export function canWrite(role: Role, method: string, path: string): boolean {

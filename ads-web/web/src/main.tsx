@@ -8,6 +8,8 @@ import { OrdersApp } from './OrdersPage.tsx';
 import { RequestsApp } from './RequestsPage.tsx';
 import { ProfitApp } from './ProfitPage.tsx';
 import { StockApp } from './StockPage.tsx';
+import { StudioApp } from './StudioPage.tsx';
+import { TrainApp } from './TrainPage.tsx';
 import { TodoApp } from './TodoPage.tsx';
 import { UnitsApp } from './UnitsPage.tsx';
 import { UiProvider } from './ui.tsx';
@@ -16,7 +18,7 @@ import './styles.css';
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <UiProvider>
-      {/^\/botkb\/?$/.test(location.pathname) ? <BotKbApp /> : /^\/requests\/?$/.test(location.pathname) ? <RequestsApp /> : /^\/gosell\/?$/.test(location.pathname) ? <GoSellApp /> : /^\/catalog\/orders\/?$/.test(location.pathname) ? <OrdersApp /> : /^\/catalog\/sales\/?$/.test(location.pathname) ? <UnitsApp /> : /^\/catalog\/todo\/?$/.test(location.pathname) ? <TodoApp /> : /^\/catalog\/profit\/?$/.test(location.pathname) ? <ProfitApp /> : /^\/catalog\/stock\/?$/.test(location.pathname) ? <StockApp /> : /^\/catalog\/?$/.test(location.pathname) ? <CatalogApp /> : <App />}
+      {/^\/studio\/train\/?$/.test(location.pathname) ? <TrainApp /> : /^\/studio\/?$/.test(location.pathname) ? <StudioApp /> : /^\/botkb\/?$/.test(location.pathname) ? <BotKbApp /> : /^\/requests\/?$/.test(location.pathname) ? <RequestsApp /> : /^\/gosell\/?$/.test(location.pathname) ? <GoSellApp /> : /^\/catalog\/orders\/?$/.test(location.pathname) ? <OrdersApp /> : /^\/catalog\/sales\/?$/.test(location.pathname) ? <UnitsApp /> : /^\/catalog\/todo\/?$/.test(location.pathname) ? <TodoApp /> : /^\/catalog\/profit\/?$/.test(location.pathname) ? <ProfitApp /> : /^\/catalog\/stock\/?$/.test(location.pathname) ? <StockApp /> : /^\/catalog\/?$/.test(location.pathname) ? <CatalogApp /> : <App />}
     </UiProvider>
   </StrictMode>,
 );

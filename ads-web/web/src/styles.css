@@ -1013,3 +1013,22 @@ tr:hover .po-label-btn { opacity: 1; }
 .po-our-code { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 8px; margin-bottom: 6px; border-radius: var(--radius-sm); background: var(--accent-soft); }
 .po-our-code label { display: inline-flex; gap: 6px; align-items: center; }
 .po-merged { display: block; margin-top: 2px; }
+
+/* ---- ห้องฝึก (/studio, /studio/train) ---- */
+.studio .pre { white-space: pre-wrap; margin: 0; }
+.studio .thumb { width: 88px; height: 88px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); display: inline-flex; align-items: center; justify-content: center; background: var(--surface-2); }
+.studio .thumb img { width: 100%; height: 100%; object-fit: cover; }
+.studio .thumb.add { cursor: pointer; color: var(--muted); font-size: 13px; }
+.studio .mini { width: 44px; height: 44px; border-radius: 6px; object-fit: cover; background: var(--surface-2); display: inline-block; }
+.studio .product-row > .row[role="button"] { cursor: pointer; }
+.studio .new-style input { min-width: 180px; }
+.studio .new-example { display: grid; gap: 8px; margin-bottom: 12px; }
+.studio .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.studio .cand { margin: 0; display: grid; gap: 8px; align-content: start; }
+.studio .cand-img { width: 100%; border-radius: 8px; }
+.studio .badge.warn { background: var(--warn-bg); color: var(--warn); }
+.studio .badge.ok { background: var(--good-bg); color: var(--good); }
+.studio label.button { display: inline-flex; align-items: center; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; background: var(--surface); }
+.studio label.button.disabled { opacity: .5; pointer-events: none; }
+.studio .image-tools { display: grid; gap: 8px; margin-top: 8px; }
+@media (max-width: 640px) { .studio .pair { grid-template-columns: 1fr; } }

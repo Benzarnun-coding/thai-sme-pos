@@ -60,7 +60,7 @@ Captions: well under 100 THB/month. Images via staff's ChatGPT Plus: 0 extra. Im
 
 ## Build order
 
-1. Materials page + Drive photo sync + caption room (no new secrets; `ANTHROPIC_API_KEY` exists).
+1. ✅ 2026-10-22: `/studio` (playbook, style cards + reference pictures, caption examples, per-product จุดขาย/โปร) and `/studio/train` (Claude writes 6 captions per product, A/B pairs with one-tap reasons, edit-and-pass, ChatGPT image prompt + upload, a short learned block). Routes `/api/studio/*` in `worker/studio.ts`; cost-role staff may write. Still to do: Drive photo sync (needs the folder + `GOOGLE_API_KEY`).
 2. Image room (prompt writer + upload of ChatGPT results); `OPENAI_API_KEY` optional later.
 3. Pairing + learned page + weekly playbook proposal.
 4. Hand-off to the ads side (off until Benz switches it on).
