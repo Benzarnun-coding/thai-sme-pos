@@ -32,6 +32,8 @@ export const WINNER_MAX_BUDGET = 5000;
 export const INCREASE_GAP_HOURS = 48;
 /** Under this daily budget the gap doesn't apply: small budgets may rise every run (Benz 2026-10-22). */
 export const FREE_INCREASE_BELOW = 500;
+/** Yesterday's spend a campaign needs before one bad day pulls it back (Benz 2026-10-22). */
+const BRAKE_MIN_SPEND = 2000;
 /** Rules that raised budgets before the `up:` state key existed, so the first run after the change still sees them. */
 const RAISE_RULES = ['win-boost', 'test-boost', 'win-up', 'test-up'];
 
@@ -98,6 +100,21 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
     plan.decisions.push(...rampCopies(entities, copies, cs, plan.decisions, be, state, now));
     spaceIncreases(plan.decisions, entities, state, now, settings.guardrails.increase_gap_hours ?? INCREASE_GAP_HOURS, settings.guardrails.free_increase_below ?? FREE_INCREASE_BELOW);
     const winners = provenWinners(entities, cs, be, settings.guardrails.winner_max_daily_budget ?? WINNER_MAX_BUDGET);
+    // Above the normal ceiling, one bad day is pulled straight back down instead of waiting for the 3-day average.
+    const brakeMode = settings.guardrails.brake_yesterday ?? 'dry';
+    const max = settings.guardrails.max_daily_budget;
+    let brakes: Decision[] = [];
+    if (brakeMode !== 'off' && be !== null && entities.some((e) => e.level === 'campaign' && e.status === 'ACTIVE' && (e.daily_budget ?? 0) > max)) {
+      const y = await meta.insights('campaign', 'yesterday');
+      for (const e of entities) if (e.level === 'campaign') e.metrics.yesterday = y.get(e.id) ?? zeroMetrics();
+      const src = await applyActual(env.DB, entities, ['yesterday'], (w) => meta.dailyCampaignInsights(w), now);
+      brakes = yesterdayBrakes(entities, max, be);
+      for (const b of brakes) {
+        for (const d of plan.decisions) if (d.entity.id === b.entity.id && !d.skipped_reason) d.skipped_reason = 'เบรกเมื่อวานพัง';
+        if (brakeMode === 'dry') report.notes.push(`🧪 เบรกเมื่อวานพัง (ทดลอง ยังไม่ลดจริง): ${b.plan}${src.length ? ` · ${src.join(' · ')}` : ''}`);
+      }
+      if (brakeMode === 'dry') brakes = [];
+    }
     if (winners.size) report.notes.push(`ตัวชนะ 7 วัน ${winners.size} แคมเปญ ใช้เพดานต่อแคมเปญ ${[...winners.values()][0].toLocaleString('th-TH')} แทน ${settings.guardrails.max_daily_budget.toLocaleString('th-TH')}`);
     capChanges(plan);
     report.decisions = plan.decisions;
@@ -141,6 +158,22 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
 
     const applied = await applyDecisions(plan.decisions, entities, meta, settings.guardrails, state, { dryRun, now, maxBudgetFor: (id) => winners.get(id) });
     if (!dryRun) markIncreases(plan.decisions, state, now);
+    // Brakes go straight to the normal ceiling (more than the 20%/run a rule may move); cuts are never held by caps.
+    for (const b of brakes) {
+      const e = entities.find((x) => x.id === b.entity.id)!;
+      b.before = { status: e.status, daily_budget: e.daily_budget };
+      try {
+        if (!dryRun) await meta.setDailyBudget(e.id, max);
+        b.after = { status: e.status, daily_budget: max };
+        b.applied = !dryRun;
+        if (!dryRun) state.last_action[`brake:${e.id}`] = now.toISOString();
+        applied.totalAfter = Math.round(applied.totalAfter - (e.daily_budget! - max));
+      } catch (err: any) {
+        b.error = err?.message ?? String(err);
+        applied.errors.push(`${b.rule_id}/${e.name}: ${b.error}`);
+      }
+      plan.decisions.push({ ...b, group: 'เบรกเมื่อวานพัง' });
+    }
     report.errors.push(...applied.errors);
     report.totals.daily_budget_after = applied.totalAfter;
     if (!dryRun) {
@@ -275,10 +308,30 @@ export function spaceIncreases(decisions: Decision[], entities: Entity[], state:
   for (const d of decisions) {
     if (d.skipped_reason || d.action.type !== 'budget_pct' || (d.action.pct ?? 0) <= 0 || d.rule_id === 'dup-ramp') continue;
     if ((budget.get(d.entity.id) ?? Infinity) < freeBelow) continue;
-    const last = Math.max(...['up', ...RAISE_RULES].map((r) => Date.parse(state.last_action[`${r}:${d.entity.id}`] ?? '') || 0));
+    const last = Math.max(...['up', 'brake', ...RAISE_RULES].map((r) => Date.parse(state.last_action[`${r}:${d.entity.id}`] ?? '') || 0));
     const hours = (now.getTime() - last) / 3_600_000;
     if (hours < gapHours) d.skipped_reason = `เพิ่มงบไปแล้ว ${Math.floor(hours)} ชม.ก่อน — งบตั้งแต่ ${freeBelow} ขึ้นไปเว้น ${gapHours} ชม. ให้ ROAS สะท้อนงบใหม่ก่อน`;
   }
+}
+
+/**
+ * Campaigns above the normal per-campaign ceiling whose yesterday went badly: ROAS < 0.8× the shop's break-even on
+ * ≥ 2,000 spend → back to the normal ceiling now. Yesterday is real Page365 sales once that day's file is uploaded
+ * (so usually from the 20:00 run), Meta's tagged sales before that.
+ */
+export function yesterdayBrakes(entities: Entity[], max: number, be: number): Decision[] {
+  const out: Decision[] = [];
+  for (const e of entities) {
+    const m = e.metrics.yesterday;
+    if (e.level !== 'campaign' || e.status !== 'ACTIVE' || e.daily_budget === null || e.daily_budget <= max || !m) continue;
+    if (m.spend < BRAKE_MIN_SPEND || m.roas >= be * 0.8) continue;
+    out.push({
+      rule_id: 'brake-yesterday', entity: { level: 'campaign', id: e.id, name: e.name, campaign_name: e.campaign_name }, window: 'yesterday', metric: 'roas',
+      observed: m.roas, threshold: be * 0.8, action: { type: 'budget_pct', pct: -Math.round((1 - max / e.daily_budget) * 100) },
+      plan: `เมื่อวาน ROAS ${m.roas.toFixed(2)} < 0.8× คุ้มทุน ${(be * 0.8).toFixed(2)} (ใช้ไป ${Math.round(m.spend).toLocaleString('th-TH')}) → ลดงบ ${e.daily_budget.toLocaleString('th-TH')} กลับเป็น ${max.toLocaleString('th-TH')}: ${e.name}`,
+    });
+  }
+  return out;
 }
 
 /** Remembers when each campaign/ad set last got more budget (for spaceIncreases). */

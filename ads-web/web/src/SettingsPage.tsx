@@ -68,9 +68,14 @@ export function SettingsPage({ costsLoaded, campaignNames, onSaved }: { costsLoa
           <label>งบสูงสุดต่อแคมเปญตัวชนะ 7 วัน (฿)<input type="number" value={g.winner_max_daily_budget ?? 5000} onChange={(e) => setG('winner_max_daily_budget', Number(e.target.value))} /></label>
           <label>เว้นระหว่างการเพิ่มงบแต่ละครั้ง (ชม.)<input type="number" value={g.increase_gap_hours ?? 48} onChange={(e) => setG('increase_gap_hours', Number(e.target.value))} /></label>
           <label>งบต่ำกว่านี้เพิ่มได้ทุกรอบ ไม่ต้องเว้น (฿)<input type="number" value={g.free_increase_below ?? 500} onChange={(e) => setG('free_increase_below', Number(e.target.value))} /></label>
+          <label>เบรกเมื่อวานพัง (ตัวที่งบเกินงบสูงสุดต่อแคมเปญ)<select value={g.brake_yesterday ?? 'dry'} onChange={(e) => setS({ ...s, guardrails: { ...g, brake_yesterday: e.target.value as 'off' | 'dry' | 'on' } })}>
+            <option value="dry">ทดลอง — บอกใน Discord ว่าจะลด แต่ยังไม่ลดจริง</option>
+            <option value="on">เปิด — ลดกลับเป็นงบสูงสุดต่อแคมเปญทันที</option>
+            <option value="off">ปิด</option>
+          </select></label>
           <label>งบเริ่มต้นตอนเปิดแอดใหม่/วัน (฿)<input type="number" value={g.start_daily_budget ?? 50} onChange={(e) => setG('start_daily_budget', Number(e.target.value))} /></label>
         </div>
-        <p className="muted small">ตัวชนะ 7 วัน = อยู่กลุ่มชนะ, ROAS จริง 7 วัน ≥ 1.5× คุ้มทุนร้าน และ ≥ 10 ออเดอร์ → กฎเพิ่มงบได้ถึงเพดานนี้แทนงบสูงสุดต่อแคมเปญ (ตัวคัดลอกจะถูกเสนอเมื่อชนเพดานนี้) · แคมเปญที่งบถึงเกณฑ์ "เพิ่มได้ทุกรอบ" แล้ว เพิ่มงบได้ครั้งเดียวในช่วงเว้นนี้ ไม่ว่ากฎไหนสั่ง (ต่ำกว่านั้นเพิ่มได้ทุกรอบตามกฎ) เพื่อให้ ROAS 3 วันเป็นตัวเลขของงบใหม่ก่อนเพิ่มอีก (การลดงบไม่ต้องรอ)</p>
+        <p className="muted small">ตัวชนะ 7 วัน = อยู่กลุ่มชนะ, ROAS จริง 7 วัน ≥ 1.5× คุ้มทุนร้าน และ ≥ 10 ออเดอร์ → กฎเพิ่มงบได้ถึงเพดานนี้แทนงบสูงสุดต่อแคมเปญ (ตัวคัดลอกจะถูกเสนอเมื่อชนเพดานนี้) · แคมเปญที่งบถึงเกณฑ์ "เพิ่มได้ทุกรอบ" แล้ว เพิ่มงบได้ครั้งเดียวในช่วงเว้นนี้ ไม่ว่ากฎไหนสั่ง (ต่ำกว่านั้นเพิ่มได้ทุกรอบตามกฎ) เพื่อให้ ROAS 3 วันเป็นตัวเลขของงบใหม่ก่อนเพิ่มอีก (การลดงบไม่ต้องรอ) · เบรกเมื่อวานพัง: แคมเปญที่งบเกินงบสูงสุดต่อแคมเปญ ถ้าเมื่อวาน ROAS ต่ำกว่า 0.8× คุ้มทุนร้าน และใช้เงิน ≥ 2,000 → ลดกลับเป็นงบสูงสุดต่อแคมเปญในรอบถัดไปเลย แล้วเว้นการเพิ่มงบ 48 ชม. (ยอดจริง Page365 ถ้าอัปโหลดไฟล์เมื่อวานแล้ว ไม่งั้นใช้ยอดแท็ก Meta)</p>
         <p className="muted small">แอดใหม่ที่ระบบเปิดให้ (ตัวคัดลอกจากปุ่ม "คัดลอกเลย") เริ่มที่งบนี้ แล้วไต่ +20% ทุกรอบ (08:00/20:00) ถ้า ROAS จริง 3 วันยังคุ้มทุน จนถึง 1,000/วัน แล้วให้กฎกลุ่มทดสอบดูแลต่อ</p>
       </section>
 

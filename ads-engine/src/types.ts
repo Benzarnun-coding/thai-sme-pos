@@ -51,6 +51,8 @@ export interface Guardrails {
   increase_gap_hours?: number;
   /** ads-web: daily budgets under this skip increase_gap_hours; unset = 500 */
   free_increase_below?: number;
+  /** ads-web: one bad day (ROAS < 0.8× BE on ≥ 2,000) above max_daily_budget → back to it; 'dry' only reports; unset = 'dry' */
+  brake_yesterday?: 'off' | 'dry' | 'on';
 }
 
 export interface Scope {

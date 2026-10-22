@@ -35,3 +35,14 @@ test('proven winners get the higher ceiling, others keep the normal one', async 
   assert.equal(ds[0].after?.daily_budget, 3840);
   assert.ok(ds[1].skipped_reason);
 });
+
+test('one bad day above the normal ceiling pulls the budget straight back; at or under it, or on little spend, nothing', async () => {
+  const { yesterdayBrakes } = await import('./run.ts');
+  const camp = (id: string, budget: number, spend: number, roas: number): Entity => ({
+    level: 'campaign', id, name: id, campaign_id: id, campaign_name: id, status: 'ACTIVE', daily_budget: budget,
+    metrics: { yesterday: { ...zeroMetrics(), spend, roas } },
+  });
+  const es = [camp('bad', 4608, 4500, 1.9), camp('ok', 4608, 4500, 2.5), camp('small', 3200, 3000, 1.0), camp('thin', 4608, 1500, 1.0)];
+  const out = yesterdayBrakes(es, 3200, 2.9);
+  assert.deepEqual(out.map((d) => [d.entity.id, d.action.pct]), [['bad', -31]]);
+});
