@@ -113,7 +113,7 @@ export function TrainApp() {
         <div className="row"><HomeLogo text="TR" /><h1>ห้องฝึก</h1></div>
         <p className="muted small">แคปชันในคู่อาจเป็นของ AI หรือโพสต์จริงที่ยิงแอดอยู่ (จาก <a href="/studio/posts">โพสต์ที่ยิงอยู่</a>) — ไม่บอกว่าอันไหนจนกว่าจะเลือก · AI เขียนแคปชันจาก <a href="/studio">วัตถุดิบ</a> · คนตัดสินทีละคู่ว่าอันไหนดีกว่า แล้วบอกเหตุผล 1 ปุ่ม · แก้ข้อความของตัวที่ชนะได้ (กลายเป็นตัวอย่างทอง) · ยังไม่มีอะไรไปถึง Meta</p>
         <details className="card small howto">
-          <summary>วิธีใช้ (อ่านครั้งแรก)</summary>
+          <summary>วิธีใช้ (อ่านครั้งแรก) · <a href="/studio-guide.pdf" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>📖 คู่มือฉบับเต็ม (PDF)</a></summary>
           <ol>
             <li><b>แคปชัน:</b> เลือกสินค้า → "ให้ AI เขียนแคปชัน 6 แบบ" → ตัดสินคู่ด้านล่างทีละคู่</li>
             <li><b>ภาพ:</b> เลือกสินค้า + สไตล์ → "ขอ prompt สำหรับ ChatGPT" → คัดลอกไปวางใน ChatGPT พร้อมแนบรูปสินค้าจริง (และรูปตัวอย่างสไตล์) → ได้ภาพแล้วกด "อัปโหลดภาพที่ได้" → ดูผลที่ AI ตรวจ</li>
