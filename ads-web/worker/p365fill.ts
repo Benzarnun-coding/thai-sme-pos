@@ -372,6 +372,7 @@ export async function applyFill(env: FillEnv, note: { psid: string; at: string; 
   });
   const a = plan.address ? { ...plan.address, street: cleanStreet(plan.address.street, [plan.address.name, added.customer_name ?? ''], plan.address.phone) } : null;
   const name = billName(plan.order.no, plan.lines[0]?.sku ?? null, a?.name || added.customer_name || '', plan.lines.map((l) => l.code), plan.lines.map((l) => l.sku));
+  const customer = a ? {
     customer_name: name,
     customer_phone: a.phone,
     customer_address: addressLine(a),
