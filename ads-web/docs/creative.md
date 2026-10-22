@@ -34,6 +34,16 @@ ROAS go into the caption agent's prompt first; any post can become a liked/disli
   vs real pair first, A/B order random; labels are hidden while judging, the answer is revealed after the vote. The
   room shows "AI ชนะโพสต์จริง x/y" — readiness target ≥ 50% over ≥ 40 pairs. The agent is told not to copy sentences.
 
+### The AI looks at images (Benz 2026-10-22)
+
+Every uploaded image is checked by Claude on upload (`checkImage`; again with "ตรวจใหม่"): compared with the real
+product photo (catalog upload, else column J) and up to 3 style references → JSON product_match / text_readable /
+style_match / looks_fake / verdict pass·check·fail + summary, stored in `creative_candidates.ai_check` (migration
+0058). Staff see it right after upload and can take an image out of the room ("เอาออกจากห้อง" = status rejected).
+While judging the AI's scores stay hidden; after the vote they're shown. The room shows how often the AI's
+better-scored image was the judges' pick (`stats.ai_eye`) — high enough, and the AI can screen images instead of people.
+Product-code boxes on `/studio/posts` suggest codes + names as you type (`CodePicker`, list read once).
+
 ## Materials (`/studio` วัตถุดิบ)
 
 | Material | Where it lives | Notes |

@@ -50,6 +50,9 @@ export function PostsApp() {
   };
 
   const [pending, setPending] = useState<Pending | null>(null);
+  // Every product code with its name, for the code boxes' suggestions (one shared list; read once).
+  const [codes, setCodes] = useState<{ code: string; name: string }[]>([]);
+  useEffect(() => { call<{ products: { code: string; name: string }[] }>('GET', '/api/studio/products?limit=5000').then((r) => setCodes(r.products)).catch(() => null); }, []);
   useEffect(() => { call<{ pending: Pending | null }>('GET', '/api/studio/playbook/pending').then((r) => setPending(r.pending)).catch(() => null); }, []);
   const analyze = async () => {
     setBusy('AI กำลังอ่านโพสต์ทั้งหมด (ประมาณ 1–2 นาที)…');
@@ -100,14 +103,14 @@ export function PostsApp() {
         <p className="muted">ยังไม่มีข้อมูล — กด "ดึงโพสต์จากเพจ"</p>
       ) : (
         <div className="post-grid">
-          {shown.map((p) => <PostCard key={p.key} p={p} onChanged={load} />)}
+          {shown.map((p) => <PostCard key={p.key} p={p} onChanged={load} codes={codes} />)}
         </div>
       )}
     </div>
   );
 }
 
-function PostCard({ p, onChanged }: { p: MetaPost; onChanged: () => void }) {
+function PostCard({ p, onChanged, codes }: { p: MetaPost; onChanged: () => void; codes: { code: string; name: string }[] }) {
   const { toast } = useUi();
   const [code, setCode] = useState(p.code);
   const [ex, setEx] = useState<null | boolean>(null);
@@ -140,7 +143,7 @@ function PostCard({ p, onChanged }: { p: MetaPost; onChanged: () => void }) {
       <p className={`pre small ${more ? '' : 'clamp'}`} onClick={() => setMore((m) => !m)}>{p.message || <span className="muted">(ไม่มีข้อความ)</span>}</p>
       <p className="muted small">{campaigns.slice(0, 2).join(' · ')}{campaigns.length > 2 ? ` +${campaigns.length - 2}` : ''} · {p.ads.length} แอด{p.permalink ? <> · <a href={p.permalink} target="_blank" rel="noreferrer">เปิดโพสต์</a></> : ''}</p>
       <div className="row wrap small">
-        <label className="row">รหัสสินค้า <input value={code} onChange={(e) => setCode(e.target.value)} onBlur={() => code !== p.code && call('PUT', '/api/studio/meta-posts/code', { key: p.key, code }).then(onChanged).catch((e) => toast(e.message, 'bad'))} style={{ width: 80 }} /></label>
+        <CodePicker value={code} codes={codes} onChange={setCode} onPick={(c) => c !== p.code && call('PUT', '/api/studio/meta-posts/code', { key: p.key, code: c }).then(() => { toast(`ตั้งรหัส ${c || '(ว่าง)'} แล้ว`, 'ok'); onChanged(); }).catch((e) => toast(e.message, 'bad'))} />
         {p.message && ex === null && <><button className="ghost small" onClick={() => setEx(true)}>👍 ตัวอย่างที่ชอบ</button><button className="ghost small" onClick={() => setEx(false)}>👎 ไม่ชอบ</button></>}
       </div>
       {ex !== null && (
@@ -171,6 +174,30 @@ function PendingPlaybook({ p, onDone, onAgain, busy }: { p: Pending; onDone: () 
           catch (e: any) { toast(e.message, 'bad'); }
         }}>ใช้คู่มือนี้</button>
       </div>
+    </div>
+  );
+}
+
+/** Product code box: type a code or part of the name, pick from the suggestions (code · name). */
+function CodePicker({ value, codes, onChange, onPick }: { value: string; codes: { code: string; name: string }[]; onChange: (v: string) => void; onPick: (code: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const q = value.trim().toLowerCase();
+  const hits = q ? codes.filter((c) => c.code.toLowerCase().startsWith(q) || c.name.toLowerCase().includes(q)).sort((a, b) => Number(!a.code.toLowerCase().startsWith(q)) - Number(!b.code.toLowerCase().startsWith(q)) || a.code.length - b.code.length).slice(0, 8) : [];
+  const current = codes.find((c) => c.code === value);
+  return (
+    <div className="code-picker">
+      <label className="row">รหัสสินค้า
+        <input value={value} placeholder="พิมพ์รหัสหรือชื่อ" onFocus={() => setOpen(true)} onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+          onBlur={() => setTimeout(() => { setOpen(false); const v = value.trim(); if (!v || codes.some((c) => c.code === v)) onPick(v); }, 150)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && hits[0]) { onChange(hits[0].code); setOpen(false); onPick(hits[0].code); (e.target as HTMLInputElement).blur(); } if (e.key === 'Escape') setOpen(false); }} />
+      </label>
+      {current && !open && <span className="muted small">{current.name.slice(0, 40)}</span>}
+      {open && hits.length > 0 && (
+        <ul className="suggest">
+          {hits.map((h) => <li key={h.code} onMouseDown={(e) => { e.preventDefault(); onChange(h.code); setOpen(false); onPick(h.code); }}><b>{h.code}</b> <span className="muted">{h.name.slice(0, 50)}</span></li>)}
+        </ul>
+      )}
+      {open && q && !hits.length && <div className="suggest muted small">ไม่พบสินค้าในแคตตาล็อก</div>}
     </div>
   );
 }

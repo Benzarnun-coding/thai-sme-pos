@@ -1041,3 +1041,13 @@ tr:hover .po-label-btn { opacity: 1; }
 .studio .clamp { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
 .studio .pending-playbook { display: grid; gap: 8px; }
 .studio .pending-playbook ol { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+
+.studio .ai-check { display: grid; gap: 2px; }
+.studio .uploaded { display: grid; gap: 8px; }
+.studio .uploaded-row { align-items: flex-start; gap: 10px; }
+.studio .mini.big { width: 88px; height: 88px; }
+.studio .code-picker { position: relative; display: grid; gap: 2px; }
+.studio .code-picker input { width: 140px; }
+.studio .suggest { position: absolute; top: 100%; left: 0; z-index: 20; min-width: 260px; max-height: 260px; overflow: auto; margin: 4px 0 0; padding: 4px; list-style: none; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow-sm); }
+.studio .suggest li { padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.studio .suggest li:hover { background: var(--surface-2); }

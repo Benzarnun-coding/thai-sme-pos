@@ -775,7 +775,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     return json({ page, byAccount, owned, businesses });
   }
   // ---- ห้องฝึก (docs/creative.md) ----
-  if (path === '/api/studio/products' && method === 'GET') return json({ products: await studio.listProducts(env.DB, url.searchParams.get('q') ?? '') });
+  if (path === '/api/studio/products' && method === 'GET') return json({ products: await studio.listProducts(env.DB, url.searchParams.get('q') ?? '', false, Math.min(5000, Number(url.searchParams.get('limit')) || 300)) });
   if (path === '/api/studio/product-note' && method === 'PUT') { const b = await body(); await studio.saveProductNote(env.DB, b, user); await audit(env.DB, user, 'studio.note', String(b?.code ?? ''), {}); return json({ ok: true }); }
   if (path === '/api/studio/materials' && method === 'GET') {
     const [styles, examples, playbook] = await Promise.all([studio.listStyleCards(env.DB), studio.listExamples(env.DB), studio.currentPlaybook(env.DB)]);
@@ -796,7 +796,15 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     return json(r);
   }
   if (path === '/api/studio/image-prompt' && method === 'GET') return json({ prompt: await studio.imagePrompt(env.DB, url.searchParams.get('code') ?? '', Number(url.searchParams.get('style_id'))) });
-  if (path === '/api/studio/image' && method === 'POST') { const id = await studio.addImageCandidate(env.DB, await req.formData().catch(() => { throw new BadRequest('อ่านไฟล์ไม่ได้'); }), user); await audit(env.DB, user, 'studio.image', String(id), {}); return json({ id }); }
+  if (path === '/api/studio/image' && method === 'POST') {
+    const id = await studio.addImageCandidate(env.DB, await req.formData().catch(() => { throw new BadRequest('อ่านไฟล์ไม่ได้'); }), user);
+    await audit(env.DB, user, 'studio.image', String(id), {});
+    // The AI's look comes back with the upload; a failed check never loses the image.
+    const check = env.ANTHROPIC_API_KEY ? await studio.checkImage(env, id).catch((err) => ({ error: String(err?.message ?? err) })) : null;
+    return json({ id, check });
+  }
+  if ((m = /^\/api\/studio\/check-image\/(\d+)$/.exec(path)) && method === 'POST') return json({ check: await studio.checkImage(env, Number(m[1])) });
+  if ((m = /^\/api\/studio\/candidate\/(\d+)$/.exec(path)) && method === 'DELETE') { await studio.rejectCandidate(env.DB, Number(m[1])); await audit(env.DB, user, 'studio.reject', m[1], {}); return json({ ok: true }); }
   if (path === '/api/studio/pair' && method === 'GET') return json({ pair: await studio.nextPair(env.DB, url.searchParams.get('kind') === 'image' ? 'image' : 'caption', user, url.searchParams.get('code') ?? undefined) });
   if (path === '/api/studio/judge' && method === 'POST') { await studio.judge(env.DB, await body(), user); return json({ ok: true }); }
   if (path === '/api/studio/stats' && method === 'GET') return json(await studio.stats(env.DB));

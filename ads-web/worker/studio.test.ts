@@ -15,3 +15,9 @@ test('captions: no array → a clear error', () => {
 test('captions: the agent may not tag its own caption as a real post', () => {
   assert.deepEqual(parseCaptions('[{"hook":"real","text":"x"}]'), [{ hook: 'lifestyle', text: 'x' }]);
 });
+
+test('image check: numbers clamped, unknown verdict → check, missing style → null', async () => {
+  const { parseImageCheck } = await import('./studio.ts');
+  const c = parseImageCheck('ok {"product_match": 14, "looks_fake": -2, "verdict": "great", "summary": "x", "text_readable": false}');
+  assert.equal(c.product_match, 10); assert.equal(c.looks_fake, 0); assert.equal(c.verdict, 'check'); assert.equal(c.style_match, null); assert.equal(c.text_readable, false);
+});

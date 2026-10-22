@@ -2,7 +2,7 @@
 // Nothing here touches Meta, Page365 or customers; the only outside call is the Anthropic API.
 
 import { BadRequest } from './validate.ts';
-import { imageType } from './catalog.ts';
+import { allowedImageUrl, imageType } from './catalog.ts';
 import type { ActiveAdPost } from '../../ads-engine/src/meta.ts';
 import { nameHasFamily } from './postIdeas.ts';
 
@@ -46,7 +46,7 @@ export interface StudioProduct { code: string; name: string; price_min: number |
  */
 let productCache: { version: string; rows: Omit<StudioProduct, 'selling_points' | 'promo' | 'image_key'>[] } | null = null;
 
-export async function listProducts(db: D1Database, q = '', exact = false): Promise<StudioProduct[]> {
+export async function listProducts(db: D1Database, q = '', exact = false, limit = 300): Promise<StudioProduct[]> {
   let rows: Omit<StudioProduct, 'selling_points' | 'promo' | 'image_key'>[];
   if (exact) {
     rows = (await db.prepare(
@@ -63,7 +63,7 @@ export async function listProducts(db: D1Database, q = '', exact = false): Promi
       productCache = { version, rows: results };
     }
     const needle = q.trim().toLowerCase();
-    rows = productCache.rows.filter((r) => !needle || r.code.toLowerCase().includes(needle) || r.name.toLowerCase().includes(needle)).slice(0, 300);
+    rows = productCache.rows.filter((r) => !needle || r.code.toLowerCase().includes(needle) || r.name.toLowerCase().includes(needle)).slice(0, limit);
   }
   if (!rows.length) return [];
   const [{ results: notes }, { results: images }] = await Promise.all([
@@ -189,6 +189,7 @@ export async function savePlaybook(db: D1Database, input: any, user: string): Pr
 export interface Candidate {
   id: number; kind: 'caption' | 'image'; code: string; product_name: string; promo: string; hook: string; style_id: number | null;
   text: string | null; prompt: string; playbook_id: number | null; batch: string; created_by: string; created_at: string; status: string;
+  ai_check?: string | null;
 }
 
 /** Approved or judge-edited captions: the examples the agent learns from first. */
@@ -307,7 +308,8 @@ export interface Pair { a: Candidate; b: Candidate; same_product: boolean }
  */
 export async function nextPair(db: D1Database, kind: 'caption' | 'image', judge: string, code?: string): Promise<Pair | null> {
   const { results } = await db.prepare(
-    `SELECT c.*, (SELECT count(*) FROM creative_judgements j WHERE j.a_id = c.id OR j.b_id = c.id) AS seen
+    `SELECT c.id, c.kind, c.code, c.product_name, c.promo, c.hook, c.style_id, c.text, '' AS prompt, c.playbook_id, c.batch, c.created_by, c.created_at, c.status, c.ai_check,
+            (SELECT count(*) FROM creative_judgements j WHERE j.a_id = c.id OR j.b_id = c.id) AS seen
      FROM creative_candidates c WHERE c.kind = ?1 AND c.status = 'open' AND (?2 = '' OR c.code = ?2) ORDER BY seen, c.id DESC LIMIT 60`,
   ).bind(kind, code ?? '').all<Candidate & { seen: number }>();
   const byCode = new Map<string, (Candidate & { seen: number })[]>();
@@ -349,6 +351,8 @@ export interface Stats {
   agreement: { pairs: number; agreed: number };
   /** blind pairs of an AI caption against a real post: how often the AI's won */
   vs_real: { pairs: number; ai_wins: number };
+  /** image pairs where both images had an AI check: how often the AI's better-scored image was the judges' pick */
+  ai_eye: { pairs: number; agreed: number };
   judges: { judge: string; n: number }[];
 }
 
@@ -356,7 +360,7 @@ export interface Stats {
 export async function stats(db: D1Database): Promise<Stats> {
   // Today in Bangkok, as the UTC instant it started.
   const dayStart = new Date(`${new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)}T00:00:00+07:00`).toISOString();
-  const [j, open, hooks, reasons, judges, pairs, vsReal] = await Promise.all([
+  const [j, open, hooks, reasons, judges, pairs, vsReal, eye] = await Promise.all([
     db.prepare(`SELECT count(*) AS n, coalesce(sum(created_at >= ?), 0) AS today FROM creative_judgements`).bind(dayStart).first<{ n: number; today: number }>(),
     db.prepare(`SELECT kind, count(*) AS n FROM creative_candidates WHERE status = 'open' GROUP BY kind`).all<{ kind: string; n: number }>(),
     db.prepare(
@@ -375,6 +379,11 @@ export async function stats(db: D1Database): Promise<Stats> {
        LEFT JOIN creative_candidates w ON w.id = j.winner_id
        WHERE j.kind = 'caption' AND (a.hook = 'real') != (b.hook = 'real') AND j.winner_id IS NOT NULL`,
     ).first<{ pairs: number; ai_wins: number }>(),
+    db.prepare(
+      `SELECT j.winner_id, a.id AS a_id, a.ai_check AS a_check, b.ai_check AS b_check FROM creative_judgements j
+       JOIN creative_candidates a ON a.id = j.a_id JOIN creative_candidates b ON b.id = j.b_id
+       WHERE j.kind = 'image' AND j.winner_id IS NOT NULL AND a.ai_check IS NOT NULL AND b.ai_check IS NOT NULL`,
+    ).all<{ winner_id: number; a_id: number; a_check: string; b_check: string }>(),
   ]);
   return {
     judged: j?.n ?? 0, today: j?.today ?? 0,
@@ -382,6 +391,11 @@ export async function stats(db: D1Database): Promise<Stats> {
     hooks: hooks.results, reasons: reasons.results, judges: judges.results,
     agreement: { pairs: pairs.results.length, agreed: pairs.results.filter((p) => p.same).length },
     vs_real: { pairs: vsReal?.pairs ?? 0, ai_wins: vsReal?.ai_wins ?? 0 },
+    ai_eye: (() => {
+      const score = (t: string) => { const c = JSON.parse(t) as ImageCheck; return c.product_match * 2 + (c.style_match ?? 5) - c.looks_fake - (c.text_readable === false ? 5 : 0); };
+      const rows = eye.results.map((r) => ({ ...r, sa: score(r.a_check), sb: score(r.b_check) })).filter((r) => r.sa !== r.sb);
+      return { pairs: rows.length, agreed: rows.filter((r) => (r.sa > r.sb) === (r.winner_id === r.a_id)).length };
+    })(),
   };
 }
 
@@ -514,9 +528,7 @@ export async function analyzePosts(env: StudioEnv, user: string): Promise<Analys
     const roas = r.spend ? r.purchase_value / r.spend : 0;
     content.push({ type: 'text', text: `\n### โพสต์ ${i + 1} · ROAS ${roas.toFixed(2)} · ค่าแอด ${Math.round(r.spend)} · ${Math.round(r.purchases)} ออเดอร์ · ${r.messages} แชท · ต้นทุนต่อแชท ${r.messages ? Math.round(r.spend / r.messages) : '-'} · รหัส ${r.code || '-'}\n${r.message.slice(0, 1500)}` });
     if (withPic.has(r.key) && r.thumb && r.mime) {
-      const bytes = r.thumb instanceof ArrayBuffer ? new Uint8Array(r.thumb) : Uint8Array.from(r.thumb);
-      let bin = ''; for (const b of bytes) bin += String.fromCharCode(b);
-      content.push({ type: 'image', source: { type: 'base64', media_type: r.mime, data: btoa(bin) } });
+      content.push(imageBlock(r.thumb, r.mime));
     }
   });
   content.push({ type: 'text', text: `\nเปรียบเทียบโพสต์ที่ ROAS ดีกับไม่ดี แล้วตอบเป็น JSON เท่านั้น:
@@ -547,4 +559,97 @@ export async function approvePlaybook(db: D1Database, id: number, text: unknown,
   const t = cleanText(text, 6000);
   const r = await db.prepare('UPDATE playbook_versions SET approved_by = ?2, text = CASE WHEN ?3 = \'\' THEN text ELSE ?3 END WHERE id = ?1 AND approved_by IS NULL').bind(id, user, t).run();
   if (!r.meta.changes) throw new BadRequest('ไม่พบข้อเสนอนี้ หรือมีคนกดไปแล้ว');
+}
+
+// ---- the AI looks at images ----
+
+/** A D1 BLOB (ArrayBuffer or number array) as a Messages API image block. */
+function imageBlock(data: ArrayBuffer | number[] | Uint8Array, mime: string): unknown {
+  const bytes = data instanceof Uint8Array ? data : data instanceof ArrayBuffer ? new Uint8Array(data) : Uint8Array.from(data);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return { type: 'image', source: { type: 'base64', media_type: mime, data: btoa(bin) } };
+}
+
+export interface ImageCheck {
+  product_match: number; product_issues: string;
+  text_readable: boolean | null; text_issues: string;
+  style_match: number | null; looks_fake: number;
+  verdict: 'pass' | 'check' | 'fail'; summary: string;
+}
+
+/** The product's real photo: the catalog upload, else column J's link (allowed hosts only). */
+async function productPhoto(db: D1Database, code: string): Promise<{ data: Uint8Array; mime: string } | null> {
+  const p = (await listProducts(db, code, true))[0];
+  if (!p) return null;
+  if (p.image_key) {
+    const row = await db.prepare('SELECT full, mime FROM catalog_images WHERE key = ?').bind(p.image_key).first<{ full: ArrayBuffer | number[] | null; mime: string | null }>();
+    if (row?.full && row.mime) return { data: row.full instanceof ArrayBuffer ? new Uint8Array(row.full) : Uint8Array.from(row.full), mime: row.mime };
+  }
+  const u = p.image_url ? allowedImageUrl(p.image_url) : null;
+  if (!u) return null;
+  const res = await fetch(u.toString(), { signal: AbortSignal.timeout(15_000) }).catch(() => null);
+  if (!res?.ok) return null;
+  const data = new Uint8Array(await res.arrayBuffer());
+  const mime = imageType(data);
+  return mime && data.length < 4_000_000 ? { data, mime } : null;
+}
+
+/** Claude's verdict, kept to the shape the page expects; numbers clamped to 0–10. */
+export function parseImageCheck(text: string): ImageCheck {
+  const m = /\{[\s\S]*\}/.exec(text);
+  let x: any;
+  try { x = JSON.parse(m?.[0] ?? ''); } catch { throw new Error('AI ตอบ JSON ที่อ่านไม่ได้'); }
+  const n = (v: unknown) => Math.max(0, Math.min(10, Math.round(Number(v) || 0)));
+  return {
+    product_match: n(x?.product_match), product_issues: cleanText(x?.product_issues, 400),
+    text_readable: typeof x?.text_readable === 'boolean' ? x.text_readable : null, text_issues: cleanText(x?.text_issues, 400),
+    style_match: x?.style_match === null || x?.style_match === undefined ? null : n(x.style_match), looks_fake: n(x?.looks_fake),
+    verdict: ['pass', 'check', 'fail'].includes(x?.verdict) ? x.verdict : 'check', summary: cleanText(x?.summary, 300),
+  };
+}
+
+/**
+ * Claude compares one image with the real product photo (is it the same jeans: colour, wash, cut, stitching, labels?),
+ * reads any text on it, compares it with the style card's references and says whether it looks fake. Stored on the
+ * candidate. A product that doesn't match is the one thing that must never reach customers (wrong item → returns).
+ */
+export async function checkImage(env: StudioEnv, id: number): Promise<ImageCheck> {
+  const c = await env.DB.prepare(`SELECT id, code, product_name, promo, style_id, full, mime FROM creative_candidates WHERE id = ? AND kind = 'image'`).bind(id)
+    .first<{ id: number; code: string; product_name: string; promo: string; style_id: number | null; full: ArrayBuffer | number[] | null; mime: string | null }>();
+  if (!c?.full || !c.mime) throw new BadRequest('ไม่พบภาพนี้');
+  const [photo, card, refs, product] = await Promise.all([
+    productPhoto(env.DB, c.code),
+    c.style_id ? env.DB.prepare('SELECT name, note FROM style_cards WHERE id = ?').bind(c.style_id).first<{ name: string; note: string }>() : null,
+    c.style_id ? env.DB.prepare('SELECT thumb, mime FROM style_refs WHERE card_id = ? ORDER BY id LIMIT 3').bind(c.style_id).all<{ thumb: ArrayBuffer | number[]; mime: string }>().then((r) => r.results) : [],
+    listProducts(env.DB, c.code, true).then((l) => l[0]),
+  ]);
+  const content: unknown[] = [];
+  if (photo) content.push({ type: 'text', text: `รูปสินค้าจริง (${c.code} ${product?.name ?? c.product_name}):` }, imageBlock(photo.data, photo.mime));
+  else content.push({ type: 'text', text: `ไม่มีรูปสินค้าจริงของ ${c.code} ให้เทียบ — ให้ product_match ตามที่ดูสมเหตุสมผลกับชื่อสินค้า "${product?.name ?? c.product_name}" และบอกใน product_issues ว่าไม่มีรูปเทียบ` });
+  if (card) {
+    content.push({ type: 'text', text: `สไตล์ที่ต้องการ: ${card.name} — ${card.note || '(ไม่มีคำอธิบาย)'}${refs.length ? ' · รูปตัวอย่างสไตล์:' : ''}` });
+    for (const r of refs) content.push(imageBlock(r.thumb, r.mime));
+  }
+  content.push({ type: 'text', text: `ภาพโฆษณาที่ต้องตรวจ:` }, imageBlock(c.full, c.mime));
+  const promo = product?.promo || c.promo;
+  content.push({ type: 'text', text: `ตรวจภาพโฆษณาแล้วตอบเป็น JSON เท่านั้น:
+{"product_match": <0-10 สินค้าในภาพโฆษณาเป็นตัวเดียวกับรูปสินค้าจริงแค่ไหน: สีผ้า/ระดับการฟอก ทรง ตะเข็บ กระเป๋า ป้าย>,
+ "product_issues": "<สิ่งที่ต่างจากของจริง ระบุให้ชัด หรือ '' ถ้าไม่มี>",
+ "text_readable": <true/false ข้อความภาษาไทยบนภาพอ่านออกและสะกดถูกไหม, null ถ้าไม่มีข้อความ>,
+ "text_issues": "<ข้อความที่ผิด/อ่านไม่ออก${promo ? ` หรือไม่ตรงกับโปรจริง "${promo}"` : ''}>",
+ "style_match": <0-10 ตรงกับสไตล์ที่ต้องการแค่ไหน, null ถ้าไม่ได้ระบุสไตล์>,
+ "looks_fake": <0-10 ดูเป็นภาพ AI/ปลอมจนลูกค้าไม่เชื่อแค่ไหน 10 = ปลอมชัด>,
+ "verdict": "<pass ถ้าใช้ได้ | check ถ้าต้องให้คนดู | fail ถ้าสินค้าไม่ตรงของจริงหรือข้อความผิด>",
+ "summary": "<สรุป 1 ประโยค>"}
+เข้มงวดเรื่องสินค้า: ลูกค้าที่ได้ของไม่ตรงรูปจะขอคืน ถ้าไม่แน่ใจให้ verdict เป็น check` });
+  const out = await askClaude(env, 'คุณตรวจภาพโฆษณาของร้านยีนส์ไทยก่อนลงโฆษณา ตอบตามสิ่งที่เห็นในภาพเท่านั้น', content, 8000, 'medium');
+  const check = parseImageCheck(out.text);
+  await env.DB.prepare('UPDATE creative_candidates SET ai_check = ?2 WHERE id = ?1').bind(id, JSON.stringify(check)).run();
+  return check;
+}
+
+/** Remove an image or caption from the room (kept for history, never paired again). */
+export async function rejectCandidate(db: D1Database, id: number): Promise<void> {
+  await db.prepare(`UPDATE creative_candidates SET status = 'rejected' WHERE id = ?`).bind(id).run();
 }
