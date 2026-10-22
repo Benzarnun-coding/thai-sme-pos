@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildPayload, prQuestions, postExtras, createRequest, mayPress, pickerMessage, modalValues, moveRequest, nextStatus, requestInteraction, requestMessage, threadName } from './featureRequests.ts';
+import { buildPayload, prQuestions, prSection, postExtras, createRequest, mayPress, pickerMessage, modalValues, moveRequest, nextStatus, requestInteraction, requestMessage, threadName } from './featureRequests.ts';
 import { sqliteD1 } from './sqliteD1.ts';
 
 const schema = `CREATE TABLE feature_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, author TEXT NOT NULL, author_id TEXT,
@@ -153,4 +153,22 @@ test('ไม่ผ่าน needs a real reason; "ตอบแล้ว" pressed
   const press = () => requestInteraction({ type: 3, channel_id: '999', member: { user: { id: STAFF } }, data: { custom_id: `fragain:${r.id}` }, message: { content: 'q' } }, e, ctx).then((x) => x!.json() as Promise<any>);
   assert.equal((await press()).type, 7);
   assert.match((await press()).data.content, /ส่งให้ Claude ทำต่อไปแล้ว/);
+});
+
+test('the approval message quotes what Claude changed and why it waits', () => {
+  const body = '## แก้อะไร\nมอสแจ้งว่า `501/3` เอว 31 หมด\n- billName ใช้ PK-\n\n## ทำไมไม่ deploy เอง\nแตะ p365fill.ts\n\n## คำถามถึงคนเสนอ\n1. มีไซส์อื่นไหม';
+  assert.equal(prSection(body, 'แก้อะไร'), 'มอสแจ้งว่า 501/3 เอว 31 หมด\n- billName ใช้ PK-');
+  assert.equal(prSection(body, 'ทำไม'), 'แตะ p365fill.ts');
+  assert.equal(prSection(body, 'ไม่มีหัวข้อนี้'), '');
+});
+
+test('only Benz may press อนุมัติขึ้นเว็บ', async () => {
+  const { d1 } = sqliteD1(schema);
+  const e = { ...env(d1), GITHUB_TOKEN: 't', GITHUB_REPO: 'o/r' };
+  const r = await createRequest(d1, { author: 'เคน', author_id: STAFF, area: 'bug', title: 't', detail: '' });
+  await d1.prepare("UPDATE feature_requests SET thread_id = '999', status = 'doing' WHERE id = ?").bind(r.id).run();
+  const press = (id: string) => requestInteraction({ type: 3, channel_id: '999', member: { user: { id } }, data: { custom_id: `frship:${r.id}` }, message: { content: 'x' } }, e, ctx).then((x) => x!.json() as Promise<any>);
+  assert.match((await press(STAFF)).data.content, /คุณเบ้น/);
+  assert.match((await press(MAX)).data.content, /คุณเบ้น/);
+  assert.equal((await press(BENZ)).type, 7);
 });

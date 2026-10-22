@@ -99,6 +99,7 @@ export interface Env {
   IDEA_ROUTINE_ID?: string;
   IDEA_ROUTINE_TOKEN?: string;
   GITHUB_REPO?: string;
+  GITHUB_TOKEN?: string;
   /** Page365 login the Worker uses to fill drafts (secret; see worker/p365fill.ts) and the shop's page id */
   P365_COOKIE?: string;
   P365_PAGE_ID?: string;
