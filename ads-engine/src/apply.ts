@@ -11,6 +11,8 @@ export interface Mutator {
 export interface ApplyOptions {
   dryRun: boolean;
   now: Date;
+  /** Per-entity budget ceiling instead of guardrails.max_daily_budget (ads-web: proven winners get a higher one) */
+  maxBudgetFor?: (entityId: string) => number | undefined;
 }
 
 /**
@@ -23,7 +25,7 @@ export async function applyDecisions(
   meta: Mutator,
   guardrails: Guardrails,
   state: State,
-  { dryRun, now }: ApplyOptions,
+  { dryRun, now, maxBudgetFor }: ApplyOptions,
 ): Promise<{ totalAfter: number; errors: string[] }> {
   const byId = new Map(entities.map((e) => [e.id, e]));
   const errors: string[] = [];
@@ -42,7 +44,8 @@ export async function applyDecisions(
       }
 
       if (d.action.type === 'budget_pct') {
-        const c = clampBudget(e.daily_budget!, d.action.pct ?? 0, guardrails);
+        const max = maxBudgetFor?.(e.id);
+        const c = clampBudget(e.daily_budget!, d.action.pct ?? 0, max === undefined ? guardrails : { ...guardrails, max_daily_budget: max });
         if (!c) { d.skipped_reason = 'budget change rounds to zero or blocked by guardrails'; continue; }
         const delta = c.next - e.daily_budget!;
         // The total cap only stops increases: a cut must go through even when the total is already over the cap.

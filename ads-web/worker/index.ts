@@ -16,7 +16,7 @@ import {
 import { ECONOMICS_WINDOW, sectionMap, sectionTotals } from './engine.ts';
 import { MockMeta } from './mock.ts';
 import { DEFAULT_SECTION_ID, WEB_TAB, campaignEconomics, economics, profitRange, suggestProducts, type CampaignSetting, type Cod, type CostRow, type Economics, type Section } from './model.ts';
-import { capChanges, DUP_RAMP_TO, DUP_START_BUDGET, MAX_COPY_OBJECTS, planRun, runAutomation, zeroMetrics, type MetaLike } from './run.ts';
+import { capChanges, DUP_RAMP_TO, DUP_START_BUDGET, INCREASE_GAP_HOURS, MAX_COPY_OBJECTS, planRun, provenWinners, runAutomation, shopBreakeven, spaceIncreases, WINNER_MAX_BUDGET, zeroMetrics, type MetaLike } from './run.ts';
 import { buildIdeas } from './ideas.ts';
 import { explainActual, explainDay, explainOrders } from './salesReport.ts';
 import { campaignDay } from './transactions.ts';
@@ -1523,9 +1523,12 @@ async function preview(env: Env) {
   const entities: Entity[] = data.entities.map((e) => ({ ...e, metrics: {} }));
   const now = new Date();
   const { plan } = await planRun(env.DB, entities, (level, w) => data.insights(level, w), state, now, (w) => data.dailyAll(w));
+  const [cs, be] = await Promise.all([loadCampaignSettings(env.DB), shopBreakeven(env.DB, settings, now)]);
+  spaceIncreases(plan.decisions, state, now, settings.guardrails.increase_gap_hours ?? INCREASE_GAP_HOURS);
+  const winners = provenWinners(entities, cs, be, settings.guardrails.winner_max_daily_budget ?? WINNER_MAX_BUDGET);
   capChanges(plan);
   const noop = { setStatus: async () => {}, setDailyBudget: async () => {} };
-  await applyDecisions(plan.decisions, entities, noop, settings.guardrails, { last_action: { ...state.last_action } }, { dryRun: true, now });
+  await applyDecisions(plan.decisions, entities, noop, settings.guardrails, { last_action: { ...state.last_action } }, { dryRun: true, now, maxBudgetFor: (id) => winners.get(id) });
   const campaignOf = new Map(entities.map((e) => [e.id, e.campaign_id]));
   const pick = (d: { entity: { id: string; level: string; name: string }; plan: string; skipped_reason?: string; action: { type: string } }) => ({
     campaign_id: campaignOf.get(d.entity.id) ?? d.entity.id, entity_id: d.entity.id, level: d.entity.level, name: d.entity.name,

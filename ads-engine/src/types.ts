@@ -45,6 +45,10 @@ export interface Guardrails {
   max_total_daily_budget: number;
   /** ads-web: daily budget a new campaign (an approved copy) starts at before it climbs; unset = 50 */
   start_daily_budget?: number;
+  /** ads-web: per-campaign ceiling for proven winners (winning stage, real 7-day ROAS ≥ 1.5× shop BE, ≥ 10 orders); unset = 5,000 */
+  winner_max_daily_budget?: number;
+  /** ads-web: hours between two budget increases on one campaign/ad set, whichever rule raises it; unset = 48 */
+  increase_gap_hours?: number;
 }
 
 export interface Scope {

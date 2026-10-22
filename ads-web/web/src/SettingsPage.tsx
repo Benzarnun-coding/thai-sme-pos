@@ -65,8 +65,11 @@ export function SettingsPage({ costsLoaded, campaignNames, onSaved }: { costsLoa
           <label>งบรวมทุกแคมเปญสูงสุด/วัน (฿)<input type="number" value={g.max_total_daily_budget} onChange={(e) => setG('max_total_daily_budget', Number(e.target.value))} /></label>
           <label>งบต่ำสุดต่อแคมเปญ/วัน (฿)<input type="number" value={g.min_daily_budget} onChange={(e) => setG('min_daily_budget', Number(e.target.value))} /></label>
           <label>งบสูงสุดต่อแคมเปญ/วัน (฿)<input type="number" value={g.max_daily_budget} onChange={(e) => setG('max_daily_budget', Number(e.target.value))} /></label>
+          <label>งบสูงสุดต่อแคมเปญตัวชนะ 7 วัน (฿)<input type="number" value={g.winner_max_daily_budget ?? 5000} onChange={(e) => setG('winner_max_daily_budget', Number(e.target.value))} /></label>
+          <label>เว้นระหว่างการเพิ่มงบแต่ละครั้ง (ชม.)<input type="number" value={g.increase_gap_hours ?? 48} onChange={(e) => setG('increase_gap_hours', Number(e.target.value))} /></label>
           <label>งบเริ่มต้นตอนเปิดแอดใหม่/วัน (฿)<input type="number" value={g.start_daily_budget ?? 50} onChange={(e) => setG('start_daily_budget', Number(e.target.value))} /></label>
         </div>
+        <p className="muted small">ตัวชนะ 7 วัน = อยู่กลุ่มชนะ, ROAS จริง 7 วัน ≥ 1.5× คุ้มทุนร้าน และ ≥ 10 ออเดอร์ → กฎเพิ่มงบได้ถึงเพดานนี้แทนงบสูงสุดต่อแคมเปญ (ตัวคัดลอกจะถูกเสนอเมื่อชนเพดานนี้) · แคมเปญหนึ่งเพิ่มงบได้ครั้งเดียวในช่วงเว้นนี้ ไม่ว่ากฎไหนสั่ง เพื่อให้ ROAS 3 วันเป็นตัวเลขของงบใหม่ก่อนเพิ่มอีก (การลดงบไม่ต้องรอ)</p>
         <p className="muted small">แอดใหม่ที่ระบบเปิดให้ (ตัวคัดลอกจากปุ่ม "คัดลอกเลย") เริ่มที่งบนี้ แล้วไต่ +20% ทุกรอบ (08:00/20:00) ถ้า ROAS จริง 3 วันยังคุ้มทุน จนถึง 1,000/วัน แล้วให้กฎกลุ่มทดสอบดูแลต่อ</p>
       </section>
 

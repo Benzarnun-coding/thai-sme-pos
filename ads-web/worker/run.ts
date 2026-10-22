@@ -23,6 +23,16 @@ const DUP_RAMP_DAYS = 14;
 /** Ad sets + ads a copy may hold: each is copied, then switched on, one Meta call each, inside the free plan's 50 per request. */
 export const MAX_COPY_OBJECTS = 15;
 
+/** Per-campaign ceiling for proven winners when Settings leaves guardrails.winner_max_daily_budget unset (Benz 2026-10-22). */
+export const WINNER_MAX_BUDGET = 5000;
+/**
+ * Hours between two increases on one campaign/ad set when Settings leaves guardrails.increase_gap_hours unset
+ * (Benz 2026-10-22). Rules judge 3-day ROAS: raised every 11 h, two thirds of that window was still the old budget.
+ */
+export const INCREASE_GAP_HOURS = 48;
+/** Rules that raised budgets before the `up:` state key existed, so the first run after the change still sees them. */
+const RAISE_RULES = ['win-boost', 'test-boost', 'win-up', 'test-up'];
+
 export interface MetaLike extends Mutator {
   accountName(): Promise<string>;
   listEntities(): Promise<Entity[]>;
@@ -84,6 +94,9 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
     report.moves = plan.moves;
     const [copies, cs, be] = await Promise.all([recentCopies(env.DB, now), loadCampaignSettings(env.DB), shopBreakeven(env.DB, settings, now)]);
     plan.decisions.push(...rampCopies(entities, copies, cs, plan.decisions, be, state, now));
+    spaceIncreases(plan.decisions, state, now, settings.guardrails.increase_gap_hours ?? INCREASE_GAP_HOURS);
+    const winners = provenWinners(entities, cs, be, settings.guardrails.winner_max_daily_budget ?? WINNER_MAX_BUDGET);
+    if (winners.size) report.notes.push(`ตัวชนะ 7 วัน ${winners.size} แคมเปญ ใช้เพดานต่อแคมเปญ ${[...winners.values()][0].toLocaleString('th-TH')} แทน ${settings.guardrails.max_daily_budget.toLocaleString('th-TH')}`);
     capChanges(plan);
     report.decisions = plan.decisions;
 
@@ -115,7 +128,7 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
         for (const c of entities) {
           const m = c.metrics.last_3d;
           if (c.level !== 'campaign' || c.status !== 'ACTIVE' || !m || c.daily_budget === null || done.has(c.id)) continue;
-          if (cs.get(c.id)?.stage_id !== 'winning' || c.daily_budget < settings.guardrails.max_daily_budget * 0.9) continue;
+          if (cs.get(c.id)?.stage_id !== 'winning' || c.daily_budget < (winners.get(c.id) ?? settings.guardrails.max_daily_budget) * 0.9) continue;
           if (m.roas < be * 1.5 || m.purchases < 10) continue;
           hold('dup', c.id, c.name, 'dup-winner', `ROAS 3 วัน ${m.roas.toFixed(2)} ≥ 1.5× คุ้มทุน ${be.toFixed(2)} และงบชนเพดาน ${c.daily_budget}`,
             { level: 'campaign', budget: c.daily_budget, new_budget: Math.max(settings.guardrails.start_daily_budget ?? DUP_START_BUDGET, settings.guardrails.min_daily_budget), roas: m.roas, breakeven: be, purchases: m.purchases, actual });
@@ -124,7 +137,8 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
       await saveProposals(env.DB, proposals);
     }
 
-    const applied = await applyDecisions(plan.decisions, entities, meta, settings.guardrails, state, { dryRun, now });
+    const applied = await applyDecisions(plan.decisions, entities, meta, settings.guardrails, state, { dryRun, now, maxBudgetFor: (id) => winners.get(id) });
+    if (!dryRun) markIncreases(plan.decisions, state, now);
     report.errors.push(...applied.errors);
     report.totals.daily_budget_after = applied.totalAfter;
     if (!dryRun) {
@@ -192,7 +206,7 @@ const neededWindowsOf = (calls: (readonly [Level, Window])[], level: Level) => n
  * Break-even ROAS of the whole shop from the last 14 days of real orders: revenue ÷ (revenue − product cost −
  * per-order fees), i.e. 1 ÷ gross margin. Null when fewer than 7 days are uploaded or the margin isn't positive.
  */
-async function shopBreakeven(db: D1Database, settings: Awaited<ReturnType<typeof loadSettings>>, now: Date): Promise<number | null> {
+export async function shopBreakeven(db: D1Database, settings: Awaited<ReturnType<typeof loadSettings>>, now: Date): Promise<number | null> {
   const dates = Array.from({ length: 14 }, (_, i) => new Date(now.getTime() + 7 * 3_600_000 - (i + 1) * 86_400_000).toISOString().slice(0, 10));
   const orders = await loadOrders(db, dates).catch(() => []);
   if (new Set(orders.map((o) => o.date)).size < 7) return null;
@@ -232,6 +246,39 @@ export function rampCopies(entities: Entity[], copies: Set<string>, cs: Map<stri
     });
   }
   return out;
+}
+
+/**
+ * Campaigns that earned a higher per-campaign ceiling: winning stage, real 7-day ROAS ≥ 1.5× the shop's break-even
+ * and ≥ 10 orders. Losing that (ROAS drops, moved out of winning) puts them back under the normal ceiling: no cut, just
+ * no more raises above it.
+ */
+export function provenWinners(entities: Entity[], cs: Map<string, { stage_id: string | null }>, be: number | null, cap: number): Map<string, number> {
+  const out = new Map<string, number>();
+  if (be === null) return out;
+  for (const c of entities) {
+    const m = c.metrics.last_7d;
+    if (c.level !== 'campaign' || c.status !== 'ACTIVE' || !m || cs.get(c.id)?.stage_id !== 'winning') continue;
+    if (m.roas >= be * 1.5 && m.purchases >= 10) out.set(c.id, cap);
+  }
+  return out;
+}
+
+/** One budget increase per campaign/ad set every `gapHours`, whichever stage rule asks (copies ramping are exempt). */
+export function spaceIncreases(decisions: Decision[], state: State, now: Date, gapHours: number): void {
+  for (const d of decisions) {
+    if (d.skipped_reason || d.action.type !== 'budget_pct' || (d.action.pct ?? 0) <= 0 || d.rule_id === 'dup-ramp') continue;
+    const last = Math.max(...['up', ...RAISE_RULES].map((r) => Date.parse(state.last_action[`${r}:${d.entity.id}`] ?? '') || 0));
+    const hours = (now.getTime() - last) / 3_600_000;
+    if (hours < gapHours) d.skipped_reason = `เพิ่มงบไปแล้ว ${Math.floor(hours)} ชม.ก่อน — เว้น ${gapHours} ชม. ให้ ROAS สะท้อนงบใหม่ก่อน`;
+  }
+}
+
+/** Remembers when each campaign/ad set last got more budget (for spaceIncreases). */
+function markIncreases(decisions: Decision[], state: State, now: Date): void {
+  for (const d of decisions) {
+    if (d.applied && d.action.type === 'budget_pct' && (d.action.pct ?? 0) > 0) state.last_action[`up:${d.entity.id}`] = now.toISOString();
+  }
 }
 
 /** Marks everything past MAX_CHANGES_PER_RUN as skipped. */

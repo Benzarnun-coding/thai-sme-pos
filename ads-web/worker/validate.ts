@@ -160,8 +160,11 @@ export function validateSettings(input: any, current: Settings): Settings {
     max_daily_budget: num(g.max_daily_budget, 'งบสูงสุด/วัน', 1),
     max_total_daily_budget: num(g.max_total_daily_budget, 'งบรวมสูงสุด/วัน', 1),
     ...(g.start_daily_budget === undefined ? {} : { start_daily_budget: num(g.start_daily_budget, 'งบเริ่มต้นแอดใหม่/วัน', 1) }),
+    ...(g.winner_max_daily_budget === undefined ? {} : { winner_max_daily_budget: num(g.winner_max_daily_budget, 'งบสูงสุดต่อแคมเปญตัวชนะ 7 วัน', 1) }),
+    ...(g.increase_gap_hours === undefined ? {} : { increase_gap_hours: num(g.increase_gap_hours, 'เว้นระหว่างการเพิ่มงบ (ชม.)', 0, 336) }),
   };
   if (guardrails.min_daily_budget > guardrails.max_daily_budget) fail('งบต่ำสุด/วัน ต้องไม่มากกว่างบสูงสุด/วัน');
+  if (guardrails.winner_max_daily_budget !== undefined && guardrails.winner_max_daily_budget < guardrails.max_daily_budget) fail('งบสูงสุดของตัวชนะ 7 วัน ต้องไม่น้อยกว่างบสูงสุดต่อแคมเปญ');
   if (guardrails.start_daily_budget !== undefined && (guardrails.start_daily_budget < guardrails.min_daily_budget || guardrails.start_daily_budget > guardrails.max_daily_budget)) fail('งบเริ่มต้นแอดใหม่ต้องอยู่ระหว่างงบต่ำสุดกับงบสูงสุดต่อแคมเปญ');
   const tabs = Array.isArray(input?.sheet_tabs) ? input.sheet_tabs.map((t: unknown) => String(t).trim()).filter(Boolean) : current.sheet_tabs;
   if (tabs.length > 30) fail('แท็บได้ไม่เกิน 30 แท็บ');
