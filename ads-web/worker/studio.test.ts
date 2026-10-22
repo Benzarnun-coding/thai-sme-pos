@@ -21,3 +21,9 @@ test('image check: numbers clamped, unknown verdict → check, missing style →
   const c = parseImageCheck('ok {"product_match": 14, "looks_fake": -2, "verdict": "great", "summary": "x", "text_readable": false}');
   assert.equal(c.product_match, 10); assert.equal(c.looks_fake, 0); assert.equal(c.verdict, 'check'); assert.equal(c.style_match, null); assert.equal(c.text_readable, false);
 });
+
+test('image tags: only known dimensions and values are kept', async () => {
+  const { cleanTags } = await import('./studio.ts');
+  assert.deepEqual(cleanTags({ subject: 'worn', text: 'huge', background: 'plain_dark', mood: 'happy' }), { subject: 'worn', background: 'plain_dark' });
+  assert.deepEqual(cleanTags(null), {});
+});

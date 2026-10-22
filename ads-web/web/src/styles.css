@@ -1061,3 +1061,9 @@ tr:hover .po-label-btn { opacity: 1; }
 .studio .set-preview { display: grid; gap: 8px; margin-top: 12px; }
 .studio .fb-post { max-width: 480px; display: grid; gap: 8px; border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: var(--surface-2); }
 .studio .fb-post img { width: 100%; border-radius: 6px; }
+
+.studio .tag-tables { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; margin-top: 8px; }
+.studio .tag-table { width: 100%; border-collapse: collapse; }
+.studio .tag-table th, .studio .tag-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+.studio .tag-table td.ok { color: var(--good); font-weight: 600; }
+.studio .tag-table td.warn { color: var(--warn); }

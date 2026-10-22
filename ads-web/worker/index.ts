@@ -795,7 +795,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     await audit(env.DB, user, 'studio.generate', String(b?.code ?? ''), { batch: r.batch, n: r.candidates.length, ...r.tokens });
     return json(r);
   }
-  if (path === '/api/studio/image-prompt' && method === 'GET') return json({ prompt: await studio.imagePrompt(env.DB, url.searchParams.get('code') ?? '', Number(url.searchParams.get('style_id'))) });
+  if (path === '/api/studio/image-prompt' && method === 'GET') return json(await studio.learnedImagePrompt(env, url.searchParams.get('code') ?? '', Number(url.searchParams.get('style_id'))));
   if (path === '/api/studio/image' && method === 'POST') {
     const id = await studio.addImageCandidate(env.DB, await req.formData().catch(() => { throw new BadRequest('อ่านไฟล์ไม่ได้'); }), user);
     await audit(env.DB, user, 'studio.image', String(id), {});
@@ -813,6 +813,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const got = await metaFor(env).activeAdPosts();
     const r = { ...(await studio.importMetaPosts(env.DB, got.ads)), post_error: got.post_error };
     await studio.seedRealCaptions(env.DB).catch(() => 0);
+    await studio.seedRealImages(env.DB).catch(() => 0);
     await audit(env.DB, user, 'studio.meta_import', 'meta_posts', r);
     return json(r);
   }
@@ -831,6 +832,17 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (path === '/api/studio/passed' && method === 'GET') return json(await studio.passedFor(env.DB, url.searchParams.get('code') ?? ''));
   if (path === '/api/studio/sets' && method === 'POST') { const set = await studio.createSet(env, await body(), user); await audit(env.DB, user, 'studio.set', String(set.id), {}); return json({ set }); }
   if ((m = /^\/api\/studio\/sets\/(\d+)$/.exec(path)) && method === 'PUT') { const b = await body(); await studio.decideSet(env.DB, Number(m[1]), b?.status, user); await audit(env.DB, user, 'studio.set.decide', m[1], { status: b?.status }); return json({ ok: true }); }
+  if (path === '/api/studio/image-tags' && method === 'GET') return json({ tags: await studio.imageTagStats(env.DB), dims: studio.IMAGE_TAGS });
+  if (path === '/api/studio/meta-posts/tag' && method === 'POST') {
+    const r = await studio.tagMetaPosts(env, url.searchParams.get('force') === '1');
+    if (!r.left) {
+      await studio.seedRealImages(env.DB).catch(() => 0);
+      // Real pictures already in the room get the tags their post just got.
+      await env.DB.prepare(`UPDATE creative_candidates SET tags = (SELECT p.tags FROM meta_posts p WHERE 'metaimg:' || p.key = creative_candidates.batch) WHERE kind = 'image' AND hook = 'real'`).run();
+    }
+    return json(r);
+  }
+  if ((m = /^\/api\/studio\/candidate\/(\d+)\/release$/.exec(path)) && method === 'POST') { await studio.releaseCandidate(env.DB, Number(m[1])); await audit(env.DB, user, 'studio.release', m[1], {}); return json({ ok: true }); }
   if (path === '/api/studio/candidates' && method === 'GET') return json({ candidates: await studio.listCandidates(env.DB, url.searchParams.get('code') ?? '', url.searchParams.get('kind') ?? undefined) });
 
   // ---- website feature requests from Discord (/ไอเดีย) ----

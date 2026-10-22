@@ -353,6 +353,10 @@ export interface Stats {
   vs_real: { pairs: number; ai_wins: number };
   /** image pairs where both images had an AI check: how often the AI's better-scored image was the judges' pick */
   ai_eye: { pairs: number; agreed: number };
+  /** new images against pictures of posts running as ads, blind */
+  vs_real_img: { pairs: number; ai_wins: number };
+  /** images the gate held back (product clearly not ours) */
+  held: number;
   judges: { judge: string; n: number }[];
 }
 
@@ -360,7 +364,7 @@ export interface Stats {
 export async function stats(db: D1Database): Promise<Stats> {
   // Today in Bangkok, as the UTC instant it started.
   const dayStart = new Date(`${new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)}T00:00:00+07:00`).toISOString();
-  const [j, open, hooks, reasons, judges, pairs, vsReal, eye] = await Promise.all([
+  const [j, open, hooks, reasons, judges, pairs, vsReal, vsRealImg, eye] = await Promise.all([
     db.prepare(`SELECT count(*) AS n, coalesce(sum(created_at >= ?), 0) AS today FROM creative_judgements`).bind(dayStart).first<{ n: number; today: number }>(),
     db.prepare(`SELECT kind, count(*) AS n FROM creative_candidates WHERE status = 'open' GROUP BY kind`).all<{ kind: string; n: number }>(),
     db.prepare(
@@ -380,6 +384,12 @@ export async function stats(db: D1Database): Promise<Stats> {
        WHERE j.kind = 'caption' AND (a.hook = 'real') != (b.hook = 'real') AND j.winner_id IS NOT NULL`,
     ).first<{ pairs: number; ai_wins: number }>(),
     db.prepare(
+      `SELECT count(*) AS pairs, coalesce(sum(w.hook != 'real'), 0) AS ai_wins FROM creative_judgements j
+       JOIN creative_candidates a ON a.id = j.a_id JOIN creative_candidates b ON b.id = j.b_id
+       LEFT JOIN creative_candidates w ON w.id = j.winner_id
+       WHERE j.kind = 'image' AND (a.hook = 'real') != (b.hook = 'real') AND j.winner_id IS NOT NULL`,
+    ).first<{ pairs: number; ai_wins: number }>(),
+    db.prepare(
       `SELECT j.winner_id, a.id AS a_id, a.ai_check AS a_check, b.ai_check AS b_check FROM creative_judgements j
        JOIN creative_candidates a ON a.id = j.a_id JOIN creative_candidates b ON b.id = j.b_id
        WHERE j.kind = 'image' AND j.winner_id IS NOT NULL AND a.ai_check IS NOT NULL AND b.ai_check IS NOT NULL`,
@@ -391,6 +401,8 @@ export async function stats(db: D1Database): Promise<Stats> {
     hooks: hooks.results, reasons: reasons.results, judges: judges.results,
     agreement: { pairs: pairs.results.length, agreed: pairs.results.filter((p) => p.same).length },
     vs_real: { pairs: vsReal?.pairs ?? 0, ai_wins: vsReal?.ai_wins ?? 0 },
+    vs_real_img: { pairs: vsRealImg?.pairs ?? 0, ai_wins: vsRealImg?.ai_wins ?? 0 },
+    held: (await db.prepare(`SELECT count(*) AS n FROM creative_candidates WHERE status = 'held'`).first<{ n: number }>())?.n ?? 0,
     ai_eye: (() => {
       const score = (t: string) => { const c = JSON.parse(t) as ImageCheck; return c.product_match * 2 + (c.style_match ?? 5) - c.looks_fake - (c.text_readable === false ? 5 : 0); };
       const rows = eye.results.map((r) => ({ ...r, sa: score(r.a_check), sb: score(r.b_check) })).filter((r) => r.sa !== r.sb);
@@ -416,7 +428,7 @@ export interface MetaPost {
   key: string; story_id: string | null; message: string; image_url: string | null; permalink: string | null; post_read: number;
   ads: { ad_id: string; ad_name: string; campaign_id: string; campaign_name: string }[];
   spend: number; impressions: number; purchases: number; purchase_value: number; messages: number;
-  code: string; active: number; has_image: number; first_seen: string; fetched_at: string;
+  code: string; active: number; has_image: number; first_seen: string; fetched_at: string; tags?: string | null;
 }
 
 /** Ads → one row per post: numbers summed over the post's ads, product code from the first campaign name that names one. */
@@ -462,7 +474,7 @@ export async function importMetaPosts(db: D1Database, ads: ActiveAdPost[]): Prom
 
 export async function listMetaPosts(db: D1Database): Promise<MetaPost[]> {
   const { results } = await db.prepare(
-    `SELECT key, story_id, message, image_url, permalink, post_read, ads, spend, impressions, purchases, purchase_value, messages, code, active,
+    `SELECT key, story_id, message, image_url, permalink, post_read, ads, spend, impressions, purchases, purchase_value, messages, code, active, tags,
             coalesce(length(full), 0) AS has_image, first_seen, fetched_at FROM meta_posts ORDER BY active DESC, spend DESC`,
   ).all<Omit<MetaPost, 'ads'> & { ads: string }>();
   return results.map((r) => ({ ...r, ads: JSON.parse(r.ads || '[]') }));
@@ -571,6 +583,9 @@ function imageBlock(data: ArrayBuffer | number[] | Uint8Array, mime: string): un
   return { type: 'image', source: { type: 'base64', media_type: mime, data: btoa(bin) } };
 }
 
+/** Images whose product scores this or lower are held back from the judges (staff can release them). */
+export const HOLD_BELOW = 4;
+
 export interface ImageCheck {
   product_match: number; product_issues: string;
   text_readable: boolean | null; text_issues: string;
@@ -641,11 +656,20 @@ export async function checkImage(env: StudioEnv, id: number): Promise<ImageCheck
  "style_match": <0-10 ตรงกับสไตล์ที่ต้องการแค่ไหน, null ถ้าไม่ได้ระบุสไตล์>,
  "looks_fake": <0-10 ดูเป็นภาพ AI/ปลอมจนลูกค้าไม่เชื่อแค่ไหน 10 = ปลอมชัด>,
  "verdict": "<pass ถ้าใช้ได้ | check ถ้าต้องให้คนดู | fail ถ้าสินค้าไม่ตรงของจริงหรือข้อความผิด>",
- "summary": "<สรุป 1 ประโยค>"}
+ "summary": "<สรุป 1 ประโยค>",
+ "tags": {
+ ${TAGS_SPEC}
+ }}
 เข้มงวดเรื่องสินค้า: ลูกค้าที่ได้ของไม่ตรงรูปจะขอคืน ถ้าไม่แน่ใจให้ verdict เป็น check` });
+  const lessons = await checkerLessons(env.DB).catch(() => []);
+  if (lessons.length) content.push({ type: 'text', text: `บทเรียนจากกรรมการ (ที่ผ่านมาคุณปล่อยผ่านแต่คนตีตก — เข้มขึ้นในจุดนี้):\n${lessons.map((l) => `- ${l}`).join('\n')}` });
   const out = await askClaude(env, 'คุณตรวจภาพโฆษณาของร้านยีนส์ไทยก่อนลงโฆษณา ตอบตามสิ่งที่เห็นในภาพเท่านั้น', content, 8000, 'medium');
   const check = parseImageCheck(out.text);
-  await env.DB.prepare('UPDATE creative_candidates SET ai_check = ?2 WHERE id = ?1').bind(id, JSON.stringify(check)).run();
+  const tags = cleanTags(/\{[\s\S]*\}/.exec(out.text) ? JSON.parse(/\{[\s\S]*\}/.exec(out.text)![0])?.tags : null);
+  // The gate: a product that clearly isn't ours never reaches the judges (staff can send it on anyway).
+  const hold = check.product_match <= HOLD_BELOW;
+  await env.DB.prepare(`UPDATE creative_candidates SET ai_check = ?2, tags = ?3, status = CASE WHEN ?4 AND status = 'open' THEN 'held' WHEN NOT ?4 AND status = 'held' THEN 'open' ELSE status END WHERE id = ?1`)
+    .bind(id, JSON.stringify(check), JSON.stringify(tags), hold ? 1 : 0).run();
   return check;
 }
 
@@ -732,4 +756,152 @@ export async function listSets(db: D1Database): Promise<CreativeSet[]> {
 export async function decideSet(db: D1Database, id: number, status: unknown, user: string): Promise<void> {
   if (status !== 'approved' && status !== 'rejected' && status !== 'draft') throw new BadRequest('สถานะไม่ถูกต้อง');
   await db.prepare('UPDATE creative_sets SET status = ?2, decided_by = ?3, decided_at = ?4 WHERE id = ?1').bind(id, status, user, now()).run();
+}
+
+// ---- what a picture shows: fixed tags, so wins and ROAS can be counted per kind of picture ----
+
+/** Each dimension has a closed list; Claude must pick one value per dimension. Labels are what the pages show. */
+export const IMAGE_TAGS: Record<string, { label: string; values: Record<string, string> }> = {
+  subject: { label: 'ตัวสินค้า', values: { worn: 'มีคนใส่', flat_lay: 'วางพื้น', hanging: 'แขวน', multi: 'หลายตัวเรียงกัน', detail: 'ซูมรายละเอียดผ้า', collage: 'ภาพตัดต่อหลายช่อง' } },
+  text: { label: 'ข้อความบนภาพ', values: { price_big: 'ราคาตัวใหญ่', promo: 'โปร/หลายตัวคุ้ม', small: 'ข้อความเล็กน้อย', none: 'ไม่มีข้อความ' } },
+  background: { label: 'พื้นหลัง', values: { plain_light: 'พื้นเรียบสว่าง', plain_dark: 'พื้นเรียบมืด', real_scene: 'ฉากจริง/นอกสถานที่', store: 'หน้าร้าน/สต็อก' } },
+  face: { label: 'หน้าคน', values: { yes: 'เห็นหน้า', no: 'ไม่เห็นหน้า' } },
+  colors: { label: 'จำนวนสีที่โชว์', values: { one: 'สีเดียว', several: 'หลายสี' } },
+  look: { label: 'ความรู้สึก', values: { real_photo: 'ภาพถ่ายจริง', edited: 'แต่งภาพ/กราฟิก', ai_like: 'ดูเป็นภาพ AI' } },
+};
+
+export const TAGS_SPEC = Object.entries(IMAGE_TAGS).map(([k, d]) => `"${k}": "<${Object.keys(d.values).join('|')}>" (${d.label}: ${Object.entries(d.values).map(([v, l]) => `${v}=${l}`).join(', ')})`).join(',\n ');
+
+/** Keep only known dimensions and values. */
+export function cleanTags(x: any): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, d] of Object.entries(IMAGE_TAGS)) if (x && typeof x[k] === 'string' && d.values[x[k]]) out[k] = x[k];
+  return out;
+}
+
+/**
+ * Tags for the posts running as ads, a few pictures per call (one Claude request reads up to 6). Called repeatedly by
+ * the page until nothing is left; `force` re-tags everything.
+ */
+export async function tagMetaPosts(env: StudioEnv, force = false, batch = 6): Promise<{ tagged: number; left: number }> {
+  if (force) await env.DB.prepare('UPDATE meta_posts SET tags = NULL').run();
+  const { results } = await env.DB.prepare(`SELECT key, thumb, mime FROM meta_posts WHERE tags IS NULL AND thumb IS NOT NULL ORDER BY spend DESC LIMIT ?`).bind(batch)
+    .all<{ key: string; thumb: ArrayBuffer | number[]; mime: string }>();
+  if (results.length) {
+    const content: unknown[] = [];
+    results.forEach((r, i) => content.push({ type: 'text', text: `ภาพ ${i + 1}:` }, imageBlock(r.thumb, r.mime)));
+    content.push({ type: 'text', text: `ติดป้ายแต่ละภาพโฆษณายีนส์ข้างบน ตอบเป็น JSON array ตามลำดับภาพเท่านั้น ${results.length} ช่อง: [{\n ${TAGS_SPEC}\n}]` });
+    const out = await askClaude(env, 'คุณติดป้ายภาพโฆษณาตามสิ่งที่เห็น เลือกค่าจากรายการที่ให้เท่านั้น', content, 6000, 'low');
+    const m = /\[[\s\S]*\]/.exec(out.text);
+    let arr: any[] = [];
+    try { arr = JSON.parse(m?.[0] ?? '[]'); } catch { throw new Error('AI ตอบ JSON ที่อ่านไม่ได้'); }
+    await env.DB.batch(results.map((r, i) => env.DB.prepare('UPDATE meta_posts SET tags = ?2 WHERE key = ?1').bind(r.key, JSON.stringify(cleanTags(arr[i])))));
+  }
+  const left = await env.DB.prepare('SELECT count(*) AS n FROM meta_posts WHERE tags IS NULL AND thumb IS NOT NULL').first<{ n: number }>();
+  return { tagged: results.length, left: left?.n ?? 0 };
+}
+
+export interface TagRow { dim: string; value: string; label: string; posts: number; spend: number; roas: number | null; wins: number; losses: number }
+
+/**
+ * Per tag value: on the posts running as ads, how many, their spend and their combined ROAS (Meta-tagged, all
+ * spend-weighted); in the room, how often images with it won and lost.
+ */
+export async function imageTagStats(db: D1Database): Promise<TagRow[]> {
+  const [{ results: posts }, { results: judged }] = await Promise.all([
+    db.prepare(`SELECT tags, spend, purchase_value FROM meta_posts WHERE tags IS NOT NULL AND active = 1`).all<{ tags: string; spend: number; purchase_value: number }>(),
+    db.prepare(
+      `SELECT a.tags AS a_tags, b.tags AS b_tags, j.winner_id = a.id AS a_won FROM creative_judgements j
+       JOIN creative_candidates a ON a.id = j.a_id JOIN creative_candidates b ON b.id = j.b_id
+       WHERE j.kind = 'image' AND j.winner_id IS NOT NULL`,
+    ).all<{ a_tags: string | null; b_tags: string | null; a_won: number }>(),
+  ]);
+  const rows = new Map<string, TagRow & { value_sum: number }>();
+  const row = (dim: string, value: string) => {
+    const k = `${dim}:${value}`;
+    if (!rows.has(k)) rows.set(k, { dim, value, label: IMAGE_TAGS[dim]?.values[value] ?? value, posts: 0, spend: 0, roas: null, wins: 0, losses: 0, value_sum: 0 });
+    return rows.get(k)!;
+  };
+  for (const p of posts) for (const [d, v] of Object.entries(JSON.parse(p.tags) as Record<string, string>)) { const r = row(d, v); r.posts++; r.spend += p.spend; r.value_sum += p.purchase_value; }
+  for (const j of judged) {
+    const [ta, tb] = [j.a_tags, j.b_tags].map((t) => (t ? (JSON.parse(t) as Record<string, string>) : {}));
+    for (const [d, v] of Object.entries(ta)) if (tb[d] !== v) { const r = row(d, v); if (j.a_won) r.wins++; else r.losses++; }
+    for (const [d, v] of Object.entries(tb)) if (ta[d] !== v) { const r = row(d, v); if (j.a_won) r.losses++; else r.wins++; }
+  }
+  return [...rows.values()].map(({ value_sum, ...r }) => ({ ...r, roas: r.spend > 0 ? value_sum / r.spend : null }))
+    .sort((a, b) => a.dim.localeCompare(b.dim) || (b.roas ?? 0) - (a.roas ?? 0));
+}
+
+/**
+ * Pictures of the posts running as ads (≥ 500 spend, a product code, a stored picture) join the image A/B blind,
+ * tagged 'real', once each — the image room's readiness number is how often the team's new pictures beat them.
+ */
+export async function seedRealImages(db: D1Database): Promise<number> {
+  const r = await db.prepare(
+    `INSERT INTO creative_candidates (kind, code, product_name, promo, hook, thumb, full, mime, tags, prompt, batch, created_by, created_at)
+     SELECT 'image', p.code, '', '', 'real', p.thumb, p.full, p.mime, p.tags, 'โพสต์จริง ROAS ' || round(p.purchase_value / p.spend, 2) || ' ค่าแอด 14 วัน ' || round(p.spend), 'metaimg:' || p.key, 'meta', ?1
+     FROM meta_posts p WHERE p.code != '' AND p.full IS NOT NULL AND p.spend >= 500
+       AND NOT EXISTS (SELECT 1 FROM creative_candidates c WHERE c.batch = 'metaimg:' || p.key)`,
+  ).bind(now()).run();
+  return r.meta.changes ?? 0;
+}
+
+/** Send an image the gate held back to the judges anyway. */
+export async function releaseCandidate(db: D1Database, id: number): Promise<void> {
+  await db.prepare(`UPDATE creative_candidates SET status = 'open' WHERE id = ? AND status = 'held'`).bind(id).run();
+}
+
+/**
+ * The ChatGPT prompt, written by Claude from what the room has learned: tags that sell on the posts running as ads,
+ * tags that win in the room, the prompts behind images that won, the reasons images lost. It also picks what to try
+ * this time (asking for one tag value that has little data yet), so the room keeps learning. Without an API key, or
+ * if the call fails, the fixed template.
+ */
+export async function learnedImagePrompt(env: StudioEnv, code: string, styleId: number): Promise<{ prompt: string; learned: boolean; trying: string }> {
+  const base = await imagePrompt(env.DB, code, styleId);
+  if (!env.ANTHROPIC_API_KEY) return { prompt: base, learned: false, trying: '' };
+  const [tags, winners, reasons] = await Promise.all([
+    imageTagStats(env.DB),
+    env.DB.prepare(
+      `SELECT c.prompt, c.tags FROM creative_judgements j JOIN creative_candidates c ON c.id = j.winner_id
+       WHERE j.kind = 'image' AND c.hook != 'real' AND c.prompt != '' GROUP BY c.id ORDER BY count(*) DESC LIMIT 3`,
+    ).all<{ prompt: string; tags: string | null }>().then((r) => r.results),
+    env.DB.prepare(`SELECT reason, count(*) AS n FROM creative_judgements WHERE kind = 'image' AND reason NOT IN ('', 'better') GROUP BY reason ORDER BY n DESC`).all<{ reason: string; n: number }>().then((r) => r.results),
+  ]);
+  const tagLines = tags.map((t) => `- ${IMAGE_TAGS[t.dim]?.label ?? t.dim}: ${t.label} — โพสต์จริง ${t.posts} โพสต์${t.roas !== null ? ` ROAS ${t.roas.toFixed(2)} ค่าแอด ${Math.round(t.spend)}` : ''} · ในห้อง ชนะ ${t.wins} แพ้ ${t.losses}`).join('\n');
+  const out = await askClaude(env, 'คุณเขียน prompt ให้ ChatGPT ทำภาพโฆษณายีนส์ของร้านไทย จากสิ่งที่ร้านเรียนรู้มา', [
+    { type: 'text', text: `prompt ตั้งต้น (ต้องคงกฎเรื่องห้ามเปลี่ยนสินค้าไว้เสมอ):\n${base}\n
+## ภาพแบบไหนขายได้ (ป้ายภาพ × ROAS ของโพสต์ที่ยิงอยู่ ยอดแท็ก Meta 14 วัน; คุ้มทุน ~2.9) และชนะในห้องฝึก
+${tagLines || '(ยังไม่มีข้อมูล)'}
+## prompt ของภาพที่ชนะในห้องฝึก
+${winners.map((w, i) => `${i + 1}. ${w.prompt.slice(0, 800)}`).join('\n') || '(ยังไม่มี)'}
+## เหตุผลที่ภาพแพ้บ่อย
+${reasons.map((r) => `- ${REASONS[r.reason] ?? r.reason}: ${r.n} ครั้ง`).join('\n') || '(ยังไม่มี)'}
+
+เขียน prompt ใหม่ 1 อัน: ใช้สิ่งที่ขายได้/ชนะเป็นหลัก เลี่ยงสาเหตุที่แพ้ และเลือก "ลองของใหม่" 1 อย่างจากป้ายที่ข้อมูลยังน้อย (โพสต์จริง + ชนะ/แพ้รวมกันน้อยกว่า 5) เพื่อให้ร้านได้เรียนรู้ ห้ามตัดกฎห้ามเปลี่ยนสินค้า ภาษาไทย ไม่เกิน 12 บรรทัด
+ตอบ JSON เท่านั้น: {"prompt": "<prompt>", "trying": "<สิ่งที่ลองใหม่รอบนี้ 1 บรรทัด>"}` },
+  ], 6000, 'low').catch(() => null);
+  const m = out ? /\{[\s\S]*\}/.exec(out.text) : null;
+  try {
+    const x = JSON.parse(m?.[0] ?? '');
+    const prompt = cleanText(x.prompt, 4000);
+    if (prompt.includes('ห้ามเปลี่ยน')) return { prompt, learned: true, trying: cleanText(x.trying, 300) };
+  } catch { /* fall through to the template */ }
+  return { prompt: base, learned: false, trying: '' };
+}
+
+/**
+ * What the judges taught the checker: images the AI passed that judges then turned down for a product or text
+ * problem, as notes for the next check (most recent 6).
+ */
+export async function checkerLessons(db: D1Database): Promise<string[]> {
+  const { results } = await db.prepare(
+    `SELECT j.reason, l.ai_check FROM creative_judgements j
+     JOIN creative_candidates l ON l.id = CASE WHEN j.winner_id = j.a_id THEN j.b_id ELSE j.a_id END
+     WHERE j.kind = 'image' AND j.winner_id IS NOT NULL AND j.reason IN ('product_wrong', 'unreadable', 'fake', 'style_off') AND l.ai_check IS NOT NULL
+     ORDER BY j.id DESC LIMIT 30`,
+  ).all<{ reason: string; ai_check: string }>();
+  return results.map((r) => ({ r, c: JSON.parse(r.ai_check) as ImageCheck }))
+    .filter(({ c }) => c.verdict === 'pass').slice(0, 6)
+    .map(({ r, c }) => `เคยให้ผ่าน (สินค้าตรง ${c.product_match}/10, ดูปลอม ${c.looks_fake}/10: "${c.summary}") แต่กรรมการตีตกเพราะ ${REASONS[r.reason] ?? r.reason}`);
 }

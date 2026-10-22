@@ -12,8 +12,10 @@ interface MetaPost {
   key: string; story_id: string | null; message: string; image_url: string | null; permalink: string | null; post_read: number;
   ads: { ad_id: string; ad_name: string; campaign_id: string; campaign_name: string }[];
   spend: number; impressions: number; purchases: number; purchase_value: number; messages: number;
-  code: string; active: number; has_image: number; first_seen: string; fetched_at: string;
+  code: string; active: number; has_image: number; first_seen: string; fetched_at: string; tags?: string | null;
 }
+interface TagRow { dim: string; value: string; label: string; posts: number; spend: number; roas: number | null; wins: number; losses: number }
+type Dims = Record<string, { label: string; values: Record<string, string> }>;
 
 interface Pending { id: number; text: string; findings: { point: string; evidence: string }[] }
 
@@ -92,6 +94,8 @@ export function PostsApp() {
         {posts && <p className="small">{active.length} โพสต์ที่ยิงอยู่ · ค่าแอด 14 วัน ฿{b(total)}{posts[0] ? ` · ดึงล่าสุด ${new Date(posts[0].fetched_at).toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}` : ''}</p>}
       </header>
 
+      <ImageTags posts={posts} onTagged={load} />
+
       <section className="card">
         <h2>AI สรุปสูตรจากโพสต์จริง</h2>
         <p className="muted small">AI อ่านแคปชัน + ตัวเลขของทุกโพสต์ที่ใช้เงิน ≥ 300 และรูปของตัวดีสุด 8 / แย่สุด 6 แล้วบอกว่าโพสต์ที่ขายดีทำอะไรต่างจากตัวที่ขายไม่ดี พร้อมร่างคู่มือให้ AI เขียนแคปชัน · คู่มือจะใช้ก็ต่อเมื่อกด "ใช้คู่มือนี้"</p>
@@ -139,6 +143,7 @@ function PostCard({ p, onChanged, codes }: { p: MetaPost; onChanged: () => void;
         {p.messages > 0 && <span className="badge">{b(p.messages)} แชท</span>}
         {!p.active && <span className="badge warn">ไม่ได้ยิงแล้ว</span>}
         {!p.post_read && <span className="badge warn" title="อ่านตัวโพสต์ไม่ได้ ใช้ข้อความ/รูปจากแอดแทน">จากแอด</span>}
+        {p.tags && Object.values(JSON.parse(p.tags) as Record<string, string>).length > 0 && <span className="badge plain" title="ป้ายภาพจาก AI">🏷 {Object.entries(JSON.parse(p.tags) as Record<string, string>).filter(([d]) => d === 'subject' || d === 'text' || d === 'background').map(([, v]) => v).join(' · ')}</span>}
       </div>
       <p className={`pre small ${more ? '' : 'clamp'}`} onClick={() => setMore((m) => !m)}>{p.message || <span className="muted">(ไม่มีข้อความ)</span>}</p>
       <p className="muted small">{campaigns.slice(0, 2).join(' · ')}{campaigns.length > 2 ? ` +${campaigns.length - 2}` : ''} · {p.ads.length} แอด{p.permalink ? <> · <a href={p.permalink} target="_blank" rel="noreferrer">เปิดโพสต์</a></> : ''}</p>
@@ -199,5 +204,55 @@ function CodePicker({ value, codes, onChange, onPick }: { value: string; codes: 
       )}
       {open && q && !hits.length && <div className="suggest muted small">ไม่พบสินค้าในแคตตาล็อก</div>}
     </div>
+  );
+}
+
+/**
+ * "ภาพแบบไหนขายดี": the AI tags every post's picture (who wears it, text, background …), then ROAS per tag value
+ * across the posts running as ads, plus wins/losses of that kind of picture in the room.
+ */
+function ImageTags({ posts, onTagged }: { posts: MetaPost[] | null; onTagged: () => void }) {
+  const { toast } = useUi();
+  const [rows, setRows] = useState<TagRow[] | null>(null);
+  const [dims, setDims] = useState<Dims>({});
+  const [busy, setBusy] = useState('');
+  const load = () => call<{ tags: TagRow[]; dims: Dims }>('GET', '/api/studio/image-tags').then((r) => { setRows(r.tags); setDims(r.dims); }).catch(() => null);
+  useEffect(() => { load(); }, []);
+  const untagged = (posts ?? []).filter((p) => p.has_image && !p.tags).length;
+  const tagAll = async (force: boolean) => {
+    try {
+      let first = force;
+      for (let i = 0; i < 40; i++) {
+        const r = await call<{ tagged: number; left: number }>('POST', `/api/studio/meta-posts/tag${first ? '?force=1' : ''}`);
+        first = false;
+        setBusy(`AI กำลังดูภาพ… เหลือ ${r.left}`);
+        if (!r.left || !r.tagged) break;
+      }
+      toast('ติดป้ายภาพครบแล้ว', 'ok'); await load(); onTagged();
+    } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(''); }
+  };
+  const byDim = new Map<string, TagRow[]>();
+  for (const r of rows ?? []) byDim.set(r.dim, [...(byDim.get(r.dim) ?? []), r]);
+  return (
+    <section className="card">
+      <h2>ภาพแบบไหนขายดี</h2>
+      <p className="muted small">AI ดูภาพของทุกโพสต์แล้วติดป้าย (ตัวสินค้า · ข้อความบนภาพ · พื้นหลัง · หน้าคน · จำนวนสี · ความรู้สึก) · ROAS = ยอดแท็ก Meta ÷ ค่าแอด 14 วันของโพสต์ที่มีป้ายนั้นรวมกัน (คุ้มทุน ~2.9) · ชนะ/แพ้ = ในห้องฝึก เมื่อภาพสองภาพต่างกันที่ป้ายนั้น · ใช้เขียน prompt ภาพรอบถัดไป</p>
+      <div className="row wrap">
+        <button disabled={!!busy || !posts?.length} onClick={() => tagAll(false)}>{busy || (untagged ? `ให้ AI ติดป้ายภาพ (${untagged} ภาพ)` : 'ติดป้ายภาพใหม่ที่ยังไม่มี')}</button>
+        {!busy && rows && rows.length > 0 && <button className="ghost small" onClick={() => tagAll(true)}>ติดป้ายใหม่ทั้งหมด</button>}
+      </div>
+      {rows && rows.length > 0 && (
+        <div className="tag-tables">
+          {[...byDim.entries()].map(([dim, list]) => (
+            <table key={dim} className="small tag-table">
+              <thead><tr><th>{dims[dim]?.label ?? dim}</th><th>โพสต์</th><th>ค่าแอด</th><th>ROAS</th><th>ห้องฝึก ชนะ/แพ้</th></tr></thead>
+              <tbody>{list.map((r) => (
+                <tr key={r.value}><td>{r.label}</td><td>{r.posts}</td><td>฿{b(r.spend)}</td><td className={r.roas === null ? '' : r.roas >= 3.5 ? 'ok' : r.roas < 2.9 ? 'warn' : ''}>{r.roas === null ? '–' : r.roas.toFixed(2)}</td><td>{r.wins + r.losses ? `${r.wins}/${r.losses}` : '–'}</td></tr>
+              ))}</tbody>
+            </table>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }

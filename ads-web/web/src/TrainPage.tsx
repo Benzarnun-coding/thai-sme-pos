@@ -21,7 +21,7 @@ function CheckView({ c }: { c: ImageCheck }) {
   );
 }
 interface Pair { a: Candidate; b: Candidate }
-interface Stats { ai_eye: { pairs: number; agreed: number }; judged: number; today: number; open: { caption: number; image: number }; hooks: { hook: string; wins: number; losses: number }[]; reasons: { reason: string; n: number }[]; agreement: { pairs: number; agreed: number }; vs_real: { pairs: number; ai_wins: number }; judges: { judge: string; n: number }[] }
+interface Stats { ai_eye: { pairs: number; agreed: number }; vs_real_img: { pairs: number; ai_wins: number }; held: number; judged: number; today: number; open: { caption: number; image: number }; hooks: { hook: string; wins: number; losses: number }[]; reasons: { reason: string; n: number }[]; agreement: { pairs: number; agreed: number }; vs_real: { pairs: number; ai_wins: number }; judges: { judge: string; n: number }[] }
 
 const CAPTION_REASONS = ['wrong_fact', 'boring', 'too_long', 'not_our_voice', 'claim', 'better'];
 const IMAGE_REASONS = ['product_wrong', 'unreadable', 'style_off', 'fake', 'better'];
@@ -40,6 +40,8 @@ export function TrainApp() {
   const [edit, setEdit] = useState<{ id: number; text: string } | null>(null);
   const [styleId, setStyleId] = useState<number | ''>('');
   const [prompt, setPrompt] = useState('');
+  const [trying, setTrying] = useState('');
+  const [released, setReleased] = useState<Set<number>>(new Set());
   const [uploaded, setUploaded] = useState<{ id: number; check: ImageCheck | { error: string } | null }[]>([]);
 
   const loadStats = () => call<Stats>('GET', '/api/studio/stats').then(setStats).catch(() => null);
@@ -80,7 +82,11 @@ export function TrainApp() {
 
   const getPrompt = async () => {
     if (!code || !styleId) return toast('เลือกสินค้าและสไตล์ก่อน', 'bad');
-    try { setPrompt((await call<{ prompt: string }>('GET', `/api/studio/image-prompt?code=${encodeURIComponent(code)}&style_id=${styleId}`)).prompt); } catch (e: any) { toast(e.message, 'bad'); }
+    setBusy(true);
+    try {
+      const r = await call<{ prompt: string; learned: boolean; trying: string }>('GET', `/api/studio/image-prompt?code=${encodeURIComponent(code)}&style_id=${styleId}`);
+      setPrompt(r.prompt); setTrying(r.learned ? r.trying : '');
+    } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
   };
   const uploadImages = async (files: FileList | null) => {
     if (!files?.length || !code) return;
@@ -108,6 +114,7 @@ export function TrainApp() {
         <p className="muted small">แคปชันในคู่อาจเป็นของ AI หรือโพสต์จริงที่ยิงแอดอยู่ (จาก <a href="/studio/posts">โพสต์ที่ยิงอยู่</a>) — ไม่บอกว่าอันไหนจนกว่าจะเลือก · AI เขียนแคปชันจาก <a href="/studio">วัตถุดิบ</a> · คนตัดสินทีละคู่ว่าอันไหนดีกว่า แล้วบอกเหตุผล 1 ปุ่ม · แก้ข้อความของตัวที่ชนะได้ (กลายเป็นตัวอย่างทอง) · ยังไม่มีอะไรไปถึง Meta</p>
         {stats && <p className="small">วันนี้ตัดสินแล้ว <b>{stats.today}</b> คู่ · รวม {stats.judged} · รอตัดสิน แคปชัน {stats.open.caption} / ภาพ {stats.open.image}{stats.agreement.pairs ? ` · กรรมการเห็นตรงกัน ${Math.round((stats.agreement.agreed / stats.agreement.pairs) * 100)}% (${stats.agreement.pairs} คู่)` : ''}</p>}
         {stats && <p className="small"><b>AI เทียบโพสต์จริงแบบปิดตา:</b> {stats.vs_real.pairs ? `AI ชนะ ${stats.vs_real.ai_wins}/${stats.vs_real.pairs} คู่ (${Math.round((stats.vs_real.ai_wins / stats.vs_real.pairs) * 100)}%)` : 'ยังไม่มี'} · คู่ที่มีโพสต์จริงจะถูกส่งมาก่อน ไม่บอกว่าอันไหนคือของจริงจนกว่าจะกดเลือก · เป้าก่อนให้ AI ทำงานจริง: ชนะ ≥ 50% จาก ≥ 40 คู่</p>}
+        {stats && kind === 'image' && <p className="small"><b>ภาพใหม่เทียบภาพโพสต์จริงแบบปิดตา:</b> {stats.vs_real_img.pairs ? `ชนะ ${stats.vs_real_img.ai_wins}/${stats.vs_real_img.pairs} คู่ (${Math.round((stats.vs_real_img.ai_wins / stats.vs_real_img.pairs) * 100)}%)` : 'ยังไม่มี'} · เป้า ≥ 50% จาก ≥ 30 คู่{stats.held ? ` · กันไว้เพราะสินค้าเพี้ยน ${stats.held} ภาพ` : ''}</p>}
         {stats && stats.ai_eye.pairs > 0 && <p className="small"><b>AI ตรวจภาพเห็นตรงกับกรรมการ:</b> {stats.ai_eye.agreed}/{stats.ai_eye.pairs} คู่ ({Math.round((stats.ai_eye.agreed / stats.ai_eye.pairs) * 100)}%) · ถ้าสูงพอ AI จะช่วยกรองภาพแทนคนได้</p>}
       </header>
 
@@ -144,6 +151,9 @@ export function TrainApp() {
                   <div key={u.id} className="row uploaded-row">
                     <img className="mini big" src={`/api/studio/picture/cand/${u.id}?v=2`} alt="" />
                     <div style={{ flex: 1 }}>
+                      {u.check && 'verdict' in u.check && u.check.product_match <= 4 && !released.has(u.id) && (
+                        <div className="small warn">⛔ กันไว้ ไม่ส่งให้กรรมการ (AI ว่าสินค้าไม่ตรงของจริง) <button className="ghost small" onClick={async () => { try { await call('POST', `/api/studio/candidate/${u.id}/release`); setReleased((s) => new Set(s).add(u.id)); await loadPair(); } catch (e: any) { toast(e.message, 'bad'); } }}>ส่งให้กรรมการอยู่ดี</button></div>
+                      )}
                       {u.check && 'verdict' in u.check ? <CheckView c={u.check} /> : <span className="small warn">{u.check && 'error' in u.check ? `AI ตรวจไม่ได้: ${u.check.error}` : 'ยังไม่ได้ตรวจ (ไม่มี ANTHROPIC_API_KEY)'}</span>}
                       <div className="row">
                         <button className="ghost small" disabled={busy} onClick={async () => { try { const r = await call<{ check: ImageCheck }>('POST', `/api/studio/check-image/${u.id}`); setUploaded((l) => l.map((x) => (x.id === u.id ? { ...x, check: r.check } : x))); } catch (e: any) { toast(e.message, 'bad'); } }}>ตรวจใหม่</button>
@@ -154,6 +164,7 @@ export function TrainApp() {
                 ))}
               </div>
             )}
+            {prompt && trying && <p className="small">🧪 รอบนี้ลองของใหม่: <b>{trying}</b> (prompt เขียนจากภาพแบบที่ขายได้ + ภาพที่ชนะในห้อง)</p>}
             {prompt && <div className="kb-paste"><textarea readOnly rows={6} value={prompt} onFocus={(e) => e.target.select()} /><p className="muted small">คัดลอกไปวางใน ChatGPT พร้อมแนบรูปสินค้าจริง{m?.styles.find((s) => s.id === styleId)?.refs.length ? ' และรูปตัวอย่างสไตล์' : ''} แล้วอัปโหลดผลกลับมาที่ปุ่มด้านบน</p></div>}
           </div>
         )}

@@ -52,6 +52,21 @@ text), and images with ≥ 1 win, no more losses than wins and no AI "fail". Pro
 picture and caption agree (same product, same price/promo) → `creative_sets` (migration 0059) as draft → อนุมัติ /
 ไม่ใช้. Approved sets are what the ads side may take later; nothing is sent to Meta from here.
 
+### The image room learns (Benz 2026-10-22)
+
+1. **Tags.** A fixed list (`IMAGE_TAGS`: subject worn/flat lay/…, text on it, background, face, colours, look;
+   migration 0060). "ให้ AI ติดป้ายภาพ" on `/studio/posts` tags the posts' pictures 6 per Claude call (`tagMetaPosts`,
+   the page loops); every uploaded image gets tags in the same call as its check. "ภาพแบบไหนขายดี" (`imageTagStats`):
+   per tag value, posts, spend, combined Meta-tagged ROAS, and room wins/losses where two judged images differ on it.
+2. **Real pictures in the A/B** (`seedRealImages`, ≥ 500 spend, a code and a stored picture; after import and after
+   tagging), hook `real`, blind like the captions; "ภาพใหม่ชนะภาพโพสต์จริง x/y" (target ≥ 50% over ≥ 30 pairs).
+3. **Prompt that learns** (`learnedImagePrompt`): Claude rewrites the template from the tag table, the prompts of
+   images that won and the reasons images lost, keeps the "don't change the product" rule (else the template is
+   used), and names one thing to try this round from a tag with little data. **Gate**: an image whose product scores
+   ≤ `HOLD_BELOW` (4) is `held`, not shown to judges, until staff press "ส่งให้กรรมการอยู่ดี". **Checker lessons**
+   (`checkerLessons`): images the AI passed but judges turned down for product/text/fake/style go into the next
+   check's prompt (latest 6).
+
 ## Materials (`/studio` วัตถุดิบ)
 
 | Material | Where it lives | Notes |
