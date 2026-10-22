@@ -48,6 +48,10 @@ jobs:
         working-directory: ads-web
         run: npm ci --no-audit --no-fund && npm test && npm run typecheck
 
+      - name: Browser check (local site, made-up data; scripts/e2e/run.mjs)
+        working-directory: ads-web
+        run: npx playwright install --with-deps chromium && npm run e2e
+
       - name: Deploy
         working-directory: ads-web
         env:

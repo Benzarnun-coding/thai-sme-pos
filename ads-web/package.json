@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p web",
     "db:migrate": "wrangler d1 migrations apply DB --remote",
     "deploy": "npm run build && wrangler d1 migrations apply DB --remote && wrangler deploy",
-    "snapshot:load": "node scripts/load-snapshot.mjs"
+    "snapshot:load": "node scripts/load-snapshot.mjs",
+    "e2e": "node scripts/e2e/run.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.134.0",
@@ -24,6 +25,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "playwright": "1.56.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.1",
     "wrangler": "^4.142.0"
