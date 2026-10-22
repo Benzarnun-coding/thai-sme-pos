@@ -406,10 +406,14 @@ export async function checkBuilds(env: RequestEnv): Promise<number> {
   let n = 0;
   const gh = (path: string) => fetch(`https://api.github.com/repos/${env.GITHUB_REPO}${path}`, { headers: { 'User-Agent': 'pkjeans-ads', Accept: 'application/vnd.github+json' } })
     .then((x) => (x.ok ? x.json() as Promise<any> : null)).catch(() => null);
+  // A tag or branch exists: the API, else the public web page — Workers share IPs, so GitHub's unauthenticated API
+  // limit (60/h) is often used up and answers 403 (idea #9, 2026-10-22: its deployed tag went unseen).
+  const exists = async (kind: 'tags' | 'heads', name: string) => !!(await gh(`/git/ref/${kind}/${name}`))
+    || await fetch(`https://github.com/${env.GITHUB_REPO}/tree/${name}`, { method: 'HEAD', headers: { 'User-Agent': 'pkjeans-ads' } }).then((x) => x.ok).catch(() => false);
   for (const r of results) {
     const branch = branchFor(r.id);
     // Deployed: the run pushes tag deployed/idea-<id>-r<run> after its deploy → รอตรวจ, the asker is pinged to try it.
-    if (await gh(`/git/ref/tags/${encodeURIComponent(deployTag(r))}`)) {
+    if (await exists('tags', deployTag(r))) {
       await env.DB.prepare('UPDATE feature_requests SET pr_at = ? WHERE id = ?').bind(new Date().toISOString(), r.id).run();
       const moved = await moveRequest(env.DB, r.id, 'done', 'Claude 🤖', null);
       if (moved?.r.thread_id) {
@@ -423,7 +427,7 @@ export async function checkBuilds(env: RequestEnv): Promise<number> {
     const pr = ((await gh(`/pulls?state=all&head=${owner}:${encodeURIComponent(branch)}`)) as { html_url: string; updated_at: string; body: string | null }[] | null)?.[0];
     if (r.pr_at && r.pr_at >= r.run_at!) continue; // already told about this run's PR
     // Asked GitHub to deploy (branch still there = not done): wait; after DEPLOY_WAIT_MS, Benz looks at the Action.
-    if (await gh(`/git/ref/heads/${deployBranch(r)}`)) {
+    if (await exists('heads', deployBranch(r))) {
       if (Date.now() - Date.parse(r.run_at!) < DEPLOY_WAIT_MS) continue;
       const actions = `https://github.com/${env.GITHUB_REPO}/actions/workflows/idea-deploy.yml`;
       await env.DB.prepare('UPDATE feature_requests SET pr_url = ?, pr_at = ? WHERE id = ?').bind(actions, new Date().toISOString(), r.id).run();
