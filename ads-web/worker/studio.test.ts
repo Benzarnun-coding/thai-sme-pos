@@ -11,3 +11,7 @@ test('captions: JSON inside chatter is read, unknown hooks fall back, empty text
 test('captions: no array → a clear error', () => {
   assert.throws(() => parseCaptions('ขอโทษค่ะ เขียนไม่ได้'), /JSON/);
 });
+
+test('captions: the agent may not tag its own caption as a real post', () => {
+  assert.deepEqual(parseCaptions('[{"hook":"real","text":"x"}]'), [{ hook: 'lifestyle', text: 'x' }]);
+});

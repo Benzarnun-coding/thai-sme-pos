@@ -15,6 +15,8 @@ interface MetaPost {
   code: string; active: number; has_image: number; first_seen: string; fetched_at: string;
 }
 
+interface Pending { id: number; text: string; findings: { point: string; evidence: string }[] }
+
 const b = (x: number) => Math.round(x).toLocaleString('th-TH');
 const roasOf = (p: MetaPost) => (p.spend > 0 ? p.purchase_value / p.spend : 0);
 
@@ -47,6 +49,16 @@ export function PostsApp() {
     return { ok, of: todo.length };
   };
 
+  const [pending, setPending] = useState<Pending | null>(null);
+  useEffect(() => { call<{ pending: Pending | null }>('GET', '/api/studio/playbook/pending').then((r) => setPending(r.pending)).catch(() => null); }, []);
+  const analyze = async () => {
+    setBusy('AI กำลังอ่านโพสต์ทั้งหมด (ประมาณ 1–2 นาที)…');
+    try {
+      const r = await call<{ playbook_id: number; playbook: string; findings: { point: string; evidence: string }[] }>('POST', '/api/studio/analyze-posts');
+      setPending({ id: r.playbook_id, text: r.playbook, findings: r.findings });
+    } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(''); }
+  };
+
   const importNow = async () => {
     setBusy('กำลังอ่านโพสต์จาก Meta…');
     try {
@@ -76,6 +88,13 @@ export function PostsApp() {
         </div>
         {posts && <p className="small">{active.length} โพสต์ที่ยิงอยู่ · ค่าแอด 14 วัน ฿{b(total)}{posts[0] ? ` · ดึงล่าสุด ${new Date(posts[0].fetched_at).toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}` : ''}</p>}
       </header>
+
+      <section className="card">
+        <h2>AI สรุปสูตรจากโพสต์จริง</h2>
+        <p className="muted small">AI อ่านแคปชัน + ตัวเลขของทุกโพสต์ที่ใช้เงิน ≥ 300 และรูปของตัวดีสุด 8 / แย่สุด 6 แล้วบอกว่าโพสต์ที่ขายดีทำอะไรต่างจากตัวที่ขายไม่ดี พร้อมร่างคู่มือให้ AI เขียนแคปชัน · คู่มือจะใช้ก็ต่อเมื่อกด "ใช้คู่มือนี้"</p>
+        {!pending && <button disabled={!!busy || !posts?.length} onClick={analyze}>ให้ AI วิเคราะห์โพสต์ที่ยิงอยู่</button>}
+        {pending && <PendingPlaybook p={pending} onDone={() => setPending(null)} onAgain={analyze} busy={!!busy} />}
+      </section>
 
       {posts === null ? <div className="skeleton" style={{ height: 200 }} /> : posts.length === 0 ? (
         <p className="muted">ยังไม่มีข้อมูล — กด "ดึงโพสต์จากเพจ"</p>
@@ -132,5 +151,26 @@ function PostCard({ p, onChanged }: { p: MetaPost; onChanged: () => void }) {
         </div>
       )}
     </article>
+  );
+}
+
+function PendingPlaybook({ p, onDone, onAgain, busy }: { p: Pending; onDone: () => void; onAgain: () => void; busy: boolean }) {
+  const { toast } = useUi();
+  const [text, setText] = useState(p.text);
+  useEffect(() => setText(p.text), [p.text]);
+  return (
+    <div className="pending-playbook">
+      <b className="small">สิ่งที่ AI เห็น</b>
+      <ol className="small">{p.findings.map((f, i) => <li key={i}>{f.point} <span className="muted">— {f.evidence}</span></li>)}</ol>
+      <b className="small">ร่างคู่มือ (แก้ได้ก่อนกดใช้)</b>
+      <textarea rows={14} value={text} onChange={(e) => setText(e.target.value)} />
+      <div className="row wrap end">
+        <button className="ghost" disabled={busy} onClick={onAgain}>วิเคราะห์ใหม่</button>
+        <button disabled={busy} onClick={async () => {
+          try { await call('POST', `/api/studio/playbook/${p.id}/approve`, { text }); toast('ใช้คู่มือนี้แล้ว — แคปชันรอบถัดไปจะเขียนตามนี้', 'ok'); onDone(); }
+          catch (e: any) { toast(e.message, 'bad'); }
+        }}>ใช้คู่มือนี้</button>
+      </div>
+    </div>
   );
 }

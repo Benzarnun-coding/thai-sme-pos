@@ -1039,3 +1039,5 @@ tr:hover .po-label-btn { opacity: 1; }
 .studio .post-card img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; background: var(--surface-2); }
 .studio .post-card .no-pic { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; background: var(--surface-2); border-radius: 8px; }
 .studio .clamp { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.studio .pending-playbook { display: grid; gap: 8px; }
+.studio .pending-playbook ol { margin: 0; padding-left: 20px; display: grid; gap: 4px; }

@@ -23,6 +23,17 @@ expire, so right after the import the browser fetches each through `/api/catalog
 resizes and stores it. Numbers are Meta-tagged (real runs ~11–14% lower). The 6 posts with ≥ 1,000 spend and the best
 ROAS go into the caption agent's prompt first; any post can become a liked/disliked caption example with a reason.
 
+### AI read of the posts + blind test against them (Benz 2026-10-22)
+
+- "ให้ AI วิเคราะห์โพสต์ที่ยิงอยู่" (`analyzePosts`): Claude reads every active post with ≥ 300 spend (caption +
+  numbers, pictures of the best 8 and worst 6) and returns 5–8 findings with evidence + a draft playbook, saved as a
+  proposal (`playbook_versions.approved_by` NULL, findings in `note`, migration 0057). Used only after "ใช้คู่มือนี้"
+  (editable first). `/studio` shows a banner while a proposal waits.
+- Real posts in the A/B (`seedRealCaptions`, after every import and before every generation): posts with ≥ 500
+  spend, a caption and a product code become caption candidates with hook `real`, once each. `nextPair` serves an AI
+  vs real pair first, A/B order random; labels are hidden while judging, the answer is revealed after the vote. The
+  room shows "AI ชนะโพสต์จริง x/y" — readiness target ≥ 50% over ≥ 40 pairs. The agent is told not to copy sentences.
+
 ## Materials (`/studio` วัตถุดิบ)
 
 | Material | Where it lives | Notes |

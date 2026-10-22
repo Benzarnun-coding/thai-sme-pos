@@ -17,7 +17,7 @@ export interface StudioEnv {
 /** The hooks a caption may lead with; the agent tags each caption with one so win rates can be counted per hook. */
 export const HOOKS: Record<string, string> = {
   price: 'ราคา', promo_math: 'คุ้มกว่าเมื่อซื้อหลายตัว', durability: 'ความทน/ผ้า', sizes: 'ไซส์ใหญ่/ไซส์ครบ',
-  review: 'รีวิว/คนซื้อซ้ำ', scarcity: 'ของมีจำกัด/โปรหมดเร็ว', lifestyle: 'ใส่ไปไหน/ลุค', problem: 'ปัญหาที่ยีนส์เดิมมี',
+  real: 'โพสต์จริงที่ยิงอยู่', review: 'รีวิว/คนซื้อซ้ำ', scarcity: 'ของมีจำกัด/โปรหมดเร็ว', lifestyle: 'ใส่ไปไหน/ลุค', problem: 'ปัญหาที่ยีนส์เดิมมี',
 };
 
 /** One-tap reasons a judge picks; the weekly playbook proposal reads them. */
@@ -169,7 +169,7 @@ export async function addExample(db: D1Database, input: any, user: string): Prom
   return Number(r.meta.last_row_id);
 }
 
-export interface Playbook { id: number | null; text: string; proposed_by: string; approved_by: string | null; created_at: string }
+export interface Playbook { id: number | null; text: string; proposed_by: string; approved_by: string | null; created_at: string; note?: string | null }
 
 /** Latest approved playbook; the built-in default before anyone writes one. */
 export async function currentPlaybook(db: D1Database): Promise<Playbook> {
@@ -211,7 +211,7 @@ export async function captionPrompt(db: D1Database, product: StudioProduct, n: n
     gold.length ? `## แคปชันที่ทีมอนุมัติแล้ว (เลียนแบบน้ำเสียงนี้)\n${gold.map((g) => `- [${g.hook}] ${g.text.replace(/\n/g, ' / ')}`).join('\n')}` : '',
     liked.length ? `## ตัวอย่างที่ทีมชอบ\n${liked.map((e) => `- "${e.text.replace(/\n/g, ' / ')}" — ชอบเพราะ: ${e.reason}`).join('\n')}` : '',
     disliked.length ? `## ตัวอย่างที่ทีมไม่ชอบ (อย่าทำแบบนี้)\n${disliked.map((e) => `- "${e.text.replace(/\n/g, ' / ')}" — เพราะ: ${e.reason}`).join('\n')}` : '',
-    `## รูปแบบคำตอบ\nตอบเป็น JSON array เท่านั้น ไม่มีข้อความอื่น: [{"hook": "<หนึ่งใน ${Object.keys(HOOKS).join('|')}>", "text": "<แคปชัน>"}] แต่ละแคปชันใช้ hook ต่างกัน ห้ามใช้ตัวเลขราคา/ไซส์ที่ไม่ได้ให้มา`,
+    `## รูปแบบคำตอบ\nตอบเป็น JSON array เท่านั้น ไม่มีข้อความอื่น: [{"hook": "<หนึ่งใน ${Object.keys(HOOKS).filter((h) => h !== 'real').join('|')}>", "text": "<แคปชัน>"}] แต่ละแคปชันใช้ hook ต่างกัน ห้ามใช้ตัวเลขราคา/ไซส์ที่ไม่ได้ให้มา ห้ามลอกประโยคจากตัวอย่าง ใช้เป็นแนวทางเท่านั้น (แคปชันของคุณจะถูกเทียบแบบปิดตากับโพสต์จริง)`,
   ].filter(Boolean).join('\n\n');
   const price = product.price_min === null ? 'ไม่ทราบ' : product.price_min === product.price_max ? `${product.price_min}` : `${product.price_min}–${product.price_max}`;
   const user = [
@@ -230,7 +230,23 @@ export function parseCaptions(text: string): { hook: string; text: string }[] {
   let arr: any;
   try { arr = JSON.parse(m[0]); } catch { throw new Error('AI ตอบ JSON ที่อ่านไม่ได้'); }
   if (!Array.isArray(arr)) throw new Error('AI ไม่ได้ตอบเป็น array');
-  return arr.map((x: any) => ({ hook: HOOKS[String(x?.hook)] ? String(x.hook) : 'lifestyle', text: cleanText(x?.text, 2000) })).filter((x) => x.text);
+  return arr.map((x: any) => ({ hook: HOOKS[String(x?.hook)] && x.hook !== 'real' ? String(x.hook) : 'lifestyle', text: cleanText(x?.text, 2000) })).filter((x) => x.text);
+}
+
+/** One Claude call (Messages API); content may hold images. Returns the text and token counts. */
+async function askClaude(env: StudioEnv, system: string, content: unknown, maxTokens: number, effort: 'low' | 'medium' | 'high'): Promise<{ text: string; input: number; output: number }> {
+  if (!env.ANTHROPIC_API_KEY) throw new BadRequest('ยังไม่ได้ตั้ง ANTHROPIC_API_KEY');
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', ...(env.ANTHROPIC_WORKSPACE_ID ? { 'anthropic-workspace-id': env.ANTHROPIC_WORKSPACE_ID } : {}) },
+    body: JSON.stringify({ model: env.STUDIO_AI_MODEL || 'claude-opus-5-5', max_tokens: maxTokens, output_config: { effort }, system, messages: [{ role: 'user', content }] }),
+  });
+  const body: any = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`AI ${res.status}: ${body?.error?.message ?? res.statusText}`);
+  if (body.stop_reason === 'refusal') throw new Error('AI ปฏิเสธคำขอนี้');
+  const text = (body.content ?? []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n');
+  if (!text.trim()) throw new Error(`AI ไม่ได้ตอบข้อความ (stop: ${body.stop_reason ?? '?'})`);
+  return { text, input: body.usage?.input_tokens ?? 0, output: body.usage?.output_tokens ?? 0 };
 }
 
 export async function generateCaptions(env: StudioEnv, code: string, n: number, user: string): Promise<{ batch: string; candidates: Candidate[]; tokens: { input: number; output: number } }> {
@@ -239,15 +255,8 @@ export async function generateCaptions(env: StudioEnv, code: string, n: number, 
   if (!product) throw new BadRequest('ไม่พบรหัสสินค้านี้ในแคตตาล็อก');
   const count = Math.min(10, Math.max(2, n || 6));
   const p = await captionPrompt(env.DB, product, count);
-  const model = env.STUDIO_AI_MODEL || 'claude-opus-5-5';
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', ...(env.ANTHROPIC_WORKSPACE_ID ? { 'anthropic-workspace-id': env.ANTHROPIC_WORKSPACE_ID } : {}) },
-    body: JSON.stringify({ model, max_tokens: 4000, output_config: { effort: 'medium' }, system: p.system, messages: [{ role: 'user', content: p.user }] }),
-  });
-  const body: any = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`AI ${res.status}: ${body?.error?.message ?? res.statusText}`);
-  const text = (body.content ?? []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n');
+  await seedRealCaptions(env.DB).catch(() => 0);
+  const { text, input, output } = await askClaude(env, p.system, p.user, 16000, 'medium');
   const captions = parseCaptions(text);
   if (!captions.length) throw new Error('AI ไม่ได้ให้แคปชันเลย');
   const batch = crypto.randomUUID();
@@ -258,7 +267,7 @@ export async function generateCaptions(env: StudioEnv, code: string, n: number, 
   );
   await env.DB.batch(captions.map((c) => ins.bind(code, product.name, product.promo, c.hook, c.text, `${p.system}\n\n---\n${p.user}`, p.playbook_id, batch, at)));
   const { results } = await env.DB.prepare('SELECT * FROM creative_candidates WHERE batch = ? ORDER BY id').bind(batch).all<Candidate>();
-  return { batch, candidates: results, tokens: { input: body.usage?.input_tokens ?? 0, output: body.usage?.output_tokens ?? 0 } };
+  return { batch, candidates: results, tokens: { input, output } };
 }
 
 /** Staff-made image (from ChatGPT) for a product and style, stored as a candidate like the agent's would be. */
@@ -305,13 +314,19 @@ export async function nextPair(db: D1Database, kind: 'caption' | 'image', judge:
   for (const c of results) byCode.set(c.code, [...(byCode.get(c.code) ?? []), c]);
   const { results: done } = await db.prepare('SELECT a_id, b_id FROM creative_judgements WHERE kind = ?1 AND judge = ?2').bind(kind, judge).all<{ a_id: number; b_id: number }>();
   const seenPair = new Set(done.map((d) => `${Math.min(d.a_id, d.b_id)}:${Math.max(d.a_id, d.b_id)}`));
+  // An AI caption against a real post first (the readiness number), then any unseen pair; the order of A and B is
+  // random so judges can't learn where the real one sits.
+  let fallback: Pair | null = null;
   for (const list of byCode.values()) {
     for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
       const a = list[i], b = list[j];
-      if (!seenPair.has(`${Math.min(a.id, b.id)}:${Math.max(a.id, b.id)}`)) return { a, b, same_product: true };
+      if (seenPair.has(`${Math.min(a.id, b.id)}:${Math.max(a.id, b.id)}`)) continue;
+      const pair = Math.random() < 0.5 ? { a, b, same_product: true } : { a: b, b: a, same_product: true };
+      if ((a.hook === 'real') !== (b.hook === 'real')) return pair;
+      fallback ??= pair;
     }
   }
-  return null;
+  return fallback;
 }
 
 export async function judge(db: D1Database, input: any, user: string): Promise<void> {
@@ -332,6 +347,8 @@ export interface Stats {
   hooks: { hook: string; wins: number; losses: number }[];
   reasons: { reason: string; n: number }[];
   agreement: { pairs: number; agreed: number };
+  /** blind pairs of an AI caption against a real post: how often the AI's won */
+  vs_real: { pairs: number; ai_wins: number };
   judges: { judge: string; n: number }[];
 }
 
@@ -339,7 +356,7 @@ export interface Stats {
 export async function stats(db: D1Database): Promise<Stats> {
   // Today in Bangkok, as the UTC instant it started.
   const dayStart = new Date(`${new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)}T00:00:00+07:00`).toISOString();
-  const [j, open, hooks, reasons, judges, pairs] = await Promise.all([
+  const [j, open, hooks, reasons, judges, pairs, vsReal] = await Promise.all([
     db.prepare(`SELECT count(*) AS n, coalesce(sum(created_at >= ?), 0) AS today FROM creative_judgements`).bind(dayStart).first<{ n: number; today: number }>(),
     db.prepare(`SELECT kind, count(*) AS n FROM creative_candidates WHERE status = 'open' GROUP BY kind`).all<{ kind: string; n: number }>(),
     db.prepare(
@@ -352,12 +369,19 @@ export async function stats(db: D1Database): Promise<Stats> {
       `SELECT x.winner_id = y.winner_id AS same FROM creative_judgements x JOIN creative_judgements y
        ON min(x.a_id, x.b_id) = min(y.a_id, y.b_id) AND max(x.a_id, x.b_id) = max(y.a_id, y.b_id) AND x.judge < y.judge`,
     ).all<{ same: number }>(),
+    db.prepare(
+      `SELECT count(*) AS pairs, coalesce(sum(w.hook != 'real'), 0) AS ai_wins FROM creative_judgements j
+       JOIN creative_candidates a ON a.id = j.a_id JOIN creative_candidates b ON b.id = j.b_id
+       LEFT JOIN creative_candidates w ON w.id = j.winner_id
+       WHERE j.kind = 'caption' AND (a.hook = 'real') != (b.hook = 'real') AND j.winner_id IS NOT NULL`,
+    ).first<{ pairs: number; ai_wins: number }>(),
   ]);
   return {
     judged: j?.n ?? 0, today: j?.today ?? 0,
     open: { caption: open.results.find((r) => r.kind === 'caption')?.n ?? 0, image: open.results.find((r) => r.kind === 'image')?.n ?? 0 },
     hooks: hooks.results, reasons: reasons.results, judges: judges.results,
     agreement: { pairs: pairs.results.length, agreed: pairs.results.filter((p) => p.same).length },
+    vs_real: { pairs: vsReal?.pairs ?? 0, ai_wins: vsReal?.ai_wins ?? 0 },
   };
 }
 
@@ -452,4 +476,75 @@ export async function provenPosts(db: D1Database, limit = 6): Promise<{ message:
     `SELECT message, purchase_value / spend AS roas, spend FROM meta_posts WHERE spend >= 1000 AND message != '' ORDER BY purchase_value / spend DESC LIMIT ?`,
   ).bind(limit).all<{ message: string; roas: number; spend: number }>();
   return results;
+}
+
+// ---- real posts in the blind A/B, and the AI's read of them ----
+
+/**
+ * Posts running as ads (≥ 500 spend in 14 days, a caption and a product code) become caption candidates tagged
+ * 'real', once each (batch = 'meta:<post key>'), so judges compare them blind against the agent's. How often the
+ * agent beats them is the room's readiness number.
+ */
+export async function seedRealCaptions(db: D1Database): Promise<number> {
+  const r = await db.prepare(
+    `INSERT INTO creative_candidates (kind, code, product_name, promo, hook, text, prompt, batch, created_by, created_at)
+     SELECT 'caption', p.code, '', '', 'real', p.message, 'โพสต์จริง ROAS ' || round(p.purchase_value / p.spend, 2) || ' ค่าแอด 14 วัน ' || round(p.spend), 'meta:' || p.key, 'meta', ?1
+     FROM meta_posts p WHERE p.code != '' AND p.message != '' AND p.spend >= 500
+       AND NOT EXISTS (SELECT 1 FROM creative_candidates c WHERE c.batch = 'meta:' || p.key)`,
+  ).bind(now()).run();
+  return r.meta.changes ?? 0;
+}
+
+export interface Analysis { playbook_id: number; playbook: string; findings: { point: string; evidence: string }[]; posts: number; tokens: { input: number; output: number } }
+
+/**
+ * Claude reads the posts running as ads — caption, numbers and (for the best and worst) the picture — and writes what
+ * the sellers have in common, then a playbook built on it. Saved as a proposal; it is used only after someone
+ * presses "ใช้คู่มือนี้".
+ */
+export async function analyzePosts(env: StudioEnv, user: string): Promise<Analysis> {
+  const { results } = await env.DB.prepare(
+    `SELECT key, message, spend, purchases, purchase_value, messages, impressions, code, thumb, mime FROM meta_posts
+     WHERE active = 1 AND message != '' AND spend >= 300 ORDER BY purchase_value / spend DESC`,
+  ).all<{ key: string; message: string; spend: number; purchases: number; purchase_value: number; messages: number; impressions: number; code: string; thumb: ArrayBuffer | number[] | null; mime: string | null }>();
+  if (results.length < 5) throw new BadRequest('มีโพสต์ที่ใช้เงิน ≥ 300 ไม่ถึง 5 โพสต์ — กด "ดึงโพสต์จากเพจ" ก่อน');
+  const withPic = new Set([...results.slice(0, 8), ...results.slice(-6)].map((r) => r.key));
+  const content: unknown[] = [{ type: 'text', text: `โพสต์ที่ยิงแอดอยู่ ${results.length} โพสต์ เรียงจาก ROAS สูงไปต่ำ (ยอดแท็ก Meta 14 วัน ยอดจริงต่ำกว่าราว 11–14%; คุ้มทุนของร้านประมาณ ROAS 2.9):` }];
+  results.forEach((r, i) => {
+    const roas = r.spend ? r.purchase_value / r.spend : 0;
+    content.push({ type: 'text', text: `\n### โพสต์ ${i + 1} · ROAS ${roas.toFixed(2)} · ค่าแอด ${Math.round(r.spend)} · ${Math.round(r.purchases)} ออเดอร์ · ${r.messages} แชท · ต้นทุนต่อแชท ${r.messages ? Math.round(r.spend / r.messages) : '-'} · รหัส ${r.code || '-'}\n${r.message.slice(0, 1500)}` });
+    if (withPic.has(r.key) && r.thumb && r.mime) {
+      const bytes = r.thumb instanceof ArrayBuffer ? new Uint8Array(r.thumb) : Uint8Array.from(r.thumb);
+      let bin = ''; for (const b of bytes) bin += String.fromCharCode(b);
+      content.push({ type: 'image', source: { type: 'base64', media_type: r.mime, data: btoa(bin) } });
+    }
+  });
+  content.push({ type: 'text', text: `\nเปรียบเทียบโพสต์ที่ ROAS ดีกับไม่ดี แล้วตอบเป็น JSON เท่านั้น:
+{"findings": [{"point": "<สิ่งที่โพสต์ขายดีทำต่างจากโพสต์ขายไม่ดี 1 ข้อ>", "evidence": "<อ้างโพสต์ที่เท่าไหร่ ROAS เท่าไหร่>"}],
+ "playbook": "<คู่มือเขียนแคปชันสำหรับ AI ภาษาไทย ไม่เกิน 25 บรรทัด: เสียงของร้าน, โครงแคปชันที่ได้ผล (บรรทัดแรก, การวางราคา/โปร, อีโมจิ, ความยาว, วิธีสั่ง), สิ่งที่ต้องมี, สิ่งที่ห้าม>"}
+findings 5–8 ข้อ ทุกข้อต้องมีหลักฐานจากตัวเลข ถ้าข้อมูลไม่พอสรุปข้อไหน ให้บอกตรงๆ ว่าไม่แน่ใจ อย่าแต่ง` });
+  const out = await askClaude(env, 'คุณเป็นนักวิเคราะห์โฆษณา Facebook ของร้านยีนส์ไทยที่ขายผ่านแชท ตอบตามข้อมูลที่ให้เท่านั้น', content, 16000, 'high');
+  const m = /\{[\s\S]*\}/.exec(out.text);
+  let parsed: any;
+  try { parsed = JSON.parse(m?.[0] ?? ''); } catch { throw new Error('AI ตอบ JSON ที่อ่านไม่ได้'); }
+  const playbook = cleanText(parsed?.playbook, 6000);
+  const findings = (Array.isArray(parsed?.findings) ? parsed.findings : []).map((f: any) => ({ point: cleanText(f?.point, 500), evidence: cleanText(f?.evidence, 500) })).filter((f: { point: string }) => f.point);
+  if (!playbook) throw new Error('AI ไม่ได้เขียนคู่มือ');
+  const r = await env.DB.prepare('INSERT INTO playbook_versions (text, proposed_by, approved_by, created_at, note) VALUES (?1, ?2, NULL, ?3, ?4)')
+    .bind(playbook, `ai (กดโดย ${user})`, now(), JSON.stringify({ findings, posts: results.length })).run();
+  return { playbook_id: Number(r.meta.last_row_id), playbook, findings, posts: results.length, tokens: { input: out.input, output: out.output } };
+}
+
+/** The newest proposal that nobody approved yet, with its findings. */
+export async function pendingPlaybook(db: D1Database): Promise<(Playbook & { findings: { point: string; evidence: string }[] }) | null> {
+  const current = await currentPlaybook(db);
+  const row = await db.prepare('SELECT * FROM playbook_versions WHERE approved_by IS NULL AND id > ?1 ORDER BY id DESC LIMIT 1').bind(current.id ?? 0).first<Playbook>();
+  if (!row) return null;
+  return { ...row, findings: JSON.parse(row.note || '{}').findings ?? [] };
+}
+
+export async function approvePlaybook(db: D1Database, id: number, text: unknown, user: string): Promise<void> {
+  const t = cleanText(text, 6000);
+  const r = await db.prepare('UPDATE playbook_versions SET approved_by = ?2, text = CASE WHEN ?3 = \'\' THEN text ELSE ?3 END WHERE id = ?1 AND approved_by IS NULL').bind(id, user, t).run();
+  if (!r.meta.changes) throw new BadRequest('ไม่พบข้อเสนอนี้ หรือมีคนกดไปแล้ว');
 }

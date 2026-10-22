@@ -33,6 +33,8 @@ export function StudioApp() {
   const [products, setProducts] = useState<StudioProduct[]>([]);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
+  const [pendingId, setPendingId] = useState<number | null>(null);
+  useEffect(() => { call<{ pending: { id: number } | null }>('GET', '/api/studio/playbook/pending').then((r) => setPendingId(r.pending?.id ?? null)).catch(() => null); }, []);
   const reload = () => call<Materials>('GET', '/api/studio/materials').then(setM).catch((e) => toast(e.message, 'bad'));
   useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -54,6 +56,7 @@ export function StudioApp() {
         {m && !m.ai && <p className="small warn">ยังไม่ได้ตั้ง ANTHROPIC_API_KEY — สร้างแคปชันไม่ได้ อัปโหลดวัตถุดิบได้</p>}
       </header>
 
+      {pendingId && <p className="card small">🧠 มีร่างคู่มือจาก AI ที่วิเคราะห์โพสต์จริงรออยู่ — <a href="/studio/posts">ดูและกดใช้ที่หน้าโพสต์ที่ยิงอยู่</a></p>}
       {m && <PlaybookCard playbook={m.playbook} busy={busy} onSave={(text) => run(() => call('PUT', '/api/studio/playbook', { text }), 'บันทึกคู่มือแล้ว')} />}
 
       <section className="card">

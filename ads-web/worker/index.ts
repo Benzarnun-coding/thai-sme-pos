@@ -804,12 +804,21 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (path === '/api/studio/meta-posts/import' && method === 'POST') {
     const got = await metaFor(env).activeAdPosts();
     const r = { ...(await studio.importMetaPosts(env.DB, got.ads)), post_error: got.post_error };
+    await studio.seedRealCaptions(env.DB).catch(() => 0);
     await audit(env.DB, user, 'studio.meta_import', 'meta_posts', r);
     return json(r);
   }
   if (path === '/api/studio/meta-posts/image' && method === 'POST') { await studio.saveMetaPostImage(env.DB, await req.formData().catch(() => { throw new BadRequest('อ่านไฟล์ไม่ได้'); })); return json({ ok: true }); }
   if (path === '/api/studio/meta-posts/code' && method === 'PUT') { await studio.setMetaPostCode(env.DB, await body()); return json({ ok: true }); }
   if (path === '/api/studio/meta-posts/picture' && method === 'GET') return studio.metaPostPicture(env.DB, url.searchParams.get('key') ?? '', url.searchParams.get('size') === 'full' ? 'full' : 'thumb');
+  if (path === '/api/studio/analyze-posts' && method === 'POST') {
+    const r = await studio.analyzePosts(env, user);
+    await audit(env.DB, user, 'studio.analyze', String(r.playbook_id), { posts: r.posts, ...r.tokens });
+    return json(r);
+  }
+  if (path === '/api/studio/playbook/pending' && method === 'GET') return json({ pending: await studio.pendingPlaybook(env.DB) });
+  if ((m = /^\/api\/studio\/playbook\/(\d+)\/approve$/.exec(path)) && method === 'POST') { const b = await body(); await studio.approvePlaybook(env.DB, Number(m[1]), b?.text, user); await audit(env.DB, user, 'studio.playbook.approve', m[1], {}); return json({ ok: true }); }
+  if (path === '/api/studio/seed-real' && method === 'POST') return json({ added: await studio.seedRealCaptions(env.DB) });
   if (path === '/api/studio/candidates' && method === 'GET') return json({ candidates: await studio.listCandidates(env.DB, url.searchParams.get('code') ?? '', url.searchParams.get('kind') ?? undefined) });
 
   // ---- website feature requests from Discord (/ไอเดีย) ----

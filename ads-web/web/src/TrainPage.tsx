@@ -9,7 +9,7 @@ import { call, productPic, type Materials, type StudioProduct } from './StudioPa
 
 interface Candidate { id: number; kind: 'caption' | 'image'; code: string; product_name: string; promo: string; hook: string; style_id: number | null; text: string | null; created_by: string; created_at: string }
 interface Pair { a: Candidate; b: Candidate }
-interface Stats { judged: number; today: number; open: { caption: number; image: number }; hooks: { hook: string; wins: number; losses: number }[]; reasons: { reason: string; n: number }[]; agreement: { pairs: number; agreed: number }; judges: { judge: string; n: number }[] }
+interface Stats { judged: number; today: number; open: { caption: number; image: number }; hooks: { hook: string; wins: number; losses: number }[]; reasons: { reason: string; n: number }[]; agreement: { pairs: number; agreed: number }; vs_real: { pairs: number; ai_wins: number }; judges: { judge: string; n: number }[] }
 
 const CAPTION_REASONS = ['wrong_fact', 'boring', 'too_long', 'not_our_voice', 'claim', 'better'];
 const IMAGE_REASONS = ['product_wrong', 'unreadable', 'style_off', 'fake', 'better'];
@@ -54,6 +54,9 @@ export function TrainApp() {
     setBusy(true);
     try {
       await call('POST', '/api/studio/judge', { a_id: pair.a.id, b_id: pair.b.id, winner_id: winner, reason, edited_text: edit && edit.id === winner ? edit.text : undefined });
+      // Revealed only after the vote: which one was the real post running as an ad.
+      const real = [pair.a, pair.b].find((c) => c.hook === 'real');
+      if (real) toast(winner === null ? `เฉลย: ${real === pair.a ? 'A' : 'B'} คือโพสต์จริงที่ยิงอยู่` : winner === real.id ? `เฉลย: อันที่เลือกคือโพสต์จริงที่ยิงอยู่ (AI ยังแพ้)` : `เฉลย: อันที่เลือกคือของ AI — ชนะโพสต์จริง 🎉`, 'info');
       await loadPair(); await loadStats();
     } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
   };
@@ -84,8 +87,9 @@ export function TrainApp() {
       <SiteNav current="/studio/train" />
       <header className="kb-head">
         <div className="row"><HomeLogo text="TR" /><h1>ห้องฝึก</h1></div>
-        <p className="muted small">AI เขียนแคปชันจาก <a href="/studio">วัตถุดิบ</a> · คนตัดสินทีละคู่ว่าอันไหนดีกว่า แล้วบอกเหตุผล 1 ปุ่ม · แก้ข้อความของตัวที่ชนะได้ (กลายเป็นตัวอย่างทอง) · ยังไม่มีอะไรไปถึง Meta</p>
+        <p className="muted small">แคปชันในคู่อาจเป็นของ AI หรือโพสต์จริงที่ยิงแอดอยู่ (จาก <a href="/studio/posts">โพสต์ที่ยิงอยู่</a>) — ไม่บอกว่าอันไหนจนกว่าจะเลือก · AI เขียนแคปชันจาก <a href="/studio">วัตถุดิบ</a> · คนตัดสินทีละคู่ว่าอันไหนดีกว่า แล้วบอกเหตุผล 1 ปุ่ม · แก้ข้อความของตัวที่ชนะได้ (กลายเป็นตัวอย่างทอง) · ยังไม่มีอะไรไปถึง Meta</p>
         {stats && <p className="small">วันนี้ตัดสินแล้ว <b>{stats.today}</b> คู่ · รวม {stats.judged} · รอตัดสิน แคปชัน {stats.open.caption} / ภาพ {stats.open.image}{stats.agreement.pairs ? ` · กรรมการเห็นตรงกัน ${Math.round((stats.agreement.agreed / stats.agreement.pairs) * 100)}% (${stats.agreement.pairs} คู่)` : ''}</p>}
+        {stats && <p className="small"><b>AI เทียบโพสต์จริงแบบปิดตา:</b> {stats.vs_real.pairs ? `AI ชนะ ${stats.vs_real.ai_wins}/${stats.vs_real.pairs} คู่ (${Math.round((stats.vs_real.ai_wins / stats.vs_real.pairs) * 100)}%)` : 'ยังไม่มี'} · คู่ที่มีโพสต์จริงจะถูกส่งมาก่อน ไม่บอกว่าอันไหนคือของจริงจนกว่าจะกดเลือก · เป้าก่อนให้ AI ทำงานจริง: ชนะ ≥ 50% จาก ≥ 40 คู่</p>}
       </header>
 
       <section className="card">
@@ -129,7 +133,7 @@ export function TrainApp() {
             <div className="pair">
               {[pair.a, pair.b].map((c, i) => (
                 <article key={c.id} className="card cand">
-                  <div className="row between"><span className="badge">{i === 0 ? 'A' : 'B'}{c.hook ? ` · ${m?.hooks[c.hook] ?? c.hook}` : ''}{c.style_id ? ` · ${m?.styles.find((s) => s.id === c.style_id)?.name ?? 'สไตล์'}` : ''}</span><span className="muted small">#{c.id}</span></div>
+                  <div className="row between"><span className="badge">{i === 0 ? 'A' : 'B'}{c.kind === 'image' && c.style_id ? ` · ${m?.styles.find((s) => s.id === c.style_id)?.name ?? 'สไตล์'}` : ''}</span></div>
                   {c.kind === 'image' ? <a href={`/api/studio/picture/cand/${c.id}?size=full&v=2`} target="_blank" rel="noreferrer"><img className="cand-img" src={`/api/studio/picture/cand/${c.id}?size=full&v=2`} alt="" /></a>
                     : edit?.id === c.id ? <textarea rows={6} value={edit.text} onChange={(e) => setEdit({ id: c.id, text: e.target.value })} /> : <p className="pre">{c.text}</p>}
                   {c.kind === 'caption' && (edit?.id === c.id ? <button className="ghost small" onClick={() => setEdit(null)}>ยกเลิกแก้</button> : <button className="ghost small" onClick={() => setEdit({ id: c.id, text: c.text ?? '' })}>✏️ แก้แล้วให้ผ่าน</button>)}
