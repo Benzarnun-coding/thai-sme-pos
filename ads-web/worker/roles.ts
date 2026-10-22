@@ -3,7 +3,7 @@
 //   owner  – everything, including users and roles (the people in OWNER_EMAILS are always owners)
 //   admin  – everything except users
 //   costs  – only costs (web costs, product lines, syncing the cost sheets, Page365 / marketplace money uploads, the product catalog)
-//   viewer – read only
+//   viewer – read only (except ห้องฝึก /api/studio/*: everyone may add materials and judge)
 
 export type Role = 'owner' | 'admin' | 'costs' | 'viewer';
 export const ROLES: Role[] = ['owner', 'admin', 'costs', 'viewer'];
@@ -48,10 +48,6 @@ const COST_WRITES: [string, RegExp][] = [
   ['PUT', /^\/api\/purchase\/missing$/],
   ['PUT', /^\/api\/purchase\/payments$/],
   ['DELETE', /^\/api\/purchase$/],
-  // ห้องฝึก: every staff member who can edit costs may add materials and judge
-  ['POST', /^\/api\/studio\//],
-  ['PUT', /^\/api\/studio\//],
-  ['DELETE', /^\/api\/studio\//],
 ];
 
 export function canWrite(role: Role, method: string, path: string): boolean {
@@ -59,6 +55,8 @@ export function canWrite(role: Role, method: string, path: string): boolean {
   const p = path.replace(/\/$/, '');
   if (/^\/api\/users(\/|$)/.test(p)) return role === 'owner';
   if (role === 'owner' || role === 'admin') return true;
+  // ห้องฝึก (Benz 2026-10-22): everyone who can log in may add materials and judge, viewers included.
+  if (/^\/api\/studio\//.test(p)) return true;
   if (role === 'costs') return COST_WRITES.some(([m, re]) => m === method && re.test(p));
   return false;
 }
