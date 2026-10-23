@@ -4,7 +4,7 @@
 // once a minute. Only a bill that is still a draft and still has no complete address is touched — never one an
 // admin already sent or addressed — and only its address: the items go back unchanged and are checked on read-back.
 
-import { addressLine, readAddress, type ChatMessage } from './addressReader.ts';
+import { addressLine, readAddressTiered, type ChatMessage } from './addressReader.ts';
 import { orderLink, postOrderChannel, type AutoEnv } from './autoFill.ts';
 import { audit } from './db.ts';
 import { call, cleanStreet, draftAddress, validAddress, type P365Order } from './p365fill.ts';
@@ -42,8 +42,8 @@ async function refillOne(env: AutoEnv & { ANTHROPIC_API_KEY?: string }, no: numb
   if (!order.conversation_id) return done('no chat');
   const chat = (await call<{ messages: ChatMessage[] }>(env, `conversations/${order.conversation_id}.json`).catch(() => null))?.messages ?? [];
   const note = await env.DB.prepare('SELECT text FROM order_notes WHERE fill_order_no = ? ORDER BY at DESC LIMIT 1').bind(no).first<{ text: string }>();
-  const read = await readAddress(env.ANTHROPIC_API_KEY!, chat, env.ADDRESS_MODEL, env.ANTHROPIC_WORKSPACE_ID, note?.text ?? '');
-  await audit(env.DB, 'ai', 'address.read', String(no), read.usage).catch(() => null);
+  const read = await readAddressTiered(env.ANTHROPIC_API_KEY!, chat, { cheap: env.ADDRESS_MODEL, strong: env.ADDRESS_MODEL_HARD, workspaceId: env.ANTHROPIC_WORKSPACE_ID, orderNote: note?.text ?? '' });
+  for (const u of read.usages) await audit(env.DB, 'ai', 'address.read', String(no), u).catch(() => null);
   const name = (order.customer_name ?? '').replace(/^[A-Z]{1,3}-\d{4}\s+/, '');
   const a = validAddress({ ...read, name: read.name || name, source: 'chat' });
   const bill = `[#${order.no}](<${orderLink(env, order.id)}>)`;

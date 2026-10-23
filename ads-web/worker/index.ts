@@ -109,6 +109,7 @@ export interface Env {
   DISCORD_ORDER_WEBHOOK_URL?: string;
   /** model that reads shipping addresses out of the chat (worker/addressReader.ts; key: ANTHROPIC_API_KEY below) */
   ADDRESS_MODEL?: string;
+  ADDRESS_MODEL_HARD?: string;
   /** Messenger webhook (see worker/webhook.ts): app id is a var, the other two are secrets */
   META_APP_ID?: string;
   META_APP_SECRET?: string;

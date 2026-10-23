@@ -9,7 +9,7 @@
 // request shapes were read from the app's code on 15 Oct 2026; if Page365 changes them, every call here fails
 // safely (nothing half-written is left as "done", and the draft is untouched or only has items added).
 
-import { addressLine, readAddress, type AddressUsage, type ChatMessage } from './addressReader.ts';
+import { addressLine, readAddressTiered, type AddressUsage, type ChatMessage } from './addressReader.ts';
 import { audit } from './db.ts';
 import { completeAddress } from './thaiAddress.ts';
 import { parseOrderNote, type NoteItem } from './orderNotes.ts';
@@ -222,7 +222,7 @@ export interface FillPlan {
   said: string[];
 }
 
-export interface FillEnv extends P365Env { ANTHROPIC_API_KEY?: string; ANTHROPIC_WORKSPACE_ID?: string; ADDRESS_MODEL?: string; /** set → each address read is logged to audit */ DB?: D1Database }
+export interface FillEnv extends P365Env { ANTHROPIC_API_KEY?: string; ANTHROPIC_WORKSPACE_ID?: string; ADDRESS_MODEL?: string; /** the model for photos / not found (readAddressTiered) */ ADDRESS_MODEL_HARD?: string; /** set → each address read is logged to audit */ DB?: D1Database }
 
 /** Is the address Page365 already put on the draft complete and clean (it sometimes copies chat text into it)? */
 export function draftAddress(d: P365Order): PlanAddress | null {
@@ -313,9 +313,9 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   // Address: Page365's own when complete, else the one read from the chat (typed or a photo).
   let address: PlanAddress | null = draft ? draftAddress(draft) : null;
   if (draft && opts.readAddress !== false && env.ANTHROPIC_API_KEY) {
-    const read = await readAddress(env.ANTHROPIC_API_KEY, chat, env.ADDRESS_MODEL, env.ANTHROPIC_WORKSPACE_ID, note.text).catch((err) => ({ problems: [`อ่านที่อยู่ไม่สำเร็จ: ${err?.message ?? err}`] } as { problems: string[]; cancelled?: boolean; size_mismatch?: string; usage?: AddressUsage } & Partial<PlanAddress>));
+    const read = await readAddressTiered(env.ANTHROPIC_API_KEY, chat, { cheap: env.ADDRESS_MODEL, strong: env.ADDRESS_MODEL_HARD, workspaceId: env.ANTHROPIC_WORKSPACE_ID, orderNote: note.text }).catch((err) => ({ problems: [`อ่านที่อยู่ไม่สำเร็จ: ${err?.message ?? err}`] } as { problems: string[]; cancelled?: boolean; size_mismatch?: string; usages?: AddressUsage[] } & Partial<PlanAddress>));
     // Tokens and price of every read (the $20/month workspace cap ran out on 23 Oct with no record of where it went).
-    if (read.usage && env.DB) await audit(env.DB, 'ai', 'address.read', String(draft.no), read.usage).catch(() => null);
+    if (env.DB) for (const u of read.usages ?? []) await audit(env.DB, 'ai', 'address.read', String(draft.no), u).catch(() => null);
     // A warning, not a stop (Benz 20 Oct): the reader called 5 orders cancelled 15–19 Oct and all 5 were sent.
     if (read.cancelled) warnings.push(CANCEL_HINT);
     // A size the customer asked for that isn't made (29/31/33…): the admin's nearest made size is right (Benz 20 Oct).

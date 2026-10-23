@@ -145,3 +145,20 @@ export async function readAddress(apiKey: string, messages: ChatMessage[], model
   }
   return { ...cleanAddress(res.parsed_output), usage };
 }
+
+/**
+ * The reader as used on bills (Benz 23 Oct, after the backtest: 40 shipped bills, Haiku 5.5 as right as Opus 5.5 on
+ * typed addresses at 1/40 of the price). The cheap model reads every chat; the strong one reads it again only when
+ * the address was in a photo or wasn't found — the cases the backtest couldn't measure (2 photo bills of 40). Every
+ * read's usage is returned so both can be logged.
+ */
+export async function readAddressTiered(apiKey: string, messages: ChatMessage[], opts: { cheap?: string; strong?: string; workspaceId?: string; orderNote?: string } = {}): Promise<ReturnType<typeof cleanAddress> & { usage: AddressUsage; usages: AddressUsage[]; escalated: boolean }> {
+  const cheap = opts.cheap || 'claude-haiku-5-5';
+  const strong = opts.strong || DEFAULT_ADDRESS_MODEL;
+  const content = await chatInputInline(messages, opts.orderNote ?? '');
+  const first = await readAddress(apiKey, messages, cheap, opts.workspaceId, opts.orderNote, content).catch(() => null);
+  if (first && first.found && !first.from_image) return { ...first, usages: [first.usage], escalated: false };
+  if (cheap === strong && first) return { ...first, usages: [first.usage], escalated: false };
+  const second = await readAddress(apiKey, messages, strong, opts.workspaceId, opts.orderNote, content);
+  return { ...second, usages: first ? [first.usage, second.usage] : [second.usage], escalated: true };
+}

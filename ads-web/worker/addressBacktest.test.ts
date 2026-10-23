@@ -22,3 +22,4 @@ test('a read is priced from its tokens; an unknown model has no price', () => {
   assert.equal(addressUsage('claude-haiku-5-5', { input_tokens: 4000, output_tokens: 500 }, 0).usd, 0.00065);
   assert.equal(addressUsage('other', { input_tokens: 1, output_tokens: 1 }, 0).usd, null);
 });
+
