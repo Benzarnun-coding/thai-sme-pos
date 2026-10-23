@@ -45,6 +45,7 @@ import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, 
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
 import { cleanupDrafts, cleanupOn, setCleanup } from './draftCleanup.ts';
+import { correctionOn, previewCorrections, setCorrection } from './noteCorrection.ts';
 import { accuracy, auditStep } from './fillAudit.ts';
 import { autoFillNote, autoFillOn, cronSweep, customerFor, loadMisses, setAutoFill, sweepNotes, tell, tellMiss } from './autoFill.ts';
 import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './metaPurchases.ts';
@@ -537,6 +538,19 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const on = (await body())?.on === true;
     await setCleanup(env.DB, on);
     await audit(env.DB, user, 'p365.draft_cleanup', on ? 'on' : 'off', {});
+    return json({ on });
+  }
+  // A corrected summary changes the bill already made (noteCorrection.ts): GET = switch + what it would have done
+  // with recent real notes (Page365 read only); PUT = the switch, owner only.
+  if (path === '/api/order-notes/correction' && method === 'GET') {
+    const n = (k: string, d: number, max: number) => { const v = Number(url.searchParams.get(k) ?? d); return Math.min(Math.max(Number.isFinite(v) ? v : d, 0), max); };
+    return json({ on: await correctionOn(env.DB), preview: await previewCorrections(env, { days: n('days', 10, 30), limit: n('limit', 10, 12), offset: n('offset', 0, 500) }) });
+  }
+  if (path === '/api/order-notes/correction' && method === 'PUT') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const on = (await body())?.on === true;
+    await setCorrection(env.DB, on);
+    await audit(env.DB, user, 'p365.note_correction', on ? 'on' : 'off', {});
     return json({ on });
   }
   // A sample "needs a person" message into the order-problems channel, so the team sees what it looks like.

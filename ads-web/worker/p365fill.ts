@@ -384,16 +384,21 @@ export async function applyFill(env: FillEnv, note: { psid: string; at: string; 
   await call(env, `orders/${orderId}.json`, { method: 'PUT', body: { order: { stage: 'draft', ...(plan.shipping_id ? { shipping_id: plan.shipping_id, shipping_option: plan.shipping_option } : {}), shipping_cost: plan.shipping, discount: plan.discount, ...customer }, order_items: items } });
 
   // 3. Read it back: the right SKUs and the total from the note, or report it.
+  return { plan, order: await checkBack(env, plan, orderId) };
+}
+
+/** Reads a bill back after a write and checks it holds the plan's SKUs, total and payment (throws what differs). */
+export async function checkBack(env: P365Env, plan: FillPlan, orderId: number): Promise<P365Order> {
   const done = await call<P365Order>(env, `orders/${orderId}.json`);
   const want = plan.lines.map((l) => `${(l.sku ?? '').toUpperCase()}×${l.qty}`).sort().join(',');
   const got = done.items.map((i) => `${(i.variant?.code ?? '').toUpperCase()}×${i.quantity}`).sort().join(',');
   if (plan.payment && done.cod !== (plan.payment === 'cod')) {
-    throw new P365Error(`ใส่สินค้าแล้ว แต่ร่าง #${plan.order.no} ยังเป็น${done.cod ? 'เก็บปลายทาง' : 'โอน'} — เปลี่ยนวิธีจ่ายใน Page365 เอง`);
+    throw new P365Error(`ใส่สินค้าแล้ว แต่ร่าง #${done.no} ยังเป็น${done.cod ? 'เก็บปลายทาง' : 'โอน'} — เปลี่ยนวิธีจ่ายใน Page365 เอง`);
   }
   if (want !== got || (plan.total != null && Number(done.total) !== plan.total)) {
-    throw new P365Error(`ใส่แล้วแต่ไม่ตรง: ในร่าง ${got} ยอด ${done.total} (ต้องการ ${want} ยอด ${plan.total}) — เปิดร่าง #${plan.order.no} ใน Page365 เพื่อแก้เอง`);
+    throw new P365Error(`ใส่แล้วแต่ไม่ตรง: ในร่าง ${got} ยอด ${done.total} (ต้องการ ${want} ยอด ${plan.total}) — เปิดร่าง #${done.no} ใน Page365 เพื่อแก้เอง`);
   }
-  return { plan, order: done };
+  return done;
 }
 
 /**

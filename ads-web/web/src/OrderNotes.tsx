@@ -45,6 +45,7 @@ export function OrderNotesPage() {
       <Accuracy refresh={tick} />
       <AutoSwitch />
       <CleanupSwitch />
+      <CorrectionSwitch />
       <NoteMisses refresh={tick} />
       <OrderNotesList date={date} dayLabel={date === todayBkk() ? 'วันนี้' : thaiDay(date)} refresh={tick} live={date === todayBkk()} />
     </>
@@ -240,6 +241,66 @@ function CleanupSwitch() {
         </span>
       </div>
       {open && (st.preview.length ? <ul className="small">{st.preview.map((p) => <li key={p.no}>#{p.no} — {p.reason} · <b>{label[p.action] ?? p.action}</b></li>)}</ul> : <p className="small muted">ตอนนี้ไม่มีร่างที่เข้าเงื่อนไข</p>)}
+    </div>
+  );
+}
+
+interface CorrectionRow {
+  note: { mid: string; at: string; text: string; result: string | null; order_no: number | null };
+  earlier: { at: string; text: string };
+  bill: number; gap_min: number; stage: string; decision: string; change: string | null;
+  total: [number | null, number | null]; payment: [string | null, string | null];
+  final: { stage: string; items: string[]; total: number } | null; matches: boolean | null;
+}
+
+const DECISION_TH: Record<string, string> = {
+  rewrite: 'แก้บิลเดิมให้', locked: 'ไม่แตะ แจ้งคน (บิลเลยรอชำระ)', ask: 'ไม่เปิดบิลที่สอง ถามคน', same: 'บิลตรงอยู่แล้ว ไม่ทำอะไร', new: 'ออเดอร์ใหม่ (เหมือนเดิม)', unclear: 'อ่านสรุปไม่ออก ให้คนดู',
+};
+const bkkTime = (iso: string) => new Date(Date.parse(iso) + 7 * 3_600_000).toISOString().slice(5, 16).replace('T', ' ');
+
+/** A corrected summary changes the bill already made (worker/noteCorrection.ts): off until Benz switches it on, with a replay of recent notes. */
+function CorrectionSwitch() {
+  const { toast } = useUi();
+  const [on, setOn] = useState<boolean | null>(null);
+  const [rows, setRows] = useState<CorrectionRow[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { fetch('/api/order-notes/correction?limit=0').then((r) => r.json()).then((j) => setOn(j.on)).catch(() => {}); }, []);
+  async function more() {
+    setBusy(true);
+    try {
+      const j = await fetch(`/api/order-notes/correction?offset=${rows?.length ?? 0}&limit=10`).then((r) => r.json());
+      if (j.error) throw new Error(j.error);
+      setRows([...(rows ?? []), ...j.preview]);
+    } catch (e: any) { toast(e.message, 'bad'); }
+    setBusy(false);
+  }
+  async function flip() {
+    const r = await fetch('/api/order-notes/correction', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: !on }) });
+    const j = await r.json();
+    if (!r.ok) { toast(j.error ?? 'เปลี่ยนไม่ได้', 'bad'); return; }
+    setOn(j.on); toast(j.on ? 'เปิดแก้บิลตามสรุปใหม่แล้ว' : 'ปิดแก้บิลตามสรุปใหม่แล้ว', 'ok');
+  }
+  if (on === null) return null;
+  return (
+    <div className={`banner ${on ? 'info' : ''}`}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
+        <span><b>แก้บิลตามสรุปใหม่: {on ? 'เปิด' : 'ปิด'}</b> — สรุปใหม่ภายใน 2 ชม.: แก้ในบิลเดิม ถ้ายังเป็นร่างหรือรอชำระ (บิลที่ส่งแล้วแจ้ง #ออเดอร์มีปัญหา) · เลยรอชำระ: ไม่แตะ แจ้งคน · หลัง 2 ชม. รุ่นเดิมแต่ไซส์/สีต่าง: ไม่เปิดบิลที่สอง ถามคน</span>
+        <span style={{ display: 'flex', gap: 6 }}>
+          <button className="ghost small" disabled={busy} onClick={more}>{rows ? 'ดูเพิ่ม' : 'ดูว่าจะทำอะไรกับสรุปจริง 10 วัน'}</button>
+          <button className="ghost small" onClick={flip}>{on ? 'ปิด' : 'เปิด'}</button>
+        </span>
+      </div>
+      {rows && (rows.length ? (
+        <ul className="small">{rows.map((r) => (
+          <li key={r.note.mid}>
+            #{r.bill} · {bkkTime(r.earlier.at)} → {bkkTime(r.note.at)} ({r.gap_min} นาที, {r.stage}) · <b>{DECISION_TH[r.decision] ?? r.decision}</b>
+            {r.change && <> · {r.change}</>}
+            {r.payment[0] !== r.payment[1] && <> · {r.payment[0]} → {r.payment[1]}</>}
+            {r.total[0] !== r.total[1] && <> · ยอด {r.total[0]} → {r.total[1]}</>}
+            {r.final && <span className="muted"> · บิลจบที่ {r.final.items.join(', ')} ยอด {r.final.total} ({r.final.stage}){r.matches === true ? ' ✓ ตรงกับสรุปใหม่' : r.matches === false ? ' ✗ ไม่ตรงสรุปใหม่' : ''}</span>}
+          </li>
+        ))}</ul>
+      ) : <p className="small muted">ไม่มีสรุปซ้ำของลูกค้าเดิมใน 10 วัน</p>)}
     </div>
   );
 }

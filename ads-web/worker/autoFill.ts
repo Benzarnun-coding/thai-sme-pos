@@ -10,6 +10,7 @@ import { looksLikeNote, markFill, parseOrderNote, saveNotes, type StoredNote } f
 import { sendNotePurchase } from './notePurchases.ts';
 import { cleanupDrafts, cleanupOn, deleteDraft } from './draftCleanup.ts';
 import { accuracyPost, auditStep } from './fillAudit.ts';
+import { applyCorrection, billItems, change, correctionOn, decide, noteItems, SAME_ORDER_MS, stageTh } from './noteCorrection.ts';
 import { applyFill, call, CANCEL_HINT, findDraft, P365Error, planFill, type FillEnv, type P365Order } from './p365fill.ts';
 
 export interface AutoEnv extends FillEnv, DiscordEnv { DB: D1Database; /** #ออเดอร์มีปัญหา (Benz 15 Oct); falls back to the ads channel via the bot */ DISCORD_ORDER_WEBHOOK_URL?: string; /** who answers for problem bills (เนย, Benz 15 Oct); empty = the deciders */ DISCORD_ORDER_OWNER_IDS?: string }
@@ -45,25 +46,53 @@ export async function openDraft(env: FillEnv, customerId: number): Promise<P365O
   return id ? call<P365Order>(env, `orders/${id}.json`) : null;
 }
 
-/** Two notes for one customer this close together are one order (a correction), as for purchases to Meta. */
-const SAME_ORDER_MS = 2 * 3_600_000;
-
 /** Another note of this customer already put into this bill, if any. */
 async function otherNoteOn(db: D1Database, orderNo: number, mid: string): Promise<{ mid: string; at: string } | null> {
   return db.prepare('SELECT mid, at FROM order_notes WHERE fill_order_no = ? AND mid != ? AND filled_at IS NOT NULL ORDER BY at DESC LIMIT 1').bind(orderNo, mid).first<{ mid: string; at: string }>();
 }
 
 const bkk = (iso: string) => new Date(Date.parse(iso) + 7 * 3_600_000).toISOString().slice(11, 16);
+/** "14:05" today, "22/10 14:05" before. */
+const when = (iso: string) => {
+  const d = new Date(Date.parse(iso) + 7 * 3_600_000).toISOString();
+  return d.slice(0, 10) === new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10) ? d.slice(11, 16) : `${d.slice(8, 10)}/${d.slice(5, 7)} ${d.slice(11, 16)}`;
+};
+
+/** What a note says that a bill doesn't: items, payment, total. */
+function differs(bill: P365Order, text: string): string {
+  const p = parseOrderNote(text);
+  const out = [change(billItems(bill), noteItems(text))];
+  if (p?.payment && (p.payment === 'cod') !== !!bill.cod) out.push(`${bill.cod ? 'ปลายทาง' : 'โอน'} → ${p.payment === 'cod' ? 'ปลายทาง' : 'โอน'}`);
+  if (p?.total != null && p.total !== Number(bill.total)) out.push(`ยอด ${bill.total} → ${p.total}`);
+  return out.filter(Boolean).join(' · ') || 'สรุปต่างจากบิล';
+}
+
+/**
+ * With note_correction on (noteCorrection.ts), what a note means for a bill another note of the customer filled:
+ * a correction to apply (draft or unpaid bill, within 2 h), a person to tell (bill further on), a question (later
+ * note, same models, other size/colour — never a second bill), nothing to do (the bill says it already), or null
+ * (the old way).
+ */
+function corrected(note: StoredNote, bill: P365Order, other: { mid: string; at: string }): { draft: P365Order | null; billed?: P365Order; why?: string; correct?: { at: string } } | null {
+  const t = Date.parse(note.at);
+  const d = decide({ gapMs: Math.abs(t - Date.parse(other.at)), billAgeMs: t - Date.parse(bill.created_at), stage: bill.stage, noteText: note.text, bill });
+  if (d === 'same') return { draft: null, billed: bill };
+  if (d === 'rewrite') return { draft: bill, correct: { at: other.at } };
+  if (d === 'locked') return { draft: bill, why: `สรุปใหม่ต่างจากบิล #${bill.no} ที่อยู่ขั้น "${stageTh(bill.stage)}" แล้ว — ระบบไม่แก้บิลที่เลยรอชำระ (อาจแพ็คหรือส่งแล้ว): ${differs(bill, note.text)} · ถ้ายังไม่ได้แพ็ค แก้ในบิลเอง (ปลดล็อกสินค้าใน Page365) · ถ้าส่งแล้ว คุยกับลูกค้า` };
+  if (d === 'ask') return { draft: bill, why: `สรุปนี้รุ่นเดียวกับบิล #${bill.no} (${stageTh(bill.stage)} · สรุปตอน ${when(other.at)} น.) แต่ไซส์/สีต่าง: ${differs(bill, note.text)} — แก้บิลเดิม หรือเป็นออเดอร์ใหม่? ระบบยังไม่เปิดบิลที่สอง: ถ้าแก้ → แก้บิล #${bill.no} เอง · ถ้าออเดอร์ใหม่ → เปิดร่างในแชท แล้วกด "ใส่ใน Page365" ในแท็บ Log` };
+  return null;
+}
 
 /**
  * The bill a note belongs to (Benz 15 Oct: whenever an admin types a summary there is a draft in Page365, whatever
  * else is missing; details follow). Order of looking: the customer's latest Page365 order if it is a draft, a
  * draft of theirs near the note, else a new draft. Never a second bill for one order: a bill made and sent already
  * (the morning round, an admin) is taken as this note's, and a second note within 2 hours of one already filled
- * is a correction, left for a person.
+ * is a correction, left for a person — or, with note_correction on, applied to that bill (noteCorrection.ts).
  */
-export async function ensureDraft(env: AutoEnv, note: StoredNote): Promise<{ draft: P365Order | null; billed?: P365Order; why?: string; replaced?: number }> {
+export async function ensureDraft(env: AutoEnv, note: StoredNote): Promise<{ draft: P365Order | null; billed?: P365Order; why?: string; replaced?: number; correct?: { at: string } }> {
   const t = Date.parse(note.at);
+  const fix = await correctionOn(env.DB);
   const who = await customerFor(env, note.psid);
   let draft: P365Order | null = null;
   if (who?.last_order_id) {
@@ -75,6 +104,8 @@ export async function ensureDraft(env: AutoEnv, note: StoredNote): Promise<{ dra
       else {
         const other = await otherNoteOn(env.DB, last.no, note.mid);
         const recent = Date.parse(last.created_at) >= t - 3_600_000;
+        const fixed = fix && other ? corrected(note, last, other) : null;
+        if (fixed) return fixed;
         if (other ? Math.abs(Date.parse(other.at) - t) <= SAME_ORDER_MS : recent) return { draft: null, billed: last };
       }
     }
@@ -82,10 +113,12 @@ export async function ensureDraft(env: AutoEnv, note: StoredNote): Promise<{ dra
   if (!draft) draft = await findDraft(env, note.psid, note.at);
   if (draft?.items.length) {
     const other = await otherNoteOn(env.DB, draft.no, note.mid);
+    const fixed = fix && other ? corrected(note, draft, other) : null;
+    if (fixed) return fixed;
     if (other && Math.abs(Date.parse(other.at) - t) <= SAME_ORDER_MS) {
       // A corrected summary replaces the earlier one (Benz 20 Oct): the draft the earlier note filled is deleted
       // and a new one opened for this note — only while it is still a draft, and only with cleanup switched on.
-      if (draft.stage === 'draft' && who && (await cleanupOn(env.DB))) {
+      if (draft.stage === 'draft' && who && !fix && (await cleanupOn(env.DB))) {
         await deleteDraft(env, draft);
         await env.DB.prepare('UPDATE order_notes SET filled_at = NULL, fill_error = ? WHERE mid = ?').bind(`ต้องให้คนดู: ลบร่างแล้ว (แทนด้วยสรุปตอน ${bkk(note.at)} น.)`, other.mid).run();
         const fresh = await openDraft(env, who.customer_id);
@@ -130,6 +163,12 @@ export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force
   let draft: P365Order | null = null;
   let name = '';
   try {
+    // 0. A corrected summary typed seconds after the first (#29944/#29945 20 Oct: two bills; #30322 23 Oct: items
+    // added twice) waits until the first is in its bill, then is a correction of it: the sweep takes it after.
+    if (await correctionOn(env.DB) && (await earlierInProgress(env.DB, note))) {
+      await markFill(env.DB, note.mid, { by: 'auto', order_no: null, error: `${WAITING}: สรุปก่อนหน้าของลูกค้านี้กำลังใส่บิลอยู่` });
+      return { status: 'waiting', order_no: null, reasons: ['สรุปก่อนหน้ากำลังใส่บิลอยู่'] };
+    }
     // 1. The draft first, recorded at once: whatever happens next, the bill exists and is linked to the note.
     const got = await ensureDraft(env, note);
     draft = got.draft;
@@ -144,6 +183,20 @@ export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force
       return { status: 'needs_person', order_no: null, reasons: why };
     }
     name = draft.customer_name ?? '';
+    // A corrected summary: the bill it belongs to is rewritten in place (noteCorrection.ts).
+    if (got.correct) {
+      try {
+        const r = await applyCorrection(env, note, draft, got.correct.at);
+        await markFill(env.DB, note.mid, { by: 'auto', order_no: r.order.no, error: null });
+        return { status: 'filled', order_no: r.order.no, reasons: [r.change ? `แก้บิลตามสรุปใหม่: ${r.change}` : 'แก้บิลตามสรุปใหม่'] };
+      } catch (err: any) {
+        if (err instanceof P365Error && err.kind === 'session') throw err;
+        const why = [`แก้บิล #${draft.no} ตามสรุปใหม่ไม่ได้: ${err?.message ?? err}`];
+        await markFill(env.DB, note.mid, { by: 'auto', order_no: draft.no, error: `ต้องให้คนดู: ${why[0]}` }).catch(() => null);
+        await tell(env, note, draft, name, why);
+        return { status: 'needs_person', order_no: draft.no, reasons: why };
+      }
+    }
     if (got.why) {
       await markFill(env.DB, note.mid, { by: 'auto', order_no: draft.no, error: `ต้องให้คนดู: ${got.why}` }).catch(() => null);
       await tell(env, note, draft, name, [got.why]);
@@ -182,6 +235,15 @@ export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force
     await tell(env, note, draft, name, why).catch(() => null);
     return { status: 'needs_person', order_no: draft?.no ?? null, reasons: why };
   }
+}
+
+/** Another note of this customer from the 2 hours before, still being put into its bill. */
+async function earlierInProgress(db: D1Database, note: StoredNote): Promise<boolean> {
+  const r = await db.prepare(
+    `SELECT 1 FROM order_notes WHERE psid = ? AND mid != ? AND at <= ? AND at >= ? AND filled_at IS NULL
+        AND (instr(fill_error, ?) = 1 OR instr(fill_error, ?) = 1) LIMIT 1`,
+  ).bind(note.psid, note.mid, note.at, new Date(Date.parse(note.at) - SAME_ORDER_MS).toISOString(), WAITING, OPENED).first();
+  return !!r;
 }
 
 const triesOf = (error: string | null | undefined) => Number(/^เปิดร่างแล้ว.*\((\d+)\)$/.exec(error ?? '')?.[1] ?? 0);
