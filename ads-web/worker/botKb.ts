@@ -50,11 +50,11 @@ export function parseItems(text: string): Pick<KbItem, 'kind' | 'question' | 'an
   return raw.filter((r: any) => r?.kind !== 'repeat').map((r: any) => {
     // "(ทีมต้องยืนยัน …)" is a note for the team, not words for customers: it moves from the answer to why.
     const ans = s(r?.answer, 800) ?? '';
-    const notes = [...ans.matchAll(/\s*\((ทีมต้องยืนยัน[^)]*)\)/g)].map((m) => m[1]);
+    const notes = [...ans.matchAll(/\s*\(([^()]*ทีมต้องยืนยัน[^()]*)\)/g)].map((m) => m[1]);
     const why = [s(r?.why, 300), ...notes].filter(Boolean).join(' · ').slice(0, 300) || null;
     return {
       kind: r?.kind === 'faq' ? 'faq' as const : 'fix' as const,
-      question: s(r?.question, 300) ?? '', answer: ans.replace(/\s*\(ทีมต้องยืนยัน[^)]*\)/g, '').trim(), rule: s(r?.rule, 300), why, evidence: s(r?.evidence, 120),
+      question: s(r?.question, 300) ?? '', answer: ans.replace(/\s*\([^()]*ทีมต้องยืนยัน[^()]*\)/g, '').trim(), rule: s(r?.rule, 300), why, evidence: s(r?.evidence, 120),
     };
   }).filter((r) => r.question && r.answer);
 }

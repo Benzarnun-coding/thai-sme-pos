@@ -1838,16 +1838,23 @@ async function kbFormSubmit(i: any, env: Env, ctx: ExecutionContext): Promise<Re
     const m = kbMessage(ok ?? saved ?? it, '');
     return json({ type: 7, data: { content: `${m.content}\n✏️ **${who} แก้คำตอบแล้ว** ${live ? '✅ เข้าคลังและใส่บอทให้แล้วค่ะ (Google Doc)' : '✅ เข้าคลังคำตอบแล้วค่ะ'}`.slice(0, 2000), components: [] } });
   }
-  // With an explanation: answer now (deferred), rewrite after, then show the new wording with the buttons again.
+  // With an explanation (Benz 23 Oct: a press in Discord goes into the Doc, no second press): answer now (deferred),
+  // rewrite, approve, write the Doc, then show the wording that went in with a button to take it back out.
   const token = String(i.token ?? '');
   ctx.waitUntil((async () => {
     const next = await rewriteKb(env, it, draft, extra);
     const saved = await editKb(env.DB, id, { question: it.question, ...next }, `discord:${who}`);
     await audit(env.DB, `discord:${who}`, 'botkb.explain', String(id), { extra, before: { answer: it.answer, rule: it.rule }, after: next });
-    const m = kbMessage(saved ?? it, '');
+    const ok = await setKbStatus(env.DB, id, 'approved', `discord:${who}`);
+    const live = await docLive(env);
+    if (live) await syncKbDoc(env, `discord:${who}`);
+    const m = kbMessage(ok ?? saved ?? it, '');
     await fetch(`https://discord.com/api/v10/webhooks/${env.DISCORD_APP_ID}/${token}/messages/@original`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: `${m.content}\n📝 **${who} อธิบายเพิ่ม:** ${extra}\n🔁 อูนิเขียนคำตอบใหม่ตามนี้แล้วค่ะ ถ้าโอเคกด ✅ ได้เลย`.slice(0, 2000), components: m.components }),
+      body: JSON.stringify({
+        content: `${m.content}\n📝 **${who} อธิบายเพิ่ม:** ${extra}\n✅ อูนิเขียนคำตอบใหม่ตามนี้ ${live ? 'และใส่บอทให้แล้วค่ะ (Google Doc)' : 'และเข้าคลังแล้วค่ะ'}`.slice(0, 2000),
+        components: [{ type: 1, components: [{ type: 2, style: 4, label: '↩️ เอาออกจากบอท', custom_id: `kbout:${id}` }] }],
+      }),
     });
   })().catch(async (err) => {
     console.error('kb rewrite', err);
@@ -2179,6 +2186,17 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
     const when = new Date().toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' });
     const before = String(i.message?.content ?? '').split('\n').filter((l: string) => !l.includes('จัดการจบแล้ว')).join('\n');
     return json({ type: 7, data: { content: `${before}\n${done ? `✅ **จัดการจบแล้ว** — ${who} · ${when}` : '✅ เคสนี้ปิดไปแล้วค่ะ'}`.slice(0, 2000), components: [] } });
+  }
+  if (verb0 === 'kbout') {
+    // Takes an answer back out (after อูนิ's rewrite went in): rejected, and the Doc is rewritten without it.
+    if (approvers.length && !approvers.includes(userId)) return json({ type: 4, data: { content: `ขอโทษค่ะ ปุ่มนี้ให้กดได้เฉพาะคุณเบ้นกับคุณแม็กซ์นะคะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
+    const it = await setKbStatus(env.DB, Number(arg0), 'rejected', `discord:${who}`, true);
+    if (!it) return json({ type: 4, data: { content: 'ไม่พบข้อนี้แล้วค่ะ', flags: 64 } });
+    if (await docLive(env)) ctx.waitUntil(syncKbDoc(env, `discord:${who}`).catch(async (err) => {
+      await postBot(env, { content: `⚠️ อูนิเอา #${it.id} ออกจาก Google Doc ไม่สำเร็จค่ะ: ${(err as Error).message}`.slice(0, 1900) });
+    }));
+    const before = String(i.message?.content ?? '').split('\n').filter((l: string) => !l.startsWith('✅ อูนิเขียน')).join('\n');
+    return json({ type: 7, data: { content: `${before}\n↩️ **เอาออกจากบอทแล้ว** — ${who} (แก้ใหม่ได้ที่ https://pkjeans-ads.ads-web.workers.dev/botkb)`.slice(0, 2000), components: [] } });
   }
   if (verb0 === 'kbedit') {
     if (approvers.length && !approvers.includes(userId)) return json({ type: 4, data: { content: `ขอโทษค่ะ ปุ่มนี้ให้กดได้เฉพาะคุณเบ้นกับคุณแม็กซ์นะคะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });

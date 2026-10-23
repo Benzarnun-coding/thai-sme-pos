@@ -51,7 +51,8 @@ Meta has no API for Business AI's settings, so a person pastes the answers in.
   - ✏️ (Benz 23 Oct: not just yes/no) opens a Discord form (`kbModal`). It has the answer and rule filled in, plus "อธิบายเพิ่ม".
     - Edited text only: approved as typed and written to the Doc. One press.
     - With an explanation: อูนิ rewrites the answer from it (`rewriteKb`; the team's facts win, costs are stated, no "ทีมต้องยืนยัน").
-    - The message is then updated with the new wording and the buttons, and one ✅ puts it in the bot.
+    - The rewrite is approved and written to the Doc straight away (Benz 23 Oct: a press in Discord goes into the Doc, no second press).
+    - The message then shows the wording that went in, with "↩️ เอาออกจากบอท" (`kbout`), which rejects the answer and rewrites the Doc without it.
     - Logged as `botkb.edit` / `botkb.explain`.
 - **Mon 10:00** (and Tue 10:00 if still waiting), only when some answers are approved:
   - The bot tags Fear (`DISCORD_KB_UPDATER_IDS`) to copy them from /botkb into Meta Business Suite → Business AI and press "ใส่บอทแล้ว" (`kbapplied`; approvers + Fear can press).

@@ -33,7 +33,7 @@ export async function docLive(env: DocEnv): Promise<boolean> {
 /** The whole Doc: what Business AI should know, rules first, then question → answer. */
 export function docText(items: KbItem[], date: string): string {
   // "(ทีมต้องยืนยัน …)" is for the team; the bot would say it to customers word for word (Benz 23 Oct).
-  const clean = (t: string) => t.replace(/\s*\(ทีมต้องยืนยัน[^)]*\)/g, '').trim();
+  const clean = (t: string) => t.replace(/\s*\([^()]*ทีมต้องยืนยัน[^()]*\)/g, '').trim();
   const inBank = items.filter((i) => i.status === 'approved' || i.status === 'applied').sort((a, b) => a.id - b.id)
     .map((i) => ({ ...i, answer: clean(i.answer), rule: i.rule ? clean(i.rule) || null : null }));
   return `ข้อมูลร้าน PkJeans สำหรับตอบแชทลูกค้า (อัปเดต ${date})\n\n${inBank.length ? kbPasteText(inBank) : '(ยังไม่มีคำตอบ)'}\n`;

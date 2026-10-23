@@ -47,3 +47,8 @@ test('team-only "(ทีมต้องยืนยัน…)" notes never reach
   assert.doesNotMatch(t, /ทีมต้องยืนยัน/);
   assert.match(t, /ตอบ: ส่งต่อแอดมินเพื่อแจ้งวันถึง\n/);
 });
+
+test('a team note inside a longer bracket is stripped too', () => {
+  const t = docText([{ ...item(38, 'approved'), answer: 'แนะนำไซส์ใกล้เคียง (ไซส์ 38 ขึ้นไปบวกเพิ่มตามกฎ ทีมต้องยืนยันราคา)' }], 'x');
+  assert.match(t, /ตอบ: แนะนำไซส์ใกล้เคียง\n/);
+});
