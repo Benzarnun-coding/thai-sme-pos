@@ -100,25 +100,48 @@ export function addressLine(a: Pick<ReadAddress, 'street' | 'subdistrict' | 'dis
     .filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
 }
 
-export async function readAddress(apiKey: string, messages: ChatMessage[], model = 'claude-opus-5-5', workspaceId?: string, orderNote = ''): Promise<ReturnType<typeof cleanAddress>> {
+/** US$ per million tokens (input, output) — what the Console bills (Oct 2026). Thinking counts as output. */
+export const ADDRESS_PRICES: Record<string, [number, number]> = {
+  'claude-opus-5-5': [4, 20],
+  'claude-sonnet-5-5': [2, 10],
+  'claude-haiku-5-5': [0.1, 0.5],
+};
+export const DEFAULT_ADDRESS_MODEL = 'claude-opus-5-5';
+
+/** One read's size and price, logged to `audit` (action address.read) so the month's AI bill can be split by job. */
+export interface AddressUsage { model: string; input_tokens: number; output_tokens: number; images: number; usd: number | null }
+
+export function addressUsage(model: string, usage: { input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null } | undefined, images: number): AddressUsage {
+  const input_tokens = (usage?.input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0) + (usage?.cache_creation_input_tokens ?? 0);
+  const output_tokens = usage?.output_tokens ?? 0;
+  const p = ADDRESS_PRICES[model];
+  return { model, input_tokens, output_tokens, images, usd: p ? Math.round((input_tokens * p[0] + output_tokens * p[1]) / 1e6 * 1e5) / 1e5 : null };
+}
+
+/**
+ * Reads one chat. `content` lets a caller that already built the chat input (the model backtest, which asks several
+ * models the same question) reuse it instead of downloading the photos again.
+ */
+export async function readAddress(apiKey: string, messages: ChatMessage[], model = DEFAULT_ADDRESS_MODEL, workspaceId?: string, orderNote = '', content?: Anthropic.ContentBlockParam[]): Promise<ReturnType<typeof cleanAddress> & { usage: AddressUsage }> {
   // The shop's key is an org key: it must name the workspace (var ANTHROPIC_WORKSPACE_ID, shared with chatInsights.ts).
   const client = new Anthropic({ apiKey, defaultHeaders: workspaceId ? { 'anthropic-workspace-id': workspaceId } : undefined });
+  const input = content ?? await chatInputInline(messages, orderNote);
   // A 403 "Request not allowed" came and went within minutes on 15 Oct (same key, same request): one retry.
   const ask = () => client.messages.parse({
     model,
     max_tokens: 4000,
     output_config: { effort: 'low', format: zodOutputFormat(AddressSchema) },
     system: SYSTEM,
-    messages: [{ role: 'user', content }],
+    messages: [{ role: 'user', content: input }],
   });
-  const content = await chatInputInline(messages, orderNote);
   const res = await ask().catch(async (err) => {
     if (err?.status !== 403) throw err;
     await new Promise((r) => setTimeout(r, 1500));
     return ask();
   });
+  const usage = addressUsage(model, res.usage, input.filter((b) => b.type === 'image').length);
   if (res.stop_reason === 'refusal' || !res.parsed_output) {
-    return cleanAddress({ found: false, name: '', phone: '', street: '', subdistrict: '', district: '', province: '', postal_code: '', from_image: false, doubt: 'อ่านที่อยู่ไม่สำเร็จ', cancelled: false, size_mismatch: '' });
+    return { ...cleanAddress({ found: false, name: '', phone: '', street: '', subdistrict: '', district: '', province: '', postal_code: '', from_image: false, doubt: 'อ่านที่อยู่ไม่สำเร็จ', cancelled: false, size_mismatch: '' }), usage };
   }
-  return cleanAddress(res.parsed_output);
+  return { ...cleanAddress(res.parsed_output), usage };
 }
