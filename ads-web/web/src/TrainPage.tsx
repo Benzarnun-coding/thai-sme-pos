@@ -21,6 +21,54 @@ function CheckView({ c }: { c: ImageCheck }) {
   );
 }
 interface Pair { a: Candidate; b: Candidate }
+type Recommended = StudioProduct & { spend: number; posts: number };
+
+/**
+ * One product box: click it to see the products running as ads now (most spend first), type a code or part of the
+ * name to search the catalog; each row shows the picture, code and name. Empty = all products.
+ */
+function ProductPicker({ value, onPick }: { value: StudioProduct | null; onPick: (p: StudioProduct | null) => void }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [hits, setHits] = useState<StudioProduct[]>([]);
+  const [recommended, setRecommended] = useState<Recommended[] | null>(null);
+  useEffect(() => { call<{ products: Recommended[] }>('GET', '/api/studio/products/recommended').then((r) => setRecommended(r.products)).catch(() => setRecommended([])); }, []);
+  useEffect(() => {
+    if (!q.trim()) { setHits([]); return; }
+    const t = setTimeout(() => call<{ products: StudioProduct[] }>('GET', `/api/studio/products?q=${encodeURIComponent(q)}&limit=12`).then((r) => setHits(r.products)).catch(() => null), 200);
+    return () => clearTimeout(t);
+  }, [q]);
+  const list: (StudioProduct & { spend?: number })[] = q.trim() ? hits : recommended ?? [];
+  const pick = (p: StudioProduct | null) => { onPick(p); setQ(''); setOpen(false); };
+  return (
+    <div className="product-picker">
+      {value && !open ? (
+        <button type="button" className="ghost picked" onClick={() => setOpen(true)}>
+          {productPic(value) && <img className="mini" src={productPic(value)!} alt="" />}
+          <span><b>{value.code}</b> <span className="muted">{value.name.slice(0, 40)}</span></span>
+          <span className="muted small">เปลี่ยน</span>
+        </button>
+      ) : (
+        <input autoFocus={open} placeholder="① เลือกสินค้า: กดเพื่อดูที่แนะนำ หรือพิมพ์รหัส/ชื่อ" value={q} onFocus={() => setOpen(true)} onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && list[0]) pick(list[0]); if (e.key === 'Escape') setOpen(false); }} />
+      )}
+      {open && (
+        <ul className="suggest">
+          {!q.trim() && <li className="muted small head">{recommended === null ? 'กำลังโหลด…' : recommended.length ? 'แนะนำ: สินค้าที่ยิงแอดอยู่ (ค่าแอดมากสุดก่อน)' : 'ยังไม่มีสินค้าที่ยิงแอดอยู่ — พิมพ์รหัสหรือชื่อเพื่อค้นหา'}</li>}
+          {list.map((p) => (
+            <li key={p.code} onMouseDown={(e) => { e.preventDefault(); pick(p); }}>
+              {productPic(p) ? <img className="mini" src={productPic(p)!} alt="" /> : <span className="mini" />}
+              <span><b>{p.code}</b> <span className="muted">{p.name.slice(0, 50)}</span>{p.spend ? <span className="muted small"> · ยิงอยู่ ฿{p.spend.toLocaleString()} / 14 วัน</span> : null}{p.selling_points ? <span className="small ok-text"> · มีจุดขาย</span> : null}</span>
+            </li>
+          ))}
+          {q.trim() && !hits.length && <li className="muted small head">ไม่พบสินค้าในแคตตาล็อก</li>}
+          {value && <li className="muted small" onMouseDown={(e) => { e.preventDefault(); pick(null); }}>✕ ไม่เลือก (ดูคู่ของทุกสินค้า)</li>}
+        </ul>
+      )}
+    </div>
+  );
+}
 interface Stats { ai_eye: { pairs: number; agreed: number }; vs_real_img: { pairs: number; ai_wins: number }; held: number; judged: number; today: number; open: { caption: number; image: number }; hooks: { hook: string; wins: number; losses: number }[]; reasons: { reason: string; n: number }[]; agreement: { pairs: number; agreed: number }; vs_real: { pairs: number; ai_wins: number }; judges: { judge: string; n: number }[] }
 
 const CAPTION_REASONS = ['wrong_fact', 'boring', 'too_long', 'not_our_voice', 'claim', 'better'];
@@ -31,9 +79,8 @@ export function TrainApp() {
   const { toast } = useUi();
   const [m, setM] = useState<Materials | null>(null);
   const [kind, setKind] = useState<'caption' | 'image'>('caption');
-  const [products, setProducts] = useState<StudioProduct[]>([]);
-  const [q, setQ] = useState('');
-  const [code, setCode] = useState('');
+  const [product, setProduct] = useState<StudioProduct | null>(null);
+  const code = product?.code ?? '';
   const [pair, setPair] = useState<Pair | null | undefined>(undefined);
   const [stats, setStats] = useState<Stats | null>(null);
   const [busy, setBusy] = useState(false);
@@ -48,11 +95,6 @@ export function TrainApp() {
   const loadPair = (k = kind, c = code) => call<{ pair: Pair | null }>('GET', `/api/studio/pair?kind=${k}&code=${encodeURIComponent(c)}`).then((r) => { setPair(r.pair); setEdit(null); }).catch((e) => toast(e.message, 'bad'));
   useEffect(() => { call<Materials>('GET', '/api/studio/materials').then(setM).catch((e) => toast(e.message, 'bad')); loadStats(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { loadPair(); }, [kind, code]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    const t = setTimeout(() => call<{ products: StudioProduct[] }>('GET', `/api/studio/products?q=${encodeURIComponent(q)}`).then((r) => setProducts(r.products)).catch(() => null), 250);
-    return () => clearTimeout(t);
-  }, [q]);
-  const product = products.find((p) => p.code === code) ?? null;
 
   const generate = async () => {
     if (!code) return toast('เลือกสินค้าก่อน', 'bad');
@@ -116,7 +158,7 @@ export function TrainApp() {
           <summary>วิธีใช้ (อ่านครั้งแรก) · <a href="/studio-guide.pdf" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>📖 คู่มือฉบับเต็ม (PDF)</a></summary>
           <ol>
             <li><b>แคปชัน:</b> เลือกสินค้า → "ให้ AI เขียนแคปชัน 6 แบบ" → ตัดสินคู่ด้านล่างทีละคู่</li>
-            <li><b>ภาพ:</b> เลือกสินค้า + สไตล์ → "ขอ prompt สำหรับ ChatGPT" → คัดลอกไปวางใน ChatGPT พร้อมแนบรูปสินค้าจริง (และรูปตัวอย่างสไตล์) → ได้ภาพแล้วกด "อัปโหลดภาพที่ได้" → ดูผลที่ AI ตรวจ</li>
+            <li><b>ภาพ:</b> กด "🖼 ฝึกภาพ" → เลือกสินค้า → (ไม่บังคับ) เลือกสไตล์ + "ขอ prompt สำหรับ ChatGPT" → คัดลอกไปวางใน ChatGPT พร้อมแนบรูปสินค้าจริง → ได้ภาพแล้วกด "③ อัปโหลดรูป" → ดูผลที่ AI ตรวจ</li>
             <li><b>ตัดสิน:</b> กด "A ดีกว่า / B ดีกว่า" ถ้าตัวที่แพ้มีปัญหาชัด ๆ กดเหตุผลแทน (เช่น สินค้าเพี้ยน: A แพ้) · แคปชันที่เกือบดีให้กด "✏️ แก้แล้วให้ผ่าน"</li>
             <li>บางคู่มีของจริงที่ยิงแอดอยู่ปนมา — เลือกตามที่คิดว่าดีจริง ๆ ระบบเฉลยหลังกด</li>
             <li>ทำวันละ ~10 นาที (แคปชัน ~20 คู่ ภาพ ~10 คู่) · ของที่ผ่านไปประกอบเป็นโพสต์ที่ <a href="/studio/sets">ห้องจับคู่</a></li>
@@ -130,12 +172,8 @@ export function TrainApp() {
 
       <section className="card">
         <div className="row wrap">
-          <div className="segmented"><button className={kind === 'caption' ? 'on' : ''} onClick={() => setKind('caption')}>✍️ แคปชัน</button><button className={kind === 'image' ? 'on' : ''} onClick={() => setKind('image')}>🖼 ภาพ</button></div>
-          <input placeholder="ค้นหาสินค้า (ว่าง = ทุกสินค้า)" value={q} onChange={(e) => setQ(e.target.value)} style={{ flex: 1, minWidth: 160 }} />
-          <select value={code} onChange={(e) => setCode(e.target.value)}>
-            <option value="">ทุกสินค้า</option>
-            {products.map((p) => <option key={p.code} value={p.code}>{p.code} {p.name.slice(0, 40)}</option>)}
-          </select>
+          <div className="segmented"><button className={kind === 'caption' ? 'on' : ''} onClick={() => setKind('caption')}>✍️ ฝึกแคปชัน</button><button className={kind === 'image' ? 'on' : ''} onClick={() => setKind('image')}>🖼 ฝึกภาพ (อัปโหลดรูป)</button></div>
+          <ProductPicker value={product} onPick={setProduct} />
         </div>
         {product && (
           <div className="row" style={{ marginTop: 8 }}>
@@ -144,16 +182,21 @@ export function TrainApp() {
           </div>
         )}
         {kind === 'caption' ? (
-          <div className="row gap"><button disabled={busy || !code || !m?.ai} onClick={generate}>{busy ? 'กำลังเขียน…' : 'ให้ AI เขียนแคปชัน 6 แบบ'}</button>{!m?.ai && <span className="small warn">ยังไม่ได้ตั้ง ANTHROPIC_API_KEY</span>}</div>
+          <div className="row gap"><button disabled={busy || !code || !m?.ai} onClick={generate}>{busy ? 'กำลังเขียน…' : '② ให้ AI เขียนแคปชัน 6 แบบ'}</button>{!code && <span className="small muted">เลือกสินค้าในช่อง ① ก่อน ปุ่มนี้จึงกดได้</span>}{!m?.ai && <span className="small warn">ยังไม่ได้ตั้ง ANTHROPIC_API_KEY</span>}</div>
         ) : (
           <div className="image-tools">
+            {!code && <p className="small warn">เลือกสินค้าในช่อง ① ก่อน ปุ่มขอ prompt และอัปโหลดรูปจึงกดได้ (รูปทุกรูปต้องรู้ว่าเป็นสินค้าตัวไหน)</p>}
             <div className="row wrap">
+              <span className="small muted">② ไม่บังคับ:</span>
               <select value={styleId} onChange={(e) => setStyleId(e.target.value ? Number(e.target.value) : '')}>
-                <option value="">เลือกสไตล์</option>
+                <option value="">{m?.styles.length ? 'เลือกสไตล์' : 'ยังไม่มีสไตล์ (เพิ่มที่หน้าวัตถุดิบ)'}</option>
                 {m?.styles.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
               <button className="ghost" disabled={!code || !styleId} onClick={getPrompt}>ขอ prompt สำหรับ ChatGPT</button>
-              <label className={`button ${busy || !code ? 'disabled' : ''}`}>อัปโหลดภาพที่ได้<input type="file" accept="image/*" multiple hidden disabled={busy || !code} onChange={(e) => uploadImages(e.target.files)} /></label>
+            </div>
+            <div className="row wrap">
+              <label className={`button ${busy || !code ? 'disabled' : ''}`}>③ อัปโหลดรูป (เลือกได้หลายรูป)<input type="file" accept="image/*" multiple hidden disabled={busy || !code} onChange={(e) => { uploadImages(e.target.files); e.target.value = ''; }} /></label>
+              <span className="small muted">รูปจาก ChatGPT หรือรูปที่ทำเอง · ต้องมีอย่างน้อย 2 รูปของสินค้าเดียวกันจึงขึ้นเป็นคู่ให้ตัดสิน</span>
             </div>
             {uploaded.length > 0 && (
               <div className="uploaded">

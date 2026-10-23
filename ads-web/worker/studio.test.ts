@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { HOOKS, parseCaptions } from './studio.ts';
+import { HOOKS, parseCaptions, rankProducts } from './studio.ts';
 
 test('captions: JSON inside chatter is read, unknown hooks fall back, empty texts dropped', () => {
   const out = parseCaptions('นี่คือแคปชัน:\n[{"hook":"price","text":"ยีนส์ 189"},{"hook":"xx","text":"ใส่ไปไหนก็ได้"},{"hook":"sizes","text":""}]\nจบ');
@@ -26,4 +26,14 @@ test('image tags: only known dimensions and values are kept', async () => {
   const { cleanTags } = await import('./studio.ts');
   assert.deepEqual(cleanTags({ subject: 'worn', text: 'huge', background: 'plain_dark', mood: 'happy' }), { subject: 'worn', background: 'plain_dark' });
   assert.deepEqual(cleanTags(null), {});
+});
+
+test('product search: exact code, then codes starting with the text (shorter first), then name matches', () => {
+  const rows = [
+    { code: '1801', name: 'กางเกงขาสั้น' }, { code: '801/12', name: 'ยีนส์ขาเดฟ' }, { code: '801/1', name: 'ยีนส์ขาเดฟ' },
+    { code: '801', name: 'ยีนส์' }, { code: '107', name: 'ขายาว 801 ทรงกระบอก' }, { code: '200', name: 'อื่น' },
+  ];
+  assert.deepEqual(rankProducts(rows, '801').map((r) => r.code), ['801', '801/1', '801/12', '1801', '107']);
+  assert.deepEqual(rankProducts(rows, 'ขาเดฟ').map((r) => r.code), ['801/1', '801/12']);
+  assert.equal(rankProducts(rows, '').length, rows.length);
 });

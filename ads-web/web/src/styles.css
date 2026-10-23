@@ -1051,6 +1051,15 @@ tr:hover .po-label-btn { opacity: 1; }
 .studio .suggest { position: absolute; top: 100%; left: 0; z-index: 20; min-width: 260px; max-height: 260px; overflow: auto; margin: 4px 0 0; padding: 4px; list-style: none; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow-sm); }
 .studio .suggest li { padding: 6px 8px; border-radius: 6px; cursor: pointer; }
 .studio .suggest li:hover { background: var(--surface-2); }
+.studio .product-picker { position: relative; flex: 1; min-width: 240px; }
+.studio .product-picker input { width: 100%; }
+.studio .product-picker .picked { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: 1px solid var(--border); padding: 4px 8px; }
+.studio .product-picker .picked > span:nth-child(2) { flex: 1; }
+.studio .product-picker .suggest { right: 0; max-height: 380px; }
+.studio .product-picker .suggest li { display: flex; align-items: center; gap: 8px; }
+.studio .product-picker .suggest li.head { cursor: default; }
+.studio .product-picker .suggest li.head:hover { background: none; }
+.studio .ok-text { color: var(--good); }
 
 .studio .pick-list { display: grid; gap: 8px; max-height: 520px; overflow: auto; }
 .studio .pick { cursor: pointer; }

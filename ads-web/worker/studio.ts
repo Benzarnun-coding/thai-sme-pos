@@ -46,6 +46,43 @@ export interface StudioProduct { code: string; name: string; price_min: number |
  */
 let productCache: { version: string; rows: Omit<StudioProduct, 'selling_points' | 'promo' | 'image_key'>[] } | null = null;
 
+async function productRows(db: D1Database): Promise<Omit<StudioProduct, 'selling_points' | 'promo' | 'image_key'>[]> {
+  const version = (await db.prepare(`SELECT value FROM settings WHERE key = 'catalog_version'`).first<{ value: string }>())?.value ?? '';
+  if (!productCache || productCache.version !== version) {
+    const { results } = await db.prepare(
+      `SELECT code, min(name) AS name, min(price) AS price_min, max(price) AS price_max, count(*) AS skus, max(image) AS image_url
+       FROM catalog WHERE code != '' GROUP BY code ORDER BY code`,
+    ).all<Omit<StudioProduct, 'selling_points' | 'promo' | 'image_key'>>();
+    productCache = { version, rows: results };
+  }
+  return productCache.rows;
+}
+
+/** Search order for a product box: code starts with the text first, then shorter codes, then name matches. */
+export function rankProducts<T extends { code: string; name: string }>(rows: T[], q: string): T[] {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return rows;
+  return rows
+    .filter((r) => r.code.toLowerCase().includes(needle) || r.name.toLowerCase().includes(needle))
+    .map((r) => ({ r, rank: r.code.toLowerCase() === needle ? 0 : r.code.toLowerCase().startsWith(needle) ? 1 : r.code.toLowerCase().includes(needle) ? 2 : 3 }))
+    .sort((a, b) => a.rank - b.rank || a.r.code.length - b.r.code.length || a.r.code.localeCompare(b.r.code))
+    .map((x) => x.r);
+}
+
+export interface RecommendedProduct extends StudioProduct { spend: number; posts: number }
+
+/** Products running as ads now (posts on /studio/posts with a product code), most 14-day spend first. */
+export async function recommendedProducts(db: D1Database, limit = 12): Promise<RecommendedProduct[]> {
+  const { results: running } = await db.prepare(
+    `SELECT code, sum(spend) AS spend, count(*) AS posts FROM meta_posts WHERE active = 1 AND code != '' GROUP BY code ORDER BY spend DESC LIMIT ?1`,
+  ).bind(limit).all<{ code: string; spend: number; posts: number }>();
+  if (!running.length) return [];
+  const byCode = new Map((await productRows(db)).map((r) => [r.code.toLowerCase(), r]));
+  const rows = running.map((r) => byCode.get(r.code.toLowerCase())).filter((r): r is NonNullable<typeof r> => !!r);
+  const products = await withNotes(db, rows);
+  return products.map((p) => { const r = running.find((x) => x.code.toLowerCase() === p.code.toLowerCase())!; return { ...p, spend: Math.round(r.spend), posts: r.posts }; });
+}
+
 export async function listProducts(db: D1Database, q = '', exact = false, limit = 300): Promise<StudioProduct[]> {
   let rows: Omit<StudioProduct, 'selling_points' | 'promo' | 'image_key'>[];
   if (exact) {
@@ -54,17 +91,12 @@ export async function listProducts(db: D1Database, q = '', exact = false, limit 
        FROM catalog WHERE code = ?1 COLLATE NOCASE GROUP BY code`,
     ).bind(q).all<typeof rows[number]>()).results;
   } else {
-    const version = (await db.prepare(`SELECT value FROM settings WHERE key = 'catalog_version'`).first<{ value: string }>())?.value ?? '';
-    if (!productCache || productCache.version !== version) {
-      const { results } = await db.prepare(
-        `SELECT code, min(name) AS name, min(price) AS price_min, max(price) AS price_max, count(*) AS skus, max(image) AS image_url
-         FROM catalog WHERE code != '' GROUP BY code ORDER BY code`,
-      ).all<typeof rows[number]>();
-      productCache = { version, rows: results };
-    }
-    const needle = q.trim().toLowerCase();
-    rows = productCache.rows.filter((r) => !needle || r.code.toLowerCase().includes(needle) || r.name.toLowerCase().includes(needle)).slice(0, limit);
+    rows = rankProducts(await productRows(db), q).slice(0, limit);
   }
+  return withNotes(db, rows);
+}
+
+async function withNotes(db: D1Database, rows: Omit<StudioProduct, 'selling_points' | 'promo' | 'image_key'>[]): Promise<StudioProduct[]> {
   if (!rows.length) return [];
   const [{ results: notes }, { results: images }] = await Promise.all([
     db.prepare('SELECT code, selling_points, promo FROM product_notes WHERE code IN (SELECT value FROM json_each(?))').bind(JSON.stringify(rows.map((r) => r.code))).all<{ code: string; selling_points: string; promo: string }>(),

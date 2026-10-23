@@ -782,6 +782,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     return json({ page, byAccount, owned, businesses });
   }
   // ---- ห้องฝึก (docs/creative.md) ----
+  if (path === '/api/studio/products/recommended' && method === 'GET') return json({ products: await studio.recommendedProducts(env.DB) });
   if (path === '/api/studio/products' && method === 'GET') return json({ products: await studio.listProducts(env.DB, url.searchParams.get('q') ?? '', false, Math.min(5000, Number(url.searchParams.get('limit')) || 300)) });
   if (path === '/api/studio/product-note' && method === 'PUT') { const b = await body(); await studio.saveProductNote(env.DB, b, user); await audit(env.DB, user, 'studio.note', String(b?.code ?? ''), {}); return json({ ok: true }); }
   if (path === '/api/studio/materials' && method === 'GET') {

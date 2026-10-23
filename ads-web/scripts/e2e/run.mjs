@@ -70,9 +70,11 @@ try {
 
   await step('ห้องฝึก ภาพ: prompt, upload two images, judge the pair', async () => {
     await page.goto(`${base}/studio/train`);
-    await page.click('button:has-text("🖼 ภาพ")');
-    await page.locator('select').first().selectOption('801');
-    await page.locator('select').nth(1).selectOption({ label: 'e2e style' });
+    await page.click('button:has-text("🖼 ฝึกภาพ")');
+    await page.fill('.product-picker input', '801');
+    await page.locator('.product-picker .suggest li:has-text("801")').first().click();
+    await visible('.product-picker .picked');
+    await page.locator('.image-tools select').first().selectOption({ label: 'e2e style' });
     await page.click('button:has-text("ขอ prompt สำหรับ ChatGPT")');
     await visible('.kb-paste textarea');
     const jpg = (n) => ({ name: `${n}.png`, mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64') });
