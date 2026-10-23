@@ -961,6 +961,8 @@ tr:hover .po-label-btn { opacity: 1; }
 .kb-list { display: grid; gap: 10px; }
 .kb-item { display: grid; gap: 6px; }
 .kb-item p { margin: 0; }
+.kb-edit { display: grid; gap: 8px; }
+.kb-edit textarea { width: 100%; display: block; margin-top: 4px; font: inherit; }
 .warn-badge { background: var(--bad-bg); color: var(--bad); }
 
 /* /catalog/profit: marketplace money upload + profit tables */

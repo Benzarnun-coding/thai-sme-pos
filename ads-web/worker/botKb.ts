@@ -156,6 +156,14 @@ export async function setKbStatus(db: D1Database, id: number, status: 'approved'
     .bind(status, who, new Date().toISOString(), id, fromApplied ? 1 : 0).first<KbItem>();
 }
 
+/** A person rewrites an answer (any status; an applied one is rewritten in the Doc by the caller). */
+export async function editKb(db: D1Database, id: number, t: { question: string; answer: string; rule: string | null }, who: string): Promise<KbItem | null> {
+  const q = t.question.trim().slice(0, 300), a = t.answer.trim().slice(0, 800), r = t.rule?.trim().slice(0, 300) || null;
+  if (!q || !a) return null;
+  return db.prepare(`UPDATE bot_kb SET question = ?1, answer = ?2, rule = ?3, decided_by = ?4, decided_at = ?5 WHERE id = ?6 RETURNING *`)
+    .bind(q, a, r, who, new Date().toISOString(), id).first<KbItem>();
+}
+
 /** Everything approved (or just these ids) is now in the bot. */
 export async function markApplied(db: D1Database, ids?: number[]): Promise<number> {
   const at = new Date().toISOString();

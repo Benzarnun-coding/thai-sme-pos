@@ -58,6 +58,7 @@ Meta has no API for Business AI's settings, so a person pastes the answers in.
   - `POST /api/botkb/generate?mode=fix|faq` (faq = the first bank from all stored chats; 12 made, 8 approved, 15 Oct)
   - `POST /api/botkb/remind-test`
 - Statuses: proposed → approved/rejected → applied.
+- "แก้ไข" on /botkb (`PUT /api/botkb/:id/text {question, answer, rule}`) rewrites an answer: the old and new text are logged (`botkb.edit`), and an answer already in the bot is rewritten in the Doc. On applied answers it only shows while the Doc is live.
 
 ### Google Doc instead of pasting (`worker/botKbDoc.ts`, Benz 2026-10-23)
 

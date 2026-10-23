@@ -35,7 +35,7 @@ import { DISCORD_PERSONA, pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './chatLog.ts';
 import * as studio from './studio.ts';
 import { aiEnabled, askAI, botErrors, botRateText, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
-import { fixedBefore, kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, repeatsText, setKbStatus, speaker, type KbItem } from './botKb.ts';
+import { editKb, fixedBefore, kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, repeatsText, setKbStatus, speaker, type KbItem } from './botKb.ts';
 import { checkDoc, docIdFrom, docLive, docText, loadDocSettings, saveDocSettings, serviceEmail, writeDoc } from './botKbDoc.ts';
 import { closeCase, customerName, serviceAlerts, servicePreview } from './serviceAlert.ts';
 import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './postIdeas.ts';
@@ -907,6 +907,16 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (path === '/api/botkb/remind-test' && method === 'POST') return json({ discord: await kbReminder(env, true) });
   if (path === '/api/botkb/applied' && method === 'POST') { const n = await markApplied(env.DB); await audit(env.DB, user, 'botkb.applied', 'bot_kb', { n }); return json({ applied: n }); }
   if (path === '/api/botkb/generate' && method === 'POST') return json(await kbRound(env, url.searchParams.get('mode') === 'faq' ? 'faq' : 'fix'));
+  const kbe = /^\/api\/botkb\/(\d+)\/text$/.exec(path);
+  if (kbe && method === 'PUT') {
+    const b = (await body()) ?? {};
+    const before = await env.DB.prepare('SELECT question, answer, rule FROM bot_kb WHERE id = ?').bind(Number(kbe[1])).first();
+    const it = await editKb(env.DB, Number(kbe[1]), { question: String(b.question ?? ''), answer: String(b.answer ?? ''), rule: b.rule == null ? null : String(b.rule) }, user);
+    if (!it) throw new BadRequest('ต้องมีทั้งคำถามและคำตอบ');
+    await audit(env.DB, user, 'botkb.edit', String(it.id), { before, after: { question: it.question, answer: it.answer, rule: it.rule } });
+    const live = await docLive(env);
+    return json({ ...it, sync: live && (it.status === 'applied' || it.status === 'approved') ? await syncKbDoc(env, user) : null });
+  }
   const kbm = /^\/api\/botkb\/(\d+)$/.exec(path);
   if (kbm && method === 'POST') {
     const st = String((await body())?.status ?? '');

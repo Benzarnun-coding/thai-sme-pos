@@ -61,6 +61,30 @@ function DocCard({ onChange }: { onChange: () => void }) {
   );
 }
 
+/** Rewrites one answer in place; an answer already in the bot is rewritten in the Doc too. */
+function EditKb({ it, onDone }: { it: KbItem; onDone: () => void }) {
+  const { toast } = useUi();
+  const [q, setQ] = useState(it.question), [a, setA] = useState(it.answer), [r, setR] = useState(it.rule ?? '');
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="kb-edit">
+      <label className="small muted">ลูกค้าถาม<textarea rows={2} value={q} onChange={(e) => setQ(e.target.value)} /></label>
+      <label className="small muted">บอทควรตอบ<textarea rows={4} value={a} onChange={(e) => setA(e.target.value)} /></label>
+      <label className="small muted">กฎให้บอท (ไม่ใส่ก็ได้)<textarea rows={2} value={r} onChange={(e) => setR(e.target.value)} /></label>
+      <div className="row">
+        <button className="small" disabled={busy} onClick={async () => {
+          setBusy(true);
+          try {
+            const res = await call<{ sync: { written: boolean } | null }>('PUT', `/api/botkb/${it.id}/text`, { question: q, answer: a, rule: r || null });
+            toast(res.sync?.written ? 'บันทึกแล้ว และเขียนลง Google Doc แล้ว' : 'บันทึกแล้ว', 'ok'); onDone();
+          } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
+        }}>บันทึก</button>
+        <button className="ghost small" onClick={onDone}>ยกเลิก</button>
+      </div>
+    </div>
+  );
+}
+
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' }) : '');
 
 export function BotKbApp() {
@@ -71,6 +95,7 @@ export function BotKbApp() {
   const [tab, setTab] = useState<KbItem['status']>('approved');
   const [busy, setBusy] = useState(false);
   const [docLive, setDocLive] = useState(false);
+  const [editing, setEditing] = useState<number | null>(null);
   const [repeats, setRepeats] = useState<Record<string, { n: number; last: string }>>({});
   const load = () => call<{ items: KbItem[]; paste: string; doc_live: boolean; repeats: Record<string, { n: number; last: string }> }>('GET', '/api/botkb')
     .then((r) => { setItems(r.items); setPaste(r.paste); setDocLive(r.doc_live); setRepeats(r.repeats ?? {}); }).catch((e) => toast(e.message, 'bad'));
@@ -128,21 +153,27 @@ export function BotKbApp() {
                 <span className={`badge ${it.kind === 'fix' ? 'warn-badge' : ''}`}>{it.kind === 'fix' ? `แก้บอท #${it.id}` : `คำถามที่พบบ่อย #${it.id}`}</span>
                 <span className="muted small">{day(it.created_at)}{it.decided_by ? ` · ${it.decided_by.replace(/^discord:/, '')} ${day(it.decided_at)}` : ''}{it.applied_at ? ` · ใส่บอท ${day(it.applied_at)}` : ''}</span>
               </div>
-              <p><b>ลูกค้า:</b> {it.question}</p>
-              <p><b>บอทควรตอบ:</b> {it.answer}</p>
-              {it.rule && <p><b>กฎให้บอท:</b> {it.rule}</p>}
+              {editing === it.id ? <EditKb it={it} onDone={() => { setEditing(null); load(); }} /> : <>
+                <p><b>ลูกค้า:</b> {it.question}</p>
+                <p><b>บอทควรตอบ:</b> {it.answer}</p>
+                {it.rule && <p><b>กฎให้บอท:</b> {it.rule}</p>}
+              </>}
               {it.status === 'applied' && repeats[it.id] && (
                 <p className="small"><span className="badge warn-badge">⚠️ แก้แล้วแต่บอทยังพลาด {repeats[it.id].n} รอบ · ล่าสุด {day(repeats[it.id].last)}</span></p>
               )}
               {it.why && <p className="muted small">{it.kind === 'fix' ? 'บอทพลาด: ' : ''}{it.why}{it.evidence ? ` · ${it.evidence}` : ''}</p>}
-              {it.status === 'applied' && docLive && (
-                <div className="row"><button className="ghost small" onClick={() => decide(it.id, 'rejected')}>เอาออกจากบอท</button></div>
+              {it.status === 'applied' && editing !== it.id && (
+                <div className="row">
+                  {docLive && <button className="ghost small" onClick={() => setEditing(it.id)}>แก้ไข</button>}
+                  {docLive && <button className="ghost small" onClick={() => decide(it.id, 'rejected')}>เอาออกจากบอท</button>}
+                </div>
               )}
               {it.status !== 'applied' && (
                 <div className="row">
                   {it.status !== 'approved' && <button className="small" onClick={() => decide(it.id, 'approved')}>อนุมัติ</button>}
                   {it.status !== 'rejected' && <button className="ghost small" onClick={() => decide(it.id, 'rejected')}>ไม่ใช้</button>}
                   {it.status !== 'proposed' && <button className="ghost small" onClick={() => decide(it.id, 'proposed')}>กลับไปรอตรวจ</button>}
+                  {editing !== it.id && <button className="ghost small" onClick={() => setEditing(it.id)}>แก้ไข</button>}
                 </div>
               )}
             </article>
