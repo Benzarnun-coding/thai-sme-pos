@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyFill, askedSizeNotMade, billName, chatTotal, cleanStreet, pickColour, pickProduct, planFill, sizeLines, validAddress } from './p365fill.ts';
+import { applyFill, askedSizeNotMade, billName, chatTotal, cleanStreet, pickColour, pickProduct, planFill, readFailure, sizeLines, validAddress } from './p365fill.ts';
 
 // A fake Page365 with the shapes its web app sees (read 15 Oct 2026): one draft for customer "u1".
 function fakePage365() {
@@ -179,4 +179,12 @@ test('a size the customer asked for that is not made does not stop the bill', ()
   assert.equal(askedSizeNotMade('โน้ต 34 แต่ลูกค้าขอ 33', ['34'], made), true);
   assert.equal(askedSizeNotMade('โน้ต 30 แต่ลูกค้าขอ 32', ['30'], made), false, '32 is made: a real mismatch');
   assert.equal(askedSizeNotMade('ลูกค้าแจ้งเอว 33 (ร้านแนะนำ 34)', ['34'], made), true);
+});
+
+test('readFailure turns the Anthropic usage-limit error into one short line', () => {
+  const msg = readFailure(new Error('400 {"error":{"message":"You have reached your specified workspace API usage limits. You will regain access on 2026-11-01 at 00:00 UTC."}}'));
+  assert.match(msg, /งบ API ของ Anthropic เต็ม/);
+  assert.match(msg, /2026-11-01/);
+  assert.ok(!msg.includes('{'));
+  assert.equal(readFailure(new Error('boom')), 'อ่านที่อยู่ไม่สำเร็จ: boom');
 });
