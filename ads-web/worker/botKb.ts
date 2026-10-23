@@ -1,7 +1,8 @@
 // Answer bank for Meta's Business AI (agreed 2026-10-15). Twice a week (Mon/Thu 08:00) the AI reads the chats since
 // the last round and proposes fixes — where the bot was wrong, promised too much or should have handed over — each
-// posted to Discord with approve / reject buttons. Approved items wait on /botkb; every Monday 10:00 Max is reminded
-// to paste them into Business Suite (Meta has no API for the bot's settings) and press "ใส่บอทแล้ว".
+// posted to Discord with approve / reject buttons. When the Google Doc is live (botKbDoc.ts) an approval is written into
+// the Doc Business AI reads at once; otherwise approved items wait on /botkb and every Monday 10:00 Fear is reminded to
+// paste them into Business Suite (Meta has no API for the bot's settings) and press "ใส่บอทแล้ว".
 
 import { askAI, type AIEnv } from './chatInsights.ts';
 import { idList, type DiscordEnv } from './discord.ts';
@@ -110,13 +111,18 @@ export async function listKb(db: D1Database): Promise<KbItem[]> {
   return results;
 }
 
-export async function setKbStatus(db: D1Database, id: number, status: 'approved' | 'rejected' | 'proposed', who: string): Promise<KbItem | null> {
-  return db.prepare(`UPDATE bot_kb SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status != 'applied' RETURNING *`).bind(status, who, new Date().toISOString(), id).first<KbItem>();
+/** An applied answer can only be taken back out when the bot reads the Google Doc (botKbDoc.ts), which is rewritten. */
+export async function setKbStatus(db: D1Database, id: number, status: 'approved' | 'rejected' | 'proposed', who: string, fromApplied = false): Promise<KbItem | null> {
+  return db.prepare(`UPDATE bot_kb SET status = ?1, decided_by = ?2, decided_at = ?3, applied_at = CASE WHEN ?5 THEN NULL ELSE applied_at END WHERE id = ?4 AND (status != 'applied' OR ?5) RETURNING *`)
+    .bind(status, who, new Date().toISOString(), id, fromApplied ? 1 : 0).first<KbItem>();
 }
 
-/** Everything approved is now in the bot. */
-export async function markApplied(db: D1Database): Promise<number> {
-  const r = await db.prepare(`UPDATE bot_kb SET status = 'applied', applied_at = ? WHERE status = 'approved'`).bind(new Date().toISOString()).run();
+/** Everything approved (or just these ids) is now in the bot. */
+export async function markApplied(db: D1Database, ids?: number[]): Promise<number> {
+  const at = new Date().toISOString();
+  const r = ids
+    ? await db.prepare(`UPDATE bot_kb SET status = 'applied', applied_at = ? WHERE status = 'approved' AND id IN (SELECT value FROM json_each(?))`).bind(at, JSON.stringify(ids)).run()
+    : await db.prepare(`UPDATE bot_kb SET status = 'applied', applied_at = ? WHERE status = 'approved'`).bind(at).run();
   return r.meta.changes ?? 0;
 }
 

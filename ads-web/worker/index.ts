@@ -35,7 +35,8 @@ import { DISCORD_PERSONA, pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './chatLog.ts';
 import * as studio from './studio.ts';
 import { aiEnabled, askAI, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
-import { kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, setKbStatus, speaker } from './botKb.ts';
+import { kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, setKbStatus, speaker, type KbItem } from './botKb.ts';
+import { checkDoc, docIdFrom, docLive, docText, loadDocSettings, saveDocSettings, serviceEmail, writeDoc } from './botKbDoc.ts';
 import { closeCase, customerName, serviceAlerts, servicePreview } from './serviceAlert.ts';
 import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './postIdeas.ts';
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
@@ -82,6 +83,8 @@ export interface Env {
   CHAT_BOT_APP_IDS?: string;
   /** Who pastes the approved answers into Business AI each Monday (Fear); tagged and may press "ใส่บอทแล้ว" */
   DISCORD_KB_UPDATER_IDS?: string;
+  /** Google service account JSON key that writes the answer bank into the Doc Business AI reads (botKbDoc.ts). */
+  GOOGLE_SA_KEY?: string;
   /** #meta-chat: the bot posts everything about chats and the answer bank here (needs View + Send there) */
   DISCORD_CHAT_CHANNEL_ID?: string;
   /** Discord "service ลูกค้า" (secret webhook URL, the switch) and who answers there (Fear) — worker/serviceAlert.ts */
@@ -872,7 +875,31 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     return json(r);
   }
   // ---- answer bank for Meta's Business AI ----
-  if (path === '/api/botkb' && method === 'GET') { const items = await listKb(env.DB); return json({ items, paste: kbPasteText(items.filter((x) => x.status === 'approved')) }); }
+  if (path === '/api/botkb' && method === 'GET') { const items = await listKb(env.DB); return json({ items, paste: kbPasteText(items.filter((x) => x.status === 'approved')), doc_live: await docLive(env) }); }
+  // The Google Doc Business AI reads (botKbDoc.ts). GET = switch + exactly what would be written (nothing sent).
+  if (path === '/api/botkb/doc' && method === 'GET') {
+    const s = await loadDocSettings(env.DB);
+    return json({ ...s, has_key: !!env.GOOGLE_SA_KEY, sa_email: serviceEmail(env.GOOGLE_SA_KEY), live_now: await docLive(env), text: docText(await kbInBank(env.DB), thDate()) });
+  }
+  if (path === '/api/botkb/doc' && method === 'PUT') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const b = (await body()) ?? {};
+    const cur = await loadDocSettings(env.DB);
+    const next = { doc_id: b.doc_id === undefined ? cur.doc_id : docIdFrom(String(b.doc_id)), live: b.live === undefined ? cur.live : b.live === true };
+    if (b.doc_id !== undefined && String(b.doc_id).trim() && !next.doc_id) throw new BadRequest('ลิงก์ Google Doc ไม่ถูกต้อง');
+    await saveDocSettings(env.DB, next);
+    await audit(env.DB, user, 'botkb.doc_settings', 'settings', { before: cur, after: next });
+    // Switching on writes the bank once, so the Doc matches it from the start.
+    const sync = next.live && !cur.live ? await syncKbDoc(env, user) : null;
+    return json({ ...next, sync });
+  }
+  if (path === '/api/botkb/doc/check' && method === 'POST') {
+    try { return json(await checkDoc(env)); } catch (e) { throw new BadRequest((e as Error).message); }
+  }
+  if (path === '/api/botkb/doc/sync' && method === 'POST') {
+    if (!(await docLive(env))) throw new BadRequest('ยังไม่ได้เปิดเขียน Google Doc');
+    return json(await syncKbDoc(env, user));
+  }
   if (path === '/api/botkb/remind-test' && method === 'POST') return json({ discord: await kbReminder(env, true) });
   if (path === '/api/botkb/applied' && method === 'POST') { const n = await markApplied(env.DB); await audit(env.DB, user, 'botkb.applied', 'bot_kb', { n }); return json({ applied: n }); }
   if (path === '/api/botkb/generate' && method === 'POST') return json(await kbRound(env, url.searchParams.get('mode') === 'faq' ? 'faq' : 'fix'));
@@ -880,7 +907,9 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (kbm && method === 'POST') {
     const st = String((await body())?.status ?? '');
     if (!['approved', 'rejected', 'proposed'].includes(st)) throw new BadRequest('status ต้องเป็น approved / rejected / proposed');
-    return json(await setKbStatus(env.DB, Number(kbm[1]), st as 'approved', user));
+    const live = await docLive(env);
+    const it = await setKbStatus(env.DB, Number(kbm[1]), st as 'approved', user, live);
+    return json({ ...it, sync: live && it ? await syncKbDoc(env, user) : null });
   }
   if (path === '/api/chats/reredact' && method === 'POST') {
     if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
@@ -1736,6 +1765,7 @@ async function kbReminder(env: Env, test = false): Promise<string | void> {
   if (day !== 1 && day !== 2) return;
   const n = (await env.DB.prepare(`SELECT count(*) n FROM bot_kb WHERE status = 'approved'`).first<{ n: number }>())?.n ?? 0;
   if ((!n && !test) || !approvalsEnabled(env)) return;
+  if (await docLive(env)) return; // approvals go into the Google Doc by themselves; nobody pastes
   const ids = idList(env.DISCORD_KB_UPDATER_IDS).length ? idList(env.DISCORD_KB_UPDATER_IDS) : idList(env.DISCORD_DECIDER_IDS);
   const mention = ids.map((id) => `<@${id}>`).join(' ');
   return fetch(`https://discord.com/api/v10/channels/${env.DISCORD_CHAT_CHANNEL_ID || env.DISCORD_CHANNEL_ID}/messages`, {
@@ -1747,6 +1777,22 @@ async function kbReminder(env: Env, test = false): Promise<string | void> {
       allowed_mentions: { users: ids },
     }),
   }).then(async (res) => { if (res.ok) return 'ok'; const t = await res.text(); console.error('kb reminder', res.status, t); return `${res.status} ${t.slice(0, 200)}`; });
+}
+
+const thDate = () => new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' });
+
+async function kbInBank(db: D1Database): Promise<KbItem[]> {
+  return (await db.prepare(`SELECT * FROM bot_kb WHERE status IN ('approved','applied') ORDER BY id`).all<KbItem>()).results;
+}
+
+/** Rewrites the Google Doc from the bank and marks what it wrote as applied. Only when live (botKbDoc.ts). */
+async function syncKbDoc(env: Env, who: string): Promise<{ written: boolean; items: number; applied: number }> {
+  if (!(await docLive(env))) return { written: false, items: 0, applied: 0 };
+  const items = await kbInBank(env.DB);
+  await writeDoc(env, docText(items, thDate()));
+  const applied = await markApplied(env.DB, items.filter((i) => i.status === 'approved').map((i) => i.id));
+  await audit(env.DB, who, 'botkb.doc_write', 'bot_kb', { items: items.length, applied });
+  return { written: true, items: items.length, applied };
 }
 
 /** อูนิ's AI read of a day's chats → #meta-chat. One model call per day; tokens are logged in audit. */
@@ -2045,7 +2091,13 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
     const it = await setKbStatus(env.DB, Number(arg0), verb0 === 'kbok' ? 'approved' : 'rejected', `discord:${who}`);
     if (!it) return json({ type: 7, data: { content: 'ข้อนี้ใส่บอทไปแล้ว หรือไม่พบแล้วค่ะ', components: [] } });
     const m = kbMessage(it, '');
-    return json({ type: 7, data: { content: `${m.content}\n${verb0 === 'kbok' ? '✅ **เข้าคลังคำตอบแล้วค่ะ**' : '❌ **ไม่ใช้ข้อนี้**'} — ${who}`, components: [] } });
+    // Live Doc: write it now (after the reply — Discord wants an answer within 3 s); a failure is posted, not swallowed.
+    const live = verb0 === 'kbok' && await docLive(env);
+    if (live) ctx.waitUntil(syncKbDoc(env, `discord:${who}`).catch(async (err) => {
+      console.error('botkb doc', err);
+      await postBot(env, { content: `⚠️ อูนิเขียนคำตอบ #${it.id} ลง Google Doc ไม่สำเร็จค่ะ: ${(err as Error).message}`.slice(0, 1900) });
+    }));
+    return json({ type: 7, data: { content: `${m.content}\n${verb0 === 'kbok' ? (live ? '✅ **เข้าคลังและใส่บอทให้แล้วค่ะ** (Google Doc)' : '✅ **เข้าคลังคำตอบแล้วค่ะ**') : '❌ **ไม่ใช้ข้อนี้**'} — ${who}`, components: [] } });
   }
   if (verb0 === 'p365done' || verb0 === 'p365later') {
     const allowed = [...approvers, ...idList(env.DISCORD_UPLOADER_IDS)];

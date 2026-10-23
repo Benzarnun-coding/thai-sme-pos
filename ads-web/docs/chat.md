@@ -59,6 +59,24 @@ Meta has no API for Business AI's settings, so a person pastes the answers in.
   - `POST /api/botkb/remind-test`
 - Statuses: proposed → approved/rejected → applied.
 
+### Google Doc instead of pasting (`worker/botKbDoc.ts`, Benz 2026-10-23)
+
+Business AI → ข้อมูลของคุณ → แหล่งที่มา has Google Drive connected to the Doc "information for AI META CHAT" (owner pkjeans1123). Business AI reads it when it answers. It does not learn from it, so whatever the Doc says is what the bot tells customers.
+
+- The Worker rewrites the **whole** Doc from `bot_kb` (approved + applied, oldest first, rules on top: `docText`). The Doc always equals the bank, and nobody edits it by hand.
+- When live:
+  - ✅ in Discord (or อนุมัติ on /botkb) writes the Doc right away, and those answers become `applied`. A failure is posted in #meta-chat.
+  - On /botkb, "เอาออกจากบอท" on an applied answer sets it to `rejected` and rewrites the Doc.
+  - The Monday/Tuesday "paste it" reminder for Fear is skipped.
+- Access: a Google service account. Its JSON key goes in the secret `GOOGLE_SA_KEY`; the Docs API is enabled in its project; the Doc is shared with its e-mail as **editor**.
+- Switch: settings key `botkb_doc` = `{doc_id, live}`. It ships with `live: false`.
+  - `GET /api/botkb/doc` shows the exact text that would be written. Nothing is sent.
+  - `POST /api/botkb/doc/check` is a read-only test of the key and the sharing.
+  - `PUT /api/botkb/doc {doc_id | live}` is owner only. Switching on writes the Doc once.
+  - `POST /api/botkb/doc/sync` rewrites it by hand.
+  - All of it is on /botkb ("Google Doc ที่บอทอ่าน").
+- How fast Meta picks up a change to the Doc is not known. Check it in แชททดสอบ after a write.
+
 ## Findings, 15 Oct
 
 - Business AI was already answering customers. On the 15th it:

@@ -1,6 +1,6 @@
 // /botkb — "คลังคำตอบบอท": answers for Meta's Business AI. อูนิ proposes them from the chats (Mon/Thu, and a
-// first bank from all chats); Benz/Max approve here or in Discord; Fear copies the approved ones into Business Suite
-// on Monday and presses "ใส่บอทแล้ว". Meta has no API for the bot's settings, so pasting stays a person's job.
+// first bank from all chats); Benz/Max approve here or in Discord. Once the Google Doc is live (worker/botKbDoc.ts) an
+// approval is written into the Doc Business AI reads; until then Fear pastes them into Business Suite on Monday.
 
 import { useEffect, useState } from 'react';
 import { HomeLogo, SiteNav } from './SiteNav.tsx';
@@ -20,6 +20,47 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 }
 
 const STATUS: Record<KbItem['status'], string> = { approved: 'อนุมัติแล้ว · รอใส่บอท', proposed: 'รอตรวจ', applied: 'ใส่บอทแล้ว', rejected: 'ไม่ใช้' };
+interface DocInfo { doc_id: string; live: boolean; has_key: boolean; sa_email: string; live_now: boolean; text: string }
+
+/** The Google Doc that Business AI reads: link, access check, the on/off switch and exactly what would be written. */
+function DocCard({ onChange }: { onChange: () => void }) {
+  const { toast } = useUi();
+  const [d, setD] = useState<DocInfo | null>(null);
+  const [link, setLink] = useState('');
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const load = () => call<DocInfo>('GET', '/api/botkb/doc').then((r) => { setD(r); setLink(r.doc_id ? `https://docs.google.com/document/d/${r.doc_id}/edit` : ''); }).catch((e) => toast(e.message, 'bad'));
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const run = async (f: () => Promise<string>) => {
+    setBusy(true);
+    try { toast(await f(), 'ok'); await load(); onChange(); } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
+  };
+  if (!d) return null;
+  return (
+    <section className="card kb-paste">
+      <div className="row between">
+        <h2>Google Doc ที่บอทอ่าน</h2>
+        <span className={`badge ${d.live_now ? '' : 'warn-badge'}`}>{d.live_now ? 'เปิดอยู่ · กดอนุมัติแล้วเขียนลง Doc เอง' : 'ปิดอยู่ · ยังไม่เขียนอะไร'}</span>
+      </div>
+      <p className="muted small">
+        ระบบเขียนทับทั้ง Doc จากคำตอบที่อนุมัติ (อย่าแก้ใน Doc เอง แก้ที่หน้านี้) · Business AI → แหล่งที่มา → Google Drive ต้องเลือก Doc นี้
+        {d.sa_email ? <> · แชร์ Doc ให้ <b>{d.sa_email}</b> เป็นผู้แก้ไข</> : ' · ยังไม่ได้ตั้ง secret GOOGLE_SA_KEY'}
+      </p>
+      <div className="row">
+        <input style={{ flex: 1 }} placeholder="ลิงก์ Google Doc" value={link} onChange={(e) => setLink(e.target.value)} />
+        <button className="ghost" disabled={busy} onClick={() => run(async () => { await call('PUT', '/api/botkb/doc', { doc_id: link }); return 'บันทึกลิงก์แล้ว'; })}>บันทึก</button>
+        <button className="ghost" disabled={busy || !d.doc_id} onClick={() => run(async () => { const r = await call<{ title: string; chars: number }>('POST', '/api/botkb/doc/check'); return `เปิด Doc ได้: "${r.title}" (${r.chars} ตัวอักษร)`; })}>ตรวจสิทธิ์</button>
+        <button disabled={busy || !d.doc_id || !d.has_key} onClick={() => {
+          if (!d.live && !confirm('เปิดแล้วระบบจะเขียนทับทั้ง Doc ทันที และทุกครั้งที่กดอนุมัติ — บอทจะตอบลูกค้าตามนี้ เปิดเลยไหม?')) return;
+          run(async () => { const r = await call<{ live: boolean; sync: { items: number } | null }>('PUT', '/api/botkb/doc', { live: !d.live }); return r.live ? `เปิดแล้ว เขียน ${r.sync?.items ?? 0} ข้อลง Doc` : 'ปิดแล้ว'; });
+        }}>{d.live ? 'ปิด' : 'เปิดเขียน Doc'}</button>
+      </div>
+      <button className="ghost small" onClick={() => setOpen(!open)}>{open ? 'ซ่อน' : 'ดู'}ข้อความที่จะอยู่ใน Doc</button>
+      {open && <textarea readOnly value={d.text} rows={Math.min(20, d.text.split('\n').length + 1)} />}
+    </section>
+  );
+}
+
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' }) : '');
 
 export function BotKbApp() {
@@ -29,7 +70,8 @@ export function BotKbApp() {
   const [paste, setPaste] = useState('');
   const [tab, setTab] = useState<KbItem['status']>('approved');
   const [busy, setBusy] = useState(false);
-  const load = () => call<{ items: KbItem[]; paste: string }>('GET', '/api/botkb').then((r) => { setItems(r.items); setPaste(r.paste); }).catch((e) => toast(e.message, 'bad'));
+  const [docLive, setDocLive] = useState(false);
+  const load = () => call<{ items: KbItem[]; paste: string; doc_live: boolean }>('GET', '/api/botkb').then((r) => { setItems(r.items); setPaste(r.paste); setDocLive(r.doc_live); }).catch((e) => toast(e.message, 'bad'));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const count = (s: KbItem['status']) => (items ?? []).filter((x) => x.status === s).length;
@@ -47,8 +89,10 @@ export function BotKbApp() {
       <SiteNav current="/botkb" />
       <header className="kb-head">
         <div className="row"><HomeLogo text="AI" /><h1>คลังคำตอบบอท Business AI</h1></div>
-        <p className="muted small">อูนิเสนอจากแชทจริง (จันทร์/พฤหัส) · เบ้น/แม็กซ์อนุมัติ · เฟียร์คัดลอกไปใส่ Meta Business Suite → Business AI ทุกวันจันทร์ แล้วกด "ใส่บอทแล้ว"</p>
+        <p className="muted small">อูนิเสนอจากแชทจริง (จันทร์/พฤหัส) · เบ้น/แม็กซ์อนุมัติ · {docLive ? 'ระบบเขียนลง Google Doc ที่ Business AI อ่านให้ทันที' : 'เฟียร์คัดลอกไปใส่ Meta Business Suite → Business AI ทุกวันจันทร์ แล้วกด "ใส่บอทแล้ว"'}</p>
       </header>
+
+      <DocCard onChange={load} />
 
       <div className="segmented" role="tablist">
         {(['approved', 'proposed', 'applied', 'rejected'] as const).map((s) => (
@@ -56,7 +100,7 @@ export function BotKbApp() {
         ))}
       </div>
 
-      {tab === 'approved' && count('approved') > 0 && (
+      {tab === 'approved' && count('approved') > 0 && !docLive && (
         <section className="card kb-paste">
           <div className="row between">
             <h2>ข้อความสำหรับวางในบอท</h2>
@@ -86,6 +130,9 @@ export function BotKbApp() {
               <p><b>บอทควรตอบ:</b> {it.answer}</p>
               {it.rule && <p><b>กฎให้บอท:</b> {it.rule}</p>}
               {it.why && <p className="muted small">{it.kind === 'fix' ? 'บอทพลาด: ' : ''}{it.why}{it.evidence ? ` · ${it.evidence}` : ''}</p>}
+              {it.status === 'applied' && docLive && (
+                <div className="row"><button className="ghost small" onClick={() => decide(it.id, 'rejected')}>เอาออกจากบอท</button></div>
+              )}
               {it.status !== 'applied' && (
                 <div className="row">
                   {it.status !== 'approved' && <button className="small" onClick={() => decide(it.id, 'approved')}>อนุมัติ</button>}
