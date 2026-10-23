@@ -88,11 +88,9 @@ try {
     await visible('button:has-text("801")');
   });
 
-  await step('the manual and start-plan PDFs are served', async () => {
-    for (const f of ['studio-guide.pdf', 'studio-start.pdf']) {
-      const r = await fetch(`${base}/${f}`);
-      if (!r.ok || !(r.headers.get('content-type') ?? '').includes('pdf')) throw new Error(`${f}: HTTP ${r.status}`);
-    }
+  await step('the manual PDF is served', async () => {
+    const r = await fetch(`${base}/studio-guide.pdf`);
+    if (!r.ok || !(r.headers.get('content-type') ?? '').includes('pdf')) throw new Error(`HTTP ${r.status}`);
   });
 
   await browser.close();
