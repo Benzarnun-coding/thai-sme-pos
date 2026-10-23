@@ -35,7 +35,7 @@ import { DISCORD_PERSONA, pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './chatLog.ts';
 import * as studio from './studio.ts';
 import { aiEnabled, askAI, botErrors, botRateText, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
-import { editKb, fixedBefore, kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, repeatsText, setKbStatus, speaker, type KbItem } from './botKb.ts';
+import { editKb, fixedBefore, kbMessage, kbModal, rewriteKb, kbPasteText, listKb, markApplied, postBot, proposeItems, repeatsText, setKbStatus, speaker, type KbItem } from './botKb.ts';
 import { checkDoc, docIdFrom, docLive, docText, loadDocSettings, saveDocSettings, serviceEmail, writeDoc } from './botKbDoc.ts';
 import { closeCase, customerName, serviceAlerts, servicePreview } from './serviceAlert.ts';
 import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './postIdeas.ts';
@@ -52,7 +52,7 @@ import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './m
 import { captureSource, planNotePurchases } from './notePurchases.ts';
 import { dayOrders, reconcile } from './orderDay.ts';
 import { adjustmentDays, seedFromSent } from './metaAdjust.ts';
-import { buildEnabled, checkBuilds, listRequests, postPicker, registerCommand, requestInteraction, syncTitles } from './featureRequests.ts';
+import { buildEnabled, checkBuilds, listRequests, modalValues, postPicker, registerCommand, requestInteraction, syncTitles } from './featureRequests.ts';
 import { pageOf, receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
@@ -1811,6 +1811,51 @@ async function kbReminder(env: Env, test = false): Promise<string | void> {
   }).then(async (res) => { if (res.ok) return 'ok'; const t = await res.text(); console.error('kb reminder', res.status, t); return `${res.status} ${t.slice(0, 200)}`; });
 }
 
+/**
+ * The "✏️ แก้/อธิบายเพิ่ม" form. Edited text alone = approved as typed (into the Doc when live). With an explanation,
+ * อูนิ rewrites the answer (an AI call, longer than Discord's 3 s, so the message is updated afterwards) and the
+ * question is asked again with the new wording — one more ✅ puts it in the bot.
+ */
+async function kbFormSubmit(i: any, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const who = i.member?.user?.global_name || i.member?.user?.username || i.user?.username || 'ไม่ทราบชื่อ';
+  const userId = String(i.member?.user?.id ?? i.user?.id ?? '');
+  const approvers = idList(env.DISCORD_APPROVER_IDS);
+  if (approvers.length && !approvers.includes(userId)) return json({ type: 4, data: { content: 'ปุ่มนี้ให้กดได้เฉพาะคุณเบ้นกับคุณแม็กซ์นะคะ 🙏', flags: 64 } });
+  const id = Number(String(i.data.custom_id).slice(7));
+  const it = await env.DB.prepare('SELECT * FROM bot_kb WHERE id = ?').bind(id).first<KbItem>();
+  if (!it || it.status === 'applied' || it.status === 'rejected') return json({ type: 4, data: { content: 'ข้อนี้ตัดสินไปแล้วค่ะ', flags: 64 } });
+  const v = modalValues(i.data);
+  const draft = { answer: v.answer || it.answer, rule: v.rule || null };
+  const extra = (v.extra ?? '').trim();
+  if (!extra) {
+    const saved = await editKb(env.DB, id, { question: it.question, ...draft }, `discord:${who}`);
+    await audit(env.DB, `discord:${who}`, 'botkb.edit', String(id), { before: { answer: it.answer, rule: it.rule }, after: draft, via: 'discord' });
+    const ok = await setKbStatus(env.DB, id, 'approved', `discord:${who}`);
+    const live = await docLive(env);
+    if (live) ctx.waitUntil(syncKbDoc(env, `discord:${who}`).catch(async (err) => {
+      await postBot(env, { content: `⚠️ อูนิเขียนคำตอบ #${id} ลง Google Doc ไม่สำเร็จค่ะ: ${(err as Error).message}`.slice(0, 1900) });
+    }));
+    const m = kbMessage(ok ?? saved ?? it, '');
+    return json({ type: 7, data: { content: `${m.content}\n✏️ **${who} แก้คำตอบแล้ว** ${live ? '✅ เข้าคลังและใส่บอทให้แล้วค่ะ (Google Doc)' : '✅ เข้าคลังคำตอบแล้วค่ะ'}`.slice(0, 2000), components: [] } });
+  }
+  // With an explanation: answer now (deferred), rewrite after, then show the new wording with the buttons again.
+  const token = String(i.token ?? '');
+  ctx.waitUntil((async () => {
+    const next = await rewriteKb(env, it, draft, extra);
+    const saved = await editKb(env.DB, id, { question: it.question, ...next }, `discord:${who}`);
+    await audit(env.DB, `discord:${who}`, 'botkb.explain', String(id), { extra, before: { answer: it.answer, rule: it.rule }, after: next });
+    const m = kbMessage(saved ?? it, '');
+    await fetch(`https://discord.com/api/v10/webhooks/${env.DISCORD_APP_ID}/${token}/messages/@original`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: `${m.content}\n📝 **${who} อธิบายเพิ่ม:** ${extra}\n🔁 อูนิเขียนคำตอบใหม่ตามนี้แล้วค่ะ ถ้าโอเคกด ✅ ได้เลย`.slice(0, 2000), components: m.components }),
+    });
+  })().catch(async (err) => {
+    console.error('kb rewrite', err);
+    await postBot(env, { content: `⚠️ อูนิเขียนคำตอบ #${id} ใหม่ไม่สำเร็จค่ะ: ${(err as Error).message} — แก้เองได้ที่ /botkb`.slice(0, 1900) });
+  }));
+  return json({ type: 6 });
+}
+
 const thDate = () => new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' });
 
 async function kbInBank(db: D1Database): Promise<KbItem[]> {
@@ -2106,6 +2151,8 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
   if (i.type === 1) return json({ type: 1 });
   const fr = await requestInteraction(i, env, ctx);
   if (fr) return fr;
+  // "✏️ แก้/อธิบายเพิ่ม" form sent back (botKb.ts kbModal).
+  if (i.type === 5 && String(i.data?.custom_id ?? '').startsWith('kbform:')) return kbFormSubmit(i, env, ctx);
   if (i.type !== 3) return json({ type: 4, data: { content: 'ยังไม่รองรับคำสั่งนี้', flags: 64 } });
   // The bot works in one channel only: a press from anywhere else is refused (only the presser sees the reply).
   const svc = String(i.data?.custom_id ?? '').startsWith('svcdone:');
@@ -2132,6 +2179,12 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
     const when = new Date().toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' });
     const before = String(i.message?.content ?? '').split('\n').filter((l: string) => !l.includes('จัดการจบแล้ว')).join('\n');
     return json({ type: 7, data: { content: `${before}\n${done ? `✅ **จัดการจบแล้ว** — ${who} · ${when}` : '✅ เคสนี้ปิดไปแล้วค่ะ'}`.slice(0, 2000), components: [] } });
+  }
+  if (verb0 === 'kbedit') {
+    if (approvers.length && !approvers.includes(userId)) return json({ type: 4, data: { content: `ขอโทษค่ะ ปุ่มนี้ให้กดได้เฉพาะคุณเบ้นกับคุณแม็กซ์นะคะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
+    const it = await env.DB.prepare('SELECT * FROM bot_kb WHERE id = ?').bind(Number(arg0)).first<KbItem>();
+    if (!it || it.status === 'applied' || it.status === 'rejected') return json({ type: 4, data: { content: 'ข้อนี้ตัดสินไปแล้วค่ะ — แก้ต่อได้ที่ https://pkjeans-ads.ads-web.workers.dev/botkb', flags: 64 } });
+    return json({ type: 9, data: kbModal(it) });
   }
   if (verb0 === 'kbok' || verb0 === 'kbno') {
     if (approvers.length && !approvers.includes(userId)) return json({ type: 4, data: { content: `ขอโทษค่ะ ปุ่มนี้ให้กดได้เฉพาะคุณเบ้นกับคุณแม็กซ์นะคะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });

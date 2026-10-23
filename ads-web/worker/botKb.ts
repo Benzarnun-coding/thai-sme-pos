@@ -128,9 +128,55 @@ export function kbMessage(it: KbItem, mention: string): { content: string; compo
     content: lines.join('\n').slice(0, 1950),
     components: [{ type: 1, components: [
       { type: 2, style: 3, label: '✅ ใส่คลังคำตอบ', custom_id: `kbok:${it.id}` },
+      { type: 2, style: 1, label: '✏️ แก้/อธิบายเพิ่ม', custom_id: `kbedit:${it.id}` },
       { type: 2, style: 2, label: '❌ ไม่ใช้', custom_id: `kbno:${it.id}` },
     ] }],
   };
+}
+
+/**
+ * The form behind "✏️ แก้/อธิบายเพิ่ม" (Benz 23 Oct: not just yes/no). The answer and rule come filled in to edit
+ * directly; "อธิบายเพิ่ม" is for facts the AI didn't have ("ค่าบริการ 60 บาทต่อออเดอร์") — อูนิ then rewrites
+ * the answer with them and asks again, so a person still approves the wording that reaches customers.
+ */
+export function kbModal(it: KbItem): unknown {
+  const input = (custom_id: string, label: string, value: string, max: number, required: boolean, placeholder?: string) =>
+    ({ type: 1, components: [{ type: 4, custom_id, label, style: 2, value: value.slice(0, max) || undefined, max_length: max, required, placeholder }] });
+  return {
+    custom_id: `kbform:${it.id}`,
+    title: `แก้บอท #${it.id}`.slice(0, 45),
+    components: [
+      input('answer', 'บอทควรตอบ (แก้ตรงนี้ได้เลย)', it.answer, 800, true),
+      input('rule', 'กฎให้บอท (ไม่ใส่ก็ได้)', it.rule ?? '', 300, false),
+      input('extra', 'อธิบายเพิ่มให้อูนิเขียนใหม่ (ไม่ใส่ก็ได้)', '', 500, false, 'เช่น ค่าบริการ 60 บาทต่อออเดอร์ ไซส์ 38 ขึ้นไปบวกตัวละ 60'),
+    ],
+  };
+}
+
+const REWRITE_SYSTEM = `คุณคือ "อูนิ" ผู้ช่วยของร้าน PkJeans (ขายกางเกงยีนส์ผ่าน Messenger) เขียนคำตอบให้บอท Business AI ของ Meta ใหม่ ตามที่ทีมอธิบายเพิ่ม
+ตอบเป็น JSON object เท่านั้น: {"answer":"คำตอบที่บอทจะพูดกับลูกค้า","rule":"กฎสั้นๆ ให้บอท หรือ null"}
+กติกา:
+- ใช้ข้อเท็จจริงจาก "คำอธิบายของทีม" เป็นหลัก ถ้าขัดกับคำตอบเดิม ให้เชื่อทีม ห้ามแต่งตัวเลข เงื่อนไข หรือนโยบายเพิ่มเอง
+- ภาษาสุภาพ อบอุ่น ลงท้าย "ค่ะ" สั้น อ่านง่ายในแชท ใช้อีโมจิได้ไม่เกิน 2 ตัว
+- ถ้ามีค่าใช้จ่าย ต้องบอกตัวเลขตรงๆ ในคำตอบ อย่าซ่อน
+- ห้ามมีคำว่า "ทีมต้องยืนยัน" ห้ามมีชื่อ เบอร์ ที่อยู่ลูกค้า`;
+
+/** อูนิ rewrites an answer from the team's explanation; the result goes back for approval, not straight to the bot. */
+export async function rewriteKb(env: AIEnv, it: KbItem, draft: { answer: string; rule: string | null }, extra: string): Promise<{ answer: string; rule: string | null }> {
+  const user = `ลูกค้าถาม: ${it.question}\nคำตอบเดิม: ${draft.answer}\nกฎเดิม: ${draft.rule ?? '-'}${it.why ? `\nบอทพลาด: ${it.why}` : ''}\n\nคำอธิบายของทีม: ${extra}`;
+  const ai = await askAI(env, REWRITE_SYSTEM, user, 1200);
+  return parseRewrite(ai.text) ?? draft;
+}
+
+export function parseRewrite(text: string): { answer: string; rule: string | null } | null {
+  const start = text.indexOf('{'), end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    const o = JSON.parse(text.slice(start, end + 1));
+    const answer = typeof o.answer === 'string' ? o.answer.trim().slice(0, 800) : '';
+    if (!answer) return null;
+    return { answer, rule: typeof o.rule === 'string' && o.rule.trim() && o.rule.trim() !== 'null' ? o.rule.trim().slice(0, 300) : null };
+  } catch { return null; }
 }
 
 /** Posts as the bot in #meta-chat (DISCORD_CHAT_CHANNEL_ID), or the ads channel when that isn't set. */
