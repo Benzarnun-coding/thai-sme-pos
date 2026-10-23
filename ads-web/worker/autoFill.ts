@@ -92,7 +92,7 @@ function corrected(note: StoredNote, bill: P365Order, other: { mid: string; at: 
  */
 export async function ensureDraft(env: AutoEnv, note: StoredNote): Promise<{ draft: P365Order | null; billed?: P365Order; why?: string; replaced?: number; correct?: { at: string } }> {
   const t = Date.parse(note.at);
-  const fix = await correctionOn(env.DB);
+  const fix = await correctionOn(env.DB, note.at);
   const who = await customerFor(env, note.psid);
   let draft: P365Order | null = null;
   if (who?.last_order_id) {
@@ -165,7 +165,7 @@ export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force
   try {
     // 0. A corrected summary typed seconds after the first (#29944/#29945 20 Oct: two bills; #30322 23 Oct: items
     // added twice) waits until the first is in its bill, then is a correction of it: the sweep takes it after.
-    if (await correctionOn(env.DB) && (await earlierInProgress(env.DB, note))) {
+    if (await correctionOn(env.DB, note.at) && (await earlierInProgress(env.DB, note))) {
       await markFill(env.DB, note.mid, { by: 'auto', order_no: null, error: `${WAITING}: สรุปก่อนหน้าของลูกค้านี้กำลังใส่บิลอยู่` });
       return { status: 'waiting', order_no: null, reasons: ['สรุปก่อนหน้ากำลังใส่บิลอยู่'] };
     }

@@ -21,13 +21,23 @@ import { diff, expected } from './fillAudit.ts';
 import { parseOrderNote, type StoredNote } from './orderNotes.ts';
 import { billName, call, checkBack, P365Error, planFill, type FillEnv, type FillPlan, type P365Order } from './p365fill.ts';
 
-export async function correctionOn(db: D1Database): Promise<boolean> {
+/**
+ * Switched on = "on:<when>" (Benz 23 Oct: from now on) — only notes typed after that moment correct a bill, so the
+ * sweep re-reading older notes never rewrites a bill on their account. A bare "on" (older value) applies to all.
+ */
+export async function correctionOn(db: D1Database, noteAt?: string): Promise<boolean> {
   const r = await db.prepare("SELECT value FROM meta_capi WHERE key = 'note_correction'").first<{ value: string }>().catch(() => null);
-  return r?.value === 'on';
+  return correctionApplies(r?.value, noteAt);
+}
+
+export function correctionApplies(value: string | undefined, noteAt?: string): boolean {
+  if (value === 'on') return true;
+  if (!value?.startsWith('on:')) return false;
+  return !noteAt || Date.parse(noteAt) >= Date.parse(value.slice(3));
 }
 
 export async function setCorrection(db: D1Database, on: boolean): Promise<void> {
-  await db.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('note_correction', ?)").bind(on ? 'on' : 'off').run();
+  await db.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('note_correction', ?)").bind(on ? `on:${new Date().toISOString()}` : 'off').run();
 }
 
 /** Two notes of one customer this close together are one order (as for drafts and Meta sales). */

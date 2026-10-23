@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { autoFillNote } from './autoFill.ts';
-import { decide, rewriteBill } from './noteCorrection.ts';
+import { decide, rewriteBill, correctionApplies } from './noteCorrection.ts';
 import { sqliteD1 } from './sqliteD1.ts';
 
 const H = 3_600_000;
@@ -178,4 +178,13 @@ test('auto: a summary typed seconds after one still being filled waits for it (n
   assert.equal(r.status, 'waiting');
   assert.deepEqual(page.calls, [], 'Page365 not touched');
   assert.match((raw.prepare("SELECT fill_error FROM order_notes WHERE mid = 'm2'").get() as any).fill_error, /^รอเปิดร่าง/, 'the sweep retries it');
+});
+
+test('switched on "from now on": only notes typed after the switch correct a bill', () => {
+  assert.equal(correctionApplies('on:2026-10-23T10:00:00.000Z', '2026-10-23T10:05:00Z'), true);
+  assert.equal(correctionApplies('on:2026-10-23T10:00:00.000Z', '2026-10-23T09:59:00Z'), false);
+  assert.equal(correctionApplies('on:2026-10-23T10:00:00.000Z'), true);
+  assert.equal(correctionApplies('on', '2026-01-01T00:00:00Z'), true);
+  assert.equal(correctionApplies('off', '2026-10-23T10:05:00Z'), false);
+  assert.equal(correctionApplies(undefined), false);
 });
