@@ -48,3 +48,10 @@ test("อูนิ's rewrite is read from its JSON; nothing usable keeps the tea
   assert.equal(parseRewrite('ขอโทษค่ะ'), null);
   assert.equal(parseRewrite('{"answer":""}'), null);
 });
+
+test('"(ทีมต้องยืนยัน…)" never stays in an answer customers would read: it moves to why', () => {
+  const [it] = parseItems('[{"kind":"fix","question":"กี่วันได้ของ","answer":"ส่งต่อแอดมินเพื่อแจ้งวันถึง (ทีมต้องยืนยัน)","why":"บอทเดาวัน"}]');
+  assert.equal(it.answer, 'ส่งต่อแอดมินเพื่อแจ้งวันถึง');
+  assert.equal(it.why, 'บอทเดาวัน · ทีมต้องยืนยัน');
+  assert.equal(parseItems('[{"kind":"repeat","ref":9,"question":"x","answer":"y"}]').length, 0);
+});

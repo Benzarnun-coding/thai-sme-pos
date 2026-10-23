@@ -47,10 +47,16 @@ export function parseItems(text: string): Pick<KbItem, 'kind' | 'question' | 'an
   try { raw = JSON.parse(text.slice(start, end + 1)); } catch { return []; }
   if (!Array.isArray(raw)) return [];
   const s = (v: unknown, n: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, n) : null);
-  return raw.map((r: any) => ({
-    kind: r?.kind === 'faq' ? 'faq' as const : 'fix' as const,
-    question: s(r?.question, 300) ?? '', answer: s(r?.answer, 800) ?? '', rule: s(r?.rule, 300), why: s(r?.why, 300), evidence: s(r?.evidence, 120),
-  })).filter((r) => r.question && r.answer);
+  return raw.filter((r: any) => r?.kind !== 'repeat').map((r: any) => {
+    // "(ทีมต้องยืนยัน …)" is a note for the team, not words for customers: it moves from the answer to why.
+    const ans = s(r?.answer, 800) ?? '';
+    const notes = [...ans.matchAll(/\s*\((ทีมต้องยืนยัน[^)]*)\)/g)].map((m) => m[1]);
+    const why = [s(r?.why, 300), ...notes].filter(Boolean).join(' · ').slice(0, 300) || null;
+    return {
+      kind: r?.kind === 'faq' ? 'faq' as const : 'fix' as const,
+      question: s(r?.question, 300) ?? '', answer: ans.replace(/\s*\(ทีมต้องยืนยัน[^)]*\)/g, '').trim(), rule: s(r?.rule, 300), why, evidence: s(r?.evidence, 120),
+    };
+  }).filter((r) => r.question && r.answer);
 }
 
 /** "The bot still gets #N wrong" entries from the same AI answer; only ids that were in the "แก้แล้ว" list count. */
@@ -206,7 +212,8 @@ export async function setKbStatus(db: D1Database, id: number, status: 'approved'
 export async function editKb(db: D1Database, id: number, t: { question: string; answer: string; rule: string | null }, who: string): Promise<KbItem | null> {
   const q = t.question.trim().slice(0, 300), a = t.answer.trim().slice(0, 800), r = t.rule?.trim().slice(0, 300) || null;
   if (!q || !a) return null;
-  return db.prepare(`UPDATE bot_kb SET question = ?1, answer = ?2, rule = ?3, decided_by = ?4, decided_at = ?5 WHERE id = ?6 RETURNING *`)
+  // A rewritten answer that is already in the bot counts as put in now: the repeat check judges the new wording only.
+  return db.prepare(`UPDATE bot_kb SET question = ?1, answer = ?2, rule = ?3, decided_by = ?4, decided_at = ?5, applied_at = CASE WHEN status = 'applied' THEN ?5 ELSE applied_at END WHERE id = ?6 RETURNING *`)
     .bind(q, a, r, who, new Date().toISOString(), id).first<KbItem>();
 }
 

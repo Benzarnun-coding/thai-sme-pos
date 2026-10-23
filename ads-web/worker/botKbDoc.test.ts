@@ -41,3 +41,9 @@ test('writeDoc signs a service-account token, clears the body and inserts the te
     { insertText: { location: { index: 1 }, text: 'hello' } },
   ]);
 });
+
+test('team-only "(ทีมต้องยืนยัน…)" notes never reach the Doc', () => {
+  const t = docText([{ ...item(5, 'approved'), answer: 'ส่งต่อแอดมินเพื่อแจ้งวันถึง (ทีมต้องยืนยัน)', rule: 'ห้ามเดาวัน (ทีมต้องยืนยันเรื่องขนส่ง)' }], 'x');
+  assert.doesNotMatch(t, /ทีมต้องยืนยัน/);
+  assert.match(t, /ตอบ: ส่งต่อแอดมินเพื่อแจ้งวันถึง\n/);
+});
