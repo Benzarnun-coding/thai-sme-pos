@@ -76,7 +76,7 @@ Business AI → ข้อมูลของคุณ → แหล่งที�
   - `PUT /api/botkb/doc {doc_id | live}` is owner only. Switching on writes the Doc once.
   - `POST /api/botkb/doc/sync` rewrites it by hand.
   - All of it is on /botkb ("Google Doc ที่บอทอ่าน").
-- How fast Meta picks up a change to the Doc is not known. Check it in แชททดสอบ after a write.
+- Checked by Benz in แชททดสอบ on 23 Oct, after the edits to #3/#8/#9/#10/#22: the bot answers from the Doc. How long Meta takes to pick up a write is still not measured.
 
 ### Did the fix work? (Benz 2026-10-23)
 
