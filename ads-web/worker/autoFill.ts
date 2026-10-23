@@ -46,9 +46,13 @@ export async function openDraft(env: FillEnv, customerId: number): Promise<P365O
   return id ? call<P365Order>(env, `orders/${id}.json`) : null;
 }
 
-/** Another note of this customer already put into this bill, if any. */
-async function otherNoteOn(db: D1Database, orderNo: number, mid: string): Promise<{ mid: string; at: string } | null> {
-  return db.prepare('SELECT mid, at FROM order_notes WHERE fill_order_no = ? AND mid != ? AND filled_at IS NOT NULL ORDER BY at DESC LIMIT 1').bind(orderNo, mid).first<{ mid: string; at: string }>();
+/**
+ * Another note of this customer already put into this bill, if any. Same customer only: Page365 gives a deleted
+ * latest draft's number to the next bill (#29981 20 Oct: an L200 draft deleted by hand, the number reused 70 min
+ * later for another customer's 501/3 bill), so a bill number alone can point at someone else's note.
+ */
+async function otherNoteOn(db: D1Database, orderNo: number, note: Pick<StoredNote, 'mid' | 'psid'>): Promise<{ mid: string; at: string } | null> {
+  return db.prepare('SELECT mid, at FROM order_notes WHERE fill_order_no = ? AND psid = ? AND mid != ? AND filled_at IS NOT NULL ORDER BY at DESC LIMIT 1').bind(orderNo, note.psid, note.mid).first<{ mid: string; at: string }>();
 }
 
 const bkk = (iso: string) => new Date(Date.parse(iso) + 7 * 3_600_000).toISOString().slice(11, 16);
@@ -102,7 +106,7 @@ export async function ensureDraft(env: AutoEnv, note: StoredNote): Promise<{ dra
       // Already made and moved on: that bill is this order if it was opened around/after the note, or if another
       // note of the customer within 2 hours went into it (a repeated summary — #29364 / 16:53, 15 Oct).
       else {
-        const other = await otherNoteOn(env.DB, last.no, note.mid);
+        const other = await otherNoteOn(env.DB, last.no, note);
         const recent = Date.parse(last.created_at) >= t - 3_600_000;
         const fixed = fix && other ? corrected(note, last, other) : null;
         if (fixed) return fixed;
@@ -112,7 +116,7 @@ export async function ensureDraft(env: AutoEnv, note: StoredNote): Promise<{ dra
   }
   if (!draft) draft = await findDraft(env, note.psid, note.at);
   if (draft?.items.length) {
-    const other = await otherNoteOn(env.DB, draft.no, note.mid);
+    const other = await otherNoteOn(env.DB, draft.no, note);
     const fixed = fix && other ? corrected(note, draft, other) : null;
     if (fixed) return fixed;
     if (other && Math.abs(Date.parse(other.at) - t) <= SAME_ORDER_MS) {

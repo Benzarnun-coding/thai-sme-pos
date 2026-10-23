@@ -90,22 +90,29 @@ export async function auditStep(env: AutoEnv, opts: { force?: boolean; limit?: n
   await env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('audit_at', ?)").bind(new Date().toISOString()).run();
   const now = Date.now();
   const { results: notes } = await env.DB.prepare(
-    `SELECT n.mid, n.at, n.text, n.fill_order_no AS no, n.filled_at, n.filled_by, n.fill_error
+    `SELECT n.mid, n.psid, n.at, n.text, n.fill_order_no AS no, n.filled_at, n.filled_by, n.fill_error
        FROM order_notes n LEFT JOIN fill_audit a ON a.no = n.fill_order_no
       WHERE n.fill_order_no IS NOT NULL AND n.at >= ? AND n.at <= ?
         AND (a.no IS NULL OR (a.outcome = 'open' AND a.checked_at <= ?))
       ORDER BY n.at LIMIT ?`,
   ).bind(new Date(Math.max(now - 30 * DAY, Date.parse(AUDIT_FROM))).toISOString(), new Date(now - 20 * 3_600_000).toISOString(),
-    new Date(now - 12 * 3_600_000).toISOString(), opts.limit ?? 10).all<{ mid: string; at: string; text: string; no: number; filled_at: string | null; filled_by: string | null; fill_error: string | null }>();
+    new Date(now - 12 * 3_600_000).toISOString(), opts.limit ?? 10).all<{ mid: string; psid: string; at: string; text: string; no: number; filled_at: string | null; filled_by: string | null; fill_error: string | null }>();
   let written = 0;
-  for (const n of notes) {
+  for (let n of notes) {
     const list = await call<{ orders: { id: number; no: number; stage: string }[] }>(env, `orders.json?page=1&search=${n.no}`).catch(() => null);
     if (!list) break; // Page365 not reachable: try again next time
     const hit = list.orders.find((o) => o.no === n.no);
+    let o = hit ? await call<P365Order>(env, `orders/${hit.id}.json`) : null;
+    // The number now belongs to another customer (Page365 reuses a deleted latest draft's number, #29981 20 Oct):
+    // the bill is measured against that customer's note; this note's own draft is gone.
+    if (o?.customer_fbid && o.customer_fbid !== n.psid) {
+      const owner = await env.DB.prepare('SELECT mid, psid, at, text, fill_order_no AS no, filled_at, filled_by, fill_error FROM order_notes WHERE fill_order_no = ? AND psid = ? ORDER BY at LIMIT 1')
+        .bind(n.no, o.customer_fbid).first<typeof n>();
+      if (owner) n = owner; else o = null;
+    }
     const stopped = !n.filled_at && (n.fill_error ?? '').startsWith('ต้องให้คนดู');
     const row = { no: n.no, mid: n.mid, note_at: n.at, filled_by: n.filled_at ? n.filled_by : null, reason: stopped ? stopReason(n.fill_error!) : null, edits: null as string | null, address: null as string | null, final_stage: null as string | null, outcome: 'deleted' };
-    if (hit) {
-      const o = await call<P365Order>(env, `orders/${hit.id}.json`);
+    if (o) {
       row.final_stage = o.stage;
       const final = o.stage !== 'draft' || now - Date.parse(n.at) > 7 * DAY;
       const want = expected(n.text);

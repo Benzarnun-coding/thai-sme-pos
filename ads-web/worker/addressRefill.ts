@@ -41,7 +41,8 @@ async function refillOne(env: AutoEnv & { ANTHROPIC_API_KEY?: string }, no: numb
   if (draftAddress(order)) return done('has address');
   if (!order.conversation_id) return done('no chat');
   const chat = (await call<{ messages: ChatMessage[] }>(env, `conversations/${order.conversation_id}.json`).catch(() => null))?.messages ?? [];
-  const note = await env.DB.prepare('SELECT text FROM order_notes WHERE fill_order_no = ? ORDER BY at DESC LIMIT 1').bind(no).first<{ text: string }>();
+  // This customer's note only: a bill number can be reused after a draft is deleted (autoFill.ts otherNoteOn).
+  const note = await env.DB.prepare('SELECT text FROM order_notes WHERE fill_order_no = ? AND (? IS NULL OR psid = ?) ORDER BY at DESC LIMIT 1').bind(no, order.customer_fbid, order.customer_fbid).first<{ text: string }>();
   const read = await readAddressTiered(env.ANTHROPIC_API_KEY!, chat, { cheap: env.ADDRESS_MODEL, strong: env.ADDRESS_MODEL_HARD, workspaceId: env.ANTHROPIC_WORKSPACE_ID, orderNote: note?.text ?? '' });
   for (const u of read.usages) await audit(env.DB, 'ai', 'address.read', String(no), u).catch(() => null);
   const name = (order.customer_name ?? '').replace(/^[A-Z]{1,3}-\d{4}\s+/, '');

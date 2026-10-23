@@ -188,3 +188,18 @@ test('switched on "from now on": only notes typed after the switch correct a bil
   assert.equal(correctionApplies('off', '2026-10-23T10:05:00Z'), false);
   assert.equal(correctionApplies(undefined), false);
 });
+
+// #29981 (20 Oct): an admin deleted the newest draft (another customer's) and Page365 gave its number to the next
+// bill. That customer's old note still points at the number; it is not a note of this bill.
+for (const on of [false, true]) test(`a bill number reused after a draft was deleted: another customer's note on it is ignored (note_correction ${on ? 'on' : 'off'})`, async () => {
+  const page = fakePage365('draft'); // u1's draft #29400, its items already put in by an admin
+  const { raw, d1 } = sqliteD1(schema);
+  raw.exec(`DELETE FROM order_notes; INSERT INTO order_notes VALUES ('m0', 'u0', '2026-10-22T20:00:00Z', 'L200 30 1\ncod 509', NULL, '2026-10-22T20:01:00Z', 'auto', 29400, NULL)`);
+  if (on) raw.exec("INSERT INTO meta_capi VALUES ('note_correction', 'on')");
+  const note = { mid: 'm2', psid: 'u1', at: '2026-10-23T03:40:00Z', text: '501/1 30\ncod 199', name_hash: null };
+  raw.prepare('INSERT INTO order_notes (mid, psid, at, text) VALUES (?, ?, ?, ?)').run(note.mid, note.psid, note.at, note.text);
+  const r = await autoFillNote({ ...env, DB: d1 } as any, note);
+  assert.ok(!page.calls.some((c) => c.includes('customers/77/orders.json')), `no second draft for u1: ${page.calls.join(' | ')}`);
+  assert.equal(r.order_no, 29400, r.reasons.join(' | '));
+  assert.ok(!r.reasons.some((x) => /สรุปตอน|รุ่นเดียวกับบิล/.test(x)), r.reasons.join(' | '));
+});
