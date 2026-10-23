@@ -77,6 +77,19 @@ Business AI → ข้อมูลของคุณ → แหล่งที�
   - All of it is on /botkb ("Google Doc ที่บอทอ่าน").
 - How fast Meta picks up a change to the Doc is not known. Check it in แชททดสอบ after a write.
 
+### Did the fix work? (Benz 2026-10-23)
+
+- **Repeats.** The Mon/Thu round also gives the AI every answer that was in the bot before the chats it reads (`applied_at` < the round's start; `fixedBefore`).
+  - If the bot still gets one of them wrong, the AI returns `{"kind":"repeat","ref":N}` instead of a new fix (`parseRepeats`).
+  - Each repeat is logged (`audit` `botkb.repeat`, target = the answer's id).
+  - Repeats are posted in #meta-chat as "⚠️ แก้แล้วแต่บอทยังพลาด" (`repeatsText`).
+  - /botkb shows the count on the answer.
+  - Many repeats at once means Meta isn't reading the Doc. One repeat means that answer needs rewording.
+- **Rate.** The 07:30 AI read ends with a line "บอทพลาด: N": customers the bot got wrong, over-promised to, or didn't hand over.
+  - The line is taken out of the post (`botErrors`) and stored as `bot_errors` in the `chat.insights` audit.
+  - The post gets one line: mistakes per 100 chats read, last 7 days vs the 7 before (`botRateText`; needs ≥ 3 days each).
+  - The count is the AI's judgement, so read it as a trend, not an exact number.
+
 ## Findings, 15 Oct
 
 - Business AI was already answering customers. On the 15th it:

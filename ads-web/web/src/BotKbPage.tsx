@@ -71,7 +71,9 @@ export function BotKbApp() {
   const [tab, setTab] = useState<KbItem['status']>('approved');
   const [busy, setBusy] = useState(false);
   const [docLive, setDocLive] = useState(false);
-  const load = () => call<{ items: KbItem[]; paste: string; doc_live: boolean }>('GET', '/api/botkb').then((r) => { setItems(r.items); setPaste(r.paste); setDocLive(r.doc_live); }).catch((e) => toast(e.message, 'bad'));
+  const [repeats, setRepeats] = useState<Record<string, { n: number; last: string }>>({});
+  const load = () => call<{ items: KbItem[]; paste: string; doc_live: boolean; repeats: Record<string, { n: number; last: string }> }>('GET', '/api/botkb')
+    .then((r) => { setItems(r.items); setPaste(r.paste); setDocLive(r.doc_live); setRepeats(r.repeats ?? {}); }).catch((e) => toast(e.message, 'bad'));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const count = (s: KbItem['status']) => (items ?? []).filter((x) => x.status === s).length;
@@ -129,6 +131,9 @@ export function BotKbApp() {
               <p><b>ลูกค้า:</b> {it.question}</p>
               <p><b>บอทควรตอบ:</b> {it.answer}</p>
               {it.rule && <p><b>กฎให้บอท:</b> {it.rule}</p>}
+              {it.status === 'applied' && repeats[it.id] && (
+                <p className="small"><span className="badge warn-badge">⚠️ แก้แล้วแต่บอทยังพลาด {repeats[it.id].n} รอบ · ล่าสุด {day(repeats[it.id].last)}</span></p>
+              )}
               {it.why && <p className="muted small">{it.kind === 'fix' ? 'บอทพลาด: ' : ''}{it.why}{it.evidence ? ` · ${it.evidence}` : ''}</p>}
               {it.status === 'applied' && docLive && (
                 <div className="row"><button className="ghost small" onClick={() => decide(it.id, 'rejected')}>เอาออกจากบอท</button></div>

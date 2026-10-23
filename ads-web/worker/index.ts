@@ -34,8 +34,8 @@ import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, del
 import { DISCORD_PERSONA, pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './chatLog.ts';
 import * as studio from './studio.ts';
-import { aiEnabled, askAI, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
-import { kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, setKbStatus, speaker, type KbItem } from './botKb.ts';
+import { aiEnabled, askAI, botErrors, botRateText, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
+import { fixedBefore, kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, repeatsText, setKbStatus, speaker, type KbItem } from './botKb.ts';
 import { checkDoc, docIdFrom, docLive, docText, loadDocSettings, saveDocSettings, serviceEmail, writeDoc } from './botKbDoc.ts';
 import { closeCase, customerName, serviceAlerts, servicePreview } from './serviceAlert.ts';
 import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './postIdeas.ts';
@@ -875,7 +875,11 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     return json(r);
   }
   // ---- answer bank for Meta's Business AI ----
-  if (path === '/api/botkb' && method === 'GET') { const items = await listKb(env.DB); return json({ items, paste: kbPasteText(items.filter((x) => x.status === 'approved')), doc_live: await docLive(env) }); }
+  if (path === '/api/botkb' && method === 'GET') {
+    const items = await listKb(env.DB);
+    const rep = await env.DB.prepare(`SELECT target id, count(*) n, max(at) last FROM audit WHERE action = 'botkb.repeat' GROUP BY target`).all<{ id: string; n: number; last: string }>();
+    return json({ items, repeats: Object.fromEntries(rep.results.map((r) => [r.id, { n: r.n, last: r.last }])), paste: kbPasteText(items.filter((x) => x.status === 'approved')), doc_live: await docLive(env) });
+  }
   // The Google Doc Business AI reads (botKbDoc.ts). GET = switch + exactly what would be written (nothing sent).
   if (path === '/api/botkb/doc' && method === 'GET') {
     const s = await loadDocSettings(env.DB);
@@ -1735,15 +1739,18 @@ async function loadConversations(env: Env, from: string, to: string): Promise<Co
  * One round of the answer bank: 'fix' reads the chats since the last round (Mon/Thu) and posts each proposed fix to
  * Discord with buttons; 'faq' builds the first bank from every stored chat and asks for a review on /botkb.
  */
-async function kbRound(env: Env, mode: 'fix' | 'faq'): Promise<{ proposed: number; customers: number; input_tokens: number; output_tokens: number }> {
+async function kbRound(env: Env, mode: 'fix' | 'faq'): Promise<{ proposed: number; repeats?: number; customers: number; input_tokens: number; output_tokens: number }> {
   if (!aiEnabled(env)) throw new BadRequest('ยังไม่ได้ตั้ง ANTHROPIC_API_KEY');
   const last = await env.DB.prepare(`SELECT max(at) at FROM audit WHERE action = 'botkb.round'`).first<{ at: string | null }>();
   const from = mode === 'faq' || !last?.at ? new Date(Date.now() - 30 * 86_400_000).toISOString() : last.at;
   const list = await loadConversations(env, from, new Date().toISOString());
   if (!list.length) return { proposed: 0, customers: 0, input_tokens: 0, output_tokens: 0 };
   const t = transcript(list);
-  const r = await proposeItems(env, mode, t.text, list.length);
-  await audit(env.DB, 'ai', 'botkb.round', mode, { proposed: r.items.length, customers: list.length, read: t.used, input_tokens: r.input_tokens, output_tokens: r.output_tokens });
+  // Answers already in the bot before these chats: the AI reports the ones the bot still gets wrong.
+  const fixed = mode === 'fix' ? await fixedBefore(env.DB, from) : [];
+  const r = await proposeItems(env, mode, t.text, list.length, fixed);
+  await audit(env.DB, 'ai', 'botkb.round', mode, { proposed: r.items.length, repeats: r.repeats.map((x) => x.ref), checked: fixed.length, customers: list.length, read: t.used, input_tokens: r.input_tokens, output_tokens: r.output_tokens });
+  for (const x of r.repeats) await audit(env.DB, 'ai', 'botkb.repeat', String(x.ref), x);
   if (approvalsEnabled(env)) {
     const mention = idList(env.DISCORD_DECIDER_IDS).map((id) => `<@${id}>`).join(' ');
     if (mode === 'faq') {
@@ -1755,8 +1762,9 @@ async function kbRound(env: Env, mode: 'fix' | 'faq'): Promise<{ proposed: numbe
         if (id) await env.DB.prepare('UPDATE bot_kb SET message_id = ? WHERE id = ?').bind(id, it.id).run();
       }
     }
+    if (r.repeats.length) await postBot(env, { content: repeatsText(r.repeats, fixed) });
   }
-  return { proposed: r.items.length, customers: list.length, input_tokens: r.input_tokens, output_tokens: r.output_tokens };
+  return { proposed: r.items.length, repeats: r.repeats.length, customers: list.length, input_tokens: r.input_tokens, output_tokens: r.output_tokens };
 }
 
 /** Monday 10:00 (and Tuesday again if still waiting): approved answers to paste into Business AI → tag the updater. */
@@ -1807,10 +1815,25 @@ async function sendChatInsights(env: Env, scope: 'yesterday' | 'today'): Promise
   if (!list.length) return { sent: false, customers: 0, read: 0, input_tokens: 0, output_tokens: 0 };
   const t = transcript(list);
   const ai = await askAI(env, INSIGHT_SYSTEM, insightPrompt(thai, t, list.length));
+  // "บอทพลาด: N" is for counting, not for the team; stored with the read so the 7-day rate can be worked out.
+  const be = botErrors(ai.text);
   const head = `🧠 **อูนิอ่านแชท ${scope === 'yesterday' ? thai : `วันนี้ ${thai} (ถึงตอนนี้)`}** · ${list.length} คน${t.used < list.length ? ` (อ่าน ${t.used})` : ''}\n`;
-  const sent = await pushDiscord(head + ai.text + citeKey(ai.text, list.slice(0, t.used)), env.DISCORD_CHAT_WEBHOOK_URL).catch(() => false);
-  await audit(env.DB, 'ai', 'chat.insights', day, { model: ai.model, input_tokens: ai.input_tokens, output_tokens: ai.output_tokens, customers: list.length, read: t.used, sent: !!sent, text: ai.text.slice(0, 4000) }).catch(() => null);
+  await audit(env.DB, 'ai', 'chat.insights', day, { model: ai.model, input_tokens: ai.input_tokens, output_tokens: ai.output_tokens, customers: list.length, read: t.used, bot_errors: be.n, text: be.text.slice(0, 4000) }).catch(() => null);
+  const rate = scope === 'yesterday' ? `\n${botRateText(await botErrorDays(env.DB, day), day)}` : '';
+  const sent = await pushDiscord(head + be.text + citeKey(be.text, list.slice(0, t.used)) + rate, env.DISCORD_CHAT_WEBHOOK_URL).catch(() => false);
   return { sent: !!sent, customers: list.length, read: t.used, input_tokens: ai.input_tokens, output_tokens: ai.output_tokens };
+}
+
+/**
+ * Bot mistakes per day for the last 14 days, from the AI reads (the latest read of each day). The count is over the
+ * customers the AI actually read, so a day cut short by length doesn't look better than it was.
+ */
+async function botErrorDays(db: D1Database, today: string): Promise<{ day: string; errors: number; customers: number }[]> {
+  const from = new Date(Date.parse(`${today}T00:00:00Z`) - 14 * 86_400_000).toISOString().slice(0, 10);
+  const { results } = await db.prepare(`SELECT target day, json_extract(detail, '$.bot_errors') errors, json_extract(detail, '$.read') customers FROM audit a
+    WHERE action = 'chat.insights' AND target > ?1 AND target <= ?2 AND json_extract(detail, '$.bot_errors') IS NOT NULL
+      AND at = (SELECT max(at) FROM audit b WHERE b.action = 'chat.insights' AND b.target = a.target)`).bind(from, today).all<{ day: string; errors: number; customers: number }>();
+  return results;
 }
 
 async function dailyDigest(env: Env): Promise<void> {

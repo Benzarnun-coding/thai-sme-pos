@@ -73,7 +73,8 @@ export const INSIGHT_SYSTEM = `คุณคือ "อูนิ" ผู้ช่
 **📣 ไอเดียโพสต์/แอด** 2–3 ข้อ จากสิ่งที่ลูกค้าถามหรือติดใจ
 **🤖 ข้อมูลที่ควรใส่ให้ Business AI** 2–3 ข้อ (คำถาม → คำตอบที่แอดมินพิมพ์จริงในแชท ไม่ใช่คำตอบที่คิดเอง)
 **🤖 บอท Meta AI วันนี้** ("บอท" ในแชท; "เพจ" = ไม่รู้ว่าคนหรือบอท) ตอบผิด/สัญญาเกิน (ราคา ส่วนลด ข้อมูลสินค้า) กี่ครั้ง · ตอบปัด/ไม่ส่งต่อคนกี่ครั้ง · ยกตัวอย่าง 1–2 ข้อ
-**⚠️ ต้องดู** แชทที่ตอบผิด/ตอบช้า/ลูกค้าไม่พอใจ (อ้าง "ลูกค้า N")`;
+**⚠️ ต้องดู** แชทที่ตอบผิด/ตอบช้า/ลูกค้าไม่พอใจ (อ้าง "ลูกค้า N")
+บรรทัดสุดท้ายของคำตอบต้องเป็น "บอทพลาด: N" (N = จำนวนลูกค้าที่บอทตอบผิด สัญญาเกิน หรือไม่ส่งต่อคนเมื่อควรส่ง นับคนละครั้ง ไม่มีให้ใส่ 0) บรรทัดนี้ระบบใช้นับ ไม่แสดงในรายงาน`;
 
 export function insightPrompt(dayLabel: string, t: { text: string; used: number }, total: number): string {
   return `แชทวันที่ ${dayLabel}: ${total} คน${t.used < total ? ` (ส่งมาให้อ่าน ${t.used} คนแรก เพราะยาวเกิน)` : ''}\n\n${t.text}`;
@@ -94,4 +95,29 @@ export function citeKey(text: string, convs: Conversation[]): string {
     return `ลูกค้า ${n} = ทัก ${bkkTime(first?.at)} น. · ${c.campaign ?? 'ไม่ระบุแอด'}`;
   });
   return `\n🔎 **ค้นใน inbox:** ${lines.join(' · ')}`;
+}
+
+/** The AI's last line "บอทพลาด: N" → the number (null when missing), and the text without that line. */
+export function botErrors(text: string): { n: number | null; text: string } {
+  const m = /\n?\s*\**บอทพลาด\**\s*[:：]\s*\**\s*(\d+)[^\n]*\s*$/.exec(text);
+  return m ? { n: Number(m[1]), text: text.slice(0, m.index).trimEnd() } : { n: null, text };
+}
+
+/**
+ * One line for the 07:30 post: customers the bot got wrong per 100 chats, the last 7 days vs the 7 before.
+ * `days` = one row per day the AI read (latest read of that day), `today` = the report's day (yesterday's date).
+ */
+export function botRateText(days: { day: string; errors: number; customers: number }[], today: string): string {
+  const back = (n: number) => new Date(Date.parse(`${today}T00:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
+  const span = (from: number, to: number) => days.filter((d) => d.day <= back(from) && d.day > back(to));
+  const rate = (ds: typeof days) => {
+    const c = ds.reduce((a, d) => a + d.customers, 0);
+    return c ? (ds.reduce((a, d) => a + d.errors, 0) / c) * 100 : null;
+  };
+  const cur = span(0, 7), prev = span(7, 14);
+  const r = rate(cur), p = rate(prev);
+  if (r === null || cur.length < 3) return `📉 **บอทพลาดต่อ 100 แชท:** กำลังเก็บข้อมูล (${cur.length}/7 วัน)`;
+  const f = (x: number) => x.toFixed(1);
+  const vs = p === null || prev.length < 3 ? 'ยังไม่มีสัปดาห์ก่อนให้เทียบ' : `สัปดาห์ก่อน ${f(p)} ${r < p ? '✅ ดีขึ้น' : r > p ? '⚠️ แย่ลง' : 'เท่าเดิม'}`;
+  return `📉 **บอทพลาดต่อ 100 แชท (7 วัน):** ${f(r)} · ${vs}${cur.length < 7 ? ` (มีข้อมูล ${cur.length} วัน)` : ''}`;
 }
