@@ -13,6 +13,29 @@ where staff judge their output. Nothing here touches Meta, Page365 or customers.
   still records the prompt, style card and product behind every uploaded image, so the learning is the same.
 - Product photos come from a Google Drive folder, synced by name to the catalog (below).
 
+## Starting with the team (Benz 2026-10-23)
+
+State on 2026-10-23: everything in the build order below except the learned page is live, but nothing has been
+judged yet (0 pairs). The Drive photo sync can wait: the image check uses the catalog photo. Captions first (cheap,
+fast); images from week 2.
+
+0. **Agree once with the team.** Judges 2–3 (include someone who talks to customers in the chat); 3–5 starting
+   products that run as ads and sell (so real posts have something to play against); time: one-off 2–3 h of
+   materials, then ~10 min/day per judge (≈20 caption pairs + 10 image pairs). Everyone reads the PDF manual in the
+   training room's how-to box first. Benz decides: who judges, which products, who does step 1.
+1. **Owner, ~30 min, `/studio/posts`.** "ดึงโพสต์จากเพจ" → fill missing product codes → "ให้ AI วิเคราะห์โพสต์ที่ยิงอยู่"
+   → read/edit the draft playbook → "ใช้คู่มือนี้" → "ให้ AI ติดป้ายภาพ".
+2. **Team, `/studio` วัตถุดิบ.** Selling points + promos of the chosen products (the agent may only use numbers from
+   here); 3–5 liked and 3–5 disliked caption examples, each with a one-line reason; banned / required phrases; 1–2
+   style cards with 3–5 reference images (needed only for the image room).
+3. **Week 1, captions only.** "ให้ AI เขียนแคปชัน 6 แบบ" per product, judges every day. Watch "AI ชนะโพสต์จริง":
+   target ≥ 50% over ≥ 40 pairs. Read it after a week, not after a day.
+4. **Week 2, images.** The room writes the prompt → staff make it in ChatGPT Plus → upload → judges. Passed caption ×
+   passed image → `/studio/sets` → approve.
+5. **Not now.** Drive photo sync (when the image room gets serious; the folder must be "anyone with the link can
+   view", for `GOOGLE_API_KEY`). Hand-off to the ads side stays off until the room's pick matches the judges ≥ 70%
+   for two weeks, and Benz switches it on.
+
 ## Foundation: posts running as ads (`/studio/posts`, Benz 2026-10-22)
 
 "ดึงโพสต์จากเพจ" reads every ACTIVE ad from Meta (read only: `activeAdPosts` in ads-engine/meta.ts — ads list, the
