@@ -13,6 +13,11 @@ export interface Action {
   type: 'pause' | 'enable' | 'budget_pct' | 'notify';
   /** For budget_pct: signed percent, e.g. 20 or -30 */
   pct?: number;
+  /**
+   * For a budget_pct raise: never above this daily budget. A step-up for small budgets (e.g. 50 → 100 → 200 → 300):
+   * when set, max_change_pct_per_run doesn't apply, since +20% of 50 would take days to reach a useful budget.
+   */
+  up_to?: number;
 }
 
 export interface Rule {
@@ -28,6 +33,8 @@ export interface Rule {
   min_spend?: number;
   /** Only evaluate when purchases in the window are at least this. Stops a lucky 1–2 sales from triggering a scale-up. */
   min_purchases?: number;
+  /** Only entities whose current daily budget is at most this (e.g. a step-up rule meant for small budgets only) */
+  max_budget?: number;
   action: Action;
   /** Hours to wait before this rule may act on the same entity again */
   cooldown_hours?: number;

@@ -39,6 +39,7 @@ export function evaluate(entities: Entity[], rules: Rule[], scope: Scope, state:
       if (!m) continue;
       if (rule.min_spend !== undefined && m.spend < rule.min_spend) continue;
       if (rule.min_purchases !== undefined && m.purchases < rule.min_purchases) continue;
+      if (rule.max_budget !== undefined && (e.daily_budget === null || e.daily_budget > rule.max_budget)) continue;
       const observed = m[rule.metric];
       if (!compare(observed, rule.op, rule.value)) continue;
 
@@ -80,10 +81,13 @@ export function evaluate(entities: Entity[], rules: Rule[], scope: Scope, state:
 }
 
 /** Clamp a proposed budget to guardrails. Returns null when the move is not allowed. */
-export function clampBudget(current: number, pct: number, g: Guardrails): { next: number; note?: string } | null {
-  const capped = Math.max(-g.max_change_pct_per_run, Math.min(g.max_change_pct_per_run, pct));
+export function clampBudget(current: number, pct: number, g: Guardrails, upTo?: number): { next: number; note?: string } | null {
+  // A raise with its own ceiling (upTo) is a small-budget step-up: the per-run % cap doesn't apply to it.
+  const step = upTo !== undefined && pct > 0;
+  const capped = step ? pct : Math.max(-g.max_change_pct_per_run, Math.min(g.max_change_pct_per_run, pct));
   let next = current * (1 + capped / 100);
   let note = capped !== pct ? `pct capped ${pct}→${capped}` : undefined;
+  if (step && next > upTo) { next = upTo; note = `up to ${upTo}`; }
   if (next < g.min_daily_budget) { next = g.min_daily_budget; note = 'hit min_daily_budget'; }
   if (next > g.max_daily_budget) { next = g.max_daily_budget; note = 'hit max_daily_budget'; }
   next = Math.round(next);

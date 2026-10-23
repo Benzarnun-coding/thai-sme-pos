@@ -35,7 +35,7 @@ export const FREE_INCREASE_BELOW = 500;
 /** Yesterday's spend a campaign needs before one bad day pulls it back (Benz 2026-10-22). */
 const BRAKE_MIN_SPEND = 2000;
 /** Rules that raised budgets before the `up:` state key existed, so the first run after the change still sees them. */
-const RAISE_RULES = ['win-boost', 'test-boost', 'win-up', 'test-up'];
+const RAISE_RULES = ['win-boost', 'test-boost', 'win-up', 'test-up', 'win-small'];
 
 export interface MetaLike extends Mutator {
   accountName(): Promise<string>;

@@ -45,7 +45,11 @@ export function validateRules(input: unknown, stageIds: string[]): WebRule[] {
     const type = oneOf<WebRule['action']['type']>(r?.action?.type, ACTIONS, `${where} action`);
     let action: WebRule['action'];
     if (type === 'move') action = { type, to: oneOf(r.action.to, stageIds, `${where} ย้ายไปกลุ่ม`) };
-    else if (type === 'budget_pct') action = { type, pct: num(r.action.pct, `${where} % งบ`, -90, 100) };
+    else if (type === 'budget_pct') {
+      // A step-up ceiling skips the per-run % cap, so it is kept to small budgets.
+      const upTo = r.action.up_to === undefined || r.action.up_to === null ? undefined : num(r.action.up_to, `${where} ขึ้นงบไม่เกิน ฿`, 50, 500);
+      action = { type, pct: num(r.action.pct, `${where} % งบ`, -90, 100), ...(upTo === undefined ? {} : { up_to: upTo }) };
+    }
     else action = { type };
     const rule: WebRule = {
       id,
@@ -63,6 +67,7 @@ export function validateRules(input: unknown, stageIds: string[]): WebRule[] {
     if (action.type === 'move' && rule.level !== 'campaign') fail(`${where}: ย้ายกลุ่มได้เฉพาะระดับแคมเปญ`);
     if (r.min_purchases !== undefined && r.min_purchases !== null) rule.min_purchases = num(r.min_purchases, `${where} ยอดซื้อขั้นต่ำ`, 0);
     if (action.type === 'move') rule.min_days_in_stage = num(r.min_days_in_stage ?? 0, `${where} อยู่ในกลุ่มขั้นต่ำ (วัน)`, 0, 90);
+    if (r.max_budget !== undefined && r.max_budget !== null) rule.max_budget = num(r.max_budget, `${where} งบตอนนี้ไม่เกิน ฿`, 0);
     if (r.min_spend !== undefined && r.min_spend !== null) rule.min_spend = num(r.min_spend, `${where} ใช้เงินขั้นต่ำ`, 0);
     if (r.cooldown_hours !== undefined && r.cooldown_hours !== null) rule.cooldown_hours = num(r.cooldown_hours, `${where} cooldown`, 1, 24 * 30);
     return rule;

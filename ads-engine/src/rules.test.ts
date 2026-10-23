@@ -88,3 +88,19 @@ test('over the total cap: cuts still go through, increases are refused', async (
   assert.match(decisions.find((d) => d.entity.id === 'win')!.skipped_reason ?? '', /max_total_daily_budget/);
   assert.equal(r.totalAfter, 10400);
 });
+
+test('small-budget step-up: max_budget picks small budgets, up_to skips the per-run % cap', async () => {
+  const step: Rule = { id: 'win-small', level: 'adset', window: 'last_3d', metric: 'roas', op: '>=', value: 3, max_budget: 200, action: { type: 'budget_pct', pct: 100, up_to: 300 } };
+  assert.deepEqual(clampBudget(100, 100, g, 300), { next: 200, note: undefined });
+  assert.deepEqual(clampBudget(200, 100, g, 300), { next: 300, note: 'up to 300' });
+  assert.equal(clampBudget(300, 100, g, 300), null);
+  assert.equal(clampBudget(500, -20, g, 300)?.next, 400); // up_to never changes a cut
+  const small = adset({ id: 'small', roas: 5, daily_budget: 150 });
+  const big = adset({ id: 'big', roas: 5, daily_budget: 250 });
+  const decisions = evaluate([small, big], [step], scope, { last_action: {} });
+  assert.deepEqual(decisions.map((d) => d.entity.id), ['small']);
+  const set: Record<string, number> = {};
+  const meta = { setStatus: async () => {}, setDailyBudget: async (id: string, amount: number) => { set[id] = amount; } };
+  await applyDecisions(decisions, [small, big], meta, g, { last_action: {} }, { dryRun: false, now: new Date('2026-10-23T01:00:00Z') });
+  assert.equal(set.small, 300);
+});

@@ -85,6 +85,12 @@ export function RulesEditor({ rules, onChange, stages, stageId, breakeven }: Pro
               <input type="number" className="n" value={r.min_spend ?? ''} placeholder="0" onChange={(e) => update(i, { min_spend: e.target.value === '' ? undefined : Number(e.target.value) })} aria-label="ใช้เงินขั้นต่ำ" />
               <span>ยอดซื้อ ≥</span>
               <input type="number" className="n" value={r.min_purchases ?? ''} placeholder="0" onChange={(e) => update(i, { min_purchases: e.target.value === '' ? undefined : Number(e.target.value) })} aria-label="ยอดซื้อขั้นต่ำ" />
+              {r.action.type === 'budget_pct' && (
+                <>
+                  <span>งบตอนนี้ ≤ ฿</span>
+                  <input type="number" className="n" value={r.max_budget ?? ''} placeholder="ไม่จำกัด" onChange={(e) => update(i, { max_budget: e.target.value === '' ? undefined : Number(e.target.value) })} aria-label="ใช้กับแคมเปญที่งบต่อวันไม่เกิน" />
+                </>
+              )}
               {isMove && (
                 <>
                   <span>อยู่ในกลุ่ม ≥</span>
@@ -106,8 +112,14 @@ export function RulesEditor({ rules, onChange, stages, stageId, breakeven }: Pro
               )}
               {r.action.type === 'budget_pct' && (
                 <>
-                  <input type="number" className="n" value={r.action.pct ?? 0} onChange={(e) => update(i, { action: { type: 'budget_pct', pct: Number(e.target.value) } })} aria-label="เปอร์เซ็นต์" />
+                  <input type="number" className="n" value={r.action.pct ?? 0} onChange={(e) => update(i, { action: { ...r.action, type: 'budget_pct', pct: Number(e.target.value) } })} aria-label="เปอร์เซ็นต์" />
                   <span>%</span>
+                  {(r.action.pct ?? 0) > 0 && (
+                    <>
+                      <span>ไม่เกิน ฿</span>
+                      <input type="number" className="n" value={r.action.up_to ?? ''} placeholder="ตามเพดาน" onChange={(e) => update(i, { action: { ...r.action, up_to: e.target.value === '' ? undefined : Number(e.target.value) } })} aria-label="ขึ้นงบไม่เกิน (ข้ามเพดาน % ต่อรอบ)" />
+                    </>
+                  )}
                 </>
               )}
               {!isMove && (

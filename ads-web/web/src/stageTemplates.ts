@@ -1,6 +1,7 @@
 // Suggested starting rules per stage (the set agreed 12 Oct 2026: thresholds are multiples of each product's
 // break-even; windows 3 days for budget moves, 7 days for stage moves; every cut needs real spend first).
 // 14 Oct 2026: win-boost / test-boost added (Benz: aggressive mode for clear winners, every run).
+// 23 Oct 2026: win-small (after the cuts, so a bad 3 days still wins): budgets ≤ 200 can't reach win-boost's 600 spend.
 // Not active by default: the "ใส่กฎแนะนำ" button copies them into a stage.
 
 import type { Rule } from './api.ts';
@@ -247,6 +248,25 @@ export const STAGE_TEMPLATES: Record<string, Rule[]> = {
       "action": {
         "type": "budget_pct",
         "pct": -20
+      },
+      "cooldown_hours": 24
+    },
+    {
+      "id": "win-small",
+      "description": "ตัวชนะงบเล็ก: งบ ≤ 200 · 7 วัน ROAS ≥ 1.5× คุ้มทุน · ≥ 5 ออเดอร์ · ใช้ ≥ 300 → งบ ×2 ไม่เกิน 300 (เว้น 24 ชม.) แล้วโหมดเร่งรับต่อ",
+      "level": "campaign",
+      "window": "last_7d",
+      "metric": "roas",
+      "op": ">=",
+      "value": 1.5,
+      "value_mode": "x_breakeven",
+      "min_spend": 300,
+      "min_purchases": 5,
+      "max_budget": 200,
+      "action": {
+        "type": "budget_pct",
+        "pct": 100,
+        "up_to": 300
       },
       "cooldown_hours": 24
     },

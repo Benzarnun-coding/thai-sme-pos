@@ -20,9 +20,11 @@ export interface Rule {
   value_mode?: 'abs' | 'x_breakeven';
   min_spend?: number;
   min_purchases?: number;
+  /** only campaigns whose daily budget is at most this */
+  max_budget?: number;
   /** move rules only */
   min_days_in_stage?: number;
-  action: { type: ActionType; pct?: number; to?: string };
+  action: { type: ActionType; pct?: number; to?: string; up_to?: number };
   cooldown_hours?: number;
   enabled?: boolean;
 }

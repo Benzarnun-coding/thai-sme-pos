@@ -45,7 +45,7 @@ export async function applyDecisions(
 
       if (d.action.type === 'budget_pct') {
         const max = maxBudgetFor?.(e.id);
-        const c = clampBudget(e.daily_budget!, d.action.pct ?? 0, max === undefined ? guardrails : { ...guardrails, max_daily_budget: max });
+        const c = clampBudget(e.daily_budget!, d.action.pct ?? 0, max === undefined ? guardrails : { ...guardrails, max_daily_budget: max }, d.action.up_to);
         if (!c) { d.skipped_reason = 'budget change rounds to zero or blocked by guardrails'; continue; }
         const delta = c.next - e.daily_budget!;
         // The total cap only stops increases: a cut must go through even when the total is already over the cap.
