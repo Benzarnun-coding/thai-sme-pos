@@ -66,7 +66,7 @@ style_match / looks_fake / verdict pass·check·fail + summary, stored in `creat
 While judging the AI's scores stay hidden; after the vote they're shown. The room shows how often the AI's
 better-scored image was the judges' pick (`stats.ai_eye`) — high enough, and the AI can screen images instead of people.
 Product-code boxes on `/studio/posts` suggest codes + names as you type (`CodePicker`, list read once).
-The staff manual is `web/public/studio-guide.pdf` (exported from the Claude Docs doc "คู่มือห้องฝึกโพสต์ PK Jeans", https://claude.ai/artifact/ByLU5Q73xjT6KrXDTmFXAA), linked from the training room's how-to box; re-export and replace it when the doc changes. Its first section, "เริ่มใช้ครั้งแรก", is the start plan above in Thai (Benz 2026-10-23: one file, not two).
+The staff manual is `web/public/studio-guide.pdf` (exported from the Claude Docs doc "คู่มือห้องฝึกโพสต์ PK Jeans", https://claude.ai/artifact/ByLU5Q73xjT6KrXDTmFXAA), linked from the training room's how-to box; re-export and replace it when the doc changes. Page 1 is a one-picture overview (5 steps from training to real use, the pass mark between each) and the first section, "เริ่มใช้ครั้งแรก", is the start plan above in Thai (Benz 2026-10-23: one file, not two; the team found the text alone hard to follow).
 
 ### ห้องจับคู่ (`/studio/sets`, Benz 2026-10-22)
 
