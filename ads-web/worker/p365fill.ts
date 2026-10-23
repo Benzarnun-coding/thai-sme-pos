@@ -225,7 +225,7 @@ export interface FillPlan {
 export interface FillEnv extends P365Env { ANTHROPIC_API_KEY?: string; ANTHROPIC_WORKSPACE_ID?: string; ADDRESS_MODEL?: string; /** set → each address read is logged to audit */ DB?: D1Database }
 
 /** Is the address Page365 already put on the draft complete and clean (it sometimes copies chat text into it)? */
-function draftAddress(d: P365Order): PlanAddress | null {
+export function draftAddress(d: P365Order): PlanAddress | null {
   const s = d.structural_address;
   if (!s || !/^\d{5}$/.test(s.postal_code ?? '') || !s.province || !s.district || !/^0\d{8,9}$/.test((d.customer_phone ?? '').replace(/\D/g, ''))) return null;
   if (/ไซส์|เอว|ตัว|สี|ราคา|โปร|ปลายทาง|โอน|ค่ะ|ครับ|คับ/.test(s.street ?? '')) return null;

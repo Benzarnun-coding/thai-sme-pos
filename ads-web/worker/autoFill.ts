@@ -15,7 +15,7 @@ import { applyFill, call, CANCEL_HINT, findDraft, P365Error, planFill, type Fill
 export interface AutoEnv extends FillEnv, DiscordEnv { DB: D1Database; /** #ออเดอร์มีปัญหา (Benz 15 Oct); falls back to the ads channel via the bot */ DISCORD_ORDER_WEBHOOK_URL?: string; /** who answers for problem bills (เนย, Benz 15 Oct); empty = the deciders */ DISCORD_ORDER_OWNER_IDS?: string }
 
 const PAGE = (env: FillEnv) => env.P365_PAGE_ID ?? '115748303500549';
-const orderLink = (env: FillEnv, id: number) => `https://app.page365.net/${PAGE(env)}/orders/${id}`;
+export const orderLink = (env: FillEnv, id: number) => `https://app.page365.net/${PAGE(env)}/orders/${id}`;
 
 export async function autoFillOn(db: D1Database): Promise<boolean> {
   const r = await db.prepare("SELECT value FROM meta_capi WHERE key = 'auto_fill'").first<{ value: string }>().catch(() => null);

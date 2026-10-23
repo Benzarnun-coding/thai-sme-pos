@@ -8,6 +8,7 @@
 import { autoFillNote, recordMisses, sendNoteSale, sweepNotes } from './autoFill.ts';
 import { auditStep } from './fillAudit.ts';
 import { backtestStep } from './addressBacktest.ts';
+import { refillStep } from './addressRefill.ts';
 import { maybeSyncPurchases } from './metaPurchases.ts';
 import { looksLikeNote, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { hashName } from './p365.ts';
@@ -84,6 +85,8 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
     // Nothing to sweep: a few bills' accuracy check instead (fillAudit.ts, every 10 minutes at most).
     .then((r) => (r ? -1 : auditStep(env as any)))
     // Nor any audit: one bill of the address-model backtest, when one is queued (addressBacktest.ts).
+    // Then addresses left out while the AI was out of credit (addressRefill.ts), then the model backtest.
+    .then((n) => (n ? -1 : refillStep(env as any)))
     .then((n) => (n ? null : backtestStep(env as any))).catch((err) => console.error('sweep/audit', err)));
   // A note the parser can't read: a person is told at once (it is also kept, so the format can be learnt).
   if (misses.length) ctx.waitUntil(recordMisses(env as any, misses).catch((err) => console.error('note miss', err)));
