@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { HomeLogo, SiteNav } from './SiteNav.tsx';
 import { useUi } from './ui.tsx';
+import { PostsPanel } from './PostsPage.tsx';
 import { productPictures } from './imageResize.ts';
 
 export interface StudioProduct { code: string; name: string; price_min: number | null; price_max: number | null; skus: number; selling_points: string; promo: string; image_key: string | null; image_url: string | null }
@@ -29,6 +30,9 @@ export function productPic(p: StudioProduct): string | null {
 export function StudioApp() {
   useEffect(() => { document.title = 'วัตถุดิบ — ห้องฝึก'; }, []);
   const { toast, confirm } = useUi();
+  // Two tabs: the posts running as ads (read from Meta) and what the team types in. /studio/posts opens the first.
+  const [tab, setTab] = useState<'posts' | 'team'>(() => (/^\/studio\/posts/.test(location.pathname) || location.hash === '#posts' ? 'posts' : 'team'));
+  const show = (t: 'posts' | 'team') => { setTab(t); history.replaceState(null, '', t === 'posts' ? '/studio#posts' : '/studio'); };
   const [m, setM] = useState<Materials | null>(null);
   const [products, setProducts] = useState<StudioProduct[]>([]);
   const [q, setQ] = useState('');
@@ -52,11 +56,13 @@ export function StudioApp() {
       <SiteNav current="/studio" />
       <header className="kb-head">
         <div className="row"><HomeLogo text="ST" /><h1>วัตถุดิบ — ห้องฝึก</h1></div>
-        <p className="muted small">สิ่งที่สอน AI เขียนแคปชันและทำภาพ: คู่มือ · สไตล์ภาพที่ชอบ · แคปชันตัวอย่าง · จุดขายต่อสินค้า — ของทั้งหมดนี้ใช้ใน <a href="/studio/train">ห้องฝึก</a> เท่านั้น ไม่ไปถึง Meta · <a href="/studio-guide.pdf" target="_blank" rel="noreferrer">📖 คู่มือ (PDF)</a></p>
+        <p className="muted small">สิ่งที่สอน AI เขียนแคปชันและทำภาพ: โพสต์ที่ยิงแอดอยู่ (ดึงจาก Meta) · คู่มือ · สไตล์ภาพที่ชอบ · แคปชันตัวอย่าง · จุดขายต่อสินค้า — ของทั้งหมดนี้ใช้ใน <a href="/studio/train">ห้องฝึก</a> เท่านั้น ไม่ไปถึง Meta · <a href="/studio-guide.pdf" target="_blank" rel="noreferrer">📖 คู่มือ (PDF)</a></p>
         {m && !m.ai && <p className="small warn">ยังไม่ได้ตั้ง ANTHROPIC_API_KEY — สร้างแคปชันไม่ได้ อัปโหลดวัตถุดิบได้</p>}
+        <div className="segmented"><button className={tab === 'posts' ? 'on' : ''} onClick={() => show('posts')}>① โพสต์ที่ยิงอยู่ (จาก Meta)</button><button className={tab === 'team' ? 'on' : ''} onClick={() => show('team')}>② ที่ทีมใส่เอง: คู่มือ · สไตล์ · ตัวอย่าง · จุดขาย</button></div>
       </header>
 
-      {pendingId && <p className="card small">🧠 มีร่างคู่มือจาก AI ที่วิเคราะห์โพสต์จริงรออยู่ — <a href="/studio/posts">ดูและกดใช้ที่หน้าโพสต์ที่ยิงอยู่</a></p>}
+      {tab === 'posts' ? <PostsPanel /> : <>
+      {pendingId && <p className="card small">🧠 มีร่างคู่มือจาก AI ที่วิเคราะห์โพสต์จริงรออยู่ — <button className="ghost small" onClick={() => show('posts')}>ดูและกดใช้ที่แท็บโพสต์ที่ยิงอยู่</button></p>}
       {m && <PlaybookCard playbook={m.playbook} busy={busy} onSave={(text) => run(() => call('PUT', '/api/studio/playbook', { text }), 'บันทึกคู่มือแล้ว')} />}
 
       <section className="card">
@@ -90,6 +96,7 @@ export function StudioApp() {
           {!products.length && <p className="muted">ไม่พบสินค้า{q ? ` "${q}"` : ' — ซิงก์แคตตาล็อกก่อน'}</p>}
         </div>
       </section>
+      </>}
     </div>
   );
 }

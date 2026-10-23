@@ -10,7 +10,6 @@ import { ProfitApp } from './ProfitPage.tsx';
 import { StockApp } from './StockPage.tsx';
 import { StudioApp } from './StudioPage.tsx';
 import { TrainApp } from './TrainPage.tsx';
-import { PostsApp } from './PostsPage.tsx';
 import { SetsApp } from './SetsPage.tsx';
 import { TodoApp } from './TodoPage.tsx';
 import { UnitsApp } from './UnitsPage.tsx';
@@ -20,7 +19,7 @@ import './styles.css';
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <UiProvider>
-      {/^\/studio\/sets\/?$/.test(location.pathname) ? <SetsApp /> : /^\/studio\/posts\/?$/.test(location.pathname) ? <PostsApp /> : /^\/studio\/train\/?$/.test(location.pathname) ? <TrainApp /> : /^\/studio\/?$/.test(location.pathname) ? <StudioApp /> : /^\/botkb\/?$/.test(location.pathname) ? <BotKbApp /> : /^\/requests\/?$/.test(location.pathname) ? <RequestsApp /> : /^\/gosell\/?$/.test(location.pathname) ? <GoSellApp /> : /^\/catalog\/orders\/?$/.test(location.pathname) ? <OrdersApp /> : /^\/catalog\/sales\/?$/.test(location.pathname) ? <UnitsApp /> : /^\/catalog\/todo\/?$/.test(location.pathname) ? <TodoApp /> : /^\/catalog\/profit\/?$/.test(location.pathname) ? <ProfitApp /> : /^\/catalog\/stock\/?$/.test(location.pathname) ? <StockApp /> : /^\/catalog\/?$/.test(location.pathname) ? <CatalogApp /> : <App />}
+      {/^\/studio\/sets\/?$/.test(location.pathname) ? <SetsApp /> : /^\/studio\/posts\/?$/.test(location.pathname) ? <StudioApp /> : /^\/studio\/train\/?$/.test(location.pathname) ? <TrainApp /> : /^\/studio\/?$/.test(location.pathname) ? <StudioApp /> : /^\/botkb\/?$/.test(location.pathname) ? <BotKbApp /> : /^\/requests\/?$/.test(location.pathname) ? <RequestsApp /> : /^\/gosell\/?$/.test(location.pathname) ? <GoSellApp /> : /^\/catalog\/orders\/?$/.test(location.pathname) ? <OrdersApp /> : /^\/catalog\/sales\/?$/.test(location.pathname) ? <UnitsApp /> : /^\/catalog\/todo\/?$/.test(location.pathname) ? <TodoApp /> : /^\/catalog\/profit\/?$/.test(location.pathname) ? <ProfitApp /> : /^\/catalog\/stock\/?$/.test(location.pathname) ? <StockApp /> : /^\/catalog\/?$/.test(location.pathname) ? <CatalogApp /> : <App />}
     </UiProvider>
   </StrictMode>,
 );

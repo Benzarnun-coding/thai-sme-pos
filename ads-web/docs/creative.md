@@ -38,6 +38,8 @@ fast); images from week 2.
 
 ## Foundation: posts running as ads (`/studio/posts`, Benz 2026-10-22)
 
+Since 2026-10-23 (Benz) this is the first tab of วัตถุดิบ (`/studio#posts`; `/studio/posts` still opens it), not its own page in the link bar. The training room's product box suggests these posts' products, most 14-day spend first (`/api/studio/products/recommended`).
+
 "ดึงโพสต์จากเพจ" reads every ACTIVE ad from Meta (read only: `activeAdPosts` in ads-engine/meta.ts — ads list, the
 posts' `message,full_picture,permalink_url` 50 per call, ad-level last-14-day insights), groups ads by post
 (`groupPosts`: numbers summed, product code guessed from the campaign name with `nameHasFamily`, longest code first,

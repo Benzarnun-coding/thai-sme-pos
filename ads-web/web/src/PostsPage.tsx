@@ -1,9 +1,9 @@
-// /studio/posts — the foundation of the training room (docs/creative.md): every post that runs as an ad right now,
+// The "โพสต์ที่ยิงอยู่" tab of /studio (วัตถุดิบ; /studio/posts opens it) — the foundation of the training room
+// (docs/creative.md): every post that runs as an ad right now,
 // read from Meta (read only) with its caption, picture and last-14-day numbers. The best ones feed the caption agent;
 // any of them can become a liked/disliked example with one line of reason.
 
 import { useEffect, useState } from 'react';
-import { HomeLogo, SiteNav } from './SiteNav.tsx';
 import { useUi } from './ui.tsx';
 import { productPictures } from './imageResize.ts';
 import { call } from './StudioPage.tsx';
@@ -22,8 +22,7 @@ interface Pending { id: number; text: string; findings: { point: string; evidenc
 const b = (x: number) => Math.round(x).toLocaleString('th-TH');
 const roasOf = (p: MetaPost) => (p.spend > 0 ? p.purchase_value / p.spend : 0);
 
-export function PostsApp() {
-  useEffect(() => { document.title = 'โพสต์ที่ยิงอยู่ — ห้องฝึก'; }, []);
+export function PostsPanel() {
   const { toast } = useUi();
   const [posts, setPosts] = useState<MetaPost[] | null>(null);
   const [busy, setBusy] = useState('');
@@ -82,10 +81,9 @@ export function PostsApp() {
   const total = active.reduce((t, p) => t + p.spend, 0);
 
   return (
-    <div className="kb-page studio">
-      <SiteNav current="/studio/posts" />
-      <header className="kb-head">
-        <div className="row"><HomeLogo text="PO" /><h1>โพสต์ที่ยิงแอดอยู่</h1></div>
+    <>
+      <section className="card">
+        <h2>โพสต์ที่ยิงแอดอยู่</h2>
         <p className="muted small">ฐานข้อมูลตั้งต้นของ <a href="/studio/train">ห้องฝึก</a>: ทุกโพสต์ที่แอดเปิดอยู่ตอนนี้ ดึงจาก Meta แบบอ่านอย่างเดียว (ไม่แก้อะไรบนเพจ) · ตัวเลขคือค่าแอด / ยอดแท็ก Meta 14 วันของทุกแอดที่ใช้โพสต์นั้น (ยอดจริงมักต่ำกว่า ~11–14%) · โพสต์ที่ใช้เงิน ≥ 1,000 และ ROAS ดีสุด 6 อันถูกส่งให้ AI เป็นตัวอย่างแรกเวลาเขียนแคปชัน</p>
         <div className="row wrap">
           <button disabled={!!busy} onClick={importNow}>{busy || 'ดึงโพสต์จากเพจ'}</button>
@@ -94,7 +92,7 @@ export function PostsApp() {
           <label className="small row"><input type="checkbox" checked={showOld} onChange={(e) => setShowOld(e.target.checked)} /> แสดงโพสต์ที่ไม่ได้ยิงแล้ว</label>
         </div>
         {posts && <p className="small">{active.length} โพสต์ที่ยิงอยู่ · ค่าแอด 14 วัน ฿{b(total)}{posts[0] ? ` · ดึงล่าสุด ${new Date(posts[0].fetched_at).toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })}` : ''}</p>}
-      </header>
+      </section>
 
       <ImageTags posts={posts} onTagged={load} />
 
@@ -112,7 +110,7 @@ export function PostsApp() {
           {shown.map((p) => <PostCard key={p.key} p={p} onChanged={load} codes={codes} dims={dims} />)}
         </div>
       )}
-    </div>
+    </>
   );
 }
 
