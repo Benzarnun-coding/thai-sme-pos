@@ -253,7 +253,7 @@ export const STAGE_TEMPLATES: Record<string, Rule[]> = {
     },
     {
       "id": "win-small",
-      "description": "ตัวชนะงบเล็ก: งบ ≤ 200 · 7 วัน ROAS ≥ 1.5× คุ้มทุน · ≥ 5 ออเดอร์ · ใช้ ≥ 300 → งบ ×2 ไม่เกิน 300 (เว้น 24 ชม.) แล้วโหมดเร่งรับต่อ",
+      "description": "ตัวชนะงบเล็ก: งบ ≤ 200 · 7 วัน ROAS ≥ 1.5× คุ้มทุน · ≥ 6 ออเดอร์ · ใช้ ≥ 300 → งบ ×2 ไม่เกิน 300 (เว้น 24 ชม.) แล้วโหมดเร่งรับต่อ",
       "level": "campaign",
       "window": "last_7d",
       "metric": "roas",
@@ -261,7 +261,7 @@ export const STAGE_TEMPLATES: Record<string, Rule[]> = {
       "value": 1.5,
       "value_mode": "x_breakeven",
       "min_spend": 300,
-      "min_purchases": 5,
+      "min_purchases": 6,
       "max_budget": 200,
       "action": {
         "type": "budget_pct",
