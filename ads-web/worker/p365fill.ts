@@ -13,6 +13,15 @@ import { addressLine, readAddress, type ChatMessage } from './addressReader.ts';
 import { completeAddress } from './thaiAddress.ts';
 import { parseOrderNote, type NoteItem } from './orderNotes.ts';
 
+// Anthropic's workspace spend limit is the one failure that hits every bill until it is raised: say so in one line
+// (the raw JSON error was posted on nearly every bill, idea #11).
+export function readFailure(err: unknown): string {
+  const msg = String((err as Error)?.message ?? err);
+  const limit = /usage limits?/i.test(msg) ? msg.match(/regain access on ([0-9-]+)/i) : null;
+  if (/usage limits?/i.test(msg)) return `อ่านที่อยู่ไม่สำเร็จ: งบ API ของ Anthropic เต็ม${limit ? ` (กลับมาใช้ได้ ${limit[1]})` : ''} — ขอให้เบนซ์เพิ่มวงเงินที่ console.anthropic.com แอดมินกรอกที่อยู่เอง`;
+  return `อ่านที่อยู่ไม่สำเร็จ: ${msg}`;
+}
+
 export interface P365Env { P365_COOKIE?: string; P365_PAGE_ID?: string }
 
 const BASE = 'https://page365.net';
@@ -312,7 +321,7 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   // Address: Page365's own when complete, else the one read from the chat (typed or a photo).
   let address: PlanAddress | null = draft ? draftAddress(draft) : null;
   if (draft && opts.readAddress !== false && env.ANTHROPIC_API_KEY) {
-    const read = await readAddress(env.ANTHROPIC_API_KEY, chat, env.ADDRESS_MODEL, env.ANTHROPIC_WORKSPACE_ID, note.text).catch((err) => ({ problems: [`อ่านที่อยู่ไม่สำเร็จ: ${err?.message ?? err}`] } as { problems: string[]; cancelled?: boolean; size_mismatch?: string } & Partial<PlanAddress>));
+    const read = await readAddress(env.ANTHROPIC_API_KEY, chat, env.ADDRESS_MODEL, env.ANTHROPIC_WORKSPACE_ID, note.text).catch((err) => ({ problems: [readFailure(err)] } as { problems: string[]; cancelled?: boolean; size_mismatch?: string } & Partial<PlanAddress>));
     // A warning, not a stop (Benz 20 Oct): the reader called 5 orders cancelled 15–19 Oct and all 5 were sent.
     if (read.cancelled) warnings.push(CANCEL_HINT);
     // A size the customer asked for that isn't made (29/31/33…): the admin's nearest made size is right (Benz 20 Oct).
