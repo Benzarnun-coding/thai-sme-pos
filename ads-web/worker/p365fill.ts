@@ -229,6 +229,8 @@ export function draftAddress(d: P365Order): PlanAddress | null {
   const s = d.structural_address;
   if (!s || !/^\d{5}$/.test(s.postal_code ?? '') || !s.province || !s.district || !/^0\d{8,9}$/.test((d.customer_phone ?? '').replace(/\D/g, ''))) return null;
   if (/ไซส์|เอว|ตัว|สี|ราคา|โปร|ปลายทาง|โอน|ค่ะ|ครับ|คับ/.test(s.street ?? '')) return null;
+  // Page365 often leaves ตำบล/แขวง blank (Benz 26 Oct): not complete, so the address is read from the chat instead.
+  if (!(s.subdistrict ?? '').trim()) return null;
   // Page365 copies what the customer typed ("นม", "ปมุมธานี"); the address book corrects it, or sends it to the chat reader.
   const { parts, doubt } = completeAddress({ subdistrict: s.subdistrict ?? '', district: s.district ?? '', province: s.province ?? '', postal_code: s.postal_code ?? '' });
   if (doubt) return null;

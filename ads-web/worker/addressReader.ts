@@ -76,6 +76,9 @@ export async function chatInputInline(messages: ChatMessage[], orderNote = ''): 
 export function cleanAddress(a: ReadAddress): ReadAddress & { problems: string[] } {
   const phone = a.phone.replace(/\D/g, '').replace(/^66(?=\d{9}$)/, '0');
   const problems: string[] = [];
+  // ตำบล/แขวง left inside the street ("12 ม.3 ต.พรุดินนา"): moved to its own field.
+  const inStreet = !a.subdistrict.trim() && a.street.match(/\s*(?:ตำบล|ต\.|แขวง)\s*([^\s,]+)/);
+  if (inStreet) a = { ...a, subdistrict: inStreet[1], street: a.street.replace(inStreet[0], '').trim() };
   // Postcode/district/province filled or checked from the subdistrict (customers often leave the postcode out).
   const { parts, doubt } = a.found ? completeAddress(a) : { parts: a, doubt: null };
   a = { ...a, ...parts };
@@ -88,6 +91,7 @@ export function cleanAddress(a: ReadAddress): ReadAddress & { problems: string[]
     if (!/^\d{5}$/.test(postal)) problems.push('ไม่มีรหัสไปรษณีย์ 5 หลัก');
     if (!/^0\d{8,9}$/.test(phone)) problems.push('ไม่มีเบอร์โทร');
     if (!a.province.trim() || !a.district.trim()) problems.push('ที่อยู่ไม่ครบ (ไม่มีอำเภอ/จังหวัด)');
+    else if (!a.subdistrict.trim()) problems.push('ไม่มีตำบล/แขวง');
     if (a.doubt.trim()) problems.push(`ที่อยู่ไม่แน่ใจ: ${a.doubt.trim()}`);
   }
   return { ...a, phone, postal_code: postal, problems };

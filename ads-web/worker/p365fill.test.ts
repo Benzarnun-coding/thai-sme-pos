@@ -180,3 +180,11 @@ test('a size the customer asked for that is not made does not stop the bill', ()
   assert.equal(askedSizeNotMade('โน้ต 30 แต่ลูกค้าขอ 32', ['30'], made), false, '32 is made: a real mismatch');
   assert.equal(askedSizeNotMade('ลูกค้าแจ้งเอว 33 (ร้านแนะนำ 34)', ['34'], made), true);
 });
+
+test('Page365\'s own address without ตำบล is not taken as complete (the chat is read instead)', async () => {
+  const { draftAddress } = await import('./p365fill.ts');
+  const d = { customer_name: 'ก', customer_phone: '0812345678', structural_address: { street: '12 ม.3', subdistrict: 'พรุดินนา', district: 'คลองท่อม', province: 'กระบี่', postal_code: '81120' } } as Parameters<typeof draftAddress>[0];
+  assert.equal(draftAddress(d)?.subdistrict, 'พรุดินนา');
+  assert.equal(draftAddress({ ...d, structural_address: { ...d.structural_address!, subdistrict: '' } }), null);
+  assert.equal(draftAddress({ ...d, structural_address: { ...d.structural_address!, subdistrict: null } }), null);
+});
