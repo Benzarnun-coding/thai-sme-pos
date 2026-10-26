@@ -98,3 +98,10 @@ function editDistance(a: string, b: string): number {
   }
   return prev[b.length];
 }
+
+/** The subdistricts a district + postcode can be (a bill whose ตำบล was left blank): one name = it can only be that. */
+export function subdistrictsOf(district: string, prov: string, zip: string): string[] {
+  const p = province(prov);
+  const z = (zip ?? '').replace(/\D/g, '');
+  return [...new Set(all().filter((r) => (!p || r.prov === p) && districtMatches(r.dist, district, r.prov) && (!z || r.zip === z)).map((r) => r.sub))];
+}
