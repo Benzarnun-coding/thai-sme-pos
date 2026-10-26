@@ -165,3 +165,9 @@ preview `GET /api/ops-digest?date=`, post now with `POST` as owner/admin): yeste
 round; per supplier from the latest round, since later rounds repeat in-process orders), pieces sold per channel,
 marketplace orders with / without money, owed to suppliers (60-day ledger, suppliers + พี่เปีย), SKUs sold in 7 days
 that the catalog doesn't know.
+
+## Stock — more places (idea #12, มอส; not built yet, waiting for answers in the PR)
+
+Asked: one stock sheet per shop, each cut by the order-sheet groups of its suppliers: AR ← AR · BB ← เจ๊ศรี, ส.ประสาน,
+NBG, แพลนเนท, KM, J.Big, ป.ไพรศาล, พี่เปีย · BBW ← นอร์ท · BT ← BT · GG ← GG · CM ← CM · CN ← CYD โกดังจีน; and a return
+("ตีกลับ") scanned/keyed puts the product back into stock.
