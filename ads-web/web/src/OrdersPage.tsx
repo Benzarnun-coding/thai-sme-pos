@@ -144,6 +144,14 @@ export function OrdersApp() {
       };
     };
   }, [stock, date]);
+  // Balance now (what /catalog/stock shows) for the rows of the two stock groups.
+  const onHandOf = useMemo(() => {
+    const bal = (loc: string) => new Map((stock?.balances ?? []).filter((b) => b.loc === loc).map((b) => [b.sku, b.qty]));
+    const pia = bal('pia'), gs = bal('gosell');
+    const link = new Map((stock?.links ?? []).filter((k) => k.loc === 'pia').map((k) => [k.sku, k.stock_sku]));
+    return (group: string, sku: string): number | null =>
+      group === STOCK_GROUP ? pia.get(link.get(sku) ?? sku) ?? null : group === GOSELL_GROUP ? gs.get(sku) ?? null : null;
+  }, [stock]);
   const warehouses = useMemo(() => new Set([...(meta?.tabs ?? []).map((t) => t.tab), ...(stock?.items.length ? [STOCK_GROUP, GOSELL_GROUP] : [])]), [meta?.tabs, stock?.items.length]);
   // Moves (out of stock → another supplier, ตรวจสอบ rows …) apply to a new upload and to a round reopened from history.
   const built = useMemo(() => {
@@ -599,7 +607,7 @@ export function OrdersApp() {
               canRemember={canEdit} movable={!viewing || canEdit} targets={targets} onMove={moveLine}
               matchRows={allRows} onMatched={canEdit ? (a) => setMeta((m) => (m ? { ...m, aliases: [a, ...m.aliases.filter((x) => x.alias !== a.alias)] } : m)) : null}
               ours={ours} onReplace={canEdit ? replaceSku : null} onUnmerge={canEdit ? unmerge : null}
-              onSupplier={setSupplier} onExcel={() => exportExcel(g)} onPrint={() => print(g)} busy={!!busy}
+              onSupplier={setSupplier} onHand={(sku) => onHandOf(g.name, sku)} onExcel={() => exportExcel(g)} onPrint={() => print(g)} busy={!!busy}
               onPictures={() => { save(); setPictures(g); }}
             />
           ))}
@@ -711,14 +719,14 @@ function Sources({ bigseller, fb, manual, rows, busy, onFile, onRemoveFb, onAdd,
 
 // ---- one supplier / warehouse ----
 
-function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPrice, onLabel, canRemember, movable, targets, onMove, matchRows, onMatched, ours, onReplace, onUnmerge, onSupplier, onExcel, onPrint, onPictures, busy }: {
+function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPrice, onLabel, canRemember, movable, targets, onMove, matchRows, onMatched, ours, onReplace, onUnmerge, onSupplier, onHand, onExcel, onPrint, onPictures, busy }: {
   group: PurchaseGroup; open: boolean; onToggle: () => void; found: Set<string>; missing: Map<string, number>; onMissing: ((l: PurchaseLine, n: number) => Promise<void>) | null;
   onPrice: ((l: PurchaseLine, price: number | null) => Promise<void>) | null;
   onLabel: (l: PurchaseLine) => ((l: PurchaseLine, text: string, onlySize?: boolean) => Promise<void>) | null;
   canRemember: boolean; movable: boolean; targets: string[]; onMove: (l: PurchaseLine, to: string) => void;
   matchRows: CatalogRow[]; onMatched: ((a: CatalogAlias) => void) | null;
   ours: Map<string, Map<string, string>>; onReplace: ((from: string, to: string) => Promise<void>) | null; onUnmerge: ((from: string) => Promise<void>) | null;
-  onSupplier: (items: { tab: string; spu: string }[], shop: string) => Promise<void>; onExcel: () => void; onPrint: () => void; onPictures: () => void; busy: boolean;
+  onSupplier: (items: { tab: string; spu: string }[], shop: string) => Promise<void>; onHand: (sku: string) => number | null; onExcel: () => void; onPrint: () => void; onPictures: () => void; busy: boolean;
 }) {
   const rowsOnSheet = sheetRows(g).length;
   const products = useMemo(() => {
@@ -787,7 +795,7 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
               <thead>
                 <tr>
                   {movable && g.lines.length > 1 && <th className="center"><input type="checkbox" aria-label="เลือกทั้งหมดในกลุ่ม" checked={pickedLines.length === g.lines.length} onChange={(e) => setPicked(e.target.checked ? new Set(g.lines.map((l) => l.sku)) : new Set())} /></th>}
-                  <th>{g.kind === 'review' ? 'SKU ใน Bigseller' : 'รหัสสินค้า'}</th><th>ไซส์</th><th className="num">จำนวน</th>
+                  <th>{g.kind === 'review' ? 'SKU ใน Bigseller' : 'รหัสสินค้า'}</th><th>ไซส์</th><th className="num">จำนวน</th>{(g.name === STOCK_GROUP || g.name === GOSELL_GROUP) && <th className="num" title="ยอดสต็อกตอนนี้ (จากหน้าสต็อก)">คงเหลือ</th>}
                   <th>{g.kind === 'review' ? 'ปัญหา / ตัวเลือกสินค้า' : 'SKU'}</th><th>ร้านขาย · เลขคำสั่งซื้อ</th>
                   {g.kind !== 'review' && <th className="center">ของไม่มี</th>}
                   {g.kind !== 'review' && <th className="num po-internal" title="ภายใน ไม่ส่งร้าน">ทุน/ตัว</th>}
@@ -805,6 +813,7 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
                       <td><LabelCell line={l} strong={!!firstOfProduct || g.kind === 'review'} onSave={onLabel(l) ? (text, onlySize) => onLabel(l)!(l, text, onlySize) : null} ours={ours} onReplace={onReplace} onUnmerge={onUnmerge} /></td>
                       <td>{l.size || '—'}</td>
                       <td className="num"><b>{num(l.qty)}</b></td>
+                      {(g.name === STOCK_GROUP || g.name === GOSELL_GROUP) && <td className="num">{onHand(l.sku) != null ? num(onHand(l.sku)!) : <span className="muted">—</span>}</td>}
                       <td className="small">
                         {g.kind === 'review' ? l.note : <>
                           <code>{l.sku.startsWith('?') ? '(ไม่มี SKU)' : l.sku}</code>

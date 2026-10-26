@@ -90,6 +90,7 @@ rules, the monthly goal or the sheet.
 - Out of stock: tick "ของไม่มี" (all or N pieces; `PUT /api/purchase/missing`, kept across re-saves) → the round's
   "เก็บตกแทน" sheet (`missingGroup`, `MISSING_GROUP`), picked up elsewhere instead. It was called "พี่เปีย" until
   2026-10-15; that name is now the stock branch below (payments recorded under the old name were renamed).
+- Order page: the "พี่เปีย" and "GoSell" group tables have a "คงเหลือ" column = current stock balance (same numbers as `/catalog/stock`, read-only; idea #13).
 - พี่เปีย stock: rows of stock products (`stock_items`) go to the "พี่เปีย" group (`STOCK_GROUP`, kind warehouse, no
   supplier to pay) while the balance lasts, first come first served (`stockPlacer`); orders already cut stay there; the
   rest stay on their usual sheet with a notice. Rows can also be moved there by hand. Saving / ticking / deleting a
