@@ -1,5 +1,6 @@
 // Worker entry: JSON API for the dashboard + cron triggers. Static files in dist/ are served by Cloudflare before this runs.
 
+import { tambonStep } from './tambonCheck.ts';
 import { MetaClient } from '../../ads-engine/src/meta.ts';
 import { applyDecisions, sumBudget } from '../../ads-engine/src/apply.ts';
 import type { Entity, Level, Window } from '../../ads-engine/src/types.ts';
@@ -135,6 +136,8 @@ const COSTS_CRON = '30 0 * * *';
 const REMIND_CRON = '0 3 * * *';
 // Order-note sweep + webhook check every 3 hours (autoFill.ts cronSweep, Benz 15 Oct).
 const SWEEP_CRON = '15 */3 * * *';
+// Every minute while a ตำบล dry run is queued (tambonCheck.ts; one D1 read when none is). Remove with the job.
+const JOBS_CRON = '* * * * *';
 const DASHBOARD_WINDOWS: Window[] = ['today', 'yesterday', 'last_3d', 'last_7d', 'last_14d', 'last_30d'];
 
 function metaFor(env: Env): MetaLike {
@@ -198,6 +201,8 @@ export default {
       ctx.waitUntil(cronSweep(env).catch((err) => console.error('cron sweep', err)));
       ctx.waitUntil(syncTitles(env).catch((err) => console.error('request titles', err)));
       ctx.waitUntil(checkBuilds(env).catch((err) => console.error('request builds', err)));
+    } else if (event.cron === JOBS_CRON) {
+      ctx.waitUntil(tambonStep(env as any).catch((err) => console.error('tambon check', err)));
     } else if (event.cron === REMIND_CRON) {
       ctx.waitUntil(uploadReminder(env).catch((err) => console.error('reminder', err)));
       ctx.waitUntil(kbReminder(env).catch((err) => console.error('kb reminder', err)));
