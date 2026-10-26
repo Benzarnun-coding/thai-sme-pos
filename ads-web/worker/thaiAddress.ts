@@ -105,3 +105,23 @@ export function subdistrictsOf(district: string, prov: string, zip: string): str
   const z = (zip ?? '').replace(/\D/g, '');
   return [...new Set(all().filter((r) => (!p || r.prov === p) && districtMatches(r.dist, district, r.prov) && (!z || r.zip === z)).map((r) => r.sub))];
 }
+
+/**
+ * ตำบล left out (Benz 26 Oct): a postcode alone almost never tells it (35 of 966 postcodes have one subdistrict;
+ * district + postcode, 88 of 7,434), so it is picked only when the district + postcode leave one, or when exactly
+ * one of their subdistricts is named in what the customer wrote (a village "บ้านหนองบัว ม.3" → ต.หนองบัว). The
+ * district's and province's own names are taken out first (they are always in the text). Otherwise no pick, and
+ * the candidates go to a person.
+ */
+export function guessSubdistrict(district: string, prov: string, zip: string, clues: string[]): { sub: string | null; how: 'only' | 'clue' | null; candidates: string[] } {
+  const candidates = subdistrictsOf(district, prov, zip);
+  if (candidates.length === 1) return { sub: candidates[0], how: 'only', candidates };
+  if (!candidates.length) return { sub: null, how: null, candidates };
+  const strip = [bare(district), province(prov), bare(prov)].filter((x) => x.length >= 2).sort((a, b) => b.length - a.length);
+  let text = clues.join(' ').replace(/\s+/g, '');
+  for (const s of strip) text = text.split(s).join('|');
+  const hits = candidates.filter((c) => c.length >= 2 && text.includes(c));
+  // "หนองบัว" inside "หนองบัวแดง": the longer name wins; two unrelated names = no pick.
+  const longest = hits.filter((h) => !hits.some((o) => o !== h && o.includes(h)));
+  return longest.length === 1 ? { sub: longest[0], how: 'clue', candidates } : { sub: null, how: null, candidates };
+}

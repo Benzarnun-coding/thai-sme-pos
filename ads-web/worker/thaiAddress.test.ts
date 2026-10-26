@@ -29,3 +29,12 @@ test('a misspelt subdistrict is matched within its district', () => {
   assert.match(parts.postal_code, /^\d{5}$/);
   assert.match(doubt ?? '', /ลาดตะเคียน/);
 });
+
+test('ตำบล left out: picked from the district + postcode only when one, else from a village named in the text', async () => {
+  const { guessSubdistrict } = await import('./thaiAddress.ts');
+  assert.deepEqual(guessSubdistrict('คลองท่อม', 'กระบี่', '81120', ['12 ม.3 อ.คลองท่อม จ.กระบี่']).sub, null);
+  assert.equal(guessSubdistrict('คลองท่อม', 'กระบี่', '81120', ['12 บ้านพรุดินนา ม.3']).sub, 'พรุดินนา');
+  // "คลองท่อม" is the district: not a clue for ต.คลองท่อมเหนือ/ใต้.
+  assert.equal(guessSubdistrict('คลองท่อม', 'กระบี่', '81120', ['ตลาดคลองท่อม']).how, null);
+  assert.ok(guessSubdistrict('คลองท่อม', 'กระบี่', '81120', []).candidates.length > 1);
+});

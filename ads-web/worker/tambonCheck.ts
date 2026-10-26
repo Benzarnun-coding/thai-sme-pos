@@ -8,22 +8,31 @@
 import { readAddressTiered, type ChatMessage } from './addressReader.ts';
 import { audit } from './db.ts';
 import { call, type FillEnv, type P365Order } from './p365fill.ts';
-import { completeAddress, subdistrictsOf } from './thaiAddress.ts';
+import { bare, completeAddress, guessSubdistrict, subdistrictsOf } from './thaiAddress.ts';
 
 const KEY = 'tambon_check';
 const OUT = 'tambon_check_result';
 const OPEN = new Set(['draft', 'unpaid', 'transferred', 'paid']);
 
-export interface TambonRow { no: number; stage: string; outcome: 'has' | 'not found' | 'no address' | 'book' | 'chat' | 'chat none' | 'chat doubt' | 'shipped blank' | 'error'; sub?: string; dist?: string; why?: string }
+export interface TambonRow { no: number; stage: string; outcome: 'has' | 'not found' | 'no address' | 'book' | 'chat' | 'chat none' | 'chat doubt' | 'shipped blank' | 'error'; sub?: string; dist?: string; why?: string;
+  /** the ตำบล picker (guessSubdistrict) tried on this bill: for a bill with ตำบล, as if it were left out (street only) */
+  pick?: { sub: string | null; how: 'only' | 'clue' | null; n: number; right?: boolean } }
 
 /** Without the AI: has ตำบล / can only be one / needs the chat / shipped (left as it is). */
 export function classify(o: Pick<P365Order, 'no' | 'stage' | 'structural_address'>): TambonRow | null {
   const s = o.structural_address;
   if (!s || !s.district || !/^\d{5}$/.test(s.postal_code ?? '')) return { no: o.no, stage: o.stage, outcome: 'no address' };
-  if ((s.subdistrict ?? '').trim()) return { no: o.no, stage: o.stage, outcome: 'has' };
+  if ((s.subdistrict ?? '').trim()) {
+    // Accuracy test: would the picker have found this ตำบล from the street alone (what a customer without ตำบล gives)?
+    const g = guessSubdistrict(s.district, s.province ?? '', s.postal_code ?? '', [s.street ?? '']);
+    return { no: o.no, stage: o.stage, outcome: 'has', pick: { sub: g.sub, how: g.how, n: g.candidates.length, ...(g.sub ? { right: bare(g.sub) === bare(s.subdistrict ?? '') } : {}) } };
+  }
   const subs = subdistrictsOf(s.district, s.province ?? '', s.postal_code ?? '');
   if (subs.length === 1) return { no: o.no, stage: o.stage, outcome: 'book', sub: subs[0], dist: s.district };
-  if (!OPEN.has(o.stage)) return { no: o.no, stage: o.stage, outcome: 'shipped blank', dist: s.district };
+  if (!OPEN.has(o.stage)) {
+    const g = guessSubdistrict(s.district, s.province ?? '', s.postal_code ?? '', [s.street ?? '']);
+    return { no: o.no, stage: o.stage, outcome: 'shipped blank', dist: s.district, pick: { sub: g.sub, how: g.how, n: g.candidates.length } };
+  }
   return null; // open bill, needs the chat
 }
 
@@ -65,7 +74,13 @@ async function checkOne(env: FillEnv & { DB: D1Database }, no: number): Promise<
   const note = await env.DB.prepare('SELECT text FROM order_notes WHERE fill_order_no = ? AND (? IS NULL OR psid = ?) ORDER BY at DESC LIMIT 1').bind(no, order.customer_fbid, order.customer_fbid).first<{ text: string }>();
   const a = await readAddressTiered(env.ANTHROPIC_API_KEY!, chat, { cheap: env.ADDRESS_MODEL, strong: env.ADDRESS_MODEL_HARD, workspaceId: env.ANTHROPIC_WORKSPACE_ID, orderNote: note?.text ?? '' });
   for (const u of a.usages) await audit(env.DB, 'ai', 'address.read', String(no), u).catch(() => null);
-  if (!a.subdistrict.trim()) { await push(env.DB, { no, stage: order.stage, outcome: 'chat none', dist: s.district ?? '' }); return true; }
+  if (!a.subdistrict.trim()) {
+    // No ตำบล in the chat either: the picker, from the bill's street and everything the customer typed.
+    const said = chat.filter((m) => !m.own && !m.auto).map((m) => m.message ?? '');
+    const g = guessSubdistrict(s.district ?? '', s.province ?? '', s.postal_code ?? '', [s.street ?? '', a.street, ...said]);
+    await push(env.DB, { no, stage: order.stage, outcome: 'chat none', dist: s.district ?? '', pick: { sub: g.sub, how: g.how, n: g.candidates.length } });
+    return true;
+  }
   // The ตำบล from the chat must sit in the bill's own district + postcode (the bill's address is what was checked).
   const { doubt } = completeAddress({ subdistrict: a.subdistrict, district: s.district ?? '', province: s.province ?? '', postal_code: s.postal_code ?? '' });
   await push(env.DB, { no, stage: order.stage, outcome: doubt ? 'chat doubt' : 'chat', sub: a.subdistrict, dist: s.district ?? '', ...(doubt ? { why: doubt } : {}) });
