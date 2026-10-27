@@ -79,10 +79,41 @@ export function MetaPurchasesCard() {
             </div>
           )}
           <AdjustmentDays />
+          <HourCheck />
           {rows.some((r) => r.status === 'error') && <p className="small bad">มีบิลที่ส่งไม่สำเร็จ: {rows.filter((r) => r.status === 'error').slice(0, 3).map((r) => `#${r.order_no} ${r.detail ?? ''}`).join(' · ')}</p>}
         </>
       )}
     </section>
+  );
+}
+
+interface HourDiff { hour: string; meta: number; ours: number; extra: number; flagged: boolean }
+interface DayCheck { date: string; source: 'stored' | 'live' | 'none'; meta: number; ours: number; hours: HourDiff[]; flagged: HourDiff[]; text: string | null }
+
+/** Meta vs what we sent, per hour (dry run: shows the Discord text, posts nothing). */
+function HourCheck() {
+  const { toast } = useUi();
+  const [days, setDays] = useState<DayCheck[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    const to = new Date(Date.now() + 7 * 3_600_000 - 86_400_000).toISOString().slice(0, 10);
+    const from = new Date(Date.parse(to) - 7 * 86_400_000).toISOString().slice(0, 10);
+    try { setDays((await call<{ days: DayCheck[] }>('GET', `/api/meta/hour-check?from=${from}&to=${to}`)).days); } catch (e: any) { toast(e.message, 'bad'); }
+    setBusy(false);
+  };
+  return (
+    <div className="small" style={{ marginTop: 10 }}>
+      <button className="ghost" disabled={busy} onClick={run}>{busy ? 'กำลังเช็ก…' : 'เช็ก Meta นับเกินรายชั่วโมง 8 วัน (ดูอย่างเดียว ไม่โพสต์)'}</button>
+      <div className="muted">Meta = ยอดขายรายชั่วโมงที่ Meta นับ · เรา = ยอดที่ระบบส่งตอนแอดมินพิมพ์สรุป · เตือนเมื่อ Meta เกิน ≥ 10 และ ≥ 1.5 เท่า</div>
+      {days?.map((d) => (
+        <div key={d.date} style={{ marginTop: 6 }}>
+          <b>{d.date}</b> Meta {d.meta} / เรา {d.ours}{d.source === 'none' ? ' · ไม่มีข้อมูล Meta' : ''}
+          {d.flagged.length ? <span className="warn"> · เกิน: {d.flagged.map((h) => `${h.hour.slice(0, 2)} น. ${h.meta}/${h.ours}`).join(', ')}</span> : <span className="muted"> · ปกติ</span>}
+          {d.text && <pre className="muted" style={{ whiteSpace: 'pre-wrap', margin: '4px 0 0' }}>{d.text}</pre>}
+        </div>
+      ))}
+    </div>
   );
 }
 

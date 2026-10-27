@@ -44,6 +44,7 @@ import { closeCase, customerName, serviceAlerts, servicePreview } from './servic
 import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './postIdeas.ts';
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
 import { approvalsEnabled, blockedByKillSwitch, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
+import { hourCheck, hourCheckText } from './hourCheck.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
@@ -769,6 +770,14 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     await env.DB.batch(stmts);
     await audit(env.DB, user, 'meta.capi.source', source, {});
     return json({ source });
+  }
+  // Meta's purchases hour by hour vs the sales we sent (hourCheck.ts): a dry run — the Discord text is returned, never posted.
+  if (path === '/api/meta/hour-check' && method === 'GET') {
+    const to = url.searchParams.get('to') ?? bkkDate(1), from = url.searchParams.get('from') ?? to;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw new BadRequest('วันที่ไม่ถูกต้อง');
+    const dates = windowDates(`range:${from}:${to}` as Window).slice(0, 14);
+    const days = await hourCheck(env.DB, metaFor(env), dates);
+    return json({ posted: false, days: days.map((d) => ({ ...d, text: hourCheckText(d) })) });
   }
   if (path === '/api/meta/purchases/note-preview' && method === 'GET') {
     const date = url.searchParams.get('date') ?? bkkDate(0);
