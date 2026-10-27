@@ -56,7 +56,7 @@ export function formulaLines(r: SalesRow): string[] {
   const lines = [`ต้นทุนตามสินค้า "${c.product}": ทุน ${b2(c.cost_per_unit)}/ตัว · ราคาขาย ${c.price_min === c.price_max ? b2(c.price_min) : `${b2(c.price_min)}–${b2(c.price_max)}`}/ตัว`];
   if (c.cod_deducted > 0) lines.push(`หักค่าเก็บปลายทางที่รวมในยอด ${b2(c.cod_deducted)} → ยอดค่าสินค้า ${b2(goods)}`);
   lines.push(`จำนวนตัว = ${b2(goods)} ÷ ${b2(c.price_min)} = ${n1(r.units_high ?? 0)} ตัว${c.price_min === c.price_max ? '' : ` (ถ้าขายราคาเต็ม ÷ ${b2(c.price_max)} = ${n1(r.units_low ?? 0)})`}`);
-  lines.push(`ทุนสินค้า = ${n1(r.units_high ?? 0)} × ${b2(c.cost_per_unit)}${c.extra_per_order ? ` + ${num(N)} ออเดอร์ × ${b2(c.extra_per_order)}` : ''} = ${b2(r.cost_high ?? 0)}`);
+  lines.push(`ทุนสินค้า (แคตตาล็อก) = ${n1(r.units_high ?? 0)} × ${b2(c.cost_per_unit)}${c.extra_per_order ? ` + ${num(N)} ออเดอร์ × ${b2(c.extra_per_order)}` : ''}${c.fees ? ` + ค่าต่อออเดอร์ (COD/ตีกลับ/ส่ง/VAT/ซอง) ${b2(c.fees)}` : ''} = ${b2(r.cost_high ?? 0)}`);
   lines.push(profitLine(r.cost_high ?? 0, r.profit_low ?? 0));
   return lines;
 }

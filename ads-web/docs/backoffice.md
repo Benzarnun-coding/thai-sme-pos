@@ -129,7 +129,7 @@ are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,4
   cancelled / unpaid / returned left out by default; only order no., date, status, amounts, fees and SKUs are sent →
   `mp_orders` (migration 0041, upsert by order no.; no date = the day the order first appeared on an order sheet).
 - Items come from the file or the order-sheet rounds; an order's money and fees are split over its items by value, so
-  products add up to channels. Cost = catalog ทุน, not the Page365 cost the monthly goal uses.
+  products add up to channels. Cost = catalog ทุน (the same raw cost as Page365's, kept equal on upload) + the one set of `order_fees`, as on every page.
 - No real TikTok/Shopee export has been tried yet: check the guessed columns on the first upload.
 
 ## Stock `/catalog/stock` (Benz 2026-10-15; replaces the "Stock BB" sheet)

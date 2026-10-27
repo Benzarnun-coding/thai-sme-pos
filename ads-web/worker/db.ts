@@ -3,6 +3,7 @@
 import { DEFAULT_GOAL, type Goal } from './goal.ts';
 import type { Guardrails, State } from '../../ads-engine/src/types.ts';
 import { nameKey, type CampaignCost } from './campaignCosts.ts';
+import { loadUnitCosts, type UnitCostRow } from './unitCosts.ts';
 import { WEB_TAB, type CampaignMode, type CampaignSetting, type Cod, type CostRow, type Section, type Stage, type WebRule } from './model.ts';
 
 export interface Settings {
@@ -29,8 +30,17 @@ export interface Settings {
 export interface OrderFees { cod_pct: number; loss_pct: number; ship: number; vat_pct: number; vat_base: 'total' | 'goods' | 'after_ship'; bag: number }
 export const DEFAULT_ORDER_FEES: OrderFees = { cod_pct: 1, loss_pct: 1, ship: 18, vat_pct: 5, vat_base: 'total', bag: 1 };
 
-export function codOf(s: Pick<Settings, 'cod_share_pct' | 'cod_fee'>): Cod {
-  return { share: s.cod_share_pct / 100, fee: s.cod_fee };
+/**
+ * COD surcharge plus the per-order fees (p365.ts orderFees) as % of the order value + a fixed amount, so the ads
+ * pages and the rules deduct the same fees as the Page365 numbers: COD % on the COD share, loss/returns %, VAT %,
+ * shipping, bag; VAT's base without our shipping (after_ship) or without the COD surcharge (goods).
+ */
+export function codOf(s: Pick<Settings, 'cod_share_pct' | 'cod_fee'> & { order_fees?: OrderFees }): Cod {
+  const share = s.cod_share_pct / 100;
+  const f = s.order_fees;
+  if (!f) return { share, fee: s.cod_fee };
+  const vatOff = f.vat_base === 'after_ship' ? f.ship : f.vat_base === 'goods' ? s.cod_fee * share : 0;
+  return { share, fee: s.cod_fee, pct: (f.loss_pct + f.vat_pct + f.cod_pct * share) / 100, per_order: f.ship + f.bag - vatOff * f.vat_pct / 100 };
 }
 
 export async function loadCampaignCosts(db: D1Database): Promise<{ costs: Map<string, CampaignCost>; synced_at: string | null }> {
@@ -178,9 +188,15 @@ export async function applyMoves(db: D1Database, moves: { campaign_id: string; n
   ]);
 }
 
-export async function loadCosts(db: D1Database): Promise<CostRow[]> {
+/** Product costs as stored: the sheet sync's and the ones typed on the Products page. */
+export async function loadCostRows(db: D1Database): Promise<CostRow[]> {
   const { results } = await db.prepare('SELECT * FROM costs').all<CostRow>();
   return results;
+}
+
+/** Product costs for every ads page and the rules: the catalog's raw ทุน where it has the product (unitCosts.ts). */
+export async function loadCosts(db: D1Database): Promise<UnitCostRow[]> {
+  return loadUnitCosts(db, await loadCostRows(db));
 }
 
 // Bulk writes go through json_each so a whole tab is 2 statements — the Workers free plan caps queries per invocation.

@@ -65,6 +65,8 @@ export interface SectionView extends Section {
   totals: Totals;
   economics: {
     cost_per_unit: number | null; price_per_unit_min: number | null; price_per_unit_max: number | null;
+    /** catalog = raw ทุน from the catalog; typed = the cost typed on the Products page (catalog has no such code) */
+    cost_from: 'catalog' | 'typed' | 'mixed' | null; catalog_codes: string[];
     price_source: 'tiers' | 'manual' | 'sheet' | null;
     breakeven_roas: number | null; breakeven_best: number | null; never_profitable: boolean;
     units_low: number | null; units_high: number | null;
@@ -130,7 +132,7 @@ export interface Overview {
   meta_fetched_at: string;
   /** Meta refused (e.g. rate limit) and older data is shown */
   meta_warning: string | null;
-  settings: { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails; cod_share_pct: number; cod_fee: number };
+  settings: { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails; cod_share_pct: number; cod_fee: number; cod: Cod };
   costs_loaded: number;
   last_run: { run_at: string; summary: string; dry_run: boolean } | null;
   stages: Stage[];
@@ -148,7 +150,13 @@ export interface GoalStatus {
 }
 export interface Settings { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails; sheet_id: string; sheet_tabs: string[]; cod_share_pct: number; cod_fee: number; ads_cost_sheet_id: string; ads_cost_tab: string; cost_editors: string[]; order_fees: OrderFees; goal: Goal }
 
-export interface CostRow { tab: string; code: string; name: string; sku_count: number; avg_cost: number; min_cost: number; max_cost: number; avg_price: number }
+export interface CostRow {
+  tab: string; code: string; name: string; sku_count: number; avg_cost: number; min_cost: number; max_cost: number; avg_price: number;
+  /** The catalog's raw ทุน the ads pages use instead of avg_cost, when the catalog has this code */
+  catalog_cost?: number | null; catalog_codes?: string[];
+}
+/** COD surcharge share/fee + per-order fees from settings.order_fees (pct of the order value, fixed baht) */
+export interface Cod { share: number; fee: number; pct?: number; per_order?: number }
 
 export interface Decision {
   rule_id: string;
@@ -224,7 +232,7 @@ export type SalesCalc =
   | { method: 'orders'; source: string; tiers: CostTier[]; orders: number; matched: number; match_rate: number; cost_ratio: number; units_per_baht: number }
   | { method: 'sheet_exact'; sheet_name: string; tiers: CostTier[]; mix: number[] }
   | { method: 'sheet_ratio'; sheet_name: string; tiers: CostTier[]; ratio_min: number; ratio_max: number }
-  | { method: 'product'; product: string; cost_per_unit: number; price_min: number; price_max: number; cod_deducted: number; extra_per_order: number }
+  | { method: 'product'; product: string; cost_per_unit: number; price_min: number; price_max: number; cod_deducted: number; extra_per_order: number; fees: number }
   | { method: 'actual'; orders: number; customer: number; exact: number; approx: number; cost_known: number; shipping: number; goods: number; product_cost: number; fees: number }
   | { method: 'none'; reason: string };
 

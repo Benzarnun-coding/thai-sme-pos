@@ -114,11 +114,11 @@ export function SettingsPage({ costsLoaded, campaignNames, onSaved }: { costsLoa
       </section>
 
       <section className="card">
-        <h2>ค่าใช้จ่ายต่อออเดอร์ (ไฟล์ Page365)</h2>
-        <p className="muted small">หักจากทุกออเดอร์จริงตามสูตรของทีม (เหมือนชีต "รวม"): ค่าธรรมเนียม COD คิดเฉพาะออเดอร์เก็บปลายทาง · เปอร์เซ็นต์คิดจากยอดที่ลูกค้าจ่าย · ค่าส่งและค่าซองคิดต่อออเดอร์</p>
+        <h2>ค่าใช้จ่ายต่อออเดอร์และความเสี่ยง (ทั้งเว็บ)</h2>
+        <p className="muted small">ชุดเดียวทั้งเว็บ: ทุนสินค้า = ทุนดิบในแคตตาล็อก แล้วหักชุดนี้จากทุกออเดอร์ — ไฟล์ Page365, กำไรรายแคมเปญ, คุ้มทุนของกฎแอด, เป้ากำไร · ค่าธรรมเนียม COD คิดเฉพาะออเดอร์เก็บปลายทาง (ฝั่งแอดใช้สัดส่วน COD ด้านล่าง) · เปอร์เซ็นต์คิดจากยอดที่ลูกค้าจ่าย · ค่าส่งและค่าซองคิดต่อออเดอร์</p>
         <div className="grid2">
           <label>ค่าธรรมเนียม COD (%)<input type="number" min={0} step={0.1} value={s.order_fees.cod_pct} onChange={(e) => setS({ ...s, order_fees: { ...s.order_fees, cod_pct: Number(e.target.value) } })} /></label>
-          <label>ของเสีย/สูญหาย (%)<input type="number" min={0} step={0.1} value={s.order_fees.loss_pct} onChange={(e) => setS({ ...s, order_fees: { ...s.order_fees, loss_pct: Number(e.target.value) } })} /></label>
+          <label>ของเสีย/ตีกลับ/หาย (%)<input type="number" min={0} step={0.1} value={s.order_fees.loss_pct} onChange={(e) => setS({ ...s, order_fees: { ...s.order_fees, loss_pct: Number(e.target.value) } })} /></label>
           <label>ค่าส่งต่อออเดอร์ (฿)<input type="number" min={0} value={s.order_fees.ship} onChange={(e) => setS({ ...s, order_fees: { ...s.order_fees, ship: Number(e.target.value) } })} /></label>
           <label>VAT (%)<input type="number" min={0} step={0.1} value={s.order_fees.vat_pct} onChange={(e) => setS({ ...s, order_fees: { ...s.order_fees, vat_pct: Number(e.target.value) } })} /></label>
           <label>VAT คิดจาก
@@ -218,8 +218,8 @@ function CampaignCostSheet({ s, setS, busy, onSave, campaignNames, onSynced }: {
     <section className="card">
       <h2>ชีตต้นทุนรายแคมเปญ</h2>
       <p className="muted small">
-        ชีต "FB คำนวณค่า ADS" แท็บ "รวมต้นทุน ที่เปิด ADS": ชื่อแคมเปญ (คอลัมน์ A) ต้องตรงกับชื่อใน Meta · แต่ละแถว "ราคาขาย N ตัว ราคา" + ต้นทุนรวมต่อออเดอร์ (คอลัมน์ D)
-        · แคมเปญที่เจอในชีตจะใช้ต้นทุนนี้แทนต้นทุนสินค้า · ดึงใหม่ทุกเช้า 07:30
+        ชีต "FB คำนวณค่า ADS" แท็บ "รวมต้นทุน ที่เปิด ADS": ชื่อแคมเปญ (คอลัมน์ A) ต้องตรงกับชื่อใน Meta · ใช้แค่ราคาโปร "ราคาขาย N ตัว ราคา" (คอลัมน์ B)
+        · ต้นทุนในชีต (คอลัมน์ C–D) ไม่ใช้แล้ว: ทุน = จำนวนตัว × ทุนแคตตาล็อก + ค่าใช้จ่ายต่อออเดอร์ด้านล่าง · ดึงใหม่ทุกเช้า 07:30
       </p>
       <div className="grid2">
         <label>ลิงก์หรือ ID ของชีต<input value={s.ads_cost_sheet_id} onChange={(e) => setS({ ...s, ads_cost_sheet_id: e.target.value })} placeholder="วางลิงก์ Google Sheets ได้เลย" /></label>

@@ -415,7 +415,7 @@ function CampaignRow({ c, data, selected, onSelect, next, idea, onOpen, onStatus
           {next.map((n, i) => <span key={i} className="badge next" title={n.plan}><Icon name="clock" size={12} />{previewText(n, data.stages)}</span>)}
           {idea && <span className={`badge idea ${idea.severity}`} title={idea.detail}><Icon name="bulb" size={12} />{idea.title}</span>}
           {c.cost_source === 'product' && c.price_per_unit_min === null && <span className="badge warn" title="มีทุนแล้วแต่ไม่มีราคาขาย — กดชื่อแคมเปญ → ต้นทุน → แก้ต้นทุน ใส่ราคาเต็ม/ตัว">ยังไม่มีราคาขาย</span>}
-          {c.cost_source === 'sheet' ? <span className="badge" title="ต้นทุนจากชีตรายแคมเปญ">ทุนจากชีต</span> : section && section.id !== 'default' && <span className="badge">{section.name}</span>}
+          {c.cost_source === 'sheet' ? <span className="badge" title="ราคาโปรจากชีตรายแคมเปญ · ทุนจากแคตตาล็อก + ค่าต่อออเดอร์">โปรจากชีต</span> : section && section.id !== 'default' && <span className="badge">{section.name}</span>}
           {c.mode !== 'stage' && <span className="badge warn">{c.mode === 'custom' ? 'กฎเฉพาะ' : 'ไม่อัตโนมัติ'}</span>}
           {showStage && <span className={`badge stage-badge stage-${c.stage_id ?? 'none'}`}><i className="stage-dot" />{stageLabel(data.stages, c.stage_id)}</span>}
           {days !== null && <span className="badge plain">{days} วันในกลุ่ม</span>}

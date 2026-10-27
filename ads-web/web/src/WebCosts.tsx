@@ -42,7 +42,7 @@ export function WebCostForm({ initial, suggestCode, onSaved, onCancel }: {
       <label>ชื่อ
         <input value={name} placeholder="เช่น กระบอกยืด 801" onChange={(e) => setName(e.target.value)} />
       </label>
-      <label>ต้นทุนรวม/ตัว (฿)
+      <label>ทุนดิบ/ตัว (฿) — ใช้เมื่อแคตตาล็อกไม่มีรุ่นนี้
         <input type="number" inputMode="decimal" min={0} step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} autoFocus={Boolean(initial)} />
         <small>สินค้า + ส่ง + เผื่อตีกลับ</small>
       </label>

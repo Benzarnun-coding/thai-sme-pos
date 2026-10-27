@@ -102,11 +102,16 @@ export function resolveSectionId(
 /**
  * Profit is counted per piece, not per order: Meta reports orders (conversions) and their value, and an order can be
  * 1, 2 or 3 pieces at different promo prices. Pieces ≈ value ÷ price per piece, and the promo prices per piece are close,
- * so the estimate is a narrow range. The sheet cost is all-in (shipping and returns included).
+ * so the estimate is a narrow range. Cost per piece is the raw catalog ทุน (unitCosts.ts); the per-order fees and risk
+ * (settings.order_fees) come in through Cod.pct / Cod.per_order.
  */
 export interface Economics {
-  /** Average all-in cost per piece across the section's products; null when nothing is linked or found in the sheet */
+  /** Average raw cost per piece across the section's products; null when nothing is linked or found */
   cost_per_unit: number | null;
+  /** Where that cost came from: the catalog, the cost typed on the Products page, or both (several products) */
+  cost_from: 'catalog' | 'typed' | 'mixed' | null;
+  /** Catalog codes the cost was read from */
+  catalog_codes: string[];
   /** Lowest / highest selling price per piece (cheapest promo / single piece); null when no price is known */
   price_per_unit_min: number | null;
   price_per_unit_max: number | null;
@@ -136,6 +141,9 @@ export interface Cod {
   share: number;
   /** Surcharge per COD order */
   fee: number;
+  /** Per-order fees and risk from settings.order_fees, as a share of the order value plus a fixed amount per order */
+  pct?: number;
+  per_order?: number;
 }
 export const NO_COD: Cod = { share: 0, fee: 0 };
 
@@ -147,6 +155,9 @@ export function economics(section: Section, costs: CostRow[], m: Money, cod: Cod
     if (row) found.push(row); else missing.push(p);
   }
   const cost_per_unit = found.length ? found.reduce((s, c) => s + c.avg_cost, 0) / found.length : null;
+  const from = new Set(found.map((c: CostRow & { cost_from?: 'catalog' | 'typed' }) => c.cost_from ?? 'typed'));
+  const cost_from: Economics['cost_from'] = !found.length ? null : from.size > 1 ? 'mixed' : [...from][0];
+  const catalog_codes = [...new Set(found.flatMap((c: CostRow & { catalog_codes?: string[] }) => c.catalog_codes ?? []))];
 
   let perUnit: number[] = [];
   let price_source: Economics['price_source'] = null;
@@ -168,7 +179,7 @@ export function economics(section: Section, costs: CostRow[], m: Money, cod: Cod
   const range = profitRange({ cost_per_unit, price_per_unit_min, price_per_unit_max }, section.extra_cost_per_order, m, cod);
 
   return {
-    cost_per_unit, price_per_unit_min, price_per_unit_max, price_source,
+    cost_per_unit, cost_from, catalog_codes, price_per_unit_min, price_per_unit_max, price_source,
     breakeven_roas: be(price_per_unit_min),
     breakeven_best: be(price_per_unit_max),
     units_low: range?.units_low ?? null,
@@ -180,12 +191,12 @@ export function economics(section: Section, costs: CostRow[], m: Money, cod: Cod
 }
 
 /**
- * ROAS at which profit is zero: revenue − (revenue − COD surcharges) × cost/price − orders × extra = spend.
- * The per-order terms need the average order value; without it they are left out.
+ * ROAS at which profit is zero: revenue − (revenue − COD surcharges) × cost/price − revenue × fee % − orders × (extra +
+ * fixed fees) = spend. The per-order terms need the average order value; without it they are left out.
  */
 function breakeven(pricePerUnit: number, costPerUnit: number, extraPerOrder: number, aov: number | null, cod: Cod): number {
-  const perOrder = aov ? (cod.fee * cod.share * costPerUnit / pricePerUnit - extraPerOrder) / aov : 0;
-  const margin = 1 - costPerUnit / pricePerUnit + perOrder;
+  const perOrder = aov ? (cod.fee * cod.share * costPerUnit / pricePerUnit - extraPerOrder - (cod.per_order ?? 0)) / aov : 0;
+  const margin = 1 - costPerUnit / pricePerUnit - (cod.pct ?? 0) + perOrder;
   return margin > 0 ? 1 / margin : Infinity;
 }
 
@@ -223,7 +234,7 @@ export function profitRange(
   // More pieces (cheapest price per piece) = more cost = lower profit.
   const units_high = goods / e.price_per_unit_min;
   const units_low = goods / e.price_per_unit_max;
-  const rest = m.purchase_value - m.purchases * extraPerOrder - m.spend;
+  const rest = m.purchase_value * (1 - (cod.pct ?? 0)) - m.purchases * (extraPerOrder + (cod.per_order ?? 0)) - m.spend;
   return { units_low, units_high, low: rest - units_high * e.cost_per_unit, high: rest - units_low * e.cost_per_unit };
 }
 

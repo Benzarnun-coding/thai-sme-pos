@@ -384,7 +384,7 @@ function StatsTable({ c }: { c: CampaignView }) {
       </table>
       <p className="small muted stats-note">
         {stats.windows.some((w) => w.method === 'orders') && <>กำไรคิดรายครั้ง (จับคู่ยอดแต่ละครั้งกับโปร{(() => { const w = stats.windows.find((x) => x.window === 'last_7d' && x.match_rate != null); return w ? ` · 7 วันตรงโปร ${num(w.match_rate! * 100)}%` : ''; })()}) · </>}
-        {stats.cost_source === 'sheet' && <>ต้นทุนจากชีตรายแคมเปญ · </>}
+        {stats.cost_source === 'sheet' && <>ราคาโปรจากชีตรายแคมเปญ · </>}
         {be === null
           ? (c.section_id !== 'default' && c.price_per_unit_min === null ? 'ยังไม่มีราคาขาย — ใส่ราคาในช่อง "ต้นทุน" ด้านล่างเพื่อดูทุนสินค้าและกำไร' : 'ยังไม่ผูกต้นทุน — กรอกในช่อง "ต้นทุน" ด้านล่างเพื่อดูทุนสินค้าและกำไร')
           : <>คุ้มทุนที่ ROAS {num(be, 2)} · กำไรคิดแบบระวัง ({stats.cost_source === 'sheet' ? 'ทุกออเดอร์เป็นโปรที่ทุนหนักสุด' : 'ทุกออเดอร์เป็นโปรถูกสุด'}) ชี้ที่ตัวเลขเพื่อดูช่วง</>}
@@ -437,11 +437,11 @@ function SheetCostPanel({ c }: { c: CampaignView }) {
   return (
     <section className="panel">
       <div className="panel-head">
-        <h3>ต้นทุน · จากชีตรายแคมเปญ</h3>
-        <span className="small muted">แก้ในชีต "FB คำนวณค่า ADS" · ดึงใหม่ทุกเช้า 07:30</span>
+        <h3>ต้นทุน · โปรจากชีตรายแคมเปญ</h3>
+        <span className="small muted">ราคาโปรจากชีต "FB คำนวณค่า ADS" · ทุน = จำนวนตัว × ทุนแคตตาล็อก + ค่าต่อออเดอร์ในหน้าตั้งค่า</span>
       </div>
       {c.cost_match === 'similar' && (
-        <p className="small warn">ใช้ทุนของ "{c.cost_sheet_name}" ในชีต (ชื่อเดียวกัน ต่างแค่งบ/เวอร์ชัน) — ถ้าโปรหรือทุนต่างกัน ให้เพิ่มชื่อแคมเปญนี้ในชีต</p>
+        <p className="small warn">ใช้ราคาโปรของ "{c.cost_sheet_name}" ในชีต (ชื่อเดียวกัน ต่างแค่งบ/เวอร์ชัน) — ถ้าโปรต่างกัน ให้เพิ่มชื่อแคมเปญนี้ในชีต</p>
       )}
       <table className="compare">
         <thead><tr><th>โปร</th><th className="num">ราคา</th><th className="num">ทุน/ออเดอร์</th><th className="num">เหลือก่อนค่าแอด</th><th className="num">คุ้มทุนที่ ROAS</th></tr></thead>

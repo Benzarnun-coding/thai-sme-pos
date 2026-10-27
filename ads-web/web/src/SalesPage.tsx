@@ -113,7 +113,7 @@ export function SalesPage({ data, onOpenCampaign }: { data: Overview; onOpenCamp
           <section className="card table-card">
             <div className="table-card-head">
               <h2>สรุปรายวัน <span className="muted small">กดวันเพื่อดูแยกตามแอด · "จากแอด / ไม่ใช่แอด" มีเฉพาะวันที่อัปโหลดไฟล์ Page365</span></h2>
-              {all.uncosted > 0 && <p className="small warn">กำไรนับเฉพาะแอดที่มีทุน — แอดที่ไม่มีทุนนับยอดขายและค่าแอด แต่ไม่นับทุนและกำไร (เพิ่มในชีตต้นทุนเพื่อให้ครบ)</p>}
+              {all.uncosted > 0 && <p className="small warn">กำไรนับเฉพาะแอดที่มีทุน — แอดที่ไม่มีทุนนับยอดขายและค่าแอด แต่ไม่นับทุนและกำไร (ผูกสินค้าที่มีทุนในแคตตาล็อกเพื่อให้ครบ)</p>}
             </div>
             <div className="table-wrap">
               <table className="data-table">
@@ -373,7 +373,7 @@ function ConversionList({ date, window, onOpenCampaign }: { date: string; window
                     <tr className={isOpen ? 'open' : ''}>
                       <td className="campaign-cell">
                         <button className="name-link" onClick={() => onOpenCampaign(c.campaign_id)}>{c.name}</button>
-                        <div className="small muted">{c.count} ครั้ง{c.cost_source === 'sheet' ? ' · ทุนจากชีต' : c.cost_source === 'product' ? ` · ทุนตามสินค้า ${c.cost_label}` : ' · ยังไม่มีทุน'}</div>
+                        <div className="small muted">{c.count} ครั้ง{c.cost_source === 'sheet' ? ' · โปรจากชีต' : c.cost_source === 'product' ? ` · ทุนตามสินค้า ${c.cost_label}` : ' · ยังไม่มีทุน'}</div>
                       </td>
                       <td className="num strong">{baht(c.value)}</td>
                       <td>

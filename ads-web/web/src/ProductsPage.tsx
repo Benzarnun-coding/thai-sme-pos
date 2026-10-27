@@ -234,7 +234,10 @@ function ProductTable({ data, onEdit, onReload }: { data: Overview; onEdit: (id:
                       : s.products.map((p) => `${tabLabel(p.tab)} · ${p.code}`).join(', ')}
                     {e.missing_products.length > 0 && <span className="bad"> · ไม่พบ {e.missing_products.length}</span>}
                   </td>
-                  <td className="num">{baht(e.cost_per_unit, 2)}</td>
+                  <td className="num" title={e.catalog_codes.length ? `แคตตาล็อก: ${e.catalog_codes.join(', ')}` : undefined}>
+                    {baht(e.cost_per_unit, 2)}
+                    {e.cost_from && <div className={`small ${e.cost_from === 'catalog' ? 'muted' : 'warn'}`}>{e.cost_from === 'catalog' ? 'แคตตาล็อก' : e.cost_from === 'typed' ? 'พิมพ์เอง (ไม่พบในแคตตาล็อก)' : 'แคตตาล็อก + พิมพ์เอง'}</div>}
+                  </td>
                   <td className="num">{e.price_per_unit_min === null ? '–' : e.price_per_unit_min === e.price_per_unit_max ? baht(e.price_per_unit_min) : `${baht(e.price_per_unit_min)}–${baht(e.price_per_unit_max)}`}</td>
                   <td className={`num ${e.never_profitable ? 'bad' : ''}`}>{e.never_profitable ? 'ขาดทุน' : num(e.breakeven_roas, 2)}</td>
                   <td className="num">{s.campaign_count}</td>

@@ -14,7 +14,7 @@ export type Calc =
   /** Cost sheet, mix unknown: revenue × cost ÷ price of the promos */
   | { method: 'sheet_ratio'; sheet_name: string; tiers: CostTier[]; ratio_min: number; ratio_max: number }
   /** Product line: pieces = (revenue − COD surcharges) ÷ price per piece, cost = pieces × cost per piece */
-  | { method: 'product'; product: string; cost_per_unit: number; price_min: number; price_max: number; cod_deducted: number; extra_per_order: number }
+  | { method: 'product'; product: string; cost_per_unit: number; price_min: number; price_max: number; cod_deducted: number; extra_per_order: number; fees: number }
   /** Real orders from the Page365 upload credited to this campaign */
   | { method: 'actual'; orders: number; customer: number; exact: number; approx: number; cost_known: number; shipping: number; goods: number; product_cost: number; fees: number }
   | { method: 'none'; reason: string };
@@ -68,6 +68,7 @@ export function explainDay(
           method: 'product', product: source.product, cost_per_unit: source.econ.cost_per_unit!,
           price_min: source.econ.price_per_unit_min!, price_max: source.econ.price_per_unit_max!,
           cod_deducted: source.cod.fee * source.cod.share * m.purchases, extra_per_order: source.extra,
+          fees: m.purchase_value * (source.cod.pct ?? 0) + m.purchases * (source.cod.per_order ?? 0),
         },
       };
     }

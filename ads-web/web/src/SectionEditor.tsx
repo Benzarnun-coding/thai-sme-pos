@@ -7,8 +7,8 @@ import { baht, bahtRange, num, profitTone } from './fmt.ts';
 interface Props {
   section: SectionView;
   campaignNames: string[];
-  /** COD surcharge included in the tagged value: share 0–1, fee in baht */
-  cod: { share: number; fee: number };
+  /** COD surcharge included in the tagged value (share 0–1, fee in baht) + per-order fees (pct of value, fixed baht) */
+  cod: { share: number; fee: number; pct?: number; per_order?: number };
   onSaved: () => void;
   /** A linked cost was edited (saved immediately, unlike the rest of the form) */
   onCostChanged?: () => void;
@@ -57,7 +57,7 @@ export function SectionEditor({ section, campaignNames, cod, onSaved, onCostChan
   // Same formula as worker/model.ts economics(), for a live preview before saving.
   const preview = (() => {
     const rows = linked.map((l) => l.row).filter((r): r is CostRow => Boolean(r));
-    const unit = rows.length ? rows.reduce((s, r) => s + r.avg_cost, 0) / rows.length : null;
+    const unit = rows.length ? rows.reduce((s, r) => s + (r.catalog_cost ?? r.avg_cost), 0) / rows.length : null;
     const tiers = draft.tiers.filter((t) => t.units > 0 && t.price > 0);
     const sheetPrices = rows.map((r) => r.avg_price).filter((p) => p > 0);
     const perUnit = tiers.length
@@ -71,10 +71,10 @@ export function SectionEditor({ section, campaignNames, cod, onSaved, onCostChan
     const aov = t.purchases ? t.purchase_value / t.purchases : null;
     const be = (p: number | null) => {
       if (unit === null || p === null) return null;
-      const margin = 1 - unit / p + (aov ? (cod.fee * cod.share * unit / p - draft.extra_cost_per_order) / aov : 0);
+      const margin = 1 - unit / p - (cod.pct ?? 0) + (aov ? (cod.fee * cod.share * unit / p - draft.extra_cost_per_order - (cod.per_order ?? 0)) / aov : 0);
       return margin > 0 ? 1 / margin : Infinity;
     };
-    const rest = t.purchase_value - t.purchases * draft.extra_cost_per_order - t.spend;
+    const rest = t.purchase_value * (1 - (cod.pct ?? 0)) - t.purchases * (draft.extra_cost_per_order + (cod.per_order ?? 0)) - t.spend;
     const goods = Math.max(0, t.purchase_value - cod.fee * cod.share * t.purchases);
     const profitLow = unit === null || min === null ? null : rest - (goods / min) * unit;
     const profitHigh = unit === null || max === null ? null : rest - (goods / max) * unit;
