@@ -21,7 +21,7 @@
     }
   ],
   // Rules at 08:00 and 20:00 Bangkok (UTC+7); costs re-sync from the Google Sheet at 07:30. Keep in sync with worker/index.ts.
-  "triggers": { "crons": ["0 1,13 * * *", "30 0 * * *", "0 3 * * *", "15 */3 * * *", "* * * * *"] },
+  "triggers": { "crons": ["0 1,13 * * *", "30 0 * * *", "0 3 * * *", "15 */3 * * *"] },
   "vars": {
     "META_AD_ACCOUNT_ID": "act_2149666808519411",
     "META_API_VERSION": "v21.0",
