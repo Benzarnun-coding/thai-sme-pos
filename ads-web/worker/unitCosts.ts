@@ -62,7 +62,7 @@ function mainCost(rows: CatalogCostRow[]): number | null {
   return best;
 }
 
-/** Pure: the catalog cost of one linked code, and which catalog codes gave it. */
+/** Pure: the catalog cost of one linked code (what most of its codes cost; a tie takes the higher), and which catalog codes gave it. */
 export function catalogCostOf(code: string, rows: CatalogCostRow[]): { cost: number; codes: string[]; price: number | null } | null {
   const byCode = new Map<string, CatalogCostRow[]>();
   for (const r of rows) { const k = up(r.code); byCode.set(k, [...(byCode.get(k) ?? []), r]); }
@@ -70,7 +70,9 @@ export function catalogCostOf(code: string, rows: CatalogCostRow[]): { cost: num
     const hits = [...new Set(codes)].map((c) => ({ c, cost: mainCost(byCode.get(c) ?? []) })).filter((h): h is { c: string; cost: number } => h.cost !== null);
     if (!hits.length) return null;
     const prices = hits.flatMap((h) => byCode.get(h.c)!.map((r) => r.price ?? 0)).filter((p) => p > 0);
-    return { cost: hits.reduce((t, h) => t + h.cost, 0) / hits.length, codes: hits.map((h) => h.c), price: prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : null };
+    // Same rule across codes as across sizes, so the number is always one a catalog card shows.
+    const cost = mainCost(hits.map((h) => ({ code: h.c, cost: h.cost, typed: null })))!;
+    return { cost, codes: hits.map((h) => h.c), price: prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : null };
   };
   const { exact, families, suffixes } = codeCandidates(code);
   for (const group of exact) { const hit = tryCodes(group); if (hit) return hit; }
