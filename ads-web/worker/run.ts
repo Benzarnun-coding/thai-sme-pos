@@ -8,6 +8,7 @@ import { applyMoves, codOf, insertRun, loadCampaignSettings, loadCosts, loadSect
 import { buildGroups, neededWindows, planDecisions, sectionMap, type MoveDecision, type Plan } from './engine.ts';
 import { loadOrders, orderFees } from './p365.ts';
 import { applyActual } from './actualMetrics.ts';
+import { campaignBreakevens, type BreakevenSource, type CampaignBreakeven } from './breakevens.ts';
 import { approvalsEnabled, expireOld, postProposal, recentlyAsked, saveProposals, type Proposal } from './discord.ts';
 
 /** Keeps a run well inside the Workers free plan's 50 outbound requests, and limits damage from a bad rule. */
@@ -219,7 +220,9 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
 export async function planRun(
   db: D1Database, entities: Entity[], insights: (level: Level, window: Window) => Promise<Map<string, Metrics>>, state: State, now: Date,
   daily?: (window: Window) => Promise<CampaignDayRow[]>,
-): Promise<{ plan: Plan; evaluated: number }> {
+  /** Overrides Settings' guardrails.breakeven_source (the preview tries 'orders' before Benz switches it on) */
+  breakevenSource?: BreakevenSource,
+): Promise<{ plan: Plan; evaluated: number; breakevens: Map<string, CampaignBreakeven> | null }> {
   const [sections, stages, campaignSettings, costs, settings] = await Promise.all([loadSections(db), loadStages(db), loadCampaignSettings(db), loadCosts(db), loadSettings(db)]);
   const sectionOf = sectionMap(entities, sections, campaignSettings);
   const groups = buildGroups(entities, sections, stages, campaignSettings, sectionOf);
@@ -231,9 +234,29 @@ export async function planRun(
   // Uploaded Page365 days replace Meta's admin-tagged purchases (campaign level).
   const actualNotes = daily ? await applyActual(db, entities, [...(neededWindowsOf(calls, 'campaign'))], daily, now) : [];
   const evaluated = entities.filter((e) => groups.some((g) => g.campaignIds.has(e.campaign_id))).length;
-  const plan = planDecisions(groups, entities, sectionOf, costs, campaignSettings, stages, state, now, codOf(settings), await shopBreakeven(db, settings, now), settings.guardrails.max_daily_budget);
+  const shop = await shopBreakeven(db, settings, now);
+  const breakevens = (breakevenSource ?? settings.guardrails.breakeven_source ?? 'catalog') === 'orders'
+    ? campaignBreakevens(entities.filter((e) => e.level === 'campaign'), sections, sectionOf, await loadOrders(db, breakevenDates(now)).catch(() => []), costs, codOf(settings), settings.order_fees, shop)
+    : null;
+  const plan = planDecisions(groups, entities, sectionOf, costs, campaignSettings, stages, state, now, codOf(settings), shop, settings.guardrails.max_daily_budget, breakevens ?? undefined);
   plan.notes.unshift(...actualNotes);
-  return { plan, evaluated };
+  if (breakevens) plan.notes.push(breakevenNote(breakevens, groups));
+  return { plan, evaluated, breakevens };
+}
+
+/** The 14 Bangkok days before today, as Page365 order dates. */
+const breakevenDates = (now: Date) => Array.from({ length: 14 }, (_, i) => new Date(now.getTime() + 7 * 3_600_000 - (i + 1) * 86_400_000).toISOString().slice(0, 10));
+
+/** One line for the run's notes: how many automated campaigns got their break-even from where. */
+function breakevenNote(bes: Map<string, CampaignBreakeven>, groups: { campaignIds: Set<string> }[]): string {
+  const ids = new Set(groups.flatMap((g) => [...g.campaignIds]));
+  const count = new Map<string, number>();
+  for (const [id, b] of bes) {
+    if (!ids.has(id)) continue;
+    const kind = b.source.startsWith('ออเดอร์จริงของแคมเปญ') ? 'ออเดอร์ของแคมเปญเอง' : b.source.startsWith('ออเดอร์จริงของสินค้า') ? 'ออเดอร์ของสินค้า' : b.source.startsWith('ราคาโปร') ? 'ราคาโปร' : b.source.startsWith('ราคาแคตตาล็อก') ? 'ราคาแคตตาล็อก' : 'คุ้มทุนรวมร้าน';
+    count.set(kind, (count.get(kind) ?? 0) + 1);
+  }
+  return `คุ้มทุนรายแคมเปญจากออเดอร์จริง Page365 14 วัน: ${[...count].map(([k, n]) => `${k} ${n}`).join(' · ')}`;
 }
 
 const neededWindowsOf = (calls: (readonly [Level, Window])[], level: Level) => new Set(calls.filter(([l]) => l === level).map(([, w]) => w));
@@ -243,8 +266,7 @@ const neededWindowsOf = (calls: (readonly [Level, Window])[], level: Level) => n
  * per-order fees), i.e. 1 ÷ gross margin. Null when fewer than 7 days are uploaded or the margin isn't positive.
  */
 export async function shopBreakeven(db: D1Database, settings: Awaited<ReturnType<typeof loadSettings>>, now: Date): Promise<number | null> {
-  const dates = Array.from({ length: 14 }, (_, i) => new Date(now.getTime() + 7 * 3_600_000 - (i + 1) * 86_400_000).toISOString().slice(0, 10));
-  const orders = await loadOrders(db, dates).catch(() => []);
+  const orders = await loadOrders(db, breakevenDates(now)).catch(() => []);
   if (new Set(orders.map((o) => o.date)).size < 7) return null;
   const revenue = orders.reduce((t, o) => t + o.total, 0);
   const gross = orders.reduce((t, o) => t + o.total - (o.cost ?? 0) - orderFees(o, settings.order_fees), 0);

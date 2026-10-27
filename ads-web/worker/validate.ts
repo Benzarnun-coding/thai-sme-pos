@@ -168,6 +168,7 @@ export function validateSettings(input: any, current: Settings): Settings {
     ...(g.winner_max_daily_budget === undefined ? {} : { winner_max_daily_budget: num(g.winner_max_daily_budget, 'งบสูงสุดต่อแคมเปญตัวชนะ 7 วัน', 1) }),
     ...(g.free_increase_below === undefined ? {} : { free_increase_below: num(g.free_increase_below, 'งบที่ยังเพิ่มได้ทุกรอบ (ต่ำกว่า ฿)', 0) }),
     ...(g.brake_yesterday === undefined ? {} : { brake_yesterday: (['off', 'dry', 'on'].includes(g.brake_yesterday) ? g.brake_yesterday : fail('เบรกเมื่อวานพัง: off / dry / on')) as 'off' | 'dry' | 'on' }),
+    ...(g.breakeven_source === undefined ? {} : { breakeven_source: (['catalog', 'orders'].includes(g.breakeven_source) ? g.breakeven_source : fail('คุ้มทุนจาก: catalog / orders')) as 'catalog' | 'orders' }),
     ...(g.increase_gap_hours === undefined ? {} : { increase_gap_hours: num(g.increase_gap_hours, 'เว้นระหว่างการเพิ่มงบ (ชม.)', 0, 336) }),
   };
   if (guardrails.min_daily_budget > guardrails.max_daily_budget) fail('งบต่ำสุด/วัน ต้องไม่มากกว่างบสูงสุด/วัน');

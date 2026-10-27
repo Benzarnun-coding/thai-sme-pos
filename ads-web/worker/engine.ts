@@ -99,6 +99,8 @@ export function planDecisions(
   fallbackBreakeven: number | null = null,
   /** guardrails.max_daily_budget: for ABO campaigns it caps the sum of the ad sets */
   maxCampaignBudget = Infinity,
+  /** Break-even per campaign (breakevens.ts); when given it replaces the product line's for the campaigns it has */
+  perCampaign?: Map<string, { be: number; source: string }>,
 ): Plan {
   const decisions: Plan['decisions'] = [];
   const moves: MoveDecision[] = [];
@@ -110,32 +112,40 @@ export function planDecisions(
   for (const g of groups) {
     // Break-even comes from the product line's 7-day numbers across all its campaigns, whatever their stage.
     const econ = economics(g.section, costs, totals.get(g.section.id) ?? zero, cod);
-    const be = econ.breakeven_roas ?? fallbackBreakeven;
-    if (econ.breakeven_roas === null && be !== null) notes.push(`[${g.label}] ใช้ ROAS คุ้มทุนรวมร้าน ${be.toFixed(2)} (จากออเดอร์จริง Page365) เพราะสินค้านี้ยังคิดคุ้มทุนเองไม่ได้`);
-    const { actions, moves: moveRules, notes: ruleNotes } = materializeRules(g.stored, be);
-    notes.push(...ruleNotes.map((n) => `[${g.label}] ${n}`));
+    const groupBe = econ.breakeven_roas ?? fallbackBreakeven;
     // Paused campaigns (and their ad sets) aren't spending: nothing to decide for them.
     const pausedCampaigns = new Set(entities.filter((e) => e.level === 'campaign' && e.status !== 'ACTIVE').map((e) => e.id));
-    const members = entities.filter((e) => g.campaignIds.has(e.campaign_id) && !pausedCampaigns.has(e.campaign_id));
-    for (const d of withAdsetBudgets(evaluate(members, actions, NO_SCOPE, state, now), entities, actions, state, now, maxCampaignBudget)) decisions.push({ ...d, group: g.label });
+    const active = entities.filter((e) => g.campaignIds.has(e.campaign_id) && !pausedCampaigns.has(e.campaign_id));
+    // Campaigns sharing a break-even are judged together; without per-campaign ones that is the whole group.
+    const byBe = new Map<number | null, Entity[]>();
+    for (const e of active) {
+      const be = perCampaign?.get(e.campaign_id)?.be ?? groupBe;
+      byBe.set(be, [...(byBe.get(be) ?? []), e]);
+    }
+    if (!perCampaign && econ.breakeven_roas === null && groupBe !== null) notes.push(`[${g.label}] ใช้ ROAS คุ้มทุนรวมร้าน ${groupBe.toFixed(2)} (จากออเดอร์จริง Page365) เพราะสินค้านี้ยังคิดคุ้มทุนเองไม่ได้`);
+    for (const [be, members] of byBe) {
+      const { actions, moves: moveRules, notes: ruleNotes } = materializeRules(g.stored, be);
+      for (const n of ruleNotes) if (!notes.includes(`[${g.label}] ${n}`)) notes.push(`[${g.label}] ${n}`);
+      for (const d of withAdsetBudgets(evaluate(members, actions, NO_SCOPE, state, now), entities, actions, state, now, maxCampaignBudget)) decisions.push({ ...d, group: g.label });
 
-    // Moves: each rule separately (so a too-young campaign can't block a later rule), campaign level only.
-    const campaigns = members.filter((e) => e.level === 'campaign');
-    for (const rule of moveRules) {
-      for (const d of evaluate(campaigns, [{ ...rule, level: 'campaign' }], NO_SCOPE, { last_action: {} }, now)) {
-        const from = settings.get(d.entity.id)?.stage_id ?? null;
-        const days = daysInStage(settings.get(d.entity.id), now);
-        const move: MoveDecision = {
-          ...d,
-          group: g.label,
-          move_from: from,
-          move_to: rule.to,
-          plan: `ย้าย "${d.entity.name}" ${stageName.get(from ?? '') ?? 'ไม่มีกลุ่ม'} → ${stageName.get(rule.to) ?? rule.to} [${d.window} ${d.metric}=${d.observed} เทียบ ${d.threshold}]`,
-        };
-        if (from === rule.to) move.skipped_reason = 'อยู่ในกลุ่มปลายทางอยู่แล้ว';
-        else if (days < rule.min_days_in_stage) move.skipped_reason = `อยู่ในกลุ่มนี้ ${Math.floor(days)} วัน ยังไม่ครบ ${rule.min_days_in_stage} วัน`;
-        else if (moves.some((m) => m.entity.id === d.entity.id && !m.skipped_reason)) move.skipped_reason = 'มีกฎย้ายข้ออื่นทำไปแล้วรอบนี้';
-        moves.push(move);
+      // Moves: each rule separately (so a too-young campaign can't block a later rule), campaign level only.
+      const campaigns = members.filter((e) => e.level === 'campaign');
+      for (const rule of moveRules) {
+        for (const d of evaluate(campaigns, [{ ...rule, level: 'campaign' }], NO_SCOPE, { last_action: {} }, now)) {
+          const from = settings.get(d.entity.id)?.stage_id ?? null;
+          const days = daysInStage(settings.get(d.entity.id), now);
+          const move: MoveDecision = {
+            ...d,
+            group: g.label,
+            move_from: from,
+            move_to: rule.to,
+            plan: `ย้าย "${d.entity.name}" ${stageName.get(from ?? '') ?? 'ไม่มีกลุ่ม'} → ${stageName.get(rule.to) ?? rule.to} [${d.window} ${d.metric}=${d.observed} เทียบ ${d.threshold}]`,
+          };
+          if (from === rule.to) move.skipped_reason = 'อยู่ในกลุ่มปลายทางอยู่แล้ว';
+          else if (days < rule.min_days_in_stage) move.skipped_reason = `อยู่ในกลุ่มนี้ ${Math.floor(days)} วัน ยังไม่ครบ ${rule.min_days_in_stage} วัน`;
+          else if (moves.some((m) => m.entity.id === d.entity.id && !m.skipped_reason)) move.skipped_reason = 'มีกฎย้ายข้ออื่นทำไปแล้วรอบนี้';
+          moves.push(move);
+        }
       }
     }
   }

@@ -60,6 +60,8 @@ export interface Guardrails {
   free_increase_below?: number;
   /** ads-web: one bad day (ROAS < 0.8× BE on ≥ 2,000) above max_daily_budget → back to it; 'dry' only reports; unset = 'dry' */
   brake_yesterday?: 'off' | 'dry' | 'on';
+  /** ads-web: where the rules' break-even comes from — 'orders' = each campaign's real Page365 orders (breakevens.ts); unset = 'catalog' */
+  breakeven_source?: 'catalog' | 'orders';
 }
 
 export interface Scope {

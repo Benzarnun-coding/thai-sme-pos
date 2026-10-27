@@ -17,6 +17,7 @@ import { ECONOMICS_WINDOW, sectionMap, sectionTotals } from './engine.ts';
 import { MockMeta } from './mock.ts';
 import { DEFAULT_SECTION_ID, WEB_TAB, campaignEconomics, economics, profitRange, suggestProducts, type CampaignSetting, type Cod, type CostRow, type Economics, type Section } from './model.ts';
 import { capChanges, DUP_RAMP_TO, DUP_START_BUDGET, FREE_INCREASE_BELOW, INCREASE_GAP_HOURS, MAX_COPY_OBJECTS, planRun, provenWinners, runAutomation, shopBreakeven, spaceIncreases, WINNER_MAX_BUDGET, zeroMetrics, type MetaLike } from './run.ts';
+import type { BreakevenSource } from './breakevens.ts';
 import { buildIdeas } from './ideas.ts';
 import { explainActual, explainDay, explainOrders } from './salesReport.ts';
 import { campaignDay } from './transactions.ts';
@@ -1061,7 +1062,10 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     return json(await salesReport(env, (['last_7d', 'last_14d', 'last_30d'] as Window[]).includes(w) ? w : 'last_14d'));
   }
   if (method === 'GET' && (m = path.match(/^\/api\/campaigns\/(\d+)\/stats$/))) return json(await campaignStats(env, m[1]));
-  if (method === 'GET' && path === '/api/preview') return json(await preview(env));
+  if (method === 'GET' && path === '/api/preview') {
+    const be = url.searchParams.get('breakeven');
+    return json(await preview(env, be === 'orders' || be === 'catalog' ? be : undefined));
+  }
   if (method === 'GET' && (m = path.match(/^\/api\/campaigns\/(\d+)\/daily$/))) {
     const w = url.searchParams.get('window') as Window;
     const { data } = await metaData(env);
@@ -1723,11 +1727,11 @@ async function ideas(env: Env) {
 }
 
 /** What the next scheduled run would do, computed from cached data. Changes nothing on Meta or in D1. */
-async function preview(env: Env) {
+async function preview(env: Env, breakevenSource?: BreakevenSource) {
   const [{ data }, settings, state] = await Promise.all([metaData(env), loadSettings(env.DB), loadState(env.DB)]);
   const entities: Entity[] = data.entities.map((e) => ({ ...e, metrics: {} }));
   const now = new Date();
-  const { plan } = await planRun(env.DB, entities, (level, w) => data.insights(level, w), state, now, (w) => data.dailyAll(w));
+  const { plan, breakevens } = await planRun(env.DB, entities, (level, w) => data.insights(level, w), state, now, (w) => data.dailyAll(w), breakevenSource);
   const [cs, be] = await Promise.all([loadCampaignSettings(env.DB), shopBreakeven(env.DB, settings, now)]);
   spaceIncreases(plan.decisions, entities, state, now, settings.guardrails.increase_gap_hours ?? INCREASE_GAP_HOURS, settings.guardrails.free_increase_below ?? FREE_INCREASE_BELOW);
   const winners = provenWinners(entities, cs, be, settings.guardrails.winner_max_daily_budget ?? WINNER_MAX_BUDGET);
@@ -1744,6 +1748,7 @@ async function preview(env: Env) {
     kill_switch: settings.kill_switch,
     items: [...plan.decisions.map((d) => ({ ...pick(d), after: (d as any).after ?? null })), ...plan.moves.map((m) => ({ ...pick(m), action: 'move', move_to: m.move_to, after: null }))],
     notes: plan.notes,
+    breakevens: breakevens ? [...breakevens].map(([campaign_id, b]) => ({ campaign_id, name: entities.find((e) => e.id === campaign_id)?.name ?? '', ...b })) : null,
   };
 }
 
