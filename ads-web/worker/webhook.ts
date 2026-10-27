@@ -9,7 +9,7 @@ import { autoFillNote, recordMisses, sendNoteSale, sweepNotes } from './autoFill
 import { auditStep } from './fillAudit.ts';
 import { backtestStep } from './addressBacktest.ts';
 import { refillStep } from './addressRefill.ts';
-import { askQueueStep, customerTexts, tambonReply } from './tambonAsk.ts';
+import { askQueueStep, customerTexts, tambonReply, tambonTest } from './tambonAsk.ts';
 import { maybeSyncPurchases } from './metaPurchases.ts';
 import { looksLikeNote, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { hashName } from './p365.ts';
@@ -92,9 +92,10 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
   // A queued ตำบล question for an older bill (tambonAsk.ts), at most one a minute, outside the chain above (whose
   // earlier steps nearly always have work).
   if (!notes.length) ctx.waitUntil(askQueueStep(env as any).catch((err) => console.error('tambon queue', err)));
-  // A customer answering a ตำบล question (tambonAsk.ts): one D1 read per customer message; the text isn't stored here.
+  // A customer answering a ตำบล question (tambonAsk.ts), or Meta's reviewer trying it ("test tambon 81120", off unless
+  // switched on): two D1 reads per customer message; the text isn't stored here.
   const said = customerTexts(body.entry ?? []);
-  if (said.length) ctx.waitUntil(Promise.all(said.slice(0, 3).map((m) => tambonReply(env as any, m.psid, m.text).catch((err) => console.error('tambon reply', err)))));
+  if (said.length) ctx.waitUntil(Promise.all(said.slice(0, 3).map((m) => tambonTest(env as any, m.psid, m.text).then((t) => t ?? tambonReply(env as any, m.psid, m.text)).catch((err) => console.error('tambon reply', err)))));
   // A note the parser can't read: a person is told at once (it is also kept, so the format can be learnt).
   if (misses.length) ctx.waitUntil(recordMisses(env as any, misses).catch((err) => console.error('note miss', err)));
   const chats = extractChats(body.entry ?? []);

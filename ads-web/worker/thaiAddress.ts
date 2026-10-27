@@ -106,6 +106,12 @@ export function subdistrictsOf(district: string, prov: string, zip: string): str
   return [...new Set(all().filter((r) => (!p || r.prov === p) && districtMatches(r.dist, district, r.prov) && (!z || r.zip === z)).map((r) => r.sub))];
 }
 
+/** The district + province a postcode belongs to (the first, when it spans several): the App Review test question. */
+export function zipPlace(zip: string): { district: string; province: string } | null {
+  const r = all().find((x) => x.zip === zip);
+  return r ? { district: r.dist, province: r.prov } : null;
+}
+
 /**
  * ตำบล left out (Benz 26 Oct): a postcode alone almost never tells it (35 of 966 postcodes have one subdistrict;
  * district + postcode, 88 of 7,434), so it is picked only when the district + postcode leave one, or when exactly

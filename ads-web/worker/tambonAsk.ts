@@ -13,7 +13,7 @@ import { addressLine } from './addressReader.ts';
 import { orderLink, postOrderChannel, type AutoEnv } from './autoFill.ts';
 import { audit } from './db.ts';
 import { call, type P365Order } from './p365fill.ts';
-import { bare, subdistrictsOf } from './thaiAddress.ts';
+import { bare, subdistrictsOf, zipPlace } from './thaiAddress.ts';
 import { sendPageMessage, type WebhookEnv } from './webhook.ts';
 
 const ASK_MS = 2 * 86_400_000;
@@ -153,4 +153,38 @@ export async function askQueueStep(env: AskEnv): Promise<number | null> {
   // Paid but not shipped is asked too: the answer then goes to a person to type in.
   if (['draft', 'unpaid', 'transferred', 'paid'].includes(order.stage) && order.customer_fbid) await askTambon(env, order, order.customer_fbid).catch((err) => console.error('tambon ask', err));
   return no;
+}
+
+// Meta's App Review (pages_messaging) needs a way for the reviewer to see the question without an admin's order
+// note: "test tambon 81120" in the page's chat sends the question for that postcode, and the answer is confirmed
+// back (no bill). Switch: meta_capi `tambon_test` = "on"; off by default, and off again once the review is done.
+// State `tambon_test:<psid>` = {district, province, zip, at}, one day.
+const TEST = /^test\s*tambon\s*(\d{5})$/i;
+const TEST_NOTE = '\n(Test mode — no real order is changed.)';
+
+/** The reviewer's test phrase, or their answer to it. Returns what was done, null when it isn't a test message. */
+export async function tambonTest(env: AskEnv, psid: string, text: string): Promise<string | null> {
+  const on = await env.DB.prepare("SELECT value FROM meta_capi WHERE key = 'tambon_test'").first<{ value: string }>().catch(() => null);
+  if (on?.value !== 'on') return null;
+  const key = `tambon_test:${psid}`;
+  const m = text.trim().match(TEST);
+  if (m) {
+    const place = zipPlace(m[1]);
+    if (!place) { await sendPageMessage(env, psid, `ไม่พบรหัสไปรษณีย์ ${m[1]} ค่ะ / Postcode not found.${TEST_NOTE}`); return 'test: no zip'; }
+    const s = { ...place, postal_code: m[1] };
+    await sendPageMessage(env, psid, askText(s, subdistrictsOf(s.district, s.province, s.postal_code)) + TEST_NOTE);
+    await env.DB.prepare('INSERT OR REPLACE INTO meta_capi (key, value) VALUES (?, ?)').bind(key, JSON.stringify({ ...s, at: new Date().toISOString() })).run();
+    await audit(env.DB, 'auto', 'tambon.test', psid.slice(-4), { zip: m[1] }).catch(() => null);
+    return 'test: asked';
+  }
+  const r = await env.DB.prepare('SELECT value FROM meta_capi WHERE key = ?').bind(key).first<{ value: string }>().catch(() => null);
+  if (!r) return null;
+  const s = JSON.parse(r.value) as { district: string; province: string; postal_code: string; at: string };
+  if (Date.now() - Date.parse(s.at) > ASK_MS / 2) { await env.DB.prepare('DELETE FROM meta_capi WHERE key = ?').bind(key).run(); return null; }
+  const sub = matchReply(text, subdistrictsOf(s.district, s.province, s.postal_code));
+  if (!sub) { await sendPageMessage(env, psid, `ขอโทษค่ะ ยังอ่านไม่ออก ตอบเป็นเลขหรือชื่อตำบลได้เลยค่ะ / Please reply with a number or a subdistrict name.${TEST_NOTE}`); return 'test: unmatched'; }
+  await env.DB.prepare('DELETE FROM meta_capi WHERE key = ?').bind(key).run();
+  await sendPageMessage(env, psid, `รับทราบค่ะ ต.${sub} อ.${bare(s.district)} จ.${bare(s.province)} ${s.postal_code} จะใส่ในที่อยู่จัดส่งให้นะคะ 🙏\n(Test mode — in a real order this subdistrict is written into the shipping bill.)`);
+  await audit(env.DB, 'auto', 'tambon.test', psid.slice(-4), { sub }).catch(() => null);
+  return 'test: answered';
 }

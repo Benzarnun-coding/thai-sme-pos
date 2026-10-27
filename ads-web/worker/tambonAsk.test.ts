@@ -35,3 +35,12 @@ test('one subdistrict: the customer is asked to confirm it, and a yes fills it',
   assert.equal(matchReply('ไม่ใช่ค่ะ', ['คลองด่าน']), null);
   assert.equal(matchReply('1', ['คลองด่าน']), 'คลองด่าน');
 });
+
+test('the App Review test phrase: a postcode alone gives the district and its subdistricts', async () => {
+  const { zipPlace, subdistrictsOf } = await import('./thaiAddress.ts');
+  const p = zipPlace('81120')!;
+  assert.equal(p.district, 'คลองท่อม');
+  const t = askText({ ...p, postal_code: '81120' }, subdistrictsOf(p.district, p.province, '81120'));
+  assert.match(t, /อ\.คลองท่อม จ\.กระบี่ 81120[\s\S]*พรุดินนา/);
+  assert.equal(zipPlace('00000'), null);
+});
