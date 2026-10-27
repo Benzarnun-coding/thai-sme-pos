@@ -9,7 +9,7 @@ import { autoFillNote, recordMisses, sendNoteSale, sweepNotes } from './autoFill
 import { auditStep } from './fillAudit.ts';
 import { backtestStep } from './addressBacktest.ts';
 import { refillStep } from './addressRefill.ts';
-import { tambonStep } from './tambonCheck.ts';
+import { askQueueStep, customerTexts, tambonReply } from './tambonAsk.ts';
 import { maybeSyncPurchases } from './metaPurchases.ts';
 import { looksLikeNote, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { hashName } from './p365.ts';
@@ -89,8 +89,11 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
     // Then addresses left out while the AI was out of credit (addressRefill.ts), then the model backtest.
     .then((n) => (n ? -1 : refillStep(env as any)))
     .then((n) => (n ? -1 : backtestStep(env as any)))
-    // Then the ตำบล dry run (tambonCheck.ts, reads only), when one is queued.
-    .then((n) => (n ? null : tambonStep(env as any))).catch((err) => console.error('sweep/audit', err)));
+    // Then a queued ตำบล question for an older bill (tambonAsk.ts).
+    .then((n) => (n ? null : askQueueStep(env as any))).catch((err) => console.error('sweep/audit', err)));
+  // A customer answering a ตำบล question (tambonAsk.ts): one D1 read per customer message; the text isn't stored here.
+  const said = customerTexts(body.entry ?? []);
+  if (said.length) ctx.waitUntil(Promise.all(said.slice(0, 3).map((m) => tambonReply(env as any, m.psid, m.text).catch((err) => console.error('tambon reply', err)))));
   // A note the parser can't read: a person is told at once (it is also kept, so the format can be learnt).
   if (misses.length) ctx.waitUntil(recordMisses(env as any, misses).catch((err) => console.error('note miss', err)));
   const chats = extractChats(body.entry ?? []);
@@ -330,6 +333,14 @@ export async function pageOf(env: WebhookEnv): Promise<{ id: string; name: strin
   const res: any = await graph(env, 'me/accounts', { access_token: env.META_ACCESS_TOKEN, fields: 'id,name,access_token' });
   const p = res.data?.[0];
   return p ? { id: p.id, name: p.name, token: p.access_token } : null;
+}
+
+/** A text message from the page to a customer (Messenger Send API, within the 24-hour reply window). */
+export async function sendPageMessage(env: WebhookEnv, psid: string, text: string): Promise<string | null> {
+  const pg = await pageOf(env);
+  if (!pg) throw new Error('ไม่เห็นเพจ (โทเค็น)');
+  const r: any = await graph(env, `${pg.id}/messages`, { access_token: pg.token, recipient: JSON.stringify({ id: psid }), messaging_type: 'RESPONSE', message: JSON.stringify({ text }) }, 'POST');
+  return r?.message_id ?? null;
 }
 
 async function graph(env: WebhookEnv, path: string, params: Record<string, string>, method: 'GET' | 'POST' = 'GET'): Promise<unknown> {

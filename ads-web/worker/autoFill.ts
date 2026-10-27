@@ -4,6 +4,7 @@
 // name, the bill number and the reasons, for a person. The bill stays a draft: an admin still opens it in
 // Page365 and presses "ส่งบิล". Switch: meta_capi key auto_fill (on/off), on the settings page.
 
+import { askTambon } from './tambonAsk.ts';
 import { DISCORD_PERSONA } from '../../ads-engine/src/notify.ts';
 import { postToDeciders, type DiscordEnv } from './discord.ts';
 import { looksLikeNote, markFill, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
@@ -217,6 +218,8 @@ export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force
       const r = await applyFill(env, note, { plan, address: plan.address, allowWarnings: true });
       await markFill(env.DB, note.mid, { by: 'auto', order_no: r.order.no, error: null });
       if (plan.warnings.length) await tell(env, note, r.order, name, plan.warnings, true);
+      // No ตำบล on the bill: the customer is asked in the chat (dry run until Benz switches it on; tambonAsk.ts).
+      await askTambon(env as any, r.order, note.psid).catch((err) => console.error('tambon ask', err));
       // Remembered for the draft cleanup: a possibly cancelled order left unsent for 7 days is deleted.
       if (plan.warnings.includes(CANCEL_HINT)) await env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES (?, ?)").bind(`cancel_hint:${r.order.no}`, note.at).run().catch(() => null);
       return { status: 'filled', order_no: r.order.no, reasons: plan.warnings };
