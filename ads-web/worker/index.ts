@@ -1400,6 +1400,10 @@ async function overview(env: Env, window: Window, fresh: boolean) {
       /** orders = costed order by order from hourly purchases; estimate = from daily totals */
       cost_method: t ? 'orders' : 'estimate',
       tx: t ? { match_rate: t.match_rate, orders: t.orders, matched: t.matched, days: t.days, window_days: tx.windowDays } : null,
+      /** meta = estimated from Meta's tagged purchases; page365 = the real orders credited to this campaign */
+      profit_source: 'meta' as 'meta' | 'page365',
+      actual_orders: null as number | null,
+      actual_revenue: null as number | null,
       adsets: adsetsOf(c.id).map(view),
     };
   });
@@ -1429,6 +1433,18 @@ async function overview(env: Env, window: Window, fresh: boolean) {
         organic_revenue: sum((o) => (o.match === 'none' ? o.total : 0)), organic_orders: os.filter((o) => o.match === 'none').length,
       };
       if (ads === null) actual = null; // no daily spend to set against: keep the estimate rather than a half number
+    }
+  }
+
+  // Every day of the window uploaded: each campaign's profit is the Page365 orders credited to it − their Page365 cost and
+  // fees − the campaign's spend, not Meta's tags (Benz 2026-10-27: on 26 Oct Meta tagged 257 orders, Page365 had 109).
+  // Orders no campaign fits ("ไม่ทราบแอด") stay out of the campaign rows; they are in the real KPI card.
+  if (actual && actual.covered === actual.dates) {
+    const real = actualByCampaign(actualOrders.filter((o) => uploads.has(o.date)), settings.order_fees);
+    for (const c of campaigns) {
+      const r = real.get(c.id) ?? { orders: 0, revenue: 0, cost: 0, fees: 0, units: 0 };
+      const p = r.revenue - r.cost - r.fees - (c.metrics?.spend ?? 0);
+      Object.assign(c, { profit: p, profit_high: p, units_low: r.units, units_high: r.units, profit_source: 'page365', actual_orders: r.orders, actual_revenue: r.revenue });
     }
   }
 

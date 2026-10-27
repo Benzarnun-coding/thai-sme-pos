@@ -108,6 +108,10 @@ export interface CampaignView extends EntityView {
   /** Estimated pieces sold (order value ÷ price per piece) */
   units_low: number | null;
   units_high: number | null;
+  /** page365 = every day of the window uploaded: profit is the real orders credited to this campaign; meta = estimated from Meta's tags */
+  profit_source?: 'meta' | 'page365';
+  actual_orders?: number | null;
+  actual_revenue?: number | null;
   adsets: EntityView[];
 }
 

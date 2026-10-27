@@ -305,7 +305,7 @@ function StageSection({ stage, all, campaigns, data, preview, ideas, onReload, o
             <span className="num">ออเดอร์</span>
             <span className="num" title="ค่าแอดต่อออเดอร์">ค่าแอด/ออเดอร์</span>
             <span className="num">ROAS</span>
-            <span className="num">กำไร</span>
+            <span className="num" title="วันที่มีไฟล์ Page365 ครบทุกวัน: ออเดอร์จริงที่จับคู่กับแคมเปญ − ทุน Page365 − ค่าใช้จ่ายต่อออเดอร์ − ค่าแอด · ไม่ครบ: ประมาณจากออเดอร์ที่ติ๊กใน Meta">กำไร</span>
             <span className="num">งบ/วัน</span>
           </div>
         )}
@@ -387,7 +387,7 @@ function TotalsRow({ list, filtered }: { list: CampaignView[]; filtered: boolean
       <span className="num" data-label="ออเดอร์" title={t.clicks ? `CVR ${num((t.purchases / t.clicks) * 100, 2)}%` : undefined}>{num(t.purchases)}</span>
       <span className="num" data-label="ค่าแอด/ออเดอร์">{t.purchases ? baht(t.spend / t.purchases) : '–'}</span>
       <span className="num strong" data-label="ROAS">{t.spend ? num(t.value / t.spend, 2) : '–'}</span>
-      <span className={`num ${withProfit.length ? profitTone(low, high) : ''}`} data-label="กำไร" title={withProfit.length ? `ประมาณ ${bahtRange(low, high)}` : 'ยังไม่ผูกต้นทุน'}>{withProfit.length ? baht(low) : '–'}</span>
+      <span className={`num ${withProfit.length ? profitTone(low, high) : ''}`} data-label="กำไร" title={!withProfit.length ? 'ยังไม่ผูกต้นทุน' : withProfit.every((c) => c.profit_source === 'page365') ? 'ของจริง Page365 (ไม่รวมออเดอร์ที่ไม่ทราบแอด)' : `ประมาณจาก Meta ${bahtRange(low, high)}`}>{withProfit.length ? baht(low) : '–'}</span>
       <span className="num" data-label="งบ/วัน" title="งบรวมต่อวันของแคมเปญที่เปิดอยู่">{baht(t.budget)}</span>
     </div>
   );
@@ -431,7 +431,9 @@ function CampaignRow({ c, data, selected, onSelect, next, idea, onOpen, onStatus
       <span
         className={`num ${profitTone(c.profit, c.profit_high)}`}
         data-label="กำไร"
-        title={c.profit === null ? 'ยังไม่ผูกต้นทุน' : `ประมาณ ${bahtRange(c.profit, c.profit_high)} · ${num(c.units_low) === num(c.units_high) ? num(c.units_low) : `${num(c.units_low)}–${num(c.units_high)}`} ตัว`}
+        title={c.profit_source === 'page365'
+          ? `ของจริง Page365: ${num(c.actual_orders ?? 0)} ออเดอร์ ${baht(c.actual_revenue ?? 0)} (Meta นับ ${num(m?.purchases)}) · ${num(c.units_low)} ตัว`
+          : c.profit === null ? 'ยังไม่ผูกต้นทุน' : `ประมาณจาก Meta ${bahtRange(c.profit, c.profit_high)} · ${num(c.units_low) === num(c.units_high) ? num(c.units_low) : `${num(c.units_low)}–${num(c.units_high)}`} ตัว`}
       >
         {c.profit === null ? '–' : baht(c.profit)}{profitTone(c.profit, c.profit_high) === 'warn' && <sup>?</sup>}
       </span>
