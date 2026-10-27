@@ -42,6 +42,7 @@ import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './p
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
 import { approvalsEnabled, blockedByKillSwitch, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
 import { hourCheck, hourCheckText } from './hourCheck.ts';
+import { applyCardCorrections, CARD_REASON, cardCorrectionOn, cardCorrections } from './billCards.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
@@ -193,7 +194,10 @@ export default {
         s.ads_cost_sheet_id ? syncCampaignCosts(env.DB, s) : null,
         // Hourly purchases: refresh the last 3 days (late tags) and fill a few missing older days.
         Promise.resolve().then(() => syncConversionHours(env.DB, metaFor(env))).catch(() => null),
-      ]).then(() => recreditDates(env.DB, [bkkDate(1), bkkDate(2), bkkDate(3)]).catch(() => null))
+      ])
+        // Page365 bill cards Meta counted as sales (billCards.ts; only when switched on), before orders are re-credited.
+        .then(() => applyCardCorrections(env.DB, [bkkDate(1), bkkDate(2), bkkDate(3)], 'auto').catch((err) => console.error('card correction', err)))
+        .then(() => recreditDates(env.DB, [bkkDate(1), bkkDate(2), bkkDate(3)]).catch(() => null))
         .then(() => dailyDigest(env).catch((err) => console.error('digest', err)))));
     } else if (event.cron === SWEEP_CRON) {
       ctx.waitUntil(cronSweep(env).catch((err) => console.error('cron sweep', err)));
@@ -764,6 +768,26 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     return json({ source });
   }
   // Meta's purchases hour by hour vs the sales we sent (hourCheck.ts): a dry run — the Discord text is returned, never posted.
+  // Page365 bill cards Meta counted as purchases (billCards.ts): GET = what would be subtracted (writes nothing);
+  // PUT {on} (owner) switches the correction on/off — on writes the last 14 days at once, then 07:30 keeps it current.
+  if (path === '/api/meta/card-correction' && method === 'GET') {
+    const to = url.searchParams.get('to') ?? bkkDate(1), from = url.searchParams.get('from') ?? to;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw new BadRequest('วันที่ไม่ถูกต้อง');
+    const dates = windowDates(`range:${from}:${to}` as Window).slice(0, 14);
+    const plans = [];
+    for (const d of dates) plans.push(await cardCorrections(env.DB, d));
+    return json({ on: await cardCorrectionOn(env.DB), plans });
+  }
+  if (path === '/api/meta/card-correction' && method === 'PUT') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const on = Boolean((await body())?.on);
+    await env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('card_correction', ?)").bind(on ? 'on' : 'off').run();
+    let plans: Awaited<ReturnType<typeof applyCardCorrections>> = [];
+    if (on) plans = await applyCardCorrections(env.DB, windowDates('last_14d'), user);
+    else await env.DB.prepare("DELETE FROM meta_adjustments WHERE reason = ?").bind(CARD_REASON).run();
+    await audit(env.DB, user, 'meta.card_correction', on ? 'on' : 'off', { purchases: plans.reduce((t, p) => t + p.purchases, 0) });
+    return json({ on, plans });
+  }
   if (path === '/api/meta/hour-check' && method === 'GET') {
     const to = url.searchParams.get('to') ?? bkkDate(1), from = url.searchParams.get('from') ?? to;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw new BadRequest('วันที่ไม่ถูกต้อง');

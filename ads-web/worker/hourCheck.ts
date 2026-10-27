@@ -46,7 +46,7 @@ export function hourCheckText(d: DayCheck): string | null {
 /** Hours of `date` (Bangkok) for an ISO time column, as "HH:00" like Meta's hourly breakdown. */
 const hourSql = (col: string) => `substr(datetime(${col}, '+7 hours'), 12, 2) || ':00'`;
 
-async function oursFor(db: D1Database, date: string): Promise<HourCount[]> {
+export async function oursFor(db: D1Database, date: string): Promise<HourCount[]> {
   const from = new Date(`${date}T00:00:00+07:00`).toISOString(), to = new Date(Date.parse(from) + 86_400_000).toISOString();
   // Note sales (the live sender) plus any bill sales (the older sender), by the event time Meta got.
   const [n, p] = await db.batch([

@@ -80,6 +80,7 @@ export function MetaPurchasesCard() {
           )}
           <AdjustmentDays />
           <HourCheck />
+          <CardCorrection />
           {rows.some((r) => r.status === 'error') && <p className="small bad">มีบิลที่ส่งไม่สำเร็จ: {rows.filter((r) => r.status === 'error').slice(0, 3).map((r) => `#${r.order_no} ${r.detail ?? ''}`).join(' · ')}</p>}
         </>
       )}
@@ -111,6 +112,46 @@ function HourCheck() {
           <b>{d.date}</b> Meta {d.meta} / เรา {d.ours}{d.source === 'none' ? ' · ไม่มีข้อมูล Meta' : ''}
           {d.flagged.length ? <span className="warn"> · เกิน: {d.flagged.map((h) => `${h.hour.slice(0, 2)} น. ${h.meta}/${h.ours}`).join(', ')}</span> : <span className="muted"> · ปกติ</span>}
           {d.text && <pre className="muted" style={{ whiteSpace: 'pre-wrap', margin: '4px 0 0' }}>{d.text}</pre>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+interface CardPlan { date: string; purchases: number; value: number; hours: { hour: string; cards: number; counted: number; meta: number; ours: number; take: number }[] }
+
+/** Page365 bill cards Meta counts as sales (Monday mornings): what would be subtracted, and the owner's switch. */
+function CardCorrection() {
+  const { toast, confirm } = useUi();
+  const [on, setOn] = useState<boolean | null>(null);
+  const [plans, setPlans] = useState<CardPlan[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const dates = () => {
+    const to = new Date(Date.now() + 7 * 3_600_000 - 86_400_000).toISOString().slice(0, 10);
+    return { from: new Date(Date.parse(to) - 13 * 86_400_000).toISOString().slice(0, 10), to };
+  };
+  const load = async () => {
+    setBusy(true);
+    const { from, to } = dates();
+    try { const r = await call<{ on: boolean; plans: CardPlan[] }>('GET', `/api/meta/card-correction?from=${from}&to=${to}`); setOn(r.on); setPlans(r.plans); } catch (e: any) { toast(e.message, 'bad'); }
+    setBusy(false);
+  };
+  const flip = async () => {
+    if (!(await confirm(on
+      ? { title: 'เลิกหักยอดการ์ดบิล?', body: 'ตัวเลขจะกลับไปใช้ยอด Meta ตรงๆ', confirmLabel: 'เลิกหัก' }
+      : { title: 'เริ่มหักยอดการ์ดบิล Page365?', body: 'หัก 14 วันล่าสุดทันที แล้วทุกเช้า 07:30 · กฎแอดวันที่ยังไม่มีไฟล์ Page365 (เช่นวันจันทร์ ตอนรันเช้าวันอังคาร) จะใช้ยอดที่หักแล้ว', confirmLabel: 'เริ่มหัก' }))) return;
+    try { const r = await call<{ on: boolean }>('PUT', '/api/meta/card-correction', { on: !on }); setOn(r.on); toast(r.on ? 'เริ่มหักแล้ว' : 'เลิกหักแล้ว', 'ok'); load(); } catch (e: any) { toast(e.message, 'bad'); }
+  };
+  const shown = plans?.filter((p) => p.purchases > 0) ?? [];
+  return (
+    <div className="small" style={{ marginTop: 10 }}>
+      <button className="ghost" disabled={busy} onClick={load}>{busy ? 'กำลังดู…' : 'ดูยอดการ์ดบิล Page365 ที่ Meta นับเกิน 14 วัน'}</button>
+      {on !== null && <button className={on ? '' : 'ghost'} style={{ marginLeft: 6 }} onClick={flip}>{on ? 'กำลังหักอยู่ · กดเพื่อเลิก' : 'ยังไม่หัก · กดเพื่อเริ่มหัก (เจ้าของ)'}</button>}
+      <div className="muted">การ์ด "ดูออเดอร์ / แจ้งโอน" ที่ส่งถึงลูกค้าที่ระบบไม่ได้ส่งยอดให้ใน 24 ชม. ก่อนหน้า (บิลเสาร์–อาทิตย์ที่ส่งเช้าวันจันทร์) · หักไม่เกินส่วนที่ Meta นับเกินในชั่วโมงนั้น</div>
+      {plans && !shown.length && <div className="muted">14 วันนี้ไม่มีอะไรต้องหัก</div>}
+      {shown.map((p) => (
+        <div key={p.date}>
+          <b>{p.date}</b> หัก {p.purchases} ยอด · {baht(p.value)} — {p.hours.filter((h) => h.take).map((h) => `${h.hour.slice(0, 2)} น. ${h.take} (การ์ด ${h.counted}, Meta ${h.meta} / เรา ${h.ours})`).join(' · ')}
         </div>
       ))}
     </div>
