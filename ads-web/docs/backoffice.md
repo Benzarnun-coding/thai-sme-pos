@@ -17,6 +17,14 @@ Pages and the one job each does:
 Shared rule for every page: a cost or price typed on the website wins over the sheet; nothing here changes the ads
 rules, the monthly goal or the sheet.
 
+ทุน follows Page365 (Benz 27 Oct): after every Page365 upload, `worker/p365Costs.ts` solves Page365's cost per product ×
+size band (≥ 38) from the last 14 days of whole-order costs (one-product orders directly, mixed ones by taking off the
+known products; the orders must agree ±1 baht) and sets the website cost (`catalog_prices`, per size) wherever ours
+differs or is empty — so order sheets, supplier amounts, profit and งานค้าง use it. Audited as `catalog.price.p365`
+(SKU, before, after); preview `GET /api/p365/costs`, run now `POST`. Products Page365 sold that aren't in the catalog
+are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,486 of 1,502 orders explained by our costs; differed:
+1712/1713 BLD 155 → 200, R429/3 235 → 225, 205/1 38+ 218.88 → 215.88; empty: 801/1–3 and 501/1–3 BB 38+.
+
 ## Catalog `/catalog`
 
 - Source: the `SKU+Price` sheet (id in setting `catalog_sheet_id`, falls back to `sheet_id`; kept separate because

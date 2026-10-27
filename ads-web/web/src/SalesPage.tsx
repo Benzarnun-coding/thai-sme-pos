@@ -531,7 +531,7 @@ function P365UploadCard({ window, onUploaded, campaignName }: { window: Window; 
     try {
       const res = await api.p365Upload(pending.orders);
       const c = Object.values(res.credits).reduce((t, x) => ({ customer: t.customer + x.customer, exact: t.exact + x.exact, approx: t.approx + x.approx, none: t.none + x.none }), { customer: 0, exact: 0, approx: 0, none: 0 });
-      toast(`บันทึก ${res.orders} ออเดอร์ (${res.dates.join(', ')}) · จับคู่แอดได้ ${c.customer + c.exact + c.approx} · ไม่ทราบแอด ${c.none}${res.skipped ? ` · ไม่นับใบเปลี่ยนของ ${res.skipped}` : ''}${res.errors.length ? ` · ข้าม ${res.errors.length} แถว` : ''}`, 'ok');
+      toast(`บันทึก ${res.orders} ออเดอร์ (${res.dates.join(', ')}) · จับคู่แอดได้ ${c.customer + c.exact + c.approx} · ไม่ทราบแอด ${c.none}${res.skipped ? ` · ไม่นับใบเปลี่ยนของ ${res.skipped}` : ''}${res.errors.length ? ` · ข้าม ${res.errors.length} แถว` : ''}${res.costs?.changed ? ` · ปรับทุนตาม Page365 ${res.costs.changed} ไซส์` : ''}${res.costs?.missing.length ? ` · ไม่มีในแคตตาล็อก ${res.costs.missing.length} รุ่น` : ''}`, 'ok');
       setPending(null);
       await load();
       onUploaded();

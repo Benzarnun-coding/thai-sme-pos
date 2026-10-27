@@ -42,6 +42,7 @@ import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './p
 import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
 import { approvalsEnabled, blockedByKillSwitch, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
 import { hourCheck, hourCheckText } from './hourCheck.ts';
+import { syncP365Costs } from './p365Costs.ts';
 import { applyCardCorrections, CARD_REASON, cardCorrectionOn, cardCorrections } from './billCards.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
@@ -478,8 +479,14 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
         .bind(d, os.length, os.reduce((n, o) => n + o.units, 0), os.reduce((n, o) => n + o.total, 0), user, now);
     }));
     await audit(env.DB, user, 'p365.upload', dates.join(','), { orders: orders.length, errors: errors.length, skipped, credits });
+    // Our ทุน follows Page365 wherever it differs (p365Costs.ts, Benz 27 Oct).
+    const costs = await syncP365Costs(env.DB, user, { apply: true }).catch((err) => { console.error('p365 costs', err); return null; });
     ctx.waitUntil(Promise.all(dates.map((d) => salesDigest(env, d).catch((err) => console.error('digest', err)))));
-    return json({ dates, orders: orders.length, errors, skipped, credits });
+    return json({ dates, orders: orders.length, errors, skipped, credits, costs: costs && { changed: costs.changes.length, missing: costs.missing.map((m) => m.key) } });
+  }
+  // What our ทุน would change to from Page365's costs (p365Costs.ts); POST applies it now (the upload also does).
+  if (path === '/api/p365/costs' && (method === 'GET' || method === 'POST')) {
+    return json(await syncP365Costs(env.DB, user, { apply: method === 'POST' }));
   }
   if (path === '/api/p365' && method === 'GET') {
     const w = url.searchParams.get('window') as Window;

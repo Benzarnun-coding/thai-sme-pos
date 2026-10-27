@@ -442,7 +442,7 @@ export const api = {
   salesReport: (window: Window) => call<{ window: Window; rows: SalesRow[]; uploaded: string[]; fetched_at: string; warning: string | null }>('GET', `/api/sales-report?window=${window}`),
   p365Uploads: (window: Window) => call<{ uploads: P365Upload[] }>('GET', `/api/p365?window=${window}`),
   p365Orders: (date: string) => call<{ date: string; fees: OrderFees; orders: P365Order[] }>('GET', `/api/p365/orders?date=${date}`),
-  p365Upload: (orders: UploadedOrder[]) => call<{ dates: string[]; orders: number; errors: string[]; skipped: number; credits: Record<string, { customer: number; exact: number; approx: number; none: number }> }>('POST', '/api/p365/upload', { orders }),
+  p365Upload: (orders: UploadedOrder[]) => call<{ dates: string[]; orders: number; errors: string[]; skipped: number; credits: Record<string, { customer: number; exact: number; approx: number; none: number }>; costs?: { changed: number; missing: string[] } | null }>('POST', '/api/p365/upload', { orders }),
   p365Recredit: (date: string) => call<{ date: string; credits: { customer: number; exact: number; approx: number; none: number } | null }>('POST', '/api/p365/recredit', { date }),
   users: () => call<UsersData>('GET', '/api/users'),
   addUser: (u: { email: string; role: Role; note: string }) => call<{ ok: true; sync: { ok: boolean; error?: string } | null }>('POST', '/api/users', u),
