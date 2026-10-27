@@ -35,12 +35,15 @@ export function askText(s: { district: string | null; province: string | null; p
   const where = [`${dist}${bare(s.district ?? '')}`, bkk ? 'กรุงเทพฯ' : s.province ? `จ.${bare(s.province)}` : '', s.postal_code ?? ''].filter(Boolean).join(' ');
   const head = `ขอบคุณที่สั่งซื้อนะคะ 🙏 รบกวนขอ${sub}สำหรับจัดส่งเพิ่มอีกนิดค่ะ (${where})`;
   if (!cands.length || cands.length > LIST_MAX) return `${head}\nพิมพ์ชื่อ${sub}มาได้เลยค่ะ`;
+  // One subdistrict for this district + postcode: confirm it (the address book has gaps, #30804).
+  if (cands.length === 1) return `${head}\nเป็น${sub}${cands[0]} ใช่ไหมคะ ถ้าไม่ใช่พิมพ์ชื่อ${sub}มาได้เลยค่ะ`;
   return `${head}\n${cands.map((c, i) => `${i + 1}. ${c}`).join('\n')}\nตอบเป็นเลขหรือชื่อ${sub}ได้เลยค่ะ`;
 }
 
 /** The customer's answer → one subdistrict of the list, or null. "2", "ข้อ 2", "ต.หนองบัว", "หนองบัวค่ะ". */
 export function matchReply(text: string, cands: string[]): string | null {
   const t = text.trim();
+  if (cands.length === 1 && /^(ใช่|ถูก|ค่ะ|คะ|ครับ|โอเค|ok|okay|yes|ได้)/i.test(t) && !/ไม่/.test(t)) return cands[0];
   const num = t.match(/^(?:ข้อ|เลข|ตัวเลือก)?\s*(\d{1,2})\s*(?:ค่ะ|คะ|ครับ|นะคะ|นะ|จ้า|จ้ะ)?\s*$/);
   if (num && cands.length <= LIST_MAX) return cands[Number(num[1]) - 1] ?? null;
   const flat = t.replace(/\s+/g, '');

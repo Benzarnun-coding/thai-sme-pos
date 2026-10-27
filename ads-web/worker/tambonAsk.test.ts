@@ -28,3 +28,10 @@ test('only a bill complete but for its ตำบล is asked about', () => {
   assert.equal(missingTambon({ structural_address: { ...s, postal_code: '' } }), false);
   assert.equal(missingTambon({ structural_address: null }), false);
 });
+
+test('one subdistrict: the customer is asked to confirm it, and a yes fills it', () => {
+  assert.match(askText({ district: 'บางบ่อ', province: 'สมุทรปราการ', postal_code: '10550' }, ['คลองด่าน']), /เป็นตำบลคลองด่าน ใช่ไหมคะ/);
+  assert.equal(matchReply('ใช่ค่ะ', ['คลองด่าน']), 'คลองด่าน');
+  assert.equal(matchReply('ไม่ใช่ค่ะ', ['คลองด่าน']), null);
+  assert.equal(matchReply('1', ['คลองด่าน']), 'คลองด่าน');
+});
