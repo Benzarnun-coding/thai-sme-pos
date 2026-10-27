@@ -74,7 +74,17 @@ export async function askTambon(env: AskEnv, order: P365Order, psid: string): Pr
     await audit(env.DB, 'auto', 'tambon.ask', String(order.no), { dry: true, candidates: cands.length }).catch(() => null);
     return 'dry';
   }
-  const mid = await sendPageMessage(env, psid, text);
+  let mid: string | null;
+  try {
+    mid = await sendPageMessage(env, psid, text);
+  } catch (err: any) {
+    // Outside Meta's 24-hour reply window, or the app not allowed to message customers: a person asks instead.
+    const error = String(err?.message ?? err).slice(0, 300);
+    await audit(env.DB, 'auto', 'tambon.ask', String(order.no), { sent: false, error }).catch(() => null);
+    const bill = `[#${order.no}](<${orderLink(env, order.id)}>)`;
+    await postOrderChannel(env, (m) => `📍 บิลนี้ไม่มีตำบล ระบบส่งข้อความถามลูกค้าไม่ได้ — ช่วยถามในแชทเอง ${m}\nบิล ${bill} · ${error.slice(0, 150)}`.trim());
+    return 'skip';
+  }
   await env.DB.prepare('INSERT OR REPLACE INTO meta_capi (key, value) VALUES (?, ?)').bind(key, JSON.stringify({ no: order.no, id: order.id, at: new Date().toISOString(), mid })).run();
   await audit(env.DB, 'auto', 'tambon.ask', String(order.no), { sent: true, candidates: cands.length }).catch(() => null);
   return 'sent';
