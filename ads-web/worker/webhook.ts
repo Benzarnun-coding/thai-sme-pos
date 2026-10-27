@@ -88,9 +88,10 @@ export async function receiveWebhook(req: Request, env: WebhookEnv, ctx: Executi
     // Nor any audit: one bill of the address-model backtest, when one is queued (addressBacktest.ts).
     // Then addresses left out while the AI was out of credit (addressRefill.ts), then the model backtest.
     .then((n) => (n ? -1 : refillStep(env as any)))
-    .then((n) => (n ? -1 : backtestStep(env as any)))
-    // Then a queued ตำบล question for an older bill (tambonAsk.ts).
-    .then((n) => (n ? null : askQueueStep(env as any))).catch((err) => console.error('sweep/audit', err)));
+    .then((n) => (n ? null : backtestStep(env as any))).catch((err) => console.error('sweep/audit', err)));
+  // A queued ตำบล question for an older bill (tambonAsk.ts), at most one a minute, outside the chain above (whose
+  // earlier steps nearly always have work).
+  if (!notes.length) ctx.waitUntil(askQueueStep(env as any).catch((err) => console.error('tambon queue', err)));
   // A customer answering a ตำบล question (tambonAsk.ts): one D1 read per customer message; the text isn't stored here.
   const said = customerTexts(body.entry ?? []);
   if (said.length) ctx.waitUntil(Promise.all(said.slice(0, 3).map((m) => tambonReply(env as any, m.psid, m.text).catch((err) => console.error('tambon reply', err)))));

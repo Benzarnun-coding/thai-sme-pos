@@ -122,12 +122,15 @@ export async function tambonReply(env: AskEnv, psid: string, text: string): Prom
   return done(ok ? 'filled' : 'filled, check');
 }
 
-/** Bills filled before this existed: meta_capi `tambon_ask_queue` = {"nos":[…]}, one per webhook delivery. */
+/** Bills filled before this existed: meta_capi `tambon_ask_queue` = {"nos":[…]}, one a minute on webhook deliveries. */
 export async function askQueueStep(env: AskEnv): Promise<number | null> {
   const r = await env.DB.prepare("SELECT value FROM meta_capi WHERE key = 'tambon_ask_queue'").first<{ value: string }>().catch(() => null);
   let nos: number[] = [];
   try { nos = r ? (JSON.parse(r.value) as { nos: number[] }).nos ?? [] : []; } catch { /* none */ }
   if (!nos.length) return null;
+  const last = await env.DB.prepare("SELECT value FROM meta_capi WHERE key = 'tambon_ask_queue_at'").first<{ value: string }>().catch(() => null);
+  if (last && Date.now() - Date.parse(last.value) < 60_000) return null;
+  await env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('tambon_ask_queue_at', ?)").bind(new Date().toISOString()).run();
   const no = nos.shift()!;
   await env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES ('tambon_ask_queue', ?)").bind(JSON.stringify({ nos })).run();
   const list = await call<{ orders: { id: number; no: number }[] }>(env, `orders.json?page=1&search=${no}`).catch(() => null);
