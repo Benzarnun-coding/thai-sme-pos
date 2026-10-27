@@ -14,7 +14,9 @@ test('linked product codes expand to catalog codes', () => {
   assert.deepEqual(codeCandidates('KZ-070-073').exact[0].slice(1), ['KZ-070', 'KZ-071', 'KZ-072', 'KZ-073']);
   assert.deepEqual(codeCandidates('444/1-444/2').exact[0].slice(1), ['444/1', '444/2']);
   assert.deepEqual(codeCandidates('N นูดดี้ 888/1-6').exact[1].slice(1, 3), ['888/1', '888/2']);
-  assert.deepEqual(codeCandidates('801').families, ['801/']);
+  assert.deepEqual(codeCandidates('801').families, ['801/', '801-']);
+  assert.deepEqual(codeCandidates('AR 16').families, ['16/', '16-']);
+  assert.deepEqual(codeCandidates('BAGGY 711-714').suffixes, ['-711', '-712', '-713', '-714']);
   assert.deepEqual(codeCandidates('LX-154').exact, [['LX-154']]);
 });
 
@@ -24,6 +26,8 @@ test('catalog cost: typed cost wins, sizes averaged, codes averaged, family as l
   assert.deepEqual(catalogCostOf('801', rows), { cost: 117, codes: ['801/2'] });
   assert.deepEqual(catalogCostOf('lx-154', rows), { cost: 205, codes: ['LX-154'] });
   assert.equal(catalogCostOf('E200', [cat('E200', null)]), null);
+  assert.deepEqual(catalogCostOf('AR 16', [cat('16-1', 170), cat('16-2', 170), cat('160', 999)]), { cost: 170, codes: ['16-1', '16-2'] });
+  assert.deepEqual(catalogCostOf('BAGGY 711-714', [cat('RL-711', 210), cat('RL-714', 190), cat('L711', null)]), { cost: 200, codes: ['RL-711', 'RL-714'] });
 });
 
 test('cost rows: catalog replaces the typed cost, otherwise the typed one stays', () => {

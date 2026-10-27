@@ -34,14 +34,20 @@ function expand(p: string): string[] {
 
 /**
  * Catalog codes a linked product code may stand for, tried in order until one finds a cost: the whole code and its
- * ranges, then the same for each word with a digit ("N นูดดี้ 888/1-6" → 888/1…888/6), then the family ("801" → 801/…).
+ * ranges, then the same for each word with a digit ("N นูดดี้ 888/1-6" → 888/1…888/6), then the family ("801" →
+ * 801/…, "AR 16" → 16-…), then a plain number range as the end of a code ("BAGGY 711-714" → RL-711…RL-714).
  */
-export function codeCandidates(code: string): { exact: string[][]; families: string[] } {
+export function codeCandidates(code: string): { exact: string[][]; families: string[]; suffixes: string[] } {
   const whole = up(code);
   const words = whole.split(' ').filter((w) => /\d/.test(w) && w !== whole);
   const exact = [[whole, ...expand(whole)], ...words.map((w) => [w, ...expand(w)])];
-  const families = [whole, ...words].filter((w) => /^[A-Z]*\d+$/.test(w)).map((w) => `${w}/`);
-  return { exact, families };
+  const families = [whole, ...words].filter((w) => /^[A-Z]*\d+$/.test(w)).flatMap((w) => [`${w}/`, `${w}-`]);
+  const suffixes = [whole, ...words].flatMap((w) => {
+    const m = w.match(/^(\d+)-(\d+)$/);
+    if (!m || Number(m[2]) <= Number(m[1]) || Number(m[2]) - Number(m[1]) > 20) return [];
+    return Array.from({ length: Number(m[2]) - Number(m[1]) + 1 }, (_, i) => `-${Number(m[1]) + i}`);
+  });
+  return { exact, families, suffixes };
 }
 
 /** Mean cost of a set of catalog rows (each size counts once); null when none has a cost. */
@@ -58,10 +64,10 @@ export function catalogCostOf(code: string, rows: CatalogCostRow[]): { cost: num
     const hits = [...new Set(codes)].map((c) => ({ c, cost: meanCost(byCode.get(c) ?? []) })).filter((h): h is { c: string; cost: number } => h.cost !== null);
     return hits.length ? { cost: hits.reduce((t, h) => t + h.cost, 0) / hits.length, codes: hits.map((h) => h.c) } : null;
   };
-  const { exact, families } = codeCandidates(code);
+  const { exact, families, suffixes } = codeCandidates(code);
   for (const group of exact) { const hit = tryCodes(group); if (hit) return hit; }
   for (const f of families) { const hit = tryCodes([...byCode.keys()].filter((k) => k.startsWith(f))); if (hit) return hit; }
-  return null;
+  return suffixes.length ? tryCodes([...byCode.keys()].filter((k) => suffixes.some((x) => k.endsWith(x)))) : null;
 }
 
 /** Pure: every cost row with its avg cost swapped for the catalog's when the catalog has it. */
@@ -80,11 +86,13 @@ export async function loadUnitCosts(db: D1Database, costs: CostRow[]): Promise<U
   const all = costs.map((c) => codeCandidates(c.code));
   const exact = [...new Set(all.flatMap((c) => c.exact.flat()))];
   const families = [...new Set(all.flatMap((c) => c.families))];
+  const suffixes = [...new Set(all.flatMap((c) => c.suffixes))];
   const select = `SELECT c.code, c.cost, COALESCE(s.price, p.price) AS typed FROM catalog c
     LEFT JOIN catalog_prices s ON s.key = c.tab || '|' || c.sku LEFT JOIN catalog_prices p ON p.key = c.tab || '|' || c.spu`;
   const res = await db.batch<CatalogCostRow>([
     db.prepare(`${select} WHERE c.code COLLATE NOCASE IN (SELECT value FROM json_each(?1))`).bind(JSON.stringify(exact)),
     ...families.map((f) => db.prepare(`${select} WHERE c.code LIKE ?1`).bind(`${f}%`)),
+    ...(suffixes.length ? [db.prepare(`${select} WHERE EXISTS (SELECT 1 FROM json_each(?1) j WHERE c.code LIKE '%' || j.value)`).bind(JSON.stringify(suffixes))] : []),
   ]);
   return withCatalogCosts(costs, res.flatMap((r) => r.results));
 }
