@@ -181,7 +181,7 @@ export function chatTotal(messages: ChatMessage[], until?: string): number | nul
 export const GOSELL_CODES = /^501\/[123]$/;
 
 /** GoSell SKUs that are sold out there: a bill with one of them goes the normal way, "PK-1234 …" (Mos, idea #9, 22 Oct). Take the SKU out when GoSell has it again. */
-export const GOSELL_OUT_OF_STOCK = ['5013-PK-BL-31'];
+export const GOSELL_OUT_OF_STOCK = ['5013-PK-BL-31', '5012-PK-NV-34'];
 
 export function billName(no: number, firstSku: string | null, name: string, codes: string[] = [], skus: (string | null)[] = []): string {
   const goSell = codes.length > 0 && codes.every((c) => GOSELL_CODES.test(c)) && !skus.some((k) => k && GOSELL_OUT_OF_STOCK.includes(k));
