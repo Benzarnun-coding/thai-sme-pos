@@ -12,7 +12,7 @@ import { cleanSku } from '../web/src/catalog.ts';
 
 export interface P365Item { sku: string; code?: string; qty: number }
 export interface CostOrder { cost: number | null; items: P365Item[] }
-export interface Solved { key: string; band: Band; cost: number; orders: number; pieces: number }
+export interface Solved { key: string; band: Band; cost: number; orders: number; pieces: number; /** SKUs Page365 sold */ skus: string[] }
 export interface CatalogCostRow { tab: string; sku: string; spu: string; cost: number | null }
 export interface CostChange { tab: string; sku: string; from: number | null; to: number; source: 'sheet' | 'web' | 'none' }
 export interface CostPlan { solved: Solved[]; changes: CostChange[]; missing: Solved[]; explained: number; orders: number }
@@ -26,7 +26,7 @@ const median = (v: number[]) => { const s = [...v].sort((a, b) => a - b); const 
 /** Pure: Page365's cost per piece for each product × size band, from whole-order costs. */
 export function solveP365Costs(orders: CostOrder[], alias: Map<string, string> = new Map()): { solved: Solved[]; explained: number; orders: number } {
   const lines: { cost: number; g: Map<string, number> }[] = [];
-  const pieces = new Map<string, number>();
+  const pieces = new Map<string, number>(), seen = new Map<string, Set<string>>();
   for (const o of orders) {
     if (!o.items.length || !(Number(o.cost) > 0)) continue;
     const g = new Map<string, number>();
@@ -36,6 +36,7 @@ export function solveP365Costs(orders: CostOrder[], alias: Map<string, string> =
       const k = `${spu}|${bandOf(size)}`;
       g.set(k, (g.get(k) ?? 0) + i.qty);
       pieces.set(k, (pieces.get(k) ?? 0) + i.qty);
+      seen.set(k, (seen.get(k) ?? new Set()).add(sku));
     }
     lines.push({ cost: Number(o.cost), g });
   }
@@ -63,7 +64,7 @@ export function solveP365Costs(orders: CostOrder[], alias: Map<string, string> =
     if (![...l.g.keys()].every((k) => est.has(k))) continue;
     if (Math.abs([...l.g].reduce((t, [k, q]) => t + est.get(k)!.cost * q, 0) - l.cost) <= 1) explained++;
   }
-  const solved = [...est].map(([k, e]) => { const [key, band] = k.split('|') as [string, Band]; return { key, band, cost: e.cost, orders: e.orders, pieces: pieces.get(k) ?? 0 }; });
+  const solved = [...est].map(([k, e]) => { const [key, band] = k.split('|') as [string, Band]; return { key, band, cost: e.cost, orders: e.orders, pieces: pieces.get(k) ?? 0, skus: [...(seen.get(k) ?? [])].sort() }; });
   return { solved: solved.sort((a, b) => b.pieces - a.pieces), explained, orders: lines.length };
 }
 
@@ -73,7 +74,13 @@ export function planCostSync(solved: Solved[], rows: CatalogCostRow[], typed: Ma
   for (const s of solved) {
     const sizes = rows.filter((r) => { const [spu, size] = splitSku(up(r.sku)); return spu === s.key && bandOf(size) === s.band; });
     if (!sizes.length) { missing.push(s); continue; }
+    const nowOf = (r: CatalogCostRow) => typed.get(`${r.tab}|${r.sku}`) ?? typed.get(`${r.tab}|${r.spu}`) ?? r.cost;
+    // Sizes of the band costed alike (or all empty) take Page365's cost together; if our costs already differ by size
+    // (107: 38 = 190, 40 = 215), only the sizes Page365 sold are changed.
+    const uniform = new Set(sizes.map((r) => String(nowOf(r) ?? ''))).size === 1;
+    const sold = new Set(s.skus);
     for (const r of sizes) {
+      if (!uniform && !sold.has(up(r.sku))) continue;
       const web = typed.get(`${r.tab}|${r.sku}`) ?? typed.get(`${r.tab}|${r.spu}`);
       const now = web ?? r.cost;
       if (now !== null && now !== undefined && Math.abs(now - s.cost) < 0.5) continue;

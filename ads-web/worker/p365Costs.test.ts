@@ -31,13 +31,26 @@ test('size 38+ is its own band; orders that disagree give no value', () => {
 });
 
 test('every size in the band takes Page365\'s cost where ours differs; same costs and other bands are left', () => {
-  const solved = [{ key: '1712-BLD-MR', band: 'std' as const, cost: 200, orders: 2, pieces: 2 }, { key: '8011-BB-MD', band: 'big' as const, cost: 117, orders: 3, pieces: 16 }, { key: '3014-PK-NR', band: 'std' as const, cost: 118, orders: 2, pieces: 11 }];
+  const solved = [{ key: '1712-BLD-MR', band: 'std' as const, cost: 200, orders: 2, pieces: 2, skus: ['1712-BLD-MR-30'] }, { key: '8011-BB-MD', band: 'big' as const, cost: 117, orders: 3, pieces: 16, skus: ['8011-BB-MD-38'] }, { key: '3014-PK-NR', band: 'std' as const, cost: 118, orders: 2, pieces: 11, skus: [] }];
   const rows = [
     { tab: 'BLD', sku: '1712-BLD-MR-28', spu: '1712-BLD-MR', cost: 155 }, { tab: 'BLD', sku: '1712-BLD-MR-30', spu: '1712-BLD-MR', cost: 155 },
     { tab: 'BLD', sku: '1712-BLD-MR-38', spu: '1712-BLD-MR', cost: 215 },
     { tab: 'BB', sku: '8011-BB-MD-38', spu: '8011-BB-MD', cost: null }, { tab: 'BB', sku: '8011-BB-MD-40', spu: '8011-BB-MD', cost: null },
   ];
   const { changes, missing } = planCostSync(solved, rows, new Map([['BLD|1712-BLD-MR-30', 200]]));
-  assert.deepEqual(changes.map((c) => [c.sku, c.from, c.to, c.source]), [['1712-BLD-MR-28', 155, 200, 'sheet'], ['8011-BB-MD-38', null, 117, 'none'], ['8011-BB-MD-40', null, 117, 'none']]);
+  // 1712's sizes are no longer alike (28 = 155, 30 = 200 typed), so only the sold size counts — already 200.
+  assert.deepEqual(changes.map((c) => [c.sku, c.from, c.to, c.source]), [['8011-BB-MD-38', null, 117, 'none'], ['8011-BB-MD-40', null, 117, 'none']]);
   assert.deepEqual(missing.map((m) => m.key), ['3014-PK-NR']);
+});
+
+test('sizes costed alike all move; 107 with its own size-38 cost keeps it (only the sold size 40 counts)', () => {
+  const rows = [
+    { tab: 'BLD', sku: '1712-BLD-MR-28', spu: '1712-BLD-MR', cost: 155 }, { tab: 'BLD', sku: '1712-BLD-MR-30', spu: '1712-BLD-MR', cost: 155 },
+    { tab: 'BB', sku: '107-BB-BL-38', spu: '107-BB-BL', cost: 190 }, { tab: 'BB', sku: '107-BB-BL-40', spu: '107-BB-BL', cost: 215 },
+  ];
+  const { changes } = planCostSync([
+    { key: '1712-BLD-MR', band: 'std', cost: 200, orders: 2, pieces: 2, skus: ['1712-BLD-MR-30'] },
+    { key: '107-BB-BL', band: 'big', cost: 215, orders: 1, pieces: 1, skus: ['107-BB-BL-40'] },
+  ], rows, new Map());
+  assert.deepEqual(changes.map((c) => [c.sku, c.to]), [['1712-BLD-MR-28', 200], ['1712-BLD-MR-30', 200]]);
 });
