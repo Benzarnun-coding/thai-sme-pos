@@ -97,6 +97,7 @@ test('the bill name and the address the team writes; a missing address is a warn
   assert.equal(billName(29296, 'NI93-PK-BR-32', 'PK-9296 สุพัตรา'), 'PK-9296 สุพัตรา', 'no double prefix');
   assert.equal(billName(21234, '5011-PK-MD-30', 'อาทิตย์ วรรณสุทธิ์', ['501/1', '501/3']), 'GS-1234 อาทิตย์ วรรณสุทธิ์', '501/1–3 go through GoSell');
   assert.equal(billName(21234, '5011-PK-MD-30', 'อาทิตย์', ['501/1', 'NI9-3']), 'PK-1234 อาทิตย์', 'mixed: warehouse as usual');
+  assert.equal(billName(21234, '5012-PK-NV-34', 'อาทิตย์', ['501/2'], ['5012-PK-NV-34']), 'PK-1234 อาทิตย์', 'sold out at GoSell (501/2 waist 34, idea #14): normal PK- bill');
   const plan = await planFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/1 30\ncod 249' });
   assert.deepEqual(plan.problems, []);
   assert.match(plan.warnings.join(' '), /ANTHROPIC_API_KEY/);
