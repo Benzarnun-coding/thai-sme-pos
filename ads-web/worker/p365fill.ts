@@ -339,6 +339,18 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
 }
 
 /** A checked address from the screen (the admin may have corrected it), or null. */
+/** [a, a, b, a] → [[a, b], [a], [a]]: no product twice in one request. */
+export function addRounds<T>(ids: T[]): T[][] {
+  const rounds: T[][] = [];
+  const seen = new Map<T, number>();
+  for (const id of ids) {
+    const k = seen.get(id) ?? 0;
+    seen.set(id, k + 1);
+    (rounds[k] ??= []).push(id);
+  }
+  return rounds;
+}
+
 export function validAddress(a: unknown): PlanAddress | null {
   if (!a || typeof a !== 'object') return null;
   const x = a as Record<string, unknown>;
@@ -363,7 +375,12 @@ export async function applyFill(env: FillEnv, note: { psid: string; at: string; 
   const orderId = plan.order.id;
 
   // 1. Add one item per line (Page365 adds each product with its first size)…
-  await call(env, 'order_items.json', { method: 'POST', body: { order_id: orderId, product_ids: plan.lines.map((l) => l.product_id) } });
+  // Page365 adds a product once per request even when it is listed twice (two sizes of one model, #30797 27 Oct:
+  // no bill with a repeated model had ever filled), so a repeated product goes in a request of its own: round k
+  // adds each product's k-th line.
+  for (const round of addRounds(plan.lines.map((l) => l.product_id))) {
+    await call(env, 'order_items.json', { method: 'POST', body: { order_id: orderId, product_ids: round } });
+  }
   const added = await call<P365Order>(env, `orders/${orderId}.json`);
   if (added.items.length !== plan.lines.length) throw new P365Error(`ใส่สินค้าแล้วได้ ${added.items.length} รายการ แทนที่จะเป็น ${plan.lines.length} — เปิดร่าง #${plan.order.no} ใน Page365 เพื่อแก้เอง`);
 

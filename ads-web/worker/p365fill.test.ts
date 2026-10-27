@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyFill, askedSizeNotMade, billName, chatTotal, cleanStreet, pickColour, pickProduct, planFill, sizeLines, validAddress } from './p365fill.ts';
+import { addRounds, applyFill, askedSizeNotMade, billName, chatTotal, cleanStreet, pickColour, pickProduct, planFill, sizeLines, validAddress } from './p365fill.ts';
 
 // A fake Page365 with the shapes its web app sees (read 15 Oct 2026): one draft for customer "u1".
 function fakePage365() {
   const calls: string[] = [];
   const products: Record<string, { id: number; name: string; variants: any[] }> = {
-    '501/1': { id: 1, name: '501/1 ยีนส์กระบอกเล็ก', variants: [{ id: 11, name: 'ไซส์ 30', code: '5011-PK-MD-30', price: 199, available: 5 }, { id: 12, name: 'ไซส์ 32', code: '5011-PK-MD-32', price: 199, available: 0 }] },
+    '501/1': { id: 1, name: '501/1 ยีนส์กระบอกเล็ก', variants: [{ id: 11, name: 'ไซส์ 30', code: '5011-PK-MD-30', price: 199, available: 5 }, { id: 12, name: 'ไซส์ 32', code: '5011-PK-MD-32', price: 199, available: 0 }, { id: 13, name: 'ไซส์ 34', code: '5011-PK-MD-34', price: 199, available: 5 }] },
     '501/2': { id: 2, name: '501/2 ยีนส์กระบอกเล็ก', variants: [{ id: 21, name: 'ไซส์ 30', code: '5012-PK-NV-30', price: 199, available: 9 }] },
   };
   const order: any = { id: 900, no: 29400, stage: 'draft', customer_fbid: 'u1', created_at: '2026-10-15T12:00:00.000+07:00', cod: true, subtotal: 0, total: 0, shipping_cost: null, discount: null, items: [] };
@@ -30,7 +30,7 @@ function fakePage365() {
     if (path === 'orders/900.json') return ok(order);
     if (path === 'order_items.json') {
       const b = JSON.parse(init.body);
-      for (const pid of b.product_ids) { const p = Object.values(products).find((x) => x.id === pid)!; order.items.push({ id: 5000 + order.items.length, name: p.name, note: null, price: p.variants[0].price, quantity: 1, variant: { ...p.variants[0], product_id: p.id } }); }
+      for (const pid of [...new Set<number>(b.product_ids)]) { const p = Object.values(products).find((x) => x.id === pid)!; order.items.push({ id: 5000 + order.items.length, name: p.name, note: null, price: p.variants[0].price, quantity: 1, variant: { ...p.variants[0], product_id: p.id } }); }
       return ok(order);
     }
     if (path === 'products.json') { const q = u.searchParams.get('search')!; return ok({ products: Object.values(products).filter((p) => p.name.startsWith(q)).map(({ id, name }) => ({ id, name })) }); }
@@ -188,4 +188,17 @@ test('Page365\'s own address without ตำบล is not taken as complete (the 
   assert.equal(draftAddress(d)?.subdistrict, 'พรุดินนา');
   assert.equal(draftAddress({ ...d, structural_address: { ...d.structural_address!, subdistrict: '' } }), null);
   assert.equal(draftAddress({ ...d, structural_address: { ...d.structural_address!, subdistrict: null } }), null);
+});
+
+test('a repeated product goes in its own request (Page365 adds a product once per request, #30797)', () => {
+  assert.deepEqual(addRounds([1, 1, 2, 1]), [[1, 2], [1], [1]]);
+  assert.deepEqual(addRounds([1, 2]), [[1, 2]]);
+});
+
+test('apply: two sizes of one model both go in (#30797 got one item and no address)', async () => {
+  const { calls, order } = fakePage365();
+  const r = await applyFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/1 30\n501/1 34\ncod 448' }, { allowWarnings: true });
+  assert.deepEqual(order.items.map((i: any) => i.variant.code).sort(), ['5011-PK-MD-30', '5011-PK-MD-34']);
+  assert.equal(r.order.total, 448);
+  assert.equal(calls.filter((c) => c === 'POST order_items.json').length, 2);
 });

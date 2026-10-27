@@ -19,7 +19,7 @@ import { postOrderChannel, orderLink, type AutoEnv } from './autoFill.ts';
 import { audit } from './db.ts';
 import { diff, expected } from './fillAudit.ts';
 import { parseOrderNote, type StoredNote } from './orderNotes.ts';
-import { billName, call, checkBack, P365Error, planFill, type FillEnv, type FillPlan, type P365Order } from './p365fill.ts';
+import { addRounds, billName, call, checkBack, P365Error, planFill, type FillEnv, type FillPlan, type P365Order } from './p365fill.ts';
 
 /**
  * Switched on = "on:<when>" (Benz 23 Oct: from now on) — only notes typed after that moment correct a bill, so the
@@ -107,7 +107,8 @@ export async function rewriteBill(env: FillEnv, note: { psid: string; at: string
   const keep = plan.lines.map((l) => { const i = pool.findIndex((x) => x.variant?.product_id === l.product_id); return i >= 0 ? pool.splice(i, 1)[0] : null; });
   const missing = plan.lines.filter((_, k) => !keep[k]);
   if (missing.length) {
-    await call(env, 'order_items.json', { method: 'POST', body: { order_id: bill.id, product_ids: missing.map((l) => l.product_id) } });
+    // One request per round: Page365 adds a repeated product only once per request (addRounds).
+    for (const round of addRounds(missing.map((l) => l.product_id))) await call(env, 'order_items.json', { method: 'POST', body: { order_id: bill.id, product_ids: round } });
     const known = new Set(now.items.map((i) => i.id));
     now = await call<P365Order>(env, `orders/${bill.id}.json`);
     const fresh = now.items.filter((i) => !known.has(i.id));
