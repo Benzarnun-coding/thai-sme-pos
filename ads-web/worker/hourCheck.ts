@@ -39,7 +39,7 @@ export function hourCheckText(d: DayCheck): string | null {
   return [
     `🔎 **Meta นับยอดขายเกินที่ระบบส่ง · ${thaiDay(d.date)}** — Meta ${b(d.meta)} ยอด / เราส่ง ${b(d.ours)} (เกิน ${b(d.meta - d.ours)})`,
     d.flagged.map((r) => `${r.hour.slice(0, 2)} น. Meta ${b(r.meta)} / เรา ${b(r.ours)}`).join(' · '),
-    `ส่วนเกิน ${b(extra)} ยอดในชั่วโมงนี้ไม่ได้มาจากสรุปของแอดมิน — ช่วยเช็กว่ามีใครกด Create order หรือจัดการออเดอร์ใน Inbox ของ Meta ช่วงนั้นไหม (ยอดจริงดูจาก Page365)`,
+    `ส่วนเกิน ${b(extra)} ยอดในชั่วโมงนี้ไม่ได้มาจากสรุปของแอดมิน — มีระบบอื่นส่งยอดเข้า Meta ช่วงนั้น (เช่น Page365 ตอนกดจ่ายบิลทีละมากๆ) · ยอดจริงดูจาก Page365`,
   ].join('\n');
 }
 

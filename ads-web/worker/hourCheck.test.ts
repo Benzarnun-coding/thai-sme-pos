@@ -13,7 +13,7 @@ test('26 Oct 2026: Monday 08–10 flagged, the rest of the day matches', () => {
   assert.equal(r.ours, 98);
   const text = hourCheckText({ date: '2026-10-26', source: 'stored', ...r })!;
   assert.match(text, /09 น\. Meta 81 \/ เรา 9/);
-  assert.match(text, /Create order/);
+  assert.match(text, /ระบบอื่น/);
 });
 
 test('small gaps and late tags are not flagged; an ordinary day sends no text', () => {
