@@ -1081,3 +1081,13 @@ tr:hover .po-label-btn { opacity: 1; }
 .studio .cand-img { max-height: 380px; object-fit: contain; background: var(--surface-2); }
 .studio details.howto summary { cursor: pointer; font-weight: 600; }
 .studio details.howto ol { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 4px; }
+
+/* Campaign drawer: type to pick the product a campaign sells */
+.product-picker { position: relative; }
+.product-picker input { width: 100%; }
+.product-picker .picker-list { position: absolute; top: 100%; left: 0; right: 0; z-index: 30; max-height: 340px; overflow-y: auto; margin: 4px 0 0; padding: 4px; list-style: none; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow-sm); }
+.product-picker .picker-list li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 7px 8px; border-radius: 6px; cursor: pointer; font-weight: 400; }
+.product-picker .picker-list li > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.product-picker .picker-list li:hover, .product-picker .picker-list li.on { background: var(--surface-2); }
+.product-picker .picker-list li.head { cursor: default; font-size: 12px; color: var(--muted); padding-top: 8px; }
+.product-picker .picker-list li.head:hover { background: none; }

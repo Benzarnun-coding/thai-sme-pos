@@ -44,7 +44,7 @@ export function WebCostForm({ initial, suggestCode, onSaved, onCancel }: {
       </label>
       <label>ทุนดิบ/ตัว (฿) — ใช้เมื่อแคตตาล็อกไม่มีรุ่นนี้
         <input type="number" inputMode="decimal" min={0} step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} autoFocus={Boolean(initial)} />
-        <small>สินค้า + ส่ง + เผื่อตีกลับ</small>
+        <small>ราคาที่จ่ายร้าน ไม่รวมค่าส่ง/ตีกลับ (หักแยกในหน้าตั้งค่า)</small>
       </label>
       <label>ราคาเต็ม/ตัว (฿)
         <input type="number" inputMode="decimal" min={0} value={price} placeholder="ไม่บังคับ" onChange={(e) => setPrice(e.target.value)} />

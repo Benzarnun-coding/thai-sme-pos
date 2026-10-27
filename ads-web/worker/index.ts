@@ -21,7 +21,7 @@ import { buildIdeas } from './ideas.ts';
 import { explainActual, explainDay, explainOrders } from './salesReport.ts';
 import { campaignDay } from './transactions.ts';
 import { makeTierResolver } from './costing.ts';
-import { loadUnitCosts } from './unitCosts.ts';
+import { loadUnitCosts, searchCatalogCodes } from './unitCosts.ts';
 import { bkkDate, loadConversionHours, lockedHourDays, saveConversionDay, syncConversionHours, txCosting, windowDates } from './conversionStore.ts';
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyD1Error, friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
@@ -1295,7 +1295,9 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const hits = suggest
       ? suggestProducts(suggest, costs, 12)
       : costs.filter((c) => !q || c.code.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)).slice(0, 40);
-    return json({ total: costs.length, results: await withCatalogCost(env.DB, hits) });
+    // Typed costs first, then catalog codes (PK · 200 …) so a product line can link the catalog directly.
+    const catalog = q && !suggest ? await searchCatalogCodes(env.DB, url.searchParams.get('q') ?? '') : [];
+    return json({ total: costs.length, results: [...await withCatalogCost(env.DB, hits), ...catalog] });
   }
   if (method === 'POST' && path === '/api/costs/sync') {
     // One tab per request from the dashboard: Google is slow on this workbook, and short requests show progress.

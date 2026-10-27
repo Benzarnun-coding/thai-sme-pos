@@ -3,7 +3,7 @@
 import { DEFAULT_GOAL, type Goal } from './goal.ts';
 import type { Guardrails, State } from '../../ads-engine/src/types.ts';
 import { nameKey, type CampaignCost } from './campaignCosts.ts';
-import { loadUnitCosts, type UnitCostRow } from './unitCosts.ts';
+import { unitCostsFor, type UnitCostRow } from './unitCosts.ts';
 import { WEB_TAB, type CampaignMode, type CampaignSetting, type Cod, type CostRow, type Section, type Stage, type WebRule } from './model.ts';
 
 export interface Settings {
@@ -196,7 +196,8 @@ export async function loadCostRows(db: D1Database): Promise<CostRow[]> {
 
 /** Product costs for every ads page and the rules: the catalog's raw ทุน where it has the product (unitCosts.ts). */
 export async function loadCosts(db: D1Database): Promise<UnitCostRow[]> {
-  return loadUnitCosts(db, await loadCostRows(db));
+  const [rows, sections] = await Promise.all([loadCostRows(db), loadSections(db)]);
+  return unitCostsFor(db, rows, sections);
 }
 
 // Bulk writes go through json_each so a whole tab is 2 statements — the Workers free plan caps queries per invocation.

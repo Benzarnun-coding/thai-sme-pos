@@ -3,12 +3,12 @@
 // product codes a product line links. Fees and risk (COD, loss/returns, shipping, VAT, bag) are added per order from
 // settings.order_fees (db.ts codOf), never folded into this number.
 
-import type { CostRow } from './model.ts';
+import { WEB_TAB, type CostRow, type Section } from './model.ts';
 
-export interface CatalogCostRow { code: string; cost: number | null; typed: number | null }
+export interface CatalogCostRow { code: string; cost: number | null; typed: number | null; tab?: string; price?: number | null }
 
 /** What a linked product's cost came from: the catalog (with the codes found) or the cost typed on the Products page. */
-export type UnitCostRow = CostRow & { cost_from?: 'catalog' | 'typed'; catalog_codes?: string[] };
+export type UnitCostRow = CostRow & { cost_from?: 'catalog' | 'typed'; catalog_codes?: string[]; catalog_cost?: number | null };
 
 const up = (s: string) => s.normalize('NFC').replace(/\s+/g, ' ').trim().toUpperCase();
 
@@ -57,12 +57,14 @@ function meanCost(rows: CatalogCostRow[]): number | null {
 }
 
 /** Pure: the catalog cost of one linked code, and which catalog codes gave it. */
-export function catalogCostOf(code: string, rows: CatalogCostRow[]): { cost: number; codes: string[] } | null {
+export function catalogCostOf(code: string, rows: CatalogCostRow[]): { cost: number; codes: string[]; price: number | null } | null {
   const byCode = new Map<string, CatalogCostRow[]>();
   for (const r of rows) { const k = up(r.code); byCode.set(k, [...(byCode.get(k) ?? []), r]); }
   const tryCodes = (codes: string[]) => {
     const hits = [...new Set(codes)].map((c) => ({ c, cost: meanCost(byCode.get(c) ?? []) })).filter((h): h is { c: string; cost: number } => h.cost !== null);
-    return hits.length ? { cost: hits.reduce((t, h) => t + h.cost, 0) / hits.length, codes: hits.map((h) => h.c) } : null;
+    if (!hits.length) return null;
+    const prices = hits.flatMap((h) => byCode.get(h.c)!.map((r) => r.price ?? 0)).filter((p) => p > 0);
+    return { cost: hits.reduce((t, h) => t + h.cost, 0) / hits.length, codes: hits.map((h) => h.c), price: prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : null };
   };
   const { exact, families, suffixes } = codeCandidates(code);
   for (const group of exact) { const hit = tryCodes(group); if (hit) return hit; }
@@ -70,12 +72,13 @@ export function catalogCostOf(code: string, rows: CatalogCostRow[]): { cost: num
   return suffixes.length ? tryCodes([...byCode.keys()].filter((k) => suffixes.some((x) => k.endsWith(x)))) : null;
 }
 
-/** Pure: every cost row with its avg cost swapped for the catalog's when the catalog has it. */
+/** Pure: every cost row with its avg cost swapped for the catalog's when the catalog has it. A row of a catalog tab
+ * (a product picked from the catalog, e.g. PK · 200) only looks in that tab. */
 export function withCatalogCosts(costs: CostRow[], rows: CatalogCostRow[]): UnitCostRow[] {
   return costs.map((c) => {
-    const hit = catalogCostOf(c.code, rows);
+    const hit = catalogCostOf(c.code, c.tab === WEB_TAB ? rows : rows.filter((r) => !r.tab || r.tab === c.tab));
     return hit
-      ? { ...c, avg_cost: hit.cost, min_cost: hit.cost, max_cost: hit.cost, cost_from: 'catalog' as const, catalog_codes: hit.codes }
+      ? { ...c, avg_cost: hit.cost, min_cost: hit.cost, max_cost: hit.cost, avg_price: c.avg_price || hit.price || 0, cost_from: 'catalog' as const, catalog_codes: hit.codes, catalog_cost: hit.cost }
       : { ...c, cost_from: 'typed' as const };
   });
 }
@@ -87,7 +90,7 @@ export async function loadUnitCosts(db: D1Database, costs: CostRow[]): Promise<U
   const exact = [...new Set(all.flatMap((c) => c.exact.flat()))];
   const families = [...new Set(all.flatMap((c) => c.families))];
   const suffixes = [...new Set(all.flatMap((c) => c.suffixes))];
-  const select = `SELECT c.code, c.cost, COALESCE(s.price, p.price) AS typed FROM catalog c
+  const select = `SELECT c.tab, c.code, c.cost, c.price, COALESCE(s.price, p.price) AS typed FROM catalog c
     LEFT JOIN catalog_prices s ON s.key = c.tab || '|' || c.sku LEFT JOIN catalog_prices p ON p.key = c.tab || '|' || c.spu`;
   const res = await db.batch<CatalogCostRow>([
     db.prepare(`${select} WHERE c.code COLLATE NOCASE IN (SELECT value FROM json_each(?1))`).bind(JSON.stringify(exact)),
@@ -95,4 +98,42 @@ export async function loadUnitCosts(db: D1Database, costs: CostRow[]): Promise<U
     ...(suffixes.length ? [db.prepare(`${select} WHERE EXISTS (SELECT 1 FROM json_each(?1) j WHERE c.code LIKE '%' || j.value)`).bind(JSON.stringify(suffixes))] : []),
   ]);
   return withCatalogCosts(costs, res.flatMap((r) => r.results));
+}
+
+/**
+ * Products linked straight to a catalog code (tab = catalog tab, e.g. PK · 200) have no row in `costs`: one is made
+ * from the catalog for each, and kept only when the catalog has its cost.
+ */
+export function catalogLinkRows(sections: Section[], costs: CostRow[]): CostRow[] {
+  const have = new Set(costs.map((c) => `${c.tab}|${c.code}`));
+  const out = new Map<string, CostRow>();
+  for (const p of sections.flatMap((s) => s.products)) {
+    const k = `${p.tab}|${p.code}`;
+    if (p.tab === WEB_TAB || have.has(k) || out.has(k)) continue;
+    out.set(k, { tab: p.tab, code: p.code, name: p.code, sku_count: 0, avg_cost: 0, min_cost: 0, max_cost: 0, avg_price: 0 });
+  }
+  return [...out.values()];
+}
+
+/** Every stored cost row and every catalog-linked product, with the catalog ทุน the ads pages and the rules use. */
+export async function unitCostsFor(db: D1Database, costs: CostRow[], sections: Section[]): Promise<UnitCostRow[]> {
+  const links = catalogLinkRows(sections, costs);
+  const rows = await loadUnitCosts(db, [...costs, ...links]);
+  return rows.filter((r, i) => i < costs.length || r.cost_from === 'catalog');
+}
+
+/** Catalog products by code or name for the product pickers: one row per warehouse tab + code, ทุน averaged over sizes. */
+export async function searchCatalogCodes(db: D1Database, q: string, limit = 15): Promise<UnitCostRow[]> {
+  const text = q.trim();
+  if (!text) return [];
+  const { results } = await db.prepare(
+    `SELECT c.tab, c.code, MIN(c.name) AS name, COUNT(*) AS skus, AVG(COALESCE(s.price, p.price, c.cost)) AS cost, AVG(c.price) AS price
+     FROM catalog c LEFT JOIN catalog_prices s ON s.key = c.tab || '|' || c.sku LEFT JOIN catalog_prices p ON p.key = c.tab || '|' || c.spu
+     WHERE c.code LIKE ?1 || '%' OR (length(?1) >= 2 AND c.name LIKE '%' || ?1 || '%')
+     GROUP BY c.tab, c.code ORDER BY upper(c.code) = upper(?1) DESC, length(c.code), c.code LIMIT ?2`,
+  ).bind(text, limit).all<{ tab: string; code: string; name: string; skus: number; cost: number | null; price: number | null }>();
+  return results.map((r) => ({
+    tab: r.tab, code: r.code, name: r.name, sku_count: r.skus, avg_cost: r.cost ?? 0, min_cost: r.cost ?? 0, max_cost: r.cost ?? 0, avg_price: r.price ?? 0,
+    cost_from: 'catalog' as const, catalog_codes: [r.code], catalog_cost: r.cost,
+  }));
 }

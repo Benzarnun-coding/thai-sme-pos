@@ -135,10 +135,7 @@ export function CampaignDrawer({ c, data, window, preview, ideas, onClose, onRel
               </select>
             </label>
             <label>สินค้า (ใช้คิดจุดคุ้มทุน)
-              <select value={c.pinned ? c.section_id : ''} onChange={(e) => save({ section_id: e.target.value || null })}>
-                <option value="">อัตโนมัติจากชื่อ ({section ? sectionName(section) : '–'})</option>
-                {data.sections.filter((s) => s.id !== 'default' || (c.pinned && c.section_id === 'default')).map((s) => <option key={s.id} value={s.id}>{sectionName(s)}</option>)}
-              </select>
+              <ProductPicker c={c} data={data} onPick={(id) => save({ section_id: id })} />
             </label>
             <label>งบต่อวัน
               {c.daily_budget === null
@@ -469,5 +466,72 @@ function SheetCostPanel({ c }: { c: CampaignView }) {
         {c.breakeven_roas !== null && <> · กฎใช้คุ้มทุนที่ ROAS {num(c.breakeven_roas, 2)} (โปรที่ทุนหนักสุด)</>}
       </p>
     </section>
+  );
+}
+
+/**
+ * Type to find the product a campaign sells: product lines already set up, then catalog codes (PK · 200 …). A catalog
+ * code no product line links yet becomes a product line of its own, pinned to this campaign; its ทุน is the catalog's.
+ */
+function ProductPicker({ c, data, onPick }: { c: CampaignView; data: Overview; onPick: (sectionId: string | null) => Promise<void> }) {
+  const { toast } = useUi();
+  const current = data.sections.find((s) => s.id === c.section_id);
+  const shown = c.pinned && current ? sectionName(current) : `อัตโนมัติจากชื่อ (${current ? sectionName(current) : '–'})`;
+  const [text, setText] = useState('');
+  const [open, setOpen] = useState(false);
+  const [catalog, setCatalog] = useState<CostRow[]>([]);
+  const q = text.trim().toLowerCase();
+
+  useEffect(() => {
+    if (!q) { setCatalog([]); return; }
+    const t = setTimeout(() => api.searchCosts(text.trim()).then((r) => setCatalog(r.results.filter((x) => x.tab !== WEB_TAB))).catch(() => setCatalog([])), 250);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const sections = data.sections.filter((s) => s.id !== 'default').filter((s) =>
+    !q || [s.name, ...s.keywords, ...s.products.map((p) => p.code)].some((t) => t.toLowerCase().includes(q)));
+  const close = () => { setOpen(false); setText(''); };
+  const pickCatalog = async (row: CostRow) => {
+    try {
+      const existing = data.sections.find((s) => s.id !== 'default' && s.products.length === 1 && s.products[0].tab === row.tab && s.products[0].code === row.code);
+      const target = existing ?? await api.createSection({ name: `${row.code} (${row.tab})`, keywords: [], products: [{ tab: row.tab, code: row.code }], tiers: [], units_per_order: 1, extra_cost_per_order: 0, price_per_order: null });
+      await onPick(target.id);
+    } catch (e: any) {
+      toast(e.message, 'bad');
+    }
+  };
+
+  return (
+    <div className="product-picker">
+      <input
+        id={`product-${c.id}`}
+        value={open ? text : shown}
+        placeholder="พิมพ์รหัสหรือชื่อสินค้า เช่น 200, 501/1"
+        onFocus={() => { setOpen(true); setText(''); }}
+        onBlur={close}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Escape') (e.target as HTMLInputElement).blur(); }}
+      />
+      {open && (
+        <ul className="picker-list" onMouseDown={(e) => e.preventDefault()}>
+          <li onClick={() => { close(); void onPick(null); }}>อัตโนมัติจากชื่อแคมเปญ</li>
+          {sections.length > 0 && <li className="head">สินค้าที่ตั้งไว้</li>}
+          {sections.slice(0, 12).map((s) => (
+            <li key={s.id} className={s.id === c.section_id && c.pinned ? 'on' : ''} onClick={() => { close(); void onPick(s.id); }}>
+              <span>{sectionName(s)}</span>
+              <span className="muted small">{s.economics.cost_per_unit !== null ? `ทุน ${baht(s.economics.cost_per_unit, 2)}` : 'ยังไม่มีทุน'}</span>
+            </li>
+          ))}
+          {catalog.length > 0 && <li className="head">จากแคตตาล็อก</li>}
+          {catalog.map((r) => (
+            <li key={`${r.tab}:${r.code}`} onClick={() => { close(); void pickCatalog(r); }}>
+              <span><b>{r.tab} · {r.code}</b> <span className="muted small">{r.name}</span></span>
+              <span className="muted small">{r.catalog_cost ? `ทุน ${baht(r.catalog_cost, 2)}` : 'ยังไม่มีทุน'}</span>
+            </li>
+          ))}
+          {q && !sections.length && !catalog.length && <li className="head">ไม่พบ "{text.trim()}"</li>}
+        </ul>
+      )}
+    </div>
   );
 }

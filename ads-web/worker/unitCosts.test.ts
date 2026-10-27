@@ -4,7 +4,7 @@ import { costTiers } from './costing.ts';
 import { codOf, DEFAULT_ORDER_FEES } from './db.ts';
 import { economics, type CostRow, type Section } from './model.ts';
 import { orderFees } from './p365.ts';
-import { catalogCostOf, codeCandidates, withCatalogCosts, type CatalogCostRow } from './unitCosts.ts';
+import { catalogCostOf, catalogLinkRows, codeCandidates, withCatalogCosts, type CatalogCostRow } from './unitCosts.ts';
 
 const cat = (code: string, cost: number | null, typed: number | null = null): CatalogCostRow => ({ code, cost, typed });
 
@@ -22,12 +22,12 @@ test('linked product codes expand to catalog codes', () => {
 
 test('catalog cost: typed cost wins, sizes averaged, codes averaged, family as last resort', () => {
   const rows = [cat('501/1', 110), cat('501/2', 110), cat('501/3', null, 120), cat('801/1', null), cat('801/2', 117), cat('LX-154', 200), cat('LX-154', 210)];
-  assert.deepEqual(catalogCostOf('501/1-3', rows), { cost: (110 + 110 + 120) / 3, codes: ['501/1', '501/2', '501/3'] });
-  assert.deepEqual(catalogCostOf('801', rows), { cost: 117, codes: ['801/2'] });
-  assert.deepEqual(catalogCostOf('lx-154', rows), { cost: 205, codes: ['LX-154'] });
+  assert.deepEqual(catalogCostOf('501/1-3', rows), { cost: (110 + 110 + 120) / 3, codes: ['501/1', '501/2', '501/3'], price: null });
+  assert.deepEqual(catalogCostOf('801', rows), { cost: 117, codes: ['801/2'], price: null });
+  assert.deepEqual(catalogCostOf('lx-154', rows), { cost: 205, codes: ['LX-154'], price: null });
   assert.equal(catalogCostOf('E200', [cat('E200', null)]), null);
-  assert.deepEqual(catalogCostOf('AR 16', [cat('16-1', 170), cat('16-2', 170), cat('160', 999)]), { cost: 170, codes: ['16-1', '16-2'] });
-  assert.deepEqual(catalogCostOf('BAGGY 711-714', [cat('RL-711', 210), cat('RL-714', 190), cat('L711', null)]), { cost: 200, codes: ['RL-711', 'RL-714'] });
+  assert.deepEqual(catalogCostOf('AR 16', [cat('16-1', 170), cat('16-2', 170), cat('160', 999)]), { cost: 170, codes: ['16-1', '16-2'], price: null });
+  assert.deepEqual(catalogCostOf('BAGGY 711-714', [cat('RL-711', 210), cat('RL-714', 190), cat('L711', null)]), { cost: 200, codes: ['RL-711', 'RL-714'], price: null });
 });
 
 test('cost rows: catalog replaces the typed cost, otherwise the typed one stays', () => {
@@ -64,4 +64,14 @@ test('break-even includes the per-order fees', () => {
   assert.ok(Math.abs(withFees.breakeven_roas! - 1 / 0.3) < 1e-9);
   // profit = 2000 × 0.9 − 10 × 20 − 1000 − 10 pieces × 100
   assert.equal(withFees.profit, -400);
+});
+
+test('a product picked from the catalog (PK · 200) gets a cost row from that tab only', () => {
+  const section = (products: { tab: string; code: string }[]) => ({ id: 's', name: 's', keywords: [], products, tiers: [], units_per_order: 1, extra_cost_per_order: 0, price_per_order: null, sort: 1 });
+  const links = catalogLinkRows([section([{ tab: 'PK', code: '200' }, { tab: 'WEB', code: 'E200' }])], []);
+  assert.deepEqual(links.map((r) => `${r.tab}|${r.code}`), ['PK|200']);
+  const [r] = withCatalogCosts(links, [{ tab: 'BB', code: '200', cost: 999, typed: null }, { tab: 'PK', code: '200', cost: 115, typed: null, price: 311 }]);
+  assert.equal(r.avg_cost, 115);
+  assert.equal(r.avg_price, 311);
+  assert.equal(r.cost_from, 'catalog');
 });
