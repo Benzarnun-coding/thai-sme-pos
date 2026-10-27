@@ -390,7 +390,7 @@ function discordRunText(report: WebRunReport, dryRun: boolean, trigger = ''): st
   const when = new Date(report.run_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short' });
   const acted = report.decisions.filter((d) => !d.skipped_reason);
   const moves = report.moves.filter((m) => !m.skipped_reason);
-  const lines = [`**${dryRun ? '🧪 โหมดทดลอง (ยังไม่แตะ Meta)' : '✅ ปรับจริงแล้ว'} · รันกฎ ${when}${trigger.startsWith('test:') ? ` · ${trigger.slice(5)}` : ''}**`];
+  const lines = [`**${dryRun ? '🧪 โหมดทดลอง (ยังไม่แตะ Meta)' : '✅ ปรับจริงแล้ว'} · รันกฎ ${when}${trigger.startsWith('test:') ? ` · ${trigger.slice(5)}` : trigger.startsWith('schedule:') ? ` · ${trigger.slice(9)}` : ''}**`];
   lines.push(`ประเมิน ${report.entities_evaluated} รายการ · งบรวม/วัน ${report.totals.daily_budget_before} → ${report.totals.daily_budget_after}`);
   if (!acted.length && !moves.length) lines.push('ไม่มีกฎไหนตรงเงื่อนไข — ไม่มีการปรับ');
   for (const d of acted) {

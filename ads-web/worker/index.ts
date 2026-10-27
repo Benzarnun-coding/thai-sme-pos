@@ -18,6 +18,7 @@ import { MockMeta } from './mock.ts';
 import { DEFAULT_SECTION_ID, WEB_TAB, campaignEconomics, economics, profitRange, suggestProducts, type CampaignSetting, type Cod, type CostRow, type Economics, type Section } from './model.ts';
 import { capChanges, DUP_RAMP_TO, DUP_START_BUDGET, FREE_INCREASE_BELOW, INCREASE_GAP_HOURS, MAX_COPY_OBJECTS, planRun, provenWinners, runAutomation, shopBreakeven, spaceIncreases, WINNER_MAX_BUDGET, zeroMetrics, type MetaLike } from './run.ts';
 import type { BreakevenSource } from './breakevens.ts';
+import { morningDecision, morningDone, yesterdayFileIn } from './morningRun.ts';
 import { buildIdeas } from './ideas.ts';
 import { explainActual, explainDay, explainOrders } from './salesReport.ts';
 import { campaignDay } from './transactions.ts';
@@ -134,7 +135,10 @@ export interface Env {
   DEV_BYPASS_AUTH?: string;
 }
 
-const RULES_CRON = '0 1,13 * * *';
+/** 20:00 Bangkok rule run. */
+const RULES_CRON = '0 13 * * *';
+/** Morning rule run: every 10 min 08:00–13:50 Bangkok, morningRun.ts decides (08:00 sharp, or when Page365's file is in / 13:00). */
+const MORNING_CRON = '*/10 1-6 * * *';
 const COSTS_CRON = '30 0 * * *';
 /** 10:00 Bangkok: remind the uploaders if yesterday's Page365 file is still missing. */
 const REMIND_CRON = '0 3 * * *';
@@ -209,29 +213,42 @@ export default {
     } else if (event.cron === REMIND_CRON) {
       ctx.waitUntil(uploadReminder(env).catch((err) => console.error('reminder', err)));
       ctx.waitUntil(kbReminder(env).catch((err) => console.error('kb reminder', err)));
+    } else if (event.cron === MORNING_CRON) {
+      ctx.waitUntil((async () => {
+        const now = new Date();
+        const [s, done, fileIn] = await Promise.all([loadSettings(env.DB), morningDone(env.DB, now), yesterdayFileIn(env.DB, now)]);
+        const next = morningDecision({ wait: s.guardrails.morning_wait === true, now, done, fileIn });
+        if (next.run) await rulesRun(env, true, next.trigger);
+      })().catch((err) => console.error('morning run', err)));
     } else if (event.cron === RULES_CRON) {
-      let meta: MetaLike;
-      try {
-        meta = metaFor(env);
-      } catch (err: any) {
-        // Surface setup problems (e.g. missing token) in the dashboard's history instead of only in Cloudflare logs.
-        const run_at = new Date().toISOString();
-        ctx.waitUntil(insertRun(env.DB, { run_at, trigger: 'schedule', dry_run: true, summary: `ผิดพลาด: ${err.message}`, report: { run_at, dry_run: true, entities_evaluated: 0, decisions: [], totals: { daily_budget_before: 0, daily_budget_after: 0 }, errors: [err.message], notes: [] } }));
-        return;
-      }
-      // Monday 08:00 Bangkok: after the run, ask whether the shop-wide daily cap may grow (goal.ts).
-      // Monday and Thursday 08:00: อูนิ's new-post ideas for Max (postIdeas.ts).
-      const day = new Date(Date.now() + 7 * 3_600_000).getUTCDay(), morning = new Date().getUTCHours() < 6;
-      ctx.waitUntil(runAutomation(env, meta, { trigger: 'schedule' })
-        .then(() => (morning && day === 1 ? scaleCheck(env).catch((err) => console.error('scale', err)) : null))
-        .then(() => (morning && (day === 1 || day === 4) ? sendPostIdeas(env).catch((err) => console.error('ideas', err)) : null))
-        // Monday and Thursday: อูนิ's fixes for Meta's Business AI, each with approve / reject buttons (botKb.ts).
-        .then(() => (morning && (day === 1 || day === 4) && aiEnabled(env) ? kbRound(env, 'fix').catch((err) => console.error('kb', err)) : null))
-        // 20:00: how today is doing against the goal's daily pace.
-        .then(() => (!morning ? eveningPace(env).catch((err) => console.error('pace', err)) : null)));
+      ctx.waitUntil(rulesRun(env, false, 'schedule'));
     }
   },
 } satisfies ExportedHandler<Env>;
+
+/** One scheduled rule run plus what follows it: morning (Mon cap check, Mon/Thu post ideas and Business AI fixes) or 20:00 (goal pace). */
+async function rulesRun(env: Env, morning: boolean, trigger: string): Promise<void> {
+  let meta: MetaLike;
+  try {
+    meta = metaFor(env);
+  } catch (err: any) {
+    // Surface setup problems (e.g. missing token) in the dashboard's history instead of only in Cloudflare logs.
+    const run_at = new Date().toISOString();
+    await insertRun(env.DB, { run_at, trigger, dry_run: true, summary: `ผิดพลาด: ${err.message}`, report: { run_at, dry_run: true, entities_evaluated: 0, decisions: [], totals: { daily_budget_before: 0, daily_budget_after: 0 }, errors: [err.message], notes: [] } });
+    return;
+  }
+  const day = new Date(Date.now() + 7 * 3_600_000).getUTCDay();
+  await runAutomation(env, meta, { trigger })
+    // Monday morning: ask whether the shop-wide daily cap may grow (goal.ts).
+    .then(() => (morning && day === 1 ? scaleCheck(env).catch((err) => console.error('scale', err)) : null))
+    // Monday and Thursday morning: อูนิ's new-post ideas for Max (postIdeas.ts).
+    .then(() => (morning && (day === 1 || day === 4) ? sendPostIdeas(env).catch((err) => console.error('ideas', err)) : null))
+    // Monday and Thursday: อูนิ's fixes for Meta's Business AI, each with approve / reject buttons (botKb.ts).
+    .then(() => (morning && (day === 1 || day === 4) && aiEnabled(env) ? kbRound(env, 'fix').catch((err) => console.error('kb', err)) : null))
+    // 20:00: how today is doing against the goal's daily pace.
+    .then(() => (!morning ? eveningPace(env).catch((err) => console.error('pace', err)) : null))
+    .catch((err) => console.error('rules run', err));
+}
 
 async function route(req: Request, env: Env, url: URL, user: string, role: Role, ctx: ExecutionContext): Promise<Response> {
   const path = url.pathname.replace(/\/$/, '');

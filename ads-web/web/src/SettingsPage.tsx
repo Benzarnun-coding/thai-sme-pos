@@ -74,6 +74,10 @@ export function SettingsPage({ costsLoaded, campaignNames, onSaved }: { costsLoa
             <option value="off">ปิด</option>
           </select></label>
           <label>งบเริ่มต้นตอนเปิดแอดใหม่/วัน (฿)<input type="number" value={g.start_daily_budget ?? 50} onChange={(e) => setG('start_daily_budget', Number(e.target.value))} /></label>
+          <label>รอบเช้ารันเมื่อไหร่<select value={g.morning_wait ? 'wait' : '8'} onChange={(e) => setS({ ...s, guardrails: { ...g, morning_wait: e.target.value === 'wait' } })}>
+            <option value="8">08:00 — เมื่อวานใช้ยอดแท็ก Meta (ไฟล์ Page365 ยังไม่เข้า)</option>
+            <option value="wait">รอไฟล์ Page365 ของเมื่อวาน — เข้าเมื่อไหร่รันเมื่อนั้น (ภายใน 10 นาที) ไม่มาถึง 13:00 รันด้วยยอด Meta</option>
+          </select></label>
           <label>กฎคิดจุดคุ้มทุนจาก<select value={g.breakeven_source ?? 'catalog'} onChange={(e) => setS({ ...s, guardrails: { ...g, breakeven_source: e.target.value as 'catalog' | 'orders' } })}>
             <option value="catalog">สินค้าที่ผูก (ราคาแคตตาล็อก) — แบบเดิม</option>
             <option value="orders">ออเดอร์จริง Page365 ของแต่ละแคมเปญ</option>

@@ -20,8 +20,9 @@
       "migrations_dir": "migrations"
     }
   ],
-  // Rules at 08:00 and 20:00 Bangkok (UTC+7); costs re-sync from the Google Sheet at 07:30. Keep in sync with worker/index.ts.
-  "triggers": { "crons": ["0 1,13 * * *", "30 0 * * *", "0 3 * * *", "15 */3 * * *"] },
+  // Rules at 20:00 Bangkok (UTC+7) and in the morning: a tick every 10 min 08:00–13:50, morningRun.ts picks 08:00 or when the
+  // Page365 file is in (13:00 at the latest); costs re-sync from the Google Sheet at 07:30. Keep in sync with worker/index.ts.
+  "triggers": { "crons": ["*/10 1-6 * * *", "0 13 * * *", "30 0 * * *", "0 3 * * *", "15 */3 * * *"] },
   "vars": {
     "META_AD_ACCOUNT_ID": "act_2149666808519411",
     "META_API_VERSION": "v21.0",

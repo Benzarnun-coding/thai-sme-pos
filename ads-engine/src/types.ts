@@ -62,6 +62,8 @@ export interface Guardrails {
   brake_yesterday?: 'off' | 'dry' | 'on';
   /** ads-web: where the rules' break-even comes from — 'orders' = each campaign's real Page365 orders (breakevens.ts); unset = 'catalog' */
   breakeven_source?: 'catalog' | 'orders';
+  /** ads-web: the morning rule run waits for yesterday's Page365 file (runs when it's in, else 13:00); unset/false = 08:00 */
+  morning_wait?: boolean;
 }
 
 export interface Scope {
