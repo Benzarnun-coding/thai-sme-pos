@@ -1732,9 +1732,9 @@ async function preview(env: Env, breakevenSource?: BreakevenSource) {
   const entities: Entity[] = data.entities.map((e) => ({ ...e, metrics: {} }));
   const now = new Date();
   const { plan, breakevens } = await planRun(env.DB, entities, (level, w) => data.insights(level, w), state, now, (w) => data.dailyAll(w), breakevenSource);
-  const [cs, be] = await Promise.all([loadCampaignSettings(env.DB), shopBreakeven(env.DB, settings, now)]);
+  const [cs, shop] = await Promise.all([loadCampaignSettings(env.DB), shopBreakeven(env.DB, settings, now)]);
   spaceIncreases(plan.decisions, entities, state, now, settings.guardrails.increase_gap_hours ?? INCREASE_GAP_HOURS, settings.guardrails.free_increase_below ?? FREE_INCREASE_BELOW);
-  const winners = provenWinners(entities, cs, be, settings.guardrails.winner_max_daily_budget ?? WINNER_MAX_BUDGET);
+  const winners = provenWinners(entities, cs, (id) => breakevens?.get(id)?.be ?? shop, settings.guardrails.winner_max_daily_budget ?? WINNER_MAX_BUDGET);
   capChanges(plan);
   const noop = { setStatus: async () => {}, setDailyBudget: async () => {} };
   await applyDecisions(plan.decisions, entities, noop, settings.guardrails, { last_action: { ...state.last_action } }, { dryRun: true, now, maxBudgetFor: (id) => winners.get(id) });

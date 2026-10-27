@@ -2,6 +2,7 @@
 // break-even; windows 3 days for budget moves, 7 days for stage moves; every cut needs real spend first).
 // 14 Oct 2026: win-boost / test-boost added (Benz: aggressive mode for clear winners, every run).
 // 23 Oct 2026: win-small (after the cuts, so a bad 3 days still wins): budgets ≤ 200 can't reach win-boost's 600 spend.
+// 27 Oct 2026: *-stop-no-sale-7d (Benz): a 50/day campaign spends ~150 in 3 days, never the 300 the 3-day stop needs.
 // Not active by default: the "ใส่กฎแนะนำ" button copies them into a stage.
 
 import type { Rule } from './api.ts';
@@ -13,6 +14,20 @@ export const STAGE_TEMPLATES: Record<string, Rule[]> = {
       "description": "ใช้เงิน ≥ 2× CPA แล้ว 0 ออเดอร์ใน 3 วัน → หยุด",
       "level": "campaign",
       "window": "last_3d",
+      "metric": "purchases",
+      "op": "<=",
+      "value": 0,
+      "min_spend": 300,
+      "action": {
+        "type": "pause"
+      },
+      "cooldown_hours": 72
+    },
+    {
+      "id": "exp-stop-no-sale-7d",
+      "description": "งบเล็ก: ใช้เงิน ≥ 2× CPA แล้ว 0 ออเดอร์ใน 7 วัน → หยุด",
+      "level": "campaign",
+      "window": "last_7d",
       "metric": "purchases",
       "op": "<=",
       "value": 0,
@@ -126,6 +141,20 @@ export const STAGE_TEMPLATES: Record<string, Rule[]> = {
       "description": "ใช้เงิน ≥ 2× CPA แล้ว 0 ออเดอร์ใน 3 วัน → หยุด",
       "level": "campaign",
       "window": "last_3d",
+      "metric": "purchases",
+      "op": "<=",
+      "value": 0,
+      "min_spend": 300,
+      "action": {
+        "type": "pause"
+      },
+      "cooldown_hours": 72
+    },
+    {
+      "id": "test-stop-no-sale-7d",
+      "description": "งบเล็ก: ใช้เงิน ≥ 2× CPA แล้ว 0 ออเดอร์ใน 7 วัน → หยุด",
+      "level": "campaign",
+      "window": "last_7d",
       "metric": "purchases",
       "op": "<=",
       "value": 0,
@@ -338,6 +367,20 @@ export const STAGE_TEMPLATES: Record<string, Rule[]> = {
       "description": "ใช้เงิน ≥ 2× CPA แล้ว 0 ออเดอร์ใน 3 วัน → หยุด",
       "level": "campaign",
       "window": "last_3d",
+      "metric": "purchases",
+      "op": "<=",
+      "value": 0,
+      "min_spend": 300,
+      "action": {
+        "type": "pause"
+      },
+      "cooldown_hours": 72
+    },
+    {
+      "id": "re-stop-no-sale-7d",
+      "description": "งบเล็ก: ใช้เงิน ≥ 2× CPA แล้ว 0 ออเดอร์ใน 7 วัน → หยุด",
+      "level": "campaign",
+      "window": "last_7d",
       "metric": "purchases",
       "op": "<=",
       "value": 0,

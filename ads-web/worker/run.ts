@@ -11,6 +11,10 @@ import { applyActual } from './actualMetrics.ts';
 import { campaignBreakevens, type BreakevenSource, type CampaignBreakeven } from './breakevens.ts';
 import { approvalsEnabled, expireOld, postProposal, recentlyAsked, saveProposals, type Proposal } from './discord.ts';
 
+/** The break-even a campaign is judged by: its own (breakevens.ts, when switched on) or the shop's. */
+export type BeOf = (campaignId: string) => number | null;
+const beFn = (be: number | null | BeOf): BeOf => (typeof be === 'function' ? be : () => be);
+
 /** Keeps a run well inside the Workers free plan's 50 outbound requests, and limits damage from a bad rule. */
 export const MAX_CHANGES_PER_RUN = 25;
 
@@ -93,12 +97,13 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
 
   try {
     const [entities, state] = await Promise.all([meta.listEntities(), loadState(env.DB)]);
-    const { plan, evaluated } = await planRun(env.DB, entities, (level, window) => meta.insights(level, window), state, now, (w) => meta.dailyCampaignInsights(w));
+    const { plan, evaluated, breakevens } = await planRun(env.DB, entities, (level, window) => meta.insights(level, window), state, now, (w) => meta.dailyCampaignInsights(w));
     report.entities_evaluated = evaluated;
     report.totals.daily_budget_before = sumBudget(entities);
     report.notes.push(...plan.notes);
     report.moves = plan.moves;
-    const [copies, cs, be] = await Promise.all([recentCopies(env.DB, now), loadCampaignSettings(env.DB), shopBreakeven(env.DB, settings, now)]);
+    const [copies, cs, shop] = await Promise.all([recentCopies(env.DB, now), loadCampaignSettings(env.DB), shopBreakeven(env.DB, settings, now)]);
+    const be: BeOf = (id) => breakevens?.get(id)?.be ?? shop;
     plan.decisions.push(...rampCopies(entities, copies, cs, plan.decisions, be, state, now));
     spaceIncreases(plan.decisions, entities, state, now, settings.guardrails.increase_gap_hours ?? INCREASE_GAP_HOURS, settings.guardrails.free_increase_below ?? FREE_INCREASE_BELOW);
     const winners = provenWinners(entities, cs, be, settings.guardrails.winner_max_daily_budget ?? WINNER_MAX_BUDGET);
@@ -106,7 +111,7 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
     const brakeMode = settings.guardrails.brake_yesterday ?? 'dry';
     const max = settings.guardrails.max_daily_budget;
     let brakes: Decision[] = [];
-    if (brakeMode !== 'off' && be !== null && entities.some((e) => e.level === 'campaign' && e.status === 'ACTIVE' && (e.daily_budget ?? 0) > max)) {
+    if (brakeMode !== 'off' && entities.some((e) => e.level === 'campaign' && e.status === 'ACTIVE' && (e.daily_budget ?? 0) > max)) {
       const y = await meta.insights('campaign', 'yesterday');
       for (const e of entities) if (e.level === 'campaign') e.metrics.yesterday = y.get(e.id) ?? zeroMetrics();
       const src = await applyActual(env.DB, entities, ['yesterday'], (w) => meta.dailyCampaignInsights(w), now);
@@ -144,15 +149,16 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
       }
       // A winner sitting at the per-campaign cap and still well above break-even: offer a copy (new campaign at a
       // small budget) so it can grow without pushing the original past the cap. Once approved, not asked again for 7 days.
-      if (be) {
+      {
         const done = await env.DB.prepare(`SELECT entity_id FROM proposals WHERE kind = 'dup' AND status = 'approved' AND decided_at >= ?`).bind(new Date(now.getTime() - 7 * 86_400_000).toISOString()).all<{ entity_id: string }>().then((r) => new Set(r.results.map((x) => x.entity_id))).catch(() => new Set<string>());
         for (const c of entities) {
           const m = c.metrics.last_3d;
           if (c.level !== 'campaign' || c.status !== 'ACTIVE' || !m || c.daily_budget === null || done.has(c.id)) continue;
           if (cs.get(c.id)?.stage_id !== 'winning' || c.daily_budget < (winners.get(c.id) ?? settings.guardrails.max_daily_budget) * 0.9) continue;
-          if (m.roas < be * 1.5 || m.purchases < 10) continue;
-          hold('dup', c.id, c.name, 'dup-winner', `ROAS 3 วัน ${m.roas.toFixed(2)} ≥ 1.5× คุ้มทุน ${be.toFixed(2)} และงบชนเพดาน ${c.daily_budget}`,
-            { level: 'campaign', budget: c.daily_budget, new_budget: Math.max(settings.guardrails.start_daily_budget ?? DUP_START_BUDGET, settings.guardrails.min_daily_budget), roas: m.roas, breakeven: be, purchases: m.purchases, actual });
+          const cbe = be(c.id);
+          if (cbe === null || m.roas < cbe * 1.5 || m.purchases < 10) continue;
+          hold('dup', c.id, c.name, 'dup-winner', `ROAS 3 วัน ${m.roas.toFixed(2)} ≥ 1.5× คุ้มทุน ${cbe.toFixed(2)} และงบชนเพดาน ${c.daily_budget}`,
+            { level: 'campaign', budget: c.daily_budget, new_budget: Math.max(settings.guardrails.start_daily_budget ?? DUP_START_BUDGET, settings.guardrails.min_daily_budget), roas: m.roas, breakeven: cbe, purchases: m.purchases, actual });
         }
       }
       await saveProposals(env.DB, proposals);
@@ -286,7 +292,7 @@ async function recentCopies(db: D1Database, now: Date): Promise<Set<string>> {
  * spend still under one order's cost. Only while the copy is active, still in "testing" (moved elsewhere = a person
  * took over), under DUP_RAMP_TO, and no stage rule acted on it this run. Guardrails and the total cap still apply.
  */
-export function rampCopies(entities: Entity[], copies: Set<string>, cs: Map<string, { stage_id: string | null }>, decisions: Decision[], be: number | null, state: State, now: Date): (Decision & { group: string })[] {
+export function rampCopies(entities: Entity[], copies: Set<string>, cs: Map<string, { stage_id: string | null }>, decisions: Decision[], beOf: number | null | BeOf, state: State, now: Date): (Decision & { group: string })[] {
   const out: (Decision & { group: string })[] = [];
   for (const c of entities) {
     if (c.level !== 'campaign' || !copies.has(c.id) || c.status !== 'ACTIVE' || c.daily_budget === null || c.daily_budget >= DUP_RAMP_TO) continue;
@@ -294,6 +300,7 @@ export function rampCopies(entities: Entity[], copies: Set<string>, cs: Map<stri
     const last = state.last_action[`dup-ramp:${c.id}`];
     if (last && now.getTime() - Date.parse(last) < 11 * 3_600_000) continue;
     const m = c.metrics.last_3d ?? zeroMetrics();
+    const be = beFn(beOf)(c.id);
     const early = m.spend < DUP_RAMP_FREE_SPEND;
     if (!early && (be === null || m.roas < be)) continue;
     const pct = Math.round(Math.min(20, (DUP_RAMP_TO / c.daily_budget - 1) * 100));
@@ -307,17 +314,17 @@ export function rampCopies(entities: Entity[], copies: Set<string>, cs: Map<stri
 }
 
 /**
- * Campaigns that earned a higher per-campaign ceiling: winning stage, real 7-day ROAS ≥ 1.5× the shop's break-even
- * and ≥ 10 orders. Losing that (ROAS drops, moved out of winning) puts them back under the normal ceiling: no cut, just
+ * Campaigns that earned a higher per-campaign ceiling: winning stage, real 7-day ROAS ≥ 1.5× its break-even (its own
+ * when breakevens.ts is on, else the shop's) and ≥ 10 orders. Losing that (ROAS drops, moved out of winning) puts them back under the normal ceiling: no cut, just
  * no more raises above it.
  */
-export function provenWinners(entities: Entity[], cs: Map<string, { stage_id: string | null }>, be: number | null, cap: number): Map<string, number> {
+export function provenWinners(entities: Entity[], cs: Map<string, { stage_id: string | null }>, beOf: number | null | BeOf, cap: number): Map<string, number> {
   const out = new Map<string, number>();
-  if (be === null) return out;
   for (const c of entities) {
     const m = c.metrics.last_7d;
     if (c.level !== 'campaign' || c.status !== 'ACTIVE' || !m || cs.get(c.id)?.stage_id !== 'winning') continue;
-    if (m.roas >= be * 1.5 && m.purchases >= 10) out.set(c.id, cap);
+    const be = beFn(beOf)(c.id);
+    if (be !== null && m.roas >= be * 1.5 && m.purchases >= 10) out.set(c.id, cap);
   }
   return out;
 }
@@ -338,16 +345,17 @@ export function spaceIncreases(decisions: Decision[], entities: Entity[], state:
 }
 
 /**
- * Campaigns above the normal per-campaign ceiling whose yesterday went badly: ROAS < 0.8× the shop's break-even on
+ * Campaigns above the normal per-campaign ceiling whose yesterday went badly: ROAS < 0.8× its break-even (own or shop's) on
  * ≥ 2,000 spend → back to the normal ceiling now. Yesterday is real Page365 sales once that day's file is uploaded
  * (so usually from the 20:00 run), Meta's tagged sales before that.
  */
-export function yesterdayBrakes(entities: Entity[], max: number, be: number): Decision[] {
+export function yesterdayBrakes(entities: Entity[], max: number, beOf: number | null | BeOf): Decision[] {
   const out: Decision[] = [];
   for (const e of entities) {
     const m = e.metrics.yesterday;
     if (e.level !== 'campaign' || e.status !== 'ACTIVE' || e.daily_budget === null || e.daily_budget <= max || !m) continue;
-    if (m.spend < BRAKE_MIN_SPEND || m.roas >= be * 0.8) continue;
+    const be = beFn(beOf)(e.id);
+    if (be === null || m.spend < BRAKE_MIN_SPEND || m.roas >= be * 0.8) continue;
     out.push({
       rule_id: 'brake-yesterday', entity: { level: 'campaign', id: e.id, name: e.name, campaign_name: e.campaign_name }, window: 'yesterday', metric: 'roas',
       observed: m.roas, threshold: be * 0.8, action: { type: 'budget_pct', pct: -Math.round((1 - max / e.daily_budget) * 100) },

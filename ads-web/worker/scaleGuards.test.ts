@@ -46,3 +46,17 @@ test('one bad day above the normal ceiling pulls the budget straight back; at or
   const out = yesterdayBrakes(es, 3200, 2.9);
   assert.deepEqual(out.map((d) => [d.entity.id, d.action.pct]), [['bad', -31]]);
 });
+
+test('with break-even per campaign, the winner ceiling and the brake judge each campaign by its own', async () => {
+  const { yesterdayBrakes } = await import('./run.ts');
+  const camp = (id: string, roas7: number, roasY: number): Entity => ({
+    level: 'campaign', id, name: id, campaign_id: id, campaign_name: id, status: 'ACTIVE', daily_budget: 4000,
+    metrics: { last_7d: { ...zeroMetrics(), roas: roas7, purchases: 30 }, yesterday: { ...zeroMetrics(), spend: 3000, roas: roasY } },
+  });
+  const es = [camp('dear', 4.5, 2.5), camp('cheap', 4.5, 2.5)];
+  const cs = new Map([['dear', { stage_id: 'winning' }], ['cheap', { stage_id: 'winning' }]]);
+  const own = (id: string) => (id === 'dear' ? 3.6 : 2.0);
+  assert.deepEqual([...provenWinners(es, cs, own, 5000).keys()], ['cheap']); // dear needs 5.4
+  assert.deepEqual(yesterdayBrakes(es, 3200, own).map((d) => d.entity.id), ['dear']); // 2.5 < 0.8 × 3.6; cheap's line is 1.6
+  assert.deepEqual([...provenWinners(es, cs, 2.9, 5000).keys()], ['dear', 'cheap']); // shop-wide: both
+});
