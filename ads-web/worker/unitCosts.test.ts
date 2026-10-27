@@ -20,11 +20,11 @@ test('linked product codes expand to catalog codes', () => {
   assert.deepEqual(codeCandidates('LX-154').exact, [['LX-154']]);
 });
 
-test('catalog cost: typed cost wins, sizes averaged, codes averaged, family as last resort', () => {
-  const rows = [cat('501/1', 110), cat('501/2', 110), cat('501/3', null, 120), cat('801/1', null), cat('801/2', 117), cat('LX-154', 200), cat('LX-154', 210)];
+test('catalog cost: typed cost wins, the cost most sizes have, codes averaged, family as last resort', () => {
+  const rows = [cat('501/1', 110), cat('501/2', 110), cat('501/3', null, 120), cat('801/1', null), cat('801/2', 117), cat('LX-154', 200), cat('LX-154', 210), cat('501/1', 135), cat('501/1', 110)];
   assert.deepEqual(catalogCostOf('501/1-3', rows), { cost: (110 + 110 + 120) / 3, codes: ['501/1', '501/2', '501/3'], price: null });
   assert.deepEqual(catalogCostOf('801', rows), { cost: 117, codes: ['801/2'], price: null });
-  assert.deepEqual(catalogCostOf('lx-154', rows), { cost: 205, codes: ['LX-154'], price: null });
+  assert.deepEqual(catalogCostOf('lx-154', rows), { cost: 210, codes: ['LX-154'], price: null });
   assert.equal(catalogCostOf('E200', [cat('E200', null)]), null);
   assert.deepEqual(catalogCostOf('AR 16', [cat('16-1', 170), cat('16-2', 170), cat('160', 999)]), { cost: 170, codes: ['16-1', '16-2'], price: null });
   assert.deepEqual(catalogCostOf('BAGGY 711-714', [cat('RL-711', 210), cat('RL-714', 190), cat('L711', null)]), { cost: 200, codes: ['RL-711', 'RL-714'], price: null });

@@ -50,10 +50,16 @@ export function codeCandidates(code: string): { exact: string[][]; families: str
   return { exact, families, suffixes };
 }
 
-/** Mean cost of a set of catalog rows (each size counts once); null when none has a cost. */
-function meanCost(rows: CatalogCostRow[]): number | null {
-  const v = rows.map((r) => r.typed ?? r.cost).filter((c): c is number => c !== null && c > 0);
-  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+/**
+ * The cost most sizes of a code have (501/1: 28–36 at PK ฿110, 38–44 at BB ฿135 → 110, what the catalog card shows);
+ * a tie takes the higher. Null when no size has a cost. Big sizes' real cost comes in with the Page365 orders.
+ */
+function mainCost(rows: CatalogCostRow[]): number | null {
+  const count = new Map<number, number>();
+  for (const r of rows) { const c = r.typed ?? r.cost; if (c !== null && c > 0) count.set(c, (count.get(c) ?? 0) + 1); }
+  let best: number | null = null;
+  for (const [c, n] of count) if (best === null || n > count.get(best)! || (n === count.get(best)! && c > best)) best = c;
+  return best;
 }
 
 /** Pure: the catalog cost of one linked code, and which catalog codes gave it. */
@@ -61,7 +67,7 @@ export function catalogCostOf(code: string, rows: CatalogCostRow[]): { cost: num
   const byCode = new Map<string, CatalogCostRow[]>();
   for (const r of rows) { const k = up(r.code); byCode.set(k, [...(byCode.get(k) ?? []), r]); }
   const tryCodes = (codes: string[]) => {
-    const hits = [...new Set(codes)].map((c) => ({ c, cost: meanCost(byCode.get(c) ?? []) })).filter((h): h is { c: string; cost: number } => h.cost !== null);
+    const hits = [...new Set(codes)].map((c) => ({ c, cost: mainCost(byCode.get(c) ?? []) })).filter((h): h is { c: string; cost: number } => h.cost !== null);
     if (!hits.length) return null;
     const prices = hits.flatMap((h) => byCode.get(h.c)!.map((r) => r.price ?? 0)).filter((p) => p > 0);
     return { cost: hits.reduce((t, h) => t + h.cost, 0) / hits.length, codes: hits.map((h) => h.c), price: prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : null };
@@ -122,17 +128,17 @@ export async function unitCostsFor(db: D1Database, costs: CostRow[], sections: S
   return rows.filter((r, i) => i < costs.length || r.cost_from === 'catalog');
 }
 
-/** Catalog products by code or name for the product pickers: one row per warehouse tab + code, ทุน averaged over sizes. */
+/** Catalog products by code or name for the product pickers: one row per warehouse tab + code, ทุน = what most sizes cost. */
 export async function searchCatalogCodes(db: D1Database, q: string, limit = 15): Promise<UnitCostRow[]> {
   const text = q.trim();
   if (!text) return [];
   const { results } = await db.prepare(
-    `SELECT c.tab, c.code, MIN(c.name) AS name, COUNT(*) AS skus, AVG(COALESCE(s.price, p.price, c.cost)) AS cost, AVG(c.price) AS price
+    `SELECT c.tab, c.code, MIN(c.name) AS name, COUNT(*) AS skus, GROUP_CONCAT(COALESCE(s.price, p.price, c.cost)) AS costs, AVG(c.price) AS price
      FROM catalog c LEFT JOIN catalog_prices s ON s.key = c.tab || '|' || c.sku LEFT JOIN catalog_prices p ON p.key = c.tab || '|' || c.spu
      WHERE c.code LIKE ?1 || '%' OR (length(?1) >= 2 AND c.name LIKE '%' || ?1 || '%')
      GROUP BY c.tab, c.code ORDER BY upper(c.code) = upper(?1) DESC, length(c.code), c.code LIMIT ?2`,
-  ).bind(text, limit).all<{ tab: string; code: string; name: string; skus: number; cost: number | null; price: number | null }>();
-  return results.map((r) => ({
+  ).bind(text, limit).all<{ tab: string; code: string; name: string; skus: number; costs: string | null; price: number | null }>();
+  return results.map((r) => ({ ...r, cost: mainCost((r.costs ?? '').split(',').filter(Boolean).map((c) => ({ code: r.code, cost: Number(c), typed: null }))) })).map((r) => ({
     tab: r.tab, code: r.code, name: r.name, sku_count: r.skus, avg_cost: r.cost ?? 0, min_cost: r.cost ?? 0, max_cost: r.cost ?? 0, avg_price: r.price ?? 0,
     cost_from: 'catalog' as const, catalog_codes: [r.code], catalog_cost: r.cost,
   }));
