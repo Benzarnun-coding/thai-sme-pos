@@ -9,7 +9,7 @@ import { SkuMatch } from './SkuMatch.tsx';
 import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from './catalog.ts';
 import { num } from './fmt.ts';
 import {
-  applyMoves, moveKey, buildLines, dateFromFileName, optionParts, saleItems, orderColumns, orderText, paymentWorkbook, PRICE_SOURCE_LABEL, supplierTotals, withPrices, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, missingOrderColumns, orderWorkbook, readOrderItems,
+  applyMoves, moveKey, buildLines, dateFromFileName, optionParts, saleItems, orderColumns, orderText, paymentWorkbook, PRICE_SOURCE_LABEL, supplierTotals, withPrices, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, groupOf, type Lookup, missingOrderColumns, orderWorkbook, readOrderItems,
   FB_ROUND, roundFile, roundLabel, FACEBOOK_STORE, GOSELL_GROUP, isFacebookExport, MANUAL_STORE, readFacebookItems, suggestSkus, remapLines, STOCK_GROUP, stockPlacer, orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
 } from './purchase.ts';
 import { orderPictureSheets, pictureSheets } from './pictureSheet.ts';
@@ -83,6 +83,16 @@ export function OrdersApp() {
   // Sheet rows + SKUs added on the page, so a SKU added this morning already lands on the right sheet.
   const allRows = useMemo<CatalogRow[]>(() => [...rows, ...(meta?.web ?? []).map((w) => webToRow(w, 0))], [rows, meta?.web]);
   const lookup = useMemo(() => makeLookup(allRows, supplierMap, priceMap, labelMap, aliasMap, aliasForce), [allRows, supplierMap, priceMap, labelMap, aliasMap, aliasForce]);
+  /** A typed line (from the top or from one supplier's card); before any file it starts today's next round. */
+  const addManual = (it: OrderItem) => {
+    if (!data) {
+      setData({ file: 'เพิ่มเอง', items: [] });
+      setDate(todayBkk());
+      setRound(nextRound(todayBkk()));
+      setSavedSig('');
+    }
+    setManual((m) => [...m, it]);
+  };
   // Our own codes (the PK tab): code → size → SKU, for "รหัสของเรา" when a row's name is edited.
   const ours = useMemo(() => {
     const m = new Map<string, Map<string, string>>();
@@ -478,16 +488,7 @@ export function OrdersApp() {
             fb={fb ? { file: fb.file, orders: new Set(fb.items.map((i) => i.order)).size, pieces: fb.items.reduce((t, i) => t + i.qty, 0) } : null}
             manual={manual} rows={allRows} busy={!!busy || !ready}
             onFile={onFile} onRemoveFb={() => setFb(null)}
-            onAdd={(it) => {
-              if (!data) {
-                // A typed line before any file starts today's next round.
-                setData({ file: 'เพิ่มเอง', items: [] });
-                setDate(todayBkk());
-                setRound(nextRound(todayBkk()));
-                setSavedSig('');
-              }
-              setManual((m) => [...m, it]);
-            }}
+            onAdd={addManual}
             onRemoveManual={(i) => setManual((m) => m.filter((_, j) => j !== i))}
           />
         )}
@@ -609,6 +610,7 @@ export function OrdersApp() {
               ours={ours} onReplace={canEdit ? replaceSku : null} onUnmerge={canEdit ? unmerge : null}
               onSupplier={setSupplier} onHand={(sku) => onHandOf(g.name, sku)} onExcel={() => exportExcel(g)} onPrint={() => print(g)} busy={!!busy}
               onPictures={() => { save(); setPictures(g); }}
+              shopRows={allRows} lookup={lookup} onAddHere={viewing ? null : addManual}
             />
           ))}
         </>
@@ -719,7 +721,8 @@ function Sources({ bigseller, fb, manual, rows, busy, onFile, onRemoveFb, onAdd,
 
 // ---- one supplier / warehouse ----
 
-function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPrice, onLabel, canRemember, movable, targets, onMove, matchRows, onMatched, ours, onReplace, onUnmerge, onSupplier, onHand, onExcel, onPrint, onPictures, busy }: {
+function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPrice, onLabel, canRemember, movable, targets, onMove, matchRows, onMatched, ours, onReplace, onUnmerge, onSupplier, onHand, onExcel, onPrint, onPictures, busy, shopRows, lookup, onAddHere }: {
+  shopRows: CatalogRow[]; lookup: Lookup; onAddHere: ((it: OrderItem) => void) | null;
   group: PurchaseGroup; open: boolean; onToggle: () => void; found: Set<string>; missing: Map<string, number>; onMissing: ((l: PurchaseLine, n: number) => Promise<void>) | null;
   onPrice: ((l: PurchaseLine, price: number | null) => Promise<void>) | null;
   onLabel: (l: PurchaseLine) => ((l: PurchaseLine, text: string, onlySize?: boolean) => Promise<void>) | null;
@@ -735,6 +738,18 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
     return [...seen.values()];
   }, [g.lines]);
   const [bulk, setBulk] = useState('');
+  // "+ เพิ่มสินค้าร้านนี้": search only this shop's products, add to this round (it lands back on this sheet by the shop rule).
+  const [adding, setAdding] = useState(false);
+  const [aq, setAq] = useState('');
+  const [aqty, setAqty] = useState('1');
+  const here = useMemo(() => (adding ? shopRows.filter((r) => groupOf(r, lookup).group === g.name) : []), [adding, shopRows, lookup, g.name]);
+  const ahits = useMemo(() => suggestSkus(here, aq, 6), [here, aq]);
+  const addHere = (r: CatalogRow) => {
+    const n = Math.round(Number(aqty));
+    if (!onAddHere || !(n > 0)) return;
+    onAddHere({ store: MANUAL_STORE, sku: r.sku, name: r.name, option: '', qty: n, order: '', tracking: '', carrier: '' });
+    setAq(''); setAqty('1');
+  };
   // Rows ticked for the bulk move; none ticked = the whole group.
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [setAll, setSetAll] = useState('');
@@ -770,6 +785,25 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
       </div>
       {open && (
         <>
+          {onAddHere && g.kind !== 'review' && g.name !== STOCK_GROUP && g.name !== GOSELL_GROUP && g.name !== MISSING_GROUP && (
+            <div className="po-manual-add">
+              {!adding ? <button className="small po-add-btn" onClick={() => setAdding(true)}>+ เพิ่มสินค้าร้านนี้</button> : <>
+                <input value={aq} autoFocus placeholder={`ค้นหาสินค้าของ ${g.name} เช่น 501/2 32`} aria-label="ค้นหาสินค้าของร้านนี้" onChange={(e) => setAq(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && ahits[0]) addHere(ahits[0]); if (e.key === 'Escape') setAdding(false); }} />
+                <input className="po-manual-qty" inputMode="numeric" value={aqty} aria-label="จำนวน" onChange={(e) => setAqty(e.target.value.replace(/\D/g, ''))} />
+                <button className="small" onClick={() => { setAdding(false); setAq(''); }}>เสร็จ</button>
+                {aq.trim() && (ahits.length > 0 ? (
+                  <div className="sku-match-list po-manual-hits">
+                    {ahits.map((r) => (
+                      <button key={`${r.tab}|${r.sku}`} className="sku-match-item" onClick={() => addHere(r)}>
+                        <code>{r.sku}</code><span className="muted small">{r.code}{r.size ? ` · ${r.size}` : ''} · กดเพื่อเพิ่ม</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : <span className="muted small">ไม่พบสินค้าของร้านนี้ในแคตตาล็อก · ถ้าเป็นของร้านอื่นใช้ "+ เพิ่มรายการเอง" ด้านบน</span>)}
+              </>}
+            </div>
+          )}
           {g.kind === 'unassigned' && (
             <p className="small muted po-hint">SKU เหล่านี้มีในแคตตาล็อกแล้ว แต่คอลัมน์ ร้านค้า (L) ในชีตยังว่าง · ตั้งร้านประจำให้ทั้งกลุ่มด้านล่าง หรือย้ายทีละรายการแล้วติ๊ก "จำไว้ทุกวัน" · หรือกรอกในชีตแล้วดึงใหม่</p>
           )}

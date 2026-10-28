@@ -74,6 +74,7 @@ are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,4
   saves a forced match (`catalog_aliases.force`, migration 0050) from the row's SKU to that code's same size, e.g.
   39-BB-MD-34 → 5011-PK-MD-34. From then on every page reads it as ours, so the two rows add up; the merged row says
   "รวม 39-BB-MD-34 · แยก" to undo. Ordinary matches (unknown SKUs) never override a catalog SKU; forced ones do.
+- "+ เพิ่มสินค้าร้านนี้" (idea #15, มอส): on each supplier / warehouse card, searches only that shop's products (`groupOf` = this card) and adds a typed line to the open round — same storage as "+ เพิ่มรายการเอง"; not on history views.
 - Where a row goes (`groupOf`): supplier set on the page > sheet ร้านค้า (statuses like เลิกผลิต ignored) >
   "BB · ยังไม่ระบุร้าน" (only BB must have a supplier, `SUPPLIER_TABS`) > the warehouse itself (PK, CM, CN, BBW …;
   BBW products with นอร์ท still go to นอร์ท). Unknown SKUs → "ตรวจสอบ" (match, or add via `/catalog?q=SKU&add=1`);
