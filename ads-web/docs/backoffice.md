@@ -151,6 +151,8 @@ are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,4
 - Page: tabs พี่เปีย / GoSell, model × size grid (≤ 5 orange, ≤ 0 red), "รับของเข้า" (received), "ปรับยอด (นับจริง)"
   (counted → only the difference is saved), 45 days of history (typed entries can be deleted). Team members add stock
   themselves; a starting balance is owner/admin only.
+- รับของเข้า at พี่เปีย (idea #16, มอส): the same SKUs are also cut from PK's stock (`out`, ref `pia-in:…`, once PK has a starting
+  balance; SKUs PK doesn't keep are left alone); deleting the typed receipt deletes that cut too (`cutPkForPia`).
 - Starting balance: the sheet's "Stock คงเหลือ" on 2026-10-15 after the noon round (pia 540, gosell 811; sizes at 0
   left out), loaded once; cutting from the order sheets starts with rounds of 2026-10-16. The sheet is retired after that.
 - Forecast (`web/src/forecast.ts`, Benz 2026-10-15 "ตาม trend"): each cell shows how many days the balance lasts, and a

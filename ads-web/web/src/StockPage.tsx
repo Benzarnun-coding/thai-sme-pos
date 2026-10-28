@@ -308,7 +308,7 @@ function StockForm({ mode, loc, models, sizes, skuOf, balance, onCancel, onSaved
       </table>
       <div className="row">
         <label>วันที่<input type="date" value={date} max={todayBkk()} onChange={(e) => setDate(e.target.value)} /></label>
-        <label style={{ flex: 1, minWidth: 200 }}>หมายเหตุ<input value={note} maxLength={200} placeholder={mode === 'in' ? 'เช่น ของเข้าจากโรงงาน' : mode === 'adjust' ? 'เช่น นับสต็อกสิ้นเดือน' : ''} onChange={(e) => setNote(e.target.value)} /></label>
+        <label style={{ flex: 1, minWidth: 200 }}>หมายเหตุ<input value={note} maxLength={200} placeholder={mode === 'in' ? (loc === 'pia' ? 'เช่น ของเข้าจากโรงงาน (ตัดสต็อก PK ให้เอง)' : 'เช่น ของเข้าจากโรงงาน') : mode === 'adjust' ? 'เช่น นับสต็อกสิ้นเดือน' : ''} onChange={(e) => setNote(e.target.value)} /></label>
       </div>
       <div className="cat-price-actions">
         <span className="small muted">{changes.length ? `${changes.length} ไซส์ · ${sum > 0 ? '+' : ''}${num(sum)} ตัว` : 'ยังไม่มีการเปลี่ยน'}</span>

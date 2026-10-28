@@ -85,12 +85,31 @@ export async function saveMoves(db: D1Database, m: ReturnType<typeof validateMov
   const now = new Date().toISOString();
   const rows = m.items.map((x) => ({ loc: m.loc, sku: x.sku, qty: x.qty, kind: m.kind, ref: '', date: m.date, note: m.note, created_by: user, created_at: now }));
   await insertMoves(db, rows);
+  if (m.kind === 'in' && m.loc === 'pia') await cutPkForPia(db, rows);
   return rows.length;
 }
 
+/** Stock received at พี่เปีย (BB) comes out of PK's: same SKU, same pieces, only once PK has a starting balance. The out row's ref points back to the received one. */
+async function cutPkForPia(db: D1Database, received: Omit<StockMove, 'id'>[]): Promise<void> {
+  const pk = await db.prepare(
+    `SELECT m.sku FROM stock_locs m WHERE m.loc = 'pk' AND m.sku IN (SELECT value ->> '$.sku' FROM json_each(?1))
+       AND EXISTS (SELECT 1 FROM stock_moves o WHERE o.loc = 'pk' AND o.kind = 'open')`,
+  ).bind(JSON.stringify(received)).all<{ sku: string }>();
+  const has = new Set(pk.results.map((r) => r.sku));
+  await insertMoves(db, received.filter((r) => has.has(r.sku)).map((r) => ({
+    ...r, loc: 'pk' as const, qty: -r.qty, kind: 'out' as const, ref: pkCutRef(r), note: `รับของเข้าพี่เปีย${r.note ? ` · ${r.note}` : ''}`,
+  })));
+}
+
+const pkCutRef = (r: Pick<StockMove, 'sku' | 'created_at' | 'created_by'>) => `pia-in:${r.created_at}:${r.created_by}`;
+
 /** Removes a typed change (received / correction / starting balance); cuts by orders are undone from their round. */
 export async function deleteMove(db: D1Database, id: number): Promise<boolean> {
+  const row = await db.prepare("SELECT loc, sku, kind, created_at, created_by FROM stock_moves WHERE id = ?1").bind(id).first<StockMove>();
   const r = await db.prepare("DELETE FROM stock_moves WHERE id = ?1 AND kind IN ('in', 'adjust', 'open')").bind(id).run();
+  if ((r.meta.changes ?? 0) > 0 && row?.kind === 'in' && row.loc === 'pia') {
+    await db.prepare("DELETE FROM stock_moves WHERE loc = 'pk' AND kind = 'out' AND sku = ?1 AND ref = ?2").bind(row.sku, pkCutRef(row)).run();
+  }
   return (r.meta.changes ?? 0) > 0;
 }
 
