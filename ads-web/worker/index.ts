@@ -48,6 +48,7 @@ import { hourCheck, hourCheckText } from './hourCheck.ts';
 import { syncP365Costs } from './p365Costs.ts';
 import { applyCardCorrections, CARD_REASON, cardCorrectionOn, cardCorrections } from './billCards.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
+import { loadRepeat, repeatLine } from './repeatBuyers.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
 import { cleanupDrafts, cleanupOn, setCleanup } from './draftCleanup.ts';
@@ -2168,6 +2169,8 @@ async function salesDigest(env: Env, date: string, remindIfMissing = false): Pro
     ...(ads === null ? [`⚠️ ยังไม่หักค่าแอด — ดึงค่าแอดของวันนี้จาก Meta ไม่ได้${adsError ? ` (${adsError.slice(0, 120)})` : ' (Meta ยังไม่มีตัวเลขวันนั้น)'} · ดูกำไรสุทธิที่หน้ายอดขายรายวันแทนค่ะ`] : []),
     `ไม่ใช่แอด ${organic.length} ออเดอร์ ${b(n((o) => (o.match === 'none' ? o.total : 0)))} (${orders.length ? Math.round((organic.length / orders.length) * 100) : 0}%) · จับคู่แอดได้ ${orders.length - organic.length}/${orders.length}`,
   ];
+  const repeat = await loadRepeat(env.DB, date).catch((err) => { console.error('repeat buyers', err); return null; });
+  if (repeat) lines.push(repeatLine(repeat));
   await pushDiscord(lines.join('\n'), env.DISCORD_WEBHOOK_URL);
 }
 
