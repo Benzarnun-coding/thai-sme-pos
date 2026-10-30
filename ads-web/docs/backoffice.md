@@ -164,6 +164,10 @@ are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,4
   the order rounds build up (only rounds saved with order rows count).
 - 07:30 #report lists sizes at ≤ 5 pieces.
 
+- Idea #17 (not built, waiting for answers from มอส): more places on this page for the shops' own stock — AR, BB (เจ๊ศรี,
+  ส.ประสาน, NBG, แพลนเนท, KM, J.Big, ป.ไพรศาล, พี่เปีย's separate shop), BBW (นอร์ท), BT, GG, Clima (CM), CN (CYD China
+  warehouse) — each cut by its order-sheet group, and returned goods going back into stock when scanned/keyed.
+
 ## งานค้าง `/catalog/todo`
 
 From units sold in the last 7/14/30 days, most sold first: unknown SKUs (match / add), products without a cost (type
