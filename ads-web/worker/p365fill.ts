@@ -181,10 +181,16 @@ export function chatTotal(messages: ChatMessage[], until?: string): number | nul
 export const GOSELL_CODES = /^501\/[123]$/;
 
 /** GoSell SKUs that are sold out there: a bill with one of them goes the normal way, "PK-1234 …" (Mos, idea #9, 22 Oct). Take the SKU out when GoSell has it again. */
-export const GOSELL_OUT_OF_STOCK = ['5013-PK-BL-31', '5012-PK-NV-34'];
+export const GOSELL_OUT_OF_STOCK = ['5013-PK-BL-31', '5012-PK-NV-34', '5011-PK-MD-30'];
+/** GoSell doesn't stock waist 38–44 of 501/1–3 either: those bills are normal "PK-" too (Mos, idea #18). */
+export function isGoSellLine(l: { code: string; sku: string | null }): boolean {
+  if (!GOSELL_CODES.test(l.code)) return false;
+  if (l.sku && GOSELL_OUT_OF_STOCK.includes(l.sku)) return false;
+  return !(Number(l.sku?.split('-').pop()) >= 38);
+}
 
 export function billName(no: number, firstSku: string | null, name: string, codes: string[] = [], skus: (string | null)[] = []): string {
-  const goSell = codes.length > 0 && codes.every((c) => GOSELL_CODES.test(c)) && !skus.some((k) => k && GOSELL_OUT_OF_STOCK.includes(k));
+  const goSell = codes.length > 0 && codes.every((c, i) => isGoSellLine({ code: c, sku: skus[i] ?? null }));
   const wh = goSell ? 'GS' : (firstSku ?? '').split('-')[1]?.toUpperCase() ?? '';
   const prefix = wh ? `${wh === 'CN' ? 'C' : wh}-${String(no).slice(-4)} ` : '';
   return `${prefix}${name.replace(/^[A-Z]{1,3}-\d{4}\s+/, '').trim()}`;
@@ -332,7 +338,7 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
     warnings.push(opts.readAddress === false ? 'ยังไม่ได้อ่านที่อยู่จากแชท' : 'ร่างยังไม่มีที่อยู่ครบ และยังไม่ได้ตั้ง ANTHROPIC_API_KEY ให้ระบบอ่านที่อยู่จากแชท — แอดมินกรอกเอง');
   }
   // GoSell models mixed with others in one bill: still one bill, but someone decides how it ships.
-  if (lines.some((l) => GOSELL_CODES.test(l.code)) && !lines.every((l) => GOSELL_CODES.test(l.code))) warnings.push('บิลนี้มี 501/1–3 (ส่ง GoSell) ปนกับรุ่นอื่น — ตั้งชื่อเป็นคลังปกติ ช่วยดูว่าต้องแยกบิลไหม');
+  if (lines.some(isGoSellLine) && !lines.every(isGoSellLine)) warnings.push('บิลนี้มี 501/1–3 (ส่ง GoSell) ปนกับรุ่นอื่น — ตั้งชื่อเป็นคลังปกติ ช่วยดูว่าต้องแยกบิลไหม');
   // No recipient name in the chat: the customer's Facebook name (Page365's customer name) is used (Benz 15 Oct).
   const bill_name = draft ? billName(draft.no, lines[0]?.sku ?? null, address?.name || draft.customer_name || '', lines.map((l) => l.code), lines.map((l) => l.sku)) : null;
   return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, shipping_id, shipping_option, subtotal, shipping, discount: Math.max(0, discount), total, chat_total, bill_name, address, problems, warnings, said, notes };
