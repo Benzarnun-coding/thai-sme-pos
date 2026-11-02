@@ -59,7 +59,7 @@ export function Overview({ data, window, onWindow, onReload, onRefresh, onOpenRu
         )}
       </div>
 
-      <GoalCard />
+      <GoalCard month={parseRange(window)?.until.slice(0, 7)} />
 
       <div className="kpis">
         {(() => {
@@ -148,11 +148,16 @@ function useCountUp(target: number, ms = 1200): number {
  * Scoreboard: month-to-date real net (Page365 days) against the monthly goal — how much is still missing, a running
  * bar with a marker where the month should be by now, and the pace needed. Loaded on its own so the overview isn't slowed.
  */
-function GoalCard() {
+function GoalCard({ month }: { month?: string }) {
   const [g, setG] = useState<GoalStatus | null>(null);
   const [err, setErr] = useState('');
   const [shown, setShown] = useState(false);
-  useEffect(() => { api.goal().then((x) => { setG(x); requestAnimationFrame(() => setShown(true)); }).catch((e) => setErr(e.message)); }, []);
+  useEffect(() => {
+    let current = true;
+    setErr('');
+    api.goal(month).then((x) => { if (!current) return; setG(x); requestAnimationFrame(() => setShown(true)); }).catch((e) => { if (current) setErr(e.message); });
+    return () => { current = false; };
+  }, [month]);
   const net = useCountUp(g?.net ?? 0);
   if (err) return <p className="muted small">เป้ากำไร: {err}</p>;
   if (!g) return <section className="card scoreboard"><div className="skeleton" style={{ height: 120 }} /></section>;
@@ -186,7 +191,7 @@ function GoalCard() {
       </div>
       <p className={`sb-status ${gap >= 0 ? 'good' : 'bad'}`}>
         {gap >= 0 ? `▲ นำเป้า ${baht(gap)}` : `▼ ช้ากว่าเป้า ${baht(-gap)}`}
-        <span className="muted"> · ยอดจริง Page365 {g.days.length} วัน{g.missing.length ? ` (ขาดไฟล์ ${g.missing.length} วัน)` : ''} · หลังหักทุน ค่าใช้จ่ายต่อออเดอร์ และค่าแอด</span>
+        <span className="muted"> · ยอดจริง Page365 {g.days.length} วัน{g.missing.length ? ` (ขาดไฟล์ ${g.missing.length} วัน)` : ''} · {g.month === '2026-11' ? 'ไม่รวมแคมเปญที่โดนแฮก · ' : ''}หลังหักทุน ค่าใช้จ่ายต่อออเดอร์ และค่าแอด</span>
       </p>
 
       <div className="goal-grid">

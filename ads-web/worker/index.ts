@@ -42,7 +42,7 @@ import { editKb, fixedBefore, kbMessage, kbModal, rewriteKb, kbPasteText, listKb
 import { checkDoc, docIdFrom, docLive, docText, loadDocSettings, saveDocSettings, serviceEmail, writeDoc } from './botKbDoc.ts';
 import { closeCase, customerName, serviceAlerts, servicePreview } from './serviceAlert.ts';
 import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './postIdeas.ts';
-import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
+import { dayNet, goalLastDay, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
 import { approvalsEnabled, blockedByKillSwitch, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
 import { hourCheck, hourCheckText } from './hourCheck.ts';
 import { syncP365Costs } from './p365Costs.ts';
@@ -666,7 +666,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
 
   // ---- Discord bot: a test question with buttons ----
-  if (path === '/api/goal' && method === 'GET') return json(await loadGoal(env));
+  if (path === '/api/goal' && method === 'GET') return json(await loadGoal(env, url.searchParams.get('month')));
   // A note from the owners to the deciders, posted by the bot (e.g. the plan summary for Max).
   if (path === '/api/discord/announce' && method === 'POST') {
     if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
@@ -2030,14 +2030,14 @@ async function dailySpend(env: Env, from: string, to: string): Promise<{ date: s
 }
 
 /** Month-to-date real net vs the monthly goal, the MER the goal needs, and the last 7 days' real MER. */
-async function loadGoal(env: Env): Promise<GoalStatus> {
-  const yesterday = bkkDate(1);
-  const { month, daysInMonth, dates } = monthDates(yesterday);
-  const last7 = Array.from({ length: 7 }, (_, i) => bkkDate(i + 1));
+async function loadGoal(env: Env, wanted: string | null = null): Promise<GoalStatus> {
+  const last = goalLastDay(wanted, bkkDate(1));
+  const { month, daysInMonth, dates } = monthDates(last);
+  const last7 = Array.from({ length: 7 }, (_, i) => new Date(Date.parse(last) - i * 86400_000).toISOString().slice(0, 10));
   const all = [...new Set([...dates, ...last7])].sort();
   const [settings, uploads, orders] = await Promise.all([loadSettings(env.DB), loadUploads(env.DB, all), loadOrders(env.DB, all)]);
   // Spend per day from one Meta call over the whole span (cached; at most 31 days).
-  const rows = uploads.size ? await (await metaData(env)).data.dailyAll(`range:${all[0]}:${yesterday}` as Window) : [];
+  const rows = uploads.size ? await (await metaData(env)).data.dailyAll(`range:${all[0]}:${last}` as Window) : [];
   const spend = new Map<string, number>();
   for (const r of rows) spend.set(r.date, (spend.get(r.date) ?? 0) + r.spend);
   const byDate = new Map<string, typeof orders>();

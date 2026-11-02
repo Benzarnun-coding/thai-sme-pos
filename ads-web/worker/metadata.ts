@@ -59,6 +59,17 @@ function revive(data: string): any {
 
 export class MetaCacheError extends Error {}
 
+/** Left out of every number (Benz 2026-11-02): the campaign a hijacked admin spent 51,157 on, 1 Nov. */
+const EXCLUDED_CAMPAIGNS = ['120250609786390069'];
+
+/** Ids to hide (campaigns and their ad sets). A listed campaign that is running again stays visible, so hidden spend can't pile up unseen. */
+export function excludedIds(entities: Pick<Entity, 'id' | 'level' | 'campaign_id' | 'status'>[], listed: string[] = EXCLUDED_CAMPAIGNS): Set<string> {
+  const running = new Set(entities.filter((e) => e.level === 'campaign' && e.status === 'ACTIVE').map((e) => e.id));
+  const out = new Set(listed.filter((id) => !running.has(id)));
+  for (const e of entities) if (out.has(e.campaign_id)) out.add(e.id);
+  return out;
+}
+
 export async function loadMetaData(db: D1Database, meta: MetaLike, fresh: boolean): Promise<MetaData> {
   const cacheable = !(meta instanceof MockMeta);
   const times: string[] = [];
@@ -90,7 +101,9 @@ export async function loadMetaData(db: D1Database, meta: MetaLike, fresh: boolea
 
   const base = await cached('entities', 'entities', async () => ({ account: await meta.accountName(), entities: await meta.listEntities() }));
 
-  const insights = async (level: Level, window: Window) =>
+  const hidden = excludedIds(base.entities);
+
+  const rawInsights = async (level: Level, window: Window) =>
     new Map(Object.entries(await cached(`ins:${level}:${window}`, settled(window) ? 'past' : 'insights', async () => Object.fromEntries(await meta.insights(level, window)))));
 
   /**
@@ -102,11 +115,11 @@ export async function loadMetaData(db: D1Database, meta: MetaLike, fresh: boolea
   async function dailyAll(window: Window): Promise<CampaignDayRow[]> {
     const rows = await cached(`dailyall:${window}`, settled(window) ? 'past' : 'daily', () => meta.dailyCampaignInsights(window));
     const sum = (xs: Iterable<{ spend: number }>) => [...xs].reduce((t, r) => t + r.spend, 0);
-    const want = sum((await insights('campaign', window).catch(() => new Map<string, Metrics>())).values());
+    const want = sum((await rawInsights('campaign', window).catch(() => new Map<string, Metrics>())).values());
     if (!(want > 0) || sum(rows) >= want * 0.5) return rows;
     const out: CampaignDayRow[] = [];
     for (const date of windowDates(window).slice(-31)) {
-      const day = await insights('campaign', `range:${date}:${date}` as Window);
+      const day = await rawInsights('campaign', `range:${date}:${date}` as Window);
       for (const [campaign_id, m] of day) out.push({ campaign_id, date, spend: m.spend, impressions: m.impressions, clicks: m.clicks, purchases: m.purchases, purchase_value: m.purchase_value });
     }
     return out;
@@ -114,11 +127,11 @@ export async function loadMetaData(db: D1Database, meta: MetaLike, fresh: boolea
 
   return {
     account: base.account,
-    entities: base.entities,
-    insights,
+    entities: base.entities.filter((e) => !hidden.has(e.id)),
+    insights: async (level, window) => new Map([...await rawInsights(level, window)].filter(([id]) => !hidden.has(id))),
     daily: (campaignId, window) => cached(`daily:${campaignId}:${window}`, 'daily', () => meta.dailyInsights(campaignId, window)),
-    dailyAll,
-    hourly: (date) => cached(`hourly:${date}`, 'daily', () => meta.hourlyConversions(date)),
+    dailyAll: async (window) => (await dailyAll(window)).filter((r) => !hidden.has(r.campaign_id)),
+    hourly: async (date) => (await cached(`hourly:${date}`, 'daily', () => meta.hourlyConversions(date))).filter((r) => !hidden.has(r.campaign_id)),
     fetchedAt: () => (times.length ? times.reduce((a, b) => (a < b ? a : b)) : new Date().toISOString()),
     warning: () => warning,
   };

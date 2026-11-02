@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_GOAL, goalStatus, monthDates, nextCap, type DayNet } from './goal.ts';
+import { DEFAULT_GOAL, goalLastDay, goalStatus, monthDates, nextCap, type DayNet } from './goal.ts';
 
 const day = (date: string, revenue: number, ads: number): DayNet => {
   const cost = revenue * 0.516, fees = revenue * 0.125;
@@ -37,4 +37,13 @@ test('7-day MER needs at least 6 uploaded days', () => {
 test('the cap grows by the step, rounded to 100', () => {
   assert.equal(nextCap(10_800, 20), 13_000);
   assert.equal(nextCap(13_000, 20), 15_600);
+});
+
+test('the scoreboard of a past month runs to its last day; this, future and bad months to yesterday', () => {
+  assert.equal(goalLastDay('2026-10', '2026-11-01'), '2026-10-31');
+  assert.equal(goalLastDay('2026-02', '2026-11-01'), '2026-02-28');
+  assert.equal(goalLastDay('2026-11', '2026-11-01'), '2026-11-01');
+  assert.equal(goalLastDay('2026-12', '2026-11-01'), '2026-11-01');
+  assert.equal(goalLastDay(null, '2026-11-01'), '2026-11-01');
+  assert.equal(goalLastDay('2026-13', '2026-11-01'), '2026-11-01');
 });

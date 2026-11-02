@@ -87,6 +87,13 @@ export function goalStatus(month: string, daysInMonth: number, elapsed: string[]
 /** Next cap after one approved step, rounded to 100. */
 export const nextCap = (cap: number, pct: number) => Math.round((cap * (1 + pct / 100)) / 100) * 100;
 
+/** The last day a month's scoreboard counts: its last day when over, else yesterday (also for no, bad or future months). */
+export function goalLastDay(month: string | null, yesterday: string): string {
+  if (!month || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month >= yesterday.slice(0, 7)) return yesterday;
+  const [y, m] = month.split('-').map(Number);
+  return `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
+}
+
 /** Month (YYYY-MM) a Bangkok date belongs to, its day count and its dates up to and including `last`. */
 export function monthDates(last: string): { month: string; daysInMonth: number; dates: string[] } {
   const [y, m] = last.split('-').map(Number);

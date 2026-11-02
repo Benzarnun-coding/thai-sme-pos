@@ -465,7 +465,7 @@ export const api = {
   fillNote: (mid: string, opts: { address?: PlanAddress | null; allow_warnings?: boolean } = {}) => call<{ ok: true; order_no: number; total: number }>('POST', '/api/order-notes/fill', { mid, ...opts }),
   orderNotes: (date: string) => call<{ date: string; uploaded: boolean; orders: number; orders_without_note: number; notes: NoteCheck[] }>('GET', `/api/order-notes?date=${date}`),
   sendPostIdeas: () => call<{ sent: boolean; ideas: number }>('POST', '/api/post-ideas/send'),
-  goal: () => call<GoalStatus>('GET', '/api/goal'),
+  goal: (month?: string) => call<GoalStatus>('GET', `/api/goal${month ? `?month=${month}` : ''}`),
   goalScaleCheck: () => call<{ asked: boolean; reason: string }>('POST', '/api/goal/scale-check'),
   discordPersona: () => call<{ avatar: boolean; nick: boolean; error?: string }>('POST', '/api/discord/persona'),
   discordTest: (kind?: 'upload') => call<{ ok: true }>('POST', `/api/discord/test${kind ? `?kind=${kind}` : ''}`),

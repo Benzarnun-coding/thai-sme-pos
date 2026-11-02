@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { friendlyD1Error, loadMetaData } from './metadata.ts';
+import { excludedIds, friendlyD1Error, loadMetaData } from './metadata.ts';
 import { sqliteD1 } from './sqliteD1.ts';
 
 // Since ~13 Oct 2026 Meta's one-call daily report (time_increment=1) comes back almost empty while the plain
@@ -33,4 +33,12 @@ test('friendlyD1Error explains the daily row-read quota in Thai and passes other
   const quota = new Error("D1_ERROR: Your account has exceeded D1's free tier daily row read limit. Upgrade to a paid plan");
   assert.match(friendlyD1Error(quota), /โควตา/);
   assert.equal(friendlyD1Error(new Error('boom')), 'boom');
+});
+
+test('an excluded campaign is hidden with its ad sets, also once deleted, but shows again if it runs', () => {
+  const c = (id: string, status: string) => ({ level: 'campaign' as const, id, campaign_id: id, status });
+  const adset = { level: 'adset' as const, id: 'a1', campaign_id: 'x', status: 'ACTIVE' };
+  assert.deepEqual([...excludedIds([c('x', 'PAUSED'), adset, c('y', 'ACTIVE')], ['x'])].sort(), ['a1', 'x']);
+  assert.deepEqual([...excludedIds([c('y', 'ACTIVE')], ['x'])], ['x']);
+  assert.deepEqual([...excludedIds([c('x', 'ACTIVE'), adset], ['x'])], []);
 });
