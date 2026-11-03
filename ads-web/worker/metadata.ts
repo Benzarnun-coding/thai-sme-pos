@@ -5,6 +5,8 @@
 
 import type { CampaignDayRow, DailyRow, HourlyConversion } from '../../ads-engine/src/meta.ts';
 import type { Entity, Level, Metrics, Window } from '../../ads-engine/src/types.ts';
+import { windowDates } from './conversionStore.ts';
+import { cutSpendFromMetrics, cutSpendFromRows, loadSpendCuts, type SpendCut } from './metaAdjust.ts';
 import { MockMeta } from './mock.ts';
 import type { MetaLike } from './run.ts';
 
@@ -79,14 +81,19 @@ export async function loadMetaData(db: D1Database, meta: MetaLike, fresh: boolea
   }
 
   const base = await cached('entities', 'entities', async () => ({ account: await meta.accountName(), entities: await meta.listEntities() }));
+  // Spend that wasn't ours (meta_adjustments.spend) comes off every figure below; ad-set rows keep Meta's number.
+  let cutsP: Promise<SpendCut[]> | null = null;
+  const cuts = () => (cutsP ??= cacheable ? loadSpendCuts(db) : Promise.resolve([]));
 
   return {
     account: base.account,
     entities: base.entities,
-    insights: async (level, window) =>
-      new Map(Object.entries(await cached(`ins:${level}:${window}`, settled(window) ? 'past' : 'insights', async () => Object.fromEntries(await meta.insights(level, window))))),
-    daily: (campaignId, window) => cached(`daily:${campaignId}:${window}`, 'daily', () => meta.dailyInsights(campaignId, window)),
-    dailyAll: (window) => cached(`dailyall:${window}`, settled(window) ? 'past' : 'daily', () => meta.dailyCampaignInsights(window)),
+    insights: async (level, window) => {
+      const m = new Map(Object.entries(await cached(`ins:${level}:${window}`, settled(window) ? 'past' : 'insights', async () => Object.fromEntries(await meta.insights(level, window)))));
+      return level === 'campaign' ? cutSpendFromMetrics(m, await cuts(), windowDates(window)) : m;
+    },
+    daily: async (campaignId, window) => cutSpendFromRows(await cached(`daily:${campaignId}:${window}`, 'daily', () => meta.dailyInsights(campaignId, window)), await cuts(), campaignId),
+    dailyAll: async (window) => cutSpendFromRows(await cached(`dailyall:${window}`, settled(window) ? 'past' : 'daily', () => meta.dailyCampaignInsights(window)), await cuts()),
     hourly: (date) => cached(`hourly:${date}`, 'daily', () => meta.hourlyConversions(date)),
     fetchedAt: () => (times.length ? times.reduce((a, b) => (a < b ? a : b)) : new Date().toISOString()),
     warning: () => warning,
