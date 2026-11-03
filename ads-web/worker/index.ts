@@ -11,7 +11,7 @@ import { syncCampaignCosts, syncCosts } from './costs.ts';
 import { CampaignCostIndex, tierEconomics, type CampaignCost, type CostTier } from './campaignCosts.ts';
 import {
   applyMoves, audit, codOf, deleteSection, loadCampaignCosts, deleteWebCost, saveWebCost, insertRun, lastRun, listAudit, listRuns, loadCampaignSettings, loadCostRows, loadCosts, loadSections, loadSettings,
-  loadStages, loadState, saveCampaignSetting, saveCampaignSettings, auditMany, campaignHistory, saveSection, saveSettings, saveStage,
+  loadStages, loadState, saveCampaignSetting, saveCampaignSettings, auditMany, campaignHistory, saveSection, saveSettings, saveStage, saveState,
 } from './db.ts';
 import { ECONOMICS_WINDOW, sectionMap, sectionTotals } from './engine.ts';
 import { MockMeta } from './mock.ts';
@@ -59,7 +59,8 @@ import { autoFillNote, autoFillOn, cronSweep, customerFor, loadMisses, setAutoFi
 import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './metaPurchases.ts';
 import { captureSource, planNotePurchases } from './notePurchases.ts';
 import { dayOrders, reconcile } from './orderDay.ts';
-import { adjustmentDays, seedFromSent } from './metaAdjust.ts';
+import { addSpendCut, adjustmentDays, cutSpendFromRows, loadSpendCuts, seedFromSent } from './metaAdjust.ts';
+import { findSpendSpikes, spendAlertText } from './spendAlert.ts';
 import { buildEnabled, checkBuilds, listRequests, modalValues, postPicker, registerCommand, requestInteraction, syncTitles } from './featureRequests.ts';
 import { pageOf, receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
@@ -212,6 +213,7 @@ export default {
       ctx.waitUntil(cronSweep(env).catch((err) => console.error('cron sweep', err)));
       ctx.waitUntil(syncTitles(env).catch((err) => console.error('request titles', err)));
       ctx.waitUntil(checkBuilds(env).catch((err) => console.error('request builds', err)));
+      ctx.waitUntil(spendAlert(env).catch((err) => console.error('spend alert', err)));
     } else if (event.cron === REMIND_CRON) {
       ctx.waitUntil(uploadReminder(env).catch((err) => console.error('reminder', err)));
       ctx.waitUntil(kbReminder(env).catch((err) => console.error('kb reminder', err)));
@@ -729,7 +731,28 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     return json(cfg);
   }
   // Per-day corrections to Meta's purchases (metaAdjust.ts): list, add from purchases we sent by mistake, remove a day.
-  if (path === '/api/meta/adjustments' && method === 'GET') return json({ days: await adjustmentDays(env.DB) });
+  if (path === '/api/meta/adjustments' && method === 'GET') {
+    const campaigns = await metaData(env).then(({ data }) => data.entities.filter((e) => e.level === 'campaign').map((e) => ({ id: e.id, name: e.name }))).catch(() => []);
+    return json({ days: await adjustmentDays(env.DB), campaigns });
+  }
+  // Spend that wasn't ours (e.g. an intruder's campaign): taken off that day × campaign everywhere the Worker reads Meta's spend.
+  if (path === '/api/meta/adjustments/spend' && method === 'POST') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const input = await body();
+    const date = String(input?.date ?? ''), campaign_id = String(input?.campaign_id ?? '').trim(), spend = Number(input?.spend);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequest('วันที่ไม่ถูกต้อง');
+    if (!/^\d{5,}$/.test(campaign_id)) throw new BadRequest('ต้องเลือกแคมเปญ');
+    if (!(spend > 0)) throw new BadRequest('จำนวนเงินต้องมากกว่า 0');
+    const reason = String(input?.reason ?? '').trim().slice(0, 100) || 'ไม่ใช่ค่าแอดของเรา';
+    await addSpendCut(env.DB, { date, campaign_id, spend, reason }, user);
+    await audit(env.DB, user, 'meta.adjust.spend', campaign_id, { date, spend, reason });
+    return json({ ok: true });
+  }
+  // What the 3-hourly spend check would post right now (nothing is posted from here).
+  if (path === '/api/spend-alert' && method === 'GET') {
+    const r = await spendAlert(env, true);
+    return json(r);
+  }
   if (path === '/api/meta/adjustments/from-sent' && method === 'POST') {
     if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
     const input = await body();
@@ -2119,6 +2142,23 @@ async function eveningPace(env: Env): Promise<void> {
 }
 
 /**
+ * Every 3 hours (spendAlert.ts): campaigns whose spend today is over the limit → one Discord note per campaign per
+ * day (ads channel), nothing changed on Meta. `preview` returns what would be posted without posting or marking.
+ */
+async function spendAlert(env: Env, preview = false): Promise<{ date: string; spikes: ReturnType<typeof findSpendSpikes>; text: string | null; posted: boolean }> {
+  const date = bkkDate(0);
+  const { data } = await metaData(env);
+  const [today, campaigns, state] = await Promise.all([data.insights('campaign', 'today'), loadCampaignSettings(env.DB), loadState(env.DB)]);
+  const all = findSpendSpikes(data.entities, today, new Set(campaigns.keys()));
+  const fresh = preview ? all : all.filter((s) => !state.last_action[`spend-alert:${s.id}:${date}`]);
+  const text = fresh.length ? spendAlertText(fresh, date) : null;
+  if (preview || !text || !env.DISCORD_WEBHOOK_URL) return { date, spikes: fresh, text, posted: false };
+  const posted = !!(await pushDiscord(text, env.DISCORD_WEBHOOK_URL));
+  if (posted) await saveState(env.DB, { last_action: Object.fromEntries(fresh.map((s) => [`spend-alert:${s.id}:${date}`, new Date().toISOString()])) });
+  return { date, spikes: fresh, text, posted };
+}
+
+/**
  * Weekly: real 7-day MER ≥ the goal's MER → ask in Discord to raise the shop-wide daily cap by goal.scale_pct;
  * below it → a note only. Nothing changes until someone presses the button.
  */
@@ -2172,7 +2212,8 @@ async function salesDigest(env: Env, date: string, remindIfMissing = false): Pro
   let ads: number | null = null;
   let adsError = '';
   const spendOf = (rows: { date: string; spend: number }[]) => { const day = rows.filter((d) => d.date === date); return day.length ? day.reduce((t, d) => t + d.spend, 0) : null; };
-  if (date === bkkDate(1)) ads = await metaFor(env).dailyCampaignInsights('yesterday').then(spendOf).catch((err) => { adsError = String(err?.message ?? err); return null; });
+  // The direct Meta call bypasses the cache layer, so spend that wasn't ours (meta_adjustments.spend) is taken off here.
+  if (date === bkkDate(1)) ads = await metaFor(env).dailyCampaignInsights('yesterday').then(async (rows) => spendOf(cutSpendFromRows(rows, await loadSpendCuts(env.DB)))).catch((err) => { adsError = String(err?.message ?? err); return null; });
   if (ads === null) ads = await metaData(env).then((m) => m.data.dailyAll('last_30d')).then(spendOf).catch((err) => { adsError = String(err?.message ?? err); return null; });
   const b = (x: number) => Math.round(x).toLocaleString('th-TH');
   const gross = revenue - cost - fees;

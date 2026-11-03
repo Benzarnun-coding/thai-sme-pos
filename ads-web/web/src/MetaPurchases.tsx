@@ -158,22 +158,42 @@ function CardCorrection() {
   );
 }
 
-/** Days whose Meta purchases we correct (e.g. the duplicates sent by mistake on 15 Oct), with a remove button. */
+/** Days whose Meta purchases or spend we correct (duplicates sent on 15 Oct, an intruder's spend on 1 Nov), with a remove button. */
 function AdjustmentDays() {
   const { toast } = useUi();
-  const [days, setDays] = useState<{ date: string; reason: string; purchases: number; value: number; campaigns: number; unknown: number }[]>([]);
-  const load = () => call<{ days: typeof days }>('GET', '/api/meta/adjustments').then((r) => setDays(r.days)).catch(() => {});
+  const [days, setDays] = useState<{ date: string; reason: string; purchases: number; value: number; spend: number; campaigns: number; unknown: number }[]>([]);
+  const [campaigns, setCampaigns] = useState<{ id: string; name: string }[]>([]);
+  const load = () => call<{ days: typeof days; campaigns: typeof campaigns }>('GET', '/api/meta/adjustments').then((r) => { setDays(r.days); setCampaigns(r.campaigns ?? []); }).catch(() => {});
   useEffect(() => { load(); }, []);
   const [locked, setLocked] = useState<string[]>([]);
   useEffect(() => { call<{ days: string[] }>('GET', '/api/meta/lock-hours').then((r) => setLocked(r.days)).catch(() => {}); }, []);
-  if (!days.length && !locked.length) return null;
+  const [cut, setCut] = useState<{ date: string; campaign_id: string; spend: string; reason: string } | null>(null);
   return (
     <div className="small" style={{ marginTop: 10 }}>
       {locked.length > 0 && <div><b>ล็อกยอดรายชั่วโมงไว้ ไม่ดึงจาก Meta ซ้ำ:</b> {locked.join(', ')}</div>}
-      <b>แก้ยอด Meta รายวัน</b> <span className="muted">— หักออกจากยอดรายชั่วโมงของ Meta ก่อนใช้จับคู่ออเดอร์/คิดต้นทุน (Meta ลบ event ไม่ได้)</span>
+      <b>แก้ยอด Meta รายวัน</b> <span className="muted">— ยอดซื้อหักจากรายชั่วโมงก่อนจับคู่ออเดอร์/คิดต้นทุน · ค่าแอดหักจากทุกหน้า เป้า pace กฎ และไอเดียโพส (Meta เองไม่เปลี่ยน)</span>
+      {' '}<button className="ghost small" onClick={() => setCut(cut ? null : { date: new Date(Date.now() + 7 * 3_600_000 - 86_400_000).toISOString().slice(0, 10), campaign_id: '', spend: '', reason: 'ไม่ใช่ค่าแอดของเรา' })}>{cut ? 'ยกเลิก' : 'ตัดค่าแอดออก'}</button>
+      {cut && (
+        <form className="row gap wrap" style={{ marginTop: 6 }} onSubmit={async (e) => {
+          e.preventDefault();
+          try {
+            await call('POST', '/api/meta/adjustments/spend', { ...cut, spend: Number(cut.spend) });
+            toast(`ตัดค่าแอด ${baht(Number(cut.spend))} ของ ${cut.date} ออกแล้ว`, 'ok'); setCut(null); load();
+          } catch (err: any) { toast(err.message, 'bad'); }
+        }}>
+          <input type="date" value={cut.date} onChange={(e) => setCut({ ...cut, date: e.target.value })} required />
+          <select value={cut.campaign_id} onChange={(e) => setCut({ ...cut, campaign_id: e.target.value })} required style={{ maxWidth: 320 }}>
+            <option value="">— แคมเปญ —</option>
+            {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <input type="number" min={1} step={0.01} placeholder="บาท" value={cut.spend} onChange={(e) => setCut({ ...cut, spend: e.target.value })} required style={{ width: 110 }} />
+          <input placeholder="เหตุผล" value={cut.reason} onChange={(e) => setCut({ ...cut, reason: e.target.value })} style={{ width: 180 }} />
+          <button className="small" type="submit">ตัดออก</button>
+        </form>
+      )}
       {days.map((d) => (
         <div key={d.date + d.reason} className="row gap" style={{ justifyContent: 'space-between' }}>
-          <span>{d.date} · {d.reason} · −{d.purchases} ออเดอร์ · −{baht(d.value)} · {d.campaigns} แคมเปญ{d.unknown ? ` · ไม่ทราบแอด ${d.unknown}` : ''}</span>
+          <span>{d.date} · {d.reason}{d.purchases || d.value ? ` · −${d.purchases} ออเดอร์ · −${baht(d.value)}` : ''}{d.spend ? ` · ค่าแอด −${baht(d.spend)}` : ''} · {d.campaigns} แคมเปญ{d.unknown ? ` · ไม่ทราบแอด ${d.unknown}` : ''}</span>
           <button className="ghost small" onClick={async () => {
             try { await call('DELETE', `/api/meta/adjustments?date=${d.date}`); toast(`เลิกแก้ ${d.date} แล้ว`, 'ok'); load(); } catch (e: any) { toast(e.message, 'bad'); }
           }}>เลิกแก้วันนี้</button>

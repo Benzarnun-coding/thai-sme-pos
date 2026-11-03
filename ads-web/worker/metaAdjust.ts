@@ -5,6 +5,56 @@
 
 export interface Adjustment { date: string; campaign_id: string; hour: string; purchases: number; value: number; reason: string }
 
+/** Spend to take off one campaign on one Bangkok day. */
+export interface SpendCut { date: string; campaign_id: string; spend: number }
+
+export async function loadSpendCuts(db: D1Database): Promise<SpendCut[]> {
+  const { results } = await db.prepare('SELECT date, campaign_id, SUM(spend) spend FROM meta_adjustments WHERE spend > 0 GROUP BY date, campaign_id')
+    .all<SpendCut>().catch(() => ({ results: [] as SpendCut[] }));
+  return results.map((r) => ({ ...r, spend: Number(r.spend) || 0 }));
+}
+
+export async function addSpendCut(db: D1Database, cut: SpendCut & { reason: string }, by: string): Promise<void> {
+  await db.prepare(`INSERT INTO meta_adjustments (date, campaign_id, hour, purchases, value, spend, reason, created_by, created_at) VALUES (?, ?, '', 0, 0, ?, ?, ?, ?)
+      ON CONFLICT(date, campaign_id, hour, reason) DO UPDATE SET spend = excluded.spend, created_by = excluded.created_by, created_at = excluded.created_at`)
+    .bind(cut.date, cut.campaign_id, cut.spend, cut.reason, by, new Date().toISOString()).run();
+}
+
+/** Spend per campaign taken off within the given dates (campaign_id → spend). */
+export function cutsFor(cuts: SpendCut[], dates: string[]): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!cuts.length) return out;
+  const on = new Set(dates);
+  for (const c of cuts) if (on.has(c.date)) out.set(c.campaign_id, (out.get(c.campaign_id) ?? 0) + c.spend);
+  return out;
+}
+
+/** Campaign metrics for a window minus the spend cuts that fall in it; cost-per metrics follow the new spend. */
+export function cutSpendFromMetrics<M extends { spend: number; purchases: number; purchase_value: number; clicks: number; cpc: number; cpa: number; roas: number; messages: number; cost_per_message: number }>(
+  metrics: Map<string, M>, cuts: SpendCut[], dates: string[],
+): Map<string, M> {
+  const per = cutsFor(cuts, dates);
+  if (!per.size) return metrics;
+  const out = new Map(metrics);
+  for (const [id, cut] of per) {
+    const m = out.get(id);
+    if (!m) continue;
+    const spend = Math.max(0, m.spend - cut);
+    out.set(id, { ...m, spend, cpc: m.clicks ? spend / m.clicks : 0, cpa: m.purchases ? spend / m.purchases : Infinity, roas: spend ? m.purchase_value / spend : 0, cost_per_message: m.messages ? spend / m.messages : Infinity });
+  }
+  return out;
+}
+
+/** Daily rows (one campaign, or every campaign) minus the cuts on the same day; never below zero. */
+export function cutSpendFromRows<R extends { date: string; spend: number; campaign_id?: string }>(rows: R[], cuts: SpendCut[], campaignId?: string): R[] {
+  if (!cuts.length) return rows;
+  const by = new Map(cuts.map((c) => [`${c.date}|${c.campaign_id}`, c.spend]));
+  return rows.map((r) => {
+    const cut = by.get(`${r.date}|${r.campaign_id ?? campaignId ?? ''}`);
+    return cut ? { ...r, spend: Math.max(0, r.spend - cut) } : r;
+  });
+}
+
 export async function loadAdjustments(db: D1Database, dates: string[]): Promise<Adjustment[]> {
   if (!dates.length) return [];
   const { results } = await db.prepare('SELECT date, campaign_id, hour, purchases, value, reason FROM meta_adjustments WHERE date IN (SELECT value FROM json_each(?))')
@@ -56,8 +106,8 @@ export async function seedFromSent(db: D1Database, from: string, to: string, rea
 }
 
 /** Per day: what is being subtracted, for the settings page. */
-export async function adjustmentDays(db: D1Database): Promise<{ date: string; reason: string; purchases: number; value: number; campaigns: number; unknown: number }[]> {
-  const { results } = await db.prepare(`SELECT date, reason, SUM(purchases) purchases, SUM(value) value, COUNT(DISTINCT NULLIF(campaign_id, '')) campaigns,
+export async function adjustmentDays(db: D1Database): Promise<{ date: string; reason: string; purchases: number; value: number; spend: number; campaigns: number; unknown: number }[]> {
+  const { results } = await db.prepare(`SELECT date, reason, SUM(purchases) purchases, SUM(value) value, SUM(spend) spend, COUNT(DISTINCT NULLIF(campaign_id, '')) campaigns,
       SUM(CASE WHEN campaign_id = '' THEN purchases ELSE 0 END) unknown FROM meta_adjustments GROUP BY date, reason ORDER BY date DESC`).all<any>().catch(() => ({ results: [] }));
   return results;
 }
