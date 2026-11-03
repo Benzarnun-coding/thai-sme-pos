@@ -885,6 +885,12 @@ a.button.go:hover { background: color-mix(in srgb, var(--accent-soft) 70%, var(-
 .goal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 16px; }
 .goal-grid > div { display: flex; flex-direction: column; gap: 2px; }
 .goal-grid b { font-size: 18px; }
+.goal-weeks { margin-top: 16px; border-top: 1px solid var(--border, rgba(128,128,128,.25)); padding-top: 10px; overflow-x: auto; }
+.gw-row { display: grid; grid-template-columns: 1.1fr 1.5fr 1.5fr 1.5fr 1fr; gap: 8px; padding: 5px 0; font-size: 13px; min-width: 560px; }
+.gw-head { font-size: 12px; opacity: .7; }
+.gw-future { opacity: .55; }
+.gw-current { font-weight: 600; }
+.gw-note { margin: 8px 0 0; }
 
 /* order sheets: internal money columns (never printed or sent) */
 .data-table th.po-internal, .data-table td.po-internal { background: color-mix(in srgb, var(--warn-bg) 55%, transparent); }

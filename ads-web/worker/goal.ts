@@ -1,4 +1,4 @@
-// Monthly net-profit goal (Benz, 14 Oct 2026: 120,000/month after product cost, per-order fees and ads) and the
+// Monthly net-profit goal (Benz, 14 Oct 2026: 120,000/month, raised to 200,000 on 3 Nov 2026; after product cost, per-order fees and ads) and the
 // weekly cap check that goes with it: the shop-wide daily budget cap may grow 20% a week, only when the real
 // 7-day MER (Page365 revenue ÷ Meta spend) is at least the MER the goal needs, and only after a button press.
 
@@ -13,7 +13,7 @@ export interface Goal {
   /** How much the cap grows per approved step (%) */
   scale_pct: number;
 }
-export const DEFAULT_GOAL: Goal = { monthly_net: 120_000, scale_mer: 3.86, scale_pct: 20 };
+export const DEFAULT_GOAL: Goal = { monthly_net: 200_000, scale_mer: 3.86, scale_pct: 20 };
 
 export interface DayNet { date: string; revenue: number; cost: number; fees: number; ads: number; net: number; orders: number; units: number; multi: number }
 
@@ -54,6 +54,49 @@ export interface GoalStatus {
   multi_share: number | null;
   multi_share_7d: number | null;
   units_per_order: number | null;
+  /** The month in 7-day blocks (1–7, 8–14, …): what each block should earn and what the uploaded days did */
+  weeks: GoalWeek[];
+}
+
+export interface GoalWeek {
+  from: string; to: string;
+  /** Days of the block / days with a Page365 file */
+  days: number; counted: number;
+  /** Straight-line share of the monthly goal */
+  target_net: number;
+  /** Real net of the counted days; null when none */
+  net: number | null;
+  /** Per counted day */
+  revenue_per_day: number | null; ads_per_day: number | null; mer: number | null;
+  /** Per day this block needs at the month's gross margin and scale MER (same for every block) */
+  target_revenue_per_day: number | null; target_ads_per_day: number | null;
+  /** done = every day has passed; current = today is inside; future = not started */
+  state: 'done' | 'current' | 'future';
+}
+
+/** 7-day blocks of a month with the plan (goal share, revenue and ads per day) next to the real numbers. */
+export function goalWeeks(month: string, daysInMonth: number, elapsed: string[], days: DayNet[], goal: Goal, targetRevenue: number | null): GoalWeek[] {
+  const byDate = new Map(days.map((d) => [d.date, d]));
+  const weeks: GoalWeek[] = [];
+  for (let start = 1; start <= daysInMonth; start += 7) {
+    const end = Math.min(start + 6, daysInMonth);
+    const dates = Array.from({ length: end - start + 1 }, (_, i) => `${month}-${String(start + i).padStart(2, '0')}`);
+    const got = dates.map((d) => byDate.get(d)).filter((d): d is DayNet => !!d);
+    const sum = (k: 'net' | 'revenue' | 'ads') => got.reduce((t, d) => t + d[k], 0);
+    const passed = dates.filter((d) => elapsed.includes(d)).length;
+    weeks.push({
+      from: dates[0], to: dates[dates.length - 1], days: dates.length, counted: got.length,
+      target_net: (goal.monthly_net * dates.length) / daysInMonth,
+      net: got.length ? sum('net') : null,
+      revenue_per_day: got.length ? sum('revenue') / got.length : null,
+      ads_per_day: got.length ? sum('ads') / got.length : null,
+      mer: got.length && sum('ads') ? sum('revenue') / sum('ads') : null,
+      target_revenue_per_day: targetRevenue,
+      target_ads_per_day: targetRevenue ? targetRevenue / goal.scale_mer : null,
+      state: passed === 0 ? 'future' : passed === dates.length ? 'done' : 'current',
+    });
+  }
+  return weeks;
 }
 
 export function goalStatus(month: string, daysInMonth: number, elapsed: string[], days: DayNet[], last7: DayNet[], goal: Goal): GoalStatus {
@@ -68,6 +111,7 @@ export function goalStatus(month: string, daysInMonth: number, elapsed: string[]
   const perDay = goal.monthly_net / daysInMonth;
   const spread = gross !== null ? gross - 1 / goal.scale_mer : null;
   const r7 = sum('revenue', last7), a7 = sum('ads', last7);
+  const targetRevenue = spread && spread > 0 ? perDay / spread : null;
   return {
     month, goal, days_in_month: daysInMonth, elapsed, days, missing, net, revenue, ads,
     avg_net: avg,
@@ -75,12 +119,13 @@ export function goalStatus(month: string, daysInMonth: number, elapsed: string[]
     needed_per_day: uncounted > 0 ? Math.max(0, goal.monthly_net - net) / uncounted : 0,
     gross_margin: gross,
     mer: ads ? revenue / ads : null,
-    target_revenue_per_day: spread && spread > 0 ? perDay / spread : null,
+    target_revenue_per_day: targetRevenue,
     mer_7d: last7.length >= 6 && a7 ? r7 / a7 : null,
     mer_7d_days: last7.length,
     multi_share: sum('orders') ? sum('multi') / sum('orders') : null,
     multi_share_7d: sum('orders', last7) ? sum('multi', last7) / sum('orders', last7) : null,
     units_per_order: sum('orders') ? sum('units') / sum('orders') : null,
+    weeks: goalWeeks(month, daysInMonth, elapsed, days, goal, targetRevenue),
   };
 }
 

@@ -201,6 +201,26 @@ function GoalCard({ month }: { month?: string }) {
         <div><span className="muted small">ออเดอร์หลายตัว (ปิดการขาย)</span><b>{g.multi_share_7d === null ? '–' : `${num(g.multi_share_7d * 100)}%`}</b><span className="muted small">7 วันล่าสุด · ทั้งเดือน {g.multi_share === null ? '–' : `${num(g.multi_share * 100)}%`} · {g.units_per_order === null ? '–' : num(g.units_per_order, 2)} ตัว/ออเดอร์</span></div>
         <div><span className="muted small">ยอดขายที่ต้องได้/วัน</span><b>{g.target_revenue_per_day ? baht(g.target_revenue_per_day) : '–'}</b><span className="muted small">กำไรก่อนแอด {g.gross_margin === null ? '–' : `${num(g.gross_margin * 100, 1)}%`} · ที่ MER {g.goal.scale_mer}</span></div>
       </div>
+
+      <div className="goal-weeks" role="table" aria-label="เส้นทางรายสัปดาห์">
+        <div className="gw-row gw-head" role="row">
+          <span>สัปดาห์</span><span>กำไรสุทธิ (เป้า)</span><span>ยอดขาย/วัน (ต้องได้)</span><span>ค่าแอด/วัน (ใช้ได้)</span><span>MER (เป้า)</span>
+        </div>
+        {g.weeks.map((w) => {
+          const netOk = w.net !== null && w.net >= w.target_net * (w.counted / w.days);
+          const merOk = w.mer !== null && w.mer >= g.goal.scale_mer;
+          return (
+            <div key={w.from} className={`gw-row gw-${w.state}`} role="row">
+              <span>{w.from.slice(8)}–{w.to.slice(8)}{w.state === 'current' ? ' · กำลังไป' : ''}</span>
+              <span><b className={w.net === null ? '' : netOk ? 'good' : 'bad'}>{w.net === null ? '–' : baht(w.net)}</b> <span className="muted small">/ {baht(w.target_net)}</span></span>
+              <span>{w.revenue_per_day === null ? '–' : baht(w.revenue_per_day)} <span className="muted small">/ {w.target_revenue_per_day ? baht(w.target_revenue_per_day) : '–'}</span></span>
+              <span>{w.ads_per_day === null ? '–' : baht(w.ads_per_day)} <span className="muted small">/ {w.target_ads_per_day ? baht(w.target_ads_per_day) : '–'}</span></span>
+              <span><b className={w.mer === null ? '' : merOk ? 'good' : 'bad'}>{w.mer === null ? '–' : num(w.mer, 2)}</b> <span className="muted small">/ {g.goal.scale_mer}</span></span>
+            </div>
+          );
+        })}
+        <p className="muted small gw-note">ทุกช่วง 7 วันของเดือน: ตัวเลขจริงมาจากวันที่อัปโหลด Page365 แล้ว (ค่าแอดจาก Meta) · ตัวเลขหลัง “/” คือที่ต้องได้เพื่อถึงเป้า ที่กำไรก่อนแอดและ MER ข้างบน</p>
+      </div>
     </section>
   );
 }
