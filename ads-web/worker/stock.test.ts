@@ -70,3 +70,15 @@ test('a round opened from history merges its rows as soon as "รหัสขอ
     makeLookup(cat, new Map(), new Map(), new Map(), new Map([['501-BB-MD-30', '5012-PK-NV-30']]), new Set(['501-BB-MD-30'])));
   assert.deepEqual(after.map((l) => [l.group, l.sku, l.qty, l.orders, l.missing, l.merged]), [['PK', '5012-PK-NV-30', 3, ['A', 'B'], 1, ['501-BB-MD-30']]]);
 });
+
+import { validateReturns } from './stockReturns.ts';
+
+test('returns: parcel hash must be sha-256 hex, items positive, place known', () => {
+  const hash = 'a'.repeat(64);
+  const ok = validateReturns({ loc: 'pia', parcels: [{ hash, tail: 'xx-1234', items: [{ sku: '5012-PK-NV-30', qty: 2 }, { sku: '', qty: 1 }, { sku: '5012-PK-NV-32', qty: 0 }] }] });
+  assert.equal(ok.parcels[0].tail, '1234');
+  assert.deepEqual(ok.parcels[0].items.length, 1);
+  assert.throws(() => validateReturns({ loc: 'xx', parcels: [] }));
+  assert.throws(() => validateReturns({ loc: 'pia', parcels: [{ hash: 'abc', items: [{ sku: '5012-PK-NV-30', qty: 1 }] }] }));
+  assert.throws(() => validateReturns({ loc: 'pia', parcels: [{ hash, items: [] }] }));
+});
