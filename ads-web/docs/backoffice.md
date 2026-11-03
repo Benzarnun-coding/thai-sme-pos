@@ -164,6 +164,11 @@ are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,4
   the order rounds build up (only rounds saved with order rows count).
 - 07:30 #report lists sizes at ≤ 5 pieces.
 
+- Returned parcels (idea #20, Mzmuchzeee; `worker/stockReturns.ts`, `web/src/returns.ts`, table `stock_returns`): card on the stock page. Pick the
+  Bigseller Order-SKU file in the browser (parcel number → SKU, never sent), scan the number on each parcel → "รออนุมัติ"
+  rows (SKU, qty, last 4 of the parcel number, hash to refuse the same parcel twice). Owner/admin presses อนุมัติ → an
+  'in' move today (same as รับของเข้า, so พี่เปีย also cuts PK); ไม่อนุมัติ drops it. Scanning is open to the cost-editor role, deciding is not.
+
 - Idea #17 (not built, waiting for answers from มอส): more places on this page for the shops' own stock — AR, BB (เจ๊ศรี,
   ส.ประสาน, NBG, แพลนเนท, KM, J.Big, ป.ไพรศาล, พี่เปีย's separate shop), BBW (นอร์ท), BT, GG, Clima (CM), CN (CYD China
   warehouse) — each cut by its order-sheet group, and returned goods going back into stock when scanned/keyed.

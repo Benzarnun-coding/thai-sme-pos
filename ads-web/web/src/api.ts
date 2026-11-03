@@ -344,6 +344,7 @@ export interface ProfitData {
 }
 export interface ImportMap { signature: string; map: MoneyMap; platform: Platform | 'auto'; updated_by: string; updated_at: string }
 /** /catalog/stock: our own stock at พี่เปีย's BB branch ('pia') and in GoSell's warehouse ('gosell'). */
+export interface StockReturnRow { id: number; loc: StockLoc; sku: string; qty: number; track_tail: string; status: 'pending' | 'approved' | 'rejected'; created_by: string; created_at: string; decided_by: string | null; decided_at: string | null }
 export type StockLoc = 'pia' | 'gosell' | 'pk';
 export interface StockItem { sku: string; code: string; size: string; sort: number; locs: StockLoc[] }
 export interface StockMove { id: number; loc: StockLoc; sku: string; qty: number; kind: 'open' | 'in' | 'out' | 'adjust'; ref: string; date: string; note: string; created_by: string; created_at: string }
@@ -405,6 +406,10 @@ export const api = {
   stockMoves: (loc: StockLoc, kind: 'in' | 'adjust' | 'open', date: string, note: string, items: { sku: string; qty: number }[]) =>
     call<{ saved: number }>('POST', '/api/stock/moves', { loc, kind, date, note, items }),
   deleteStockMove: (id: number) => call<{ ok: true }>('DELETE', `/api/stock/moves?id=${id}`),
+  stockReturns: () => call<{ returns: StockReturnRow[] }>('GET', '/api/stock/returns'),
+  addStockReturns: (loc: StockLoc, parcels: { hash: string; tail: string; items: { sku: string; qty: number }[] }[]) =>
+    call<{ added: number; repeated: string[] }>('POST', '/api/stock/returns', { loc, parcels }),
+  decideStockReturn: (id: number, approve: boolean) => call<{ ok: true }>('POST', '/api/stock/returns/decide', { id, approve }),
   gosellCut: (file: string, lines: { order_no: string; sku: string; qty: number }[], dry: boolean) => call<GosellCut>('POST', '/api/stock/gosell', { file, lines, dry }),
   profit: (from: string, to: string) => call<ProfitData>('GET', `/api/profit?from=${from}&to=${to}`),
   importMaps: () => call<{ maps: ImportMap[] }>('GET', '/api/mp-import-maps'),

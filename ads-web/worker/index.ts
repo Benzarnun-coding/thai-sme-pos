@@ -31,6 +31,7 @@ import { PRIVACY_HTML } from './privacy.ts';
 import { parseRange, salesData } from './sales.ts';
 import { listImportMaps, profitData, saveImportMap, saveMpOrders, validateMpOrders } from './mpOrders.ts';
 import { opsFacts, opsText } from './opsDigest.ts';
+import { addReturns, decideReturn, listReturns, validateReturns } from './stockReturns.ts';
 import { deleteMove, gosellCut, saveMoves, stockData, syncRoundStock, validateMoves } from './stock.ts';
 import { deletePurchase, findOrders, ledger, listPurchases, orderTerms, purchaseExtra, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveAlias, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
@@ -1224,6 +1225,19 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const id = Number(url.searchParams.get('id'));
     if (!(await deleteMove(env.DB, id))) return json({ error: 'ลบได้เฉพาะของเข้า ปรับยอด และยอดเริ่ม' }, 404);
     await audit(env.DB, user, 'stock.delete', String(id), {});
+    return json({ ok: true });
+  }
+  if (method === 'GET' && path === '/api/stock/returns') return json({ returns: await listReturns(env.DB) });
+  if (method === 'POST' && path === '/api/stock/returns') {
+    const r = await addReturns(env.DB, validateReturns(await body()), user);
+    await audit(env.DB, user, 'stock.return.scan', '', { added: r.added, repeated: r.repeated.length });
+    return json(r);
+  }
+  if (method === 'POST' && path === '/api/stock/returns/decide') {
+    const b = await body();
+    const id = Number(b?.id);
+    if (!(await decideReturn(env.DB, id, b?.approve === true, user))) return json({ error: 'รายการนี้ตัดสินไปแล้วหรือไม่มี' }, 404);
+    await audit(env.DB, user, b?.approve === true ? 'stock.return.approve' : 'stock.return.reject', String(id), {});
     return json({ ok: true });
   }
   if (method === 'POST' && path === '/api/stock/gosell') {

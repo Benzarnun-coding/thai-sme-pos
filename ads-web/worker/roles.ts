@@ -43,6 +43,7 @@ const COST_WRITES: [string, RegExp][] = [
   ['POST', /^\/api\/stock\/moves$/],
   ['DELETE', /^\/api\/stock\/moves$/],
   ['POST', /^\/api\/stock\/gosell$/],
+  ['POST', /^\/api\/stock\/returns$/],
   ['PUT', /^\/api\/mp-import-map$/],
   ['PUT', /^\/api\/purchase$/],
   ['PUT', /^\/api\/purchase\/missing$/],
