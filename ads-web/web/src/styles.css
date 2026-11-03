@@ -891,6 +891,8 @@ a.button.go:hover { background: color-mix(in srgb, var(--accent-soft) 70%, var(-
 .gw-future { opacity: .55; }
 .gw-current { font-weight: 600; }
 .gw-note { margin: 8px 0 0; }
+.gw-toggle { display: flex; align-items: center; gap: 6px; margin-top: 12px; padding: 6px 10px; background: transparent; color: inherit; border: 1px solid rgba(255,255,255,.15); border-radius: 8px; font: inherit; font-size: 13px; cursor: pointer; }
+.gw-toggle:hover { background: rgba(255,255,255,.06); }
 
 /* order sheets: internal money columns (never printed or sent) */
 .data-table th.po-internal, .data-table td.po-internal { background: color-mix(in srgb, var(--warn-bg) 55%, transparent); }

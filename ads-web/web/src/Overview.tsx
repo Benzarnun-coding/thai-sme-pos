@@ -152,6 +152,8 @@ function GoalCard({ month }: { month?: string }) {
   const [g, setG] = useState<GoalStatus | null>(null);
   const [err, setErr] = useState('');
   const [shown, setShown] = useState(false);
+  const [weeksOpen, setWeeksOpen] = useState(() => { try { return localStorage.getItem('goalWeeksOpen') === '1'; } catch { return false; } });
+  const toggleWeeks = () => setWeeksOpen((o) => { const n = !o; try { localStorage.setItem('goalWeeksOpen', n ? '1' : '0'); } catch { /* ignore */ } return n; });
   useEffect(() => {
     let current = true;
     setErr('');
@@ -202,7 +204,10 @@ function GoalCard({ month }: { month?: string }) {
         <div><span className="muted small">ยอดขายที่ต้องได้/วัน</span><b>{g.target_revenue_per_day ? baht(g.target_revenue_per_day) : '–'}</b><span className="muted small">กำไรก่อนแอด {g.gross_margin === null ? '–' : `${num(g.gross_margin * 100, 1)}%`} · ที่ MER {g.goal.scale_mer}</span></div>
       </div>
 
-      <div className="goal-weeks" role="table" aria-label="เส้นทางรายสัปดาห์">
+      <button type="button" className="gw-toggle" aria-expanded={weeksOpen} onClick={toggleWeeks}>
+        <span aria-hidden="true">{weeksOpen ? '▾' : '▸'}</span> รายละเอียดรายสัปดาห์
+      </button>
+      {weeksOpen && <div className="goal-weeks" role="table" aria-label="เส้นทางรายสัปดาห์">
         <div className="gw-row gw-head" role="row">
           <span>สัปดาห์</span><span>กำไรสุทธิ (เป้า)</span><span>ยอดขาย/วัน (ต้องได้)</span><span>ค่าแอด/วัน (ใช้ได้)</span><span>MER (เป้า)</span>
         </div>
@@ -220,7 +225,7 @@ function GoalCard({ month }: { month?: string }) {
           );
         })}
         <p className="muted small gw-note">ทุกช่วง 7 วันของเดือน: ตัวเลขจริงมาจากวันที่อัปโหลด Page365 แล้ว (ค่าแอดจาก Meta) · ตัวเลขหลัง “/” คือที่ต้องได้เพื่อถึงเป้า ที่กำไรก่อนแอดและ MER ข้างบน</p>
-      </div>
+      </div>}
     </section>
   );
 }
