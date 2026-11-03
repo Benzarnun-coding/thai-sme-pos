@@ -18,7 +18,7 @@ export function campaignsIn(tab: StageTab, campaigns: CampaignView[]): CampaignV
   return campaigns.filter((c) => (tab === NONE ? !c.stage_id : c.stage_id === tab));
 }
 
-/** One tab per lifecycle stage (plus "not assigned"), each with its campaign count and stage colour. */
+/** One tab per lifecycle stage (plus "not assigned"), each with its count of campaigns that are on, and stage colour. */
 export function StageTabs({ stages, campaigns, value, onChange, withAll }: {
   stages: Stage[]; campaigns: CampaignView[]; value: StageTab; onChange: (t: StageTab) => void; withAll?: boolean;
 }) {
@@ -32,7 +32,8 @@ export function StageTabs({ stages, campaigns, value, onChange, withAll }: {
   return (
     <div className="stage-tabs" role="tablist" aria-label="กลุ่ม" ref={bar}>
       {tabs.map((t) => {
-        const n = campaignsIn(t.id, campaigns).length;
+        // The badge counts only campaigns that are on (ACTIVE); paused ones still show in the list below.
+        const n = campaignsIn(t.id, campaigns).filter((c) => c.status === 'ACTIVE').length;
         return (
           <button
             key={t.id}
