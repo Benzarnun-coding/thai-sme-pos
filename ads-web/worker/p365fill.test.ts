@@ -98,9 +98,12 @@ test('the bill name and the address the team writes; a missing address is a warn
   assert.equal(billName(21234, '5011-PK-MD-30', 'อาทิตย์ วรรณสุทธิ์', ['501/1', '501/3']), 'GS-1234 อาทิตย์ วรรณสุทธิ์', '501/1–3 go through GoSell');
   assert.equal(billName(21234, '5011-PK-MD-30', 'ก', ['501/1'], ['5011-PK-MD-30']), 'PK-1234 ก', 'sold out at GoSell');
   assert.equal(billName(21234, '5012-PK-MD-40', 'ก', ['501/2'], ['5012-PK-MD-40']), 'PK-1234 ก', 'waist 38–44: not in GoSell');
-  assert.equal(billName(21234, '5012-PK-MD-34', 'ก', ['501/2'], ['5012-PK-MD-34']), 'GS-1234 ก', 'other waists stay GoSell');
+  assert.equal(billName(21234, '5012-PK-MD-36', 'ก', ['501/2'], ['5012-PK-MD-36']), 'GS-1234 ก', 'other waists stay GoSell');
   assert.equal(billName(21234, '5011-PK-MD-30', 'อาทิตย์', ['501/1', 'NI9-3']), 'PK-1234 อาทิตย์', 'mixed: warehouse as usual');
   assert.equal(billName(21234, '5012-PK-NV-34', 'อาทิตย์', ['501/2'], ['5012-PK-NV-34']), 'PK-1234 อาทิตย์', 'sold out at GoSell (501/2 waist 34, idea #14): normal PK- bill');
+  assert.equal(billName(21234, '5012-PK-BK-30', 'ก', ['501/2'], ['5012-PK-BK-30']), 'PK-1234 ก', '501/2 waist 30 sold out, any colour (idea #21)');
+  assert.equal(billName(21234, '5013-PK-MD-32', 'ก', ['501/3'], ['5013-PK-MD-32']), 'PK-1234 ก', '501/3 waist 32 sold out');
+  assert.equal(billName(21234, '5013-PK-MD-30', 'ก', ['501/3'], ['5013-PK-MD-30']), 'GS-1234 ก', '501/3 waist 30 still GoSell');
   const plan = await planFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/1 30\ncod 249' });
   assert.deepEqual(plan.problems, []);
   assert.match(plan.warnings.join(' '), /ANTHROPIC_API_KEY/);

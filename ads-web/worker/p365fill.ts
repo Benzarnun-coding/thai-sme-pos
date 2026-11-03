@@ -180,13 +180,17 @@ export function chatTotal(messages: ChatMessage[], until?: string): number | nul
 /** 501/1, 501/2, 501/3 ship through GoSell: their bills are named "GS-1234 …" so the team can pick them out (Benz 15 Oct). */
 export const GOSELL_CODES = /^501\/[123]$/;
 
-/** GoSell SKUs that are sold out there: a bill with one of them goes the normal way, "PK-1234 …" (Mos, idea #9, 22 Oct). Take the SKU out when GoSell has it again. */
-export const GOSELL_OUT_OF_STOCK = ['5013-PK-BL-31', '5012-PK-NV-34', '5011-PK-MD-30'];
+/** Sold out at GoSell, any colour: code + waist. Bills with one go the normal way, "PK-1234 …" (Mos, ideas #9/#14/#21). Take a pair out when GoSell has it again. */
+export const GOSELL_OUT_OF_STOCK: { code: string; waist: number }[] = [
+  { code: '501/2', waist: 34 }, { code: '501/3', waist: 32 }, { code: '501/3', waist: 31 },
+  { code: '501/2', waist: 30 }, { code: '501/2', waist: 28 }, { code: '501/1', waist: 30 },
+];
 /** GoSell doesn't stock waist 38–44 of 501/1–3 either: those bills are normal "PK-" too (Mos, idea #18). */
 export function isGoSellLine(l: { code: string; sku: string | null }): boolean {
   if (!GOSELL_CODES.test(l.code)) return false;
-  if (l.sku && GOSELL_OUT_OF_STOCK.includes(l.sku)) return false;
-  return !(Number(l.sku?.split('-').pop()) >= 38);
+  const waist = Number(l.sku?.split('-').pop());
+  if (GOSELL_OUT_OF_STOCK.some((o) => o.code === l.code && o.waist === waist)) return false;
+  return !(waist >= 38);
 }
 
 export function billName(no: number, firstSku: string | null, name: string, codes: string[] = [], skus: (string | null)[] = []): string {
