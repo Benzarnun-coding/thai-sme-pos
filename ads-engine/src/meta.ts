@@ -101,7 +101,7 @@ export class MetaClient {
   async listEntities(): Promise<Entity[]> {
     const [campaigns, adsets] = await Promise.all([
       this.getAll(`${this.accountId}/campaigns`, {
-        fields: 'id,name,status,daily_budget,lifetime_budget',
+        fields: 'id,name,status,daily_budget,lifetime_budget,created_time',
         effective_status: JSON.stringify(['ACTIVE', 'PAUSED']),
       }),
       this.getAll(`${this.accountId}/adsets`, {
@@ -121,6 +121,7 @@ export class MetaClient {
       campaign_name: c.name,
       status: c.status,
       daily_budget: toBudget(c.daily_budget),
+      created_time: c.created_time,
       metrics: {},
     }));
     for (const a of adsets) {

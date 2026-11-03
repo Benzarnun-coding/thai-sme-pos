@@ -83,6 +83,8 @@ export interface Entity {
   status: 'ACTIVE' | 'PAUSED' | string;
   /** Daily budget in account currency (already divided by 100). null when this entity has no budget (e.g. ad set under CBO). */
   daily_budget: number | null;
+  /** Campaign creation time from Meta (ISO), when known. */
+  created_time?: string;
   metrics: Partial<Record<Window, Metrics>>;
 }
 

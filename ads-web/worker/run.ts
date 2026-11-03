@@ -10,6 +10,24 @@ import { loadOrders, orderFees } from './p365.ts';
 import { applyActual } from './actualMetrics.ts';
 import { approvalsEnabled, expireOld, postProposal, recentlyAsked, saveProposals, type Proposal } from './discord.ts';
 
+/** A campaign created within this many days, with no stage yet, is put in the first stage (ทดลอง) automatically. */
+export const AUTO_STAGE_DAYS = 3;
+
+/**
+ * New campaigns (created in the last AUTO_STAGE_DAYS days, no stage, mode 'stage' or unset) → experiment.
+ * Older campaigns without a stage stay as they are: Benz sorts those by hand.
+ */
+export function newCampaignsForFirstStage(entities: Entity[], settings: Map<string, { stage_id: string | null; mode: string }>, now: Date): Entity[] {
+  const since = now.getTime() - AUTO_STAGE_DAYS * 86_400_000;
+  return entities.filter((e) => {
+    if (e.level !== 'campaign' || !e.created_time) return false;
+    const t = Date.parse(e.created_time);
+    if (!(t >= since)) return false;
+    const s = settings.get(e.id);
+    return !s || (!s.stage_id && s.mode !== 'off' && s.mode !== 'custom');
+  });
+}
+
 /** Keeps a run well inside the Workers free plan's 50 outbound requests, and limits damage from a bad rule. */
 export const MAX_CHANGES_PER_RUN = 25;
 
@@ -67,6 +85,11 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
 
   try {
     const [entities, state] = await Promise.all([meta.listEntities(), loadState(env.DB)]);
+    const fresh = newCampaignsForFirstStage(entities, await loadCampaignSettings(env.DB), now);
+    if (fresh.length) {
+      report.notes.push(`แคมเปญใหม่ ${fresh.length} อัน ${dryRun ? 'จะเข้า' : 'เข้า'}กลุ่มทดลองอัตโนมัติ: ${fresh.map((f) => f.name).join(', ').slice(0, 300)}`);
+      if (!dryRun) await applyMoves(env.DB, fresh.map((f) => ({ campaign_id: f.id, name: f.name, from: null, to: 'experiment' })), report.run_at);
+    }
     const { plan, evaluated } = await planRun(env.DB, entities, (level, window) => meta.insights(level, window), state, now, (w) => meta.dailyCampaignInsights(w));
     report.entities_evaluated = evaluated;
     report.totals.daily_budget_before = sumBudget(entities);
