@@ -2372,7 +2372,9 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
       return reply(`↘ **ย้ายแล้วค่ะ** "${p.entity_name}" → ${d.move_to} — ${who} อนุมัติ ขอบคุณค่ะ 🙏`);
     }
     if (verb === 'totesting') {
-      await applyMoves(env.DB, [{ campaign_id: p.entity_id, name: p.entity_name, from: d.move_from ?? null, to: 'testing' }], at);
+      // A pause question carries no move_from, so read the campaign's real stage (else the history said "from: none").
+      const nowStage = (await loadCampaignSettings(env.DB).then((all) => all.get(p.entity_id)?.stage_id).catch(() => null)) ?? d.move_from ?? null;
+      await applyMoves(env.DB, [{ campaign_id: p.entity_id, name: p.entity_name, from: nowStage, to: 'testing' }], at);
       await mark('rejected');
       await audit(env.DB, `discord:${who}`, 'proposal.totesting', p.entity_id, { rule: p.rule_id });
       return reply(`🔵 **รับทราบค่ะ ไม่หยุด — ย้ายไปกลุ่มทดสอบแล้ว** "${p.entity_name}" — ${who} ตัดสิน · กฎกลุ่มทดสอบจะดูแลงบต่อนะคะ`);
