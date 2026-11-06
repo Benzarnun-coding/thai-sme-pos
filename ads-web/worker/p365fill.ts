@@ -183,7 +183,10 @@ export const GOSELL_CODES = /^501\/[123]$/;
 /** GoSell SKUs that are sold out there: a bill with one of them goes the normal way, "PK-1234 …" (Mos, idea #9, 22 Oct). Take the SKU out when GoSell has it again. */
 export const GOSELL_OUT_OF_STOCK = ['5013-PK-BL-31', '5012-PK-NV-34', '5011-PK-MD-30'];
 /** GoSell doesn't stock waist 38–44 of 501/1–3 either: those bills are normal "PK-" too (Mos, idea #18). */
+/** Mos 6 Nov (idea #23): we no longer send to GoSell, so every bill is a normal "PK-" one. Set true to name 501/1–3 "GS-" again. */
+export const GOSELL_SHIPPING = false;
 export function isGoSellLine(l: { code: string; sku: string | null }): boolean {
+  if (!GOSELL_SHIPPING) return false;
   if (!GOSELL_CODES.test(l.code)) return false;
   if (l.sku && GOSELL_OUT_OF_STOCK.includes(l.sku)) return false;
   return !(Number(l.sku?.split('-').pop()) >= 38);
