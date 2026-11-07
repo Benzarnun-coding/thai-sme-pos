@@ -797,25 +797,6 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
       </div>
       {open && (
         <>
-          {onAddHere && g.kind !== 'review' && g.name !== STOCK_GROUP && g.name !== GOSELL_GROUP && g.name !== MISSING_GROUP && (
-            <div className="po-manual-add">
-              {!adding ? <button className="small po-add-btn" onClick={() => setAdding(true)}>+ เพิ่มสินค้าร้านนี้</button> : <>
-                <input value={aq} autoFocus placeholder={`ค้นหาสินค้าของ ${g.name} เช่น 501/2 32`} aria-label="ค้นหาสินค้าของร้านนี้" onChange={(e) => setAq(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && ahits[0]) addHere(ahits[0]); if (e.key === 'Escape') setAdding(false); }} />
-                <input className="po-manual-qty" inputMode="numeric" value={aqty} aria-label="จำนวน" onChange={(e) => setAqty(e.target.value.replace(/\D/g, ''))} />
-                <button className="small" onClick={() => { setAdding(false); setAq(''); }}>เสร็จ</button>
-                {aq.trim() && (ahits.length > 0 ? (
-                  <div className="sku-match-list po-manual-hits">
-                    {ahits.map((r) => (
-                      <button key={`${r.tab}|${r.sku}`} className="sku-match-item" onClick={() => addHere(r)}>
-                        <code>{r.sku}</code><span className="muted small">{r.code}{r.size ? ` · ${r.size}` : ''} · กดเพื่อเพิ่ม</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : <span className="muted small">ไม่พบสินค้าของร้านนี้ในแคตตาล็อก · ถ้าเป็นของร้านอื่นใช้ "+ เพิ่มรายการเอง" ด้านบน</span>)}
-              </>}
-            </div>
-          )}
           {g.kind === 'unassigned' && (
             <p className="small muted po-hint">SKU เหล่านี้มีในแคตตาล็อกแล้ว แต่คอลัมน์ ร้านค้า (L) ในชีตยังว่าง · ตั้งร้านประจำให้ทั้งกลุ่มด้านล่าง หรือย้ายทีละรายการแล้วติ๊ก "จำไว้ทุกวัน" · หรือกรอกในชีตแล้วดึงใหม่</p>
           )}
@@ -894,6 +875,25 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
               </tbody>
             </table>
           </div>
+          {onAddHere && g.kind !== 'review' && g.name !== STOCK_GROUP && g.name !== GOSELL_GROUP && g.name !== MISSING_GROUP && (
+            <div className="po-manual-add">
+              {!adding ? <button className="small po-add-btn" onClick={() => setAdding(true)}>+ เพิ่มสินค้าร้านนี้</button> : <>
+                <input value={aq} autoFocus placeholder={`ค้นหาสินค้าของ ${g.name} เช่น 501/2 32`} aria-label="ค้นหาสินค้าของร้านนี้" onChange={(e) => setAq(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && ahits[0]) addHere(ahits[0]); if (e.key === 'Escape') setAdding(false); }} />
+                <input className="po-manual-qty" inputMode="numeric" value={aqty} aria-label="จำนวน" onChange={(e) => setAqty(e.target.value.replace(/\D/g, ''))} />
+                <button className="small" onClick={() => { setAdding(false); setAq(''); }}>เสร็จ</button>
+                {aq.trim() && (ahits.length > 0 ? (
+                  <div className="sku-match-list po-manual-hits">
+                    {ahits.map((r) => (
+                      <button key={`${r.tab}|${r.sku}`} className="sku-match-item" onClick={() => addHere(r)}>
+                        <code>{r.sku}</code><span className="muted small">{r.code}{r.size ? ` · ${r.size}` : ''} · กดเพื่อเพิ่ม</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : <span className="muted small">ไม่พบสินค้าของร้านนี้ในแคตตาล็อก · ถ้าเป็นของร้านอื่นใช้ "+ เพิ่มรายการเอง" ด้านบน</span>)}
+              </>}
+            </div>
+          )}
           <datalist id="po-targets">{targets.map((n) => <option key={n} value={n} />)}</datalist>
         </>
       )}
