@@ -150,12 +150,16 @@ settings key `studio_ads` {budget 100, days 14, max_active 3}. Runs in the 3-hou
    with the picture attached, the caption, what will be created, Max tagged (`DISCORD_DECIDER_IDS`), buttons
    `grokad:<set>:yes|no`. Only `DISCORD_APPROVER_IDS` (Max, Benz) may press; kill switch refuses ✅.
 5. **Launch** on ✅ (`launchSet`, in the background, the message is edited with the result): template = the product's
-   running ad with the most spend (`meta_posts`); copy of its campaign with only that ad set, PAUSED, suffix
-   " (Grok)" (`copyCampaignShell`); budget 100 on the campaign, else the ad set (ABO); picture uploaded
-   (`uploadImage`); new creative = the template ad's `object_story_spec` with our caption and image hash
-   (`buildSpec`; a template built from an existing post or a video is refused before anything is created); ad
+   running ad with the most spend (`meta_posts`); its campaign copied alone, PAUSED, suffix " (Grok)"
+   (`copyCampaignOnly`); a NEW ad set built from that ad's ad set settings (`createAdsetFrom`: targeting minus the
+   fields Meta removed, optimisation, bidding, promoted object, destination). Copying the ad set failed on the first
+   real presses (2026-11-09: "The targeting_optimization field has been removed"). Budget 100 on the campaign if it
+   is CBO (`campaignHasBudget`), else on the new ad set; picture uploaded (`uploadImage`); new creative = the
+   `object_story_spec` of the first running ad that has one, this product's first (`creativeCandidates`: the 801/3
+   ad was made from a page post, no spec), with our caption and image hash (`buildSpec`; video refused); ad
    "<code> ชุด#<n> (Grok)" ACTIVE; ad set and campaign ACTIVE. Refused at 3 running or over the shop-wide cap.
-   Anything half-made is paused and named in the message. No stage: the rules engine leaves it alone.
+   Anything half-made is paused and named in the message; a failed message keeps 🔁 ลองใหม่ / ❌
+   (`/api/grok-ads/retry-buttons` puts them back on older failures). No stage: the rules engine leaves it alone.
 6. **After 14 days** (`stopExpired`): campaign paused, Meta's 14-day spend / purchases / value / ROAS stored and posted.
 
 7. **Back into the room** (Benz 2026-11-09): the 07:30 run imports the posts running as ads (`studioImport`, read

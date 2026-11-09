@@ -328,6 +328,42 @@ export class MetaClient {
     return { campaign_id: String(c.copied_campaign_id), adset_id: String(s.copied_adset_id) };
   }
 
+  /** Copy of the campaign object alone (no ad sets), PAUSED, renamed with the suffix. */
+  async copyCampaignOnly(campaignId: string, suffix: string): Promise<string> {
+    const c = await this.post(`${campaignId}/copies`, {
+      deep_copy: 'false', status_option: 'PAUSED',
+      rename_options: JSON.stringify({ rename_strategy: 'ONLY_TOP_LEVEL_RENAME', rename_suffix: suffix }),
+    });
+    if (!c.copied_campaign_id) throw new Error('Meta ไม่ได้ส่ง id แคมเปญใหม่กลับมา');
+    return String(c.copied_campaign_id);
+  }
+
+  /** true when the campaign carries the budget (CBO). */
+  async campaignHasBudget(campaignId: string): Promise<boolean> {
+    const c = await this.get(campaignId, { fields: 'daily_budget,lifetime_budget' });
+    return Number(c.daily_budget ?? 0) > 0 || Number(c.lifetime_budget ?? 0) > 0;
+  }
+
+  /**
+   * A new ad set in `campaignId` with the template ad set's settings (targeting, optimisation, bidding, promoted
+   * object, destination), PAUSED. Built instead of copied: Meta refuses to copy ad sets that still carry fields it
+   * removed (2026-11-09: "The targeting_optimization field has been removed"), so those are dropped here.
+   */
+  async createAdsetFrom(templateAdsetId: string, campaignId: string, name: string, dailyBudget: number | null): Promise<string> {
+    const t = await this.get(templateAdsetId, { fields: 'optimization_goal,billing_event,bid_strategy,bid_amount,targeting,promoted_object,destination_type,attribution_spec' });
+    const targeting = { ...(t.targeting ?? {}) };
+    for (const k of ['targeting_optimization', 'targeting_automation', 'targeting_relaxation_types']) delete (targeting as any)[k];
+    const params: Record<string, string> = { campaign_id: campaignId, name, status: 'PAUSED', targeting: JSON.stringify(targeting) };
+    for (const k of ['optimization_goal', 'billing_event', 'bid_strategy', 'destination_type']) if (t[k]) params[k] = String(t[k]);
+    if (t.bid_amount) params.bid_amount = String(t.bid_amount);
+    if (t.promoted_object) params.promoted_object = JSON.stringify(t.promoted_object);
+    if (t.attribution_spec) params.attribution_spec = JSON.stringify(t.attribution_spec);
+    if (dailyBudget !== null) params.daily_budget = String(Math.round(dailyBudget * 100));
+    const r = await this.post(`${this.accountId}/adsets`, params);
+    if (!r.id) throw new Error('Meta ไม่ได้ส่ง id ชุดโฆษณาใหม่กลับมา');
+    return String(r.id);
+  }
+
   /** Uploads a picture (base64) to the ad account's image library; returns its hash. */
   async uploadImage(base64: string): Promise<string> {
     const r = await this.post(`${this.accountId}/adimages`, { bytes: base64 });

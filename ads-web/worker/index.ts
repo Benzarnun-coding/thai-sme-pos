@@ -148,11 +148,11 @@ async function budgetRoom(env: Env): Promise<number> {
   return settings.guardrails.max_total_daily_budget - sumBudget(entities);
 }
 
-async function editStudioMessage(env: Env, messageId: string, content: string): Promise<void> {
+async function editStudioMessage(env: Env, messageId: string, content: string, components: unknown[] = []): Promise<void> {
   if (!env.DISCORD_BOT_TOKEN || !env.DISCORD_STUDIO_CHANNEL_ID) return;
   await fetch(`https://discord.com/api/v10/channels/${env.DISCORD_STUDIO_CHANNEL_ID}/messages/${messageId}`, {
     method: 'PATCH', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content: content.slice(0, 2000), components: [] }),
+    body: JSON.stringify({ content: content.slice(0, 2000), components }),
   }).catch(() => null);
 }
 
@@ -177,8 +177,9 @@ ${r.meta.changes ? `❌ **ไม่ลง** — ${who}` : 'ตัดสินไ
     const r = await grokAds.launchSet(env, metaFor(env) as unknown as grokAds.GrokMeta, cfg, Number(setId), await budgetRoom(env).catch(() => 0))
       .catch((err: any) => ({ ok: false, text: String(err?.message ?? err) }));
     await audit(env.DB, `discord:${who}`, r.ok ? 'grokad.launched' : 'grokad.failed', setId, { text: r.text });
-    await editStudioMessage(env, messageId, `${before}
-${r.ok ? '✅' : '❌'} **${r.ok ? 'ลงแล้ว' : 'ลงไม่สำเร็จ'}** — ${who} อนุมัติ · ${r.text}`);
+    // A failure keeps a retry button (and ❌), so a fixed bug or a raised cap needs only another press.
+    await editStudioMessage(env, messageId, `${before}\n${r.ok ? '✅' : '❌'} **${r.ok ? 'ลงแล้ว' : 'ลงไม่สำเร็จ'}** — ${who} อนุมัติ · ${r.text}`,
+      r.ok ? [] : [{ type: 1, components: [{ type: 2, style: 1, label: '🔁 ลองใหม่', custom_id: `grokad:${setId}:yes` }, { type: 2, style: 4, label: '❌ ไม่ลง', custom_id: `grokad:${setId}:no` }] }]);
   })().catch(() => null));
   return json({ type: 7, data: { content: `${before}
 ⏳ **กำลังสร้างแอด…** ${who} อนุมัติ ${at.slice(11, 16)} UTC · เสร็จแล้วข้อความนี้จะเปลี่ยนนะคะ`.slice(0, 2000), components: [] } });
@@ -1029,6 +1030,18 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
   // "ตรวจ/เสนอตอนนี้": one set at a time, so a press proposes at most one post.
   // Runs inside the request (a waitUntil gets ~30 s after the reply, too short for 5–6 Claude calls).
+  // Put 🔁 / ❌ back on failed proposals (owners/admins), e.g. after a fix was deployed.
+  if (path === '/api/grok-ads/retry-buttons' && method === 'POST') {
+    const { results } = await env.DB.prepare(`SELECT set_id, message_id FROM grok_ads WHERE status = 'failed' AND message_id IS NOT NULL`).all<{ set_id: number; message_id: string }>();
+    for (const g of results) {
+      const res = await fetch(`https://discord.com/api/v10/channels/${env.DISCORD_STUDIO_CHANNEL_ID}/messages/${g.message_id}`, { headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` } });
+      const msg: any = await res.json().catch(() => ({}));
+      const lines = String(msg.content ?? '').split('\n').filter((l: string) => !l.startsWith('🔧'));
+      await editStudioMessage(env, g.message_id, [...lines, '🔧 แก้แล้ว กด 🔁 ลองใหม่ได้เลย'].join('\n'), [{ type: 1, components: [{ type: 2, style: 1, label: '🔁 ลองใหม่', custom_id: `grokad:${g.set_id}:yes` }, { type: 2, style: 4, label: '❌ ไม่ลง', custom_id: `grokad:${g.set_id}:no` }] }]);
+    }
+    await audit(env.DB, user, 'grokad.retry_buttons', 'grok_ads', { n: results.length });
+    return json({ ok: true, n: results.length });
+  }
   // Withdraw a (Grok) proposal (owners/admins: the path is outside /api/studio): edits the Discord message.
   if ((m = /^\/api\/grok-ads\/(\d+)\/withdraw$/.exec(path)) && method === 'POST') {
     const b = await body().catch(() => ({}));

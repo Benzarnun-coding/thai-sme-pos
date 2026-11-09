@@ -7,9 +7,9 @@
 //      AI finds caption and picture agree (same product, same price/promo).
 //   4. proposeStep: each approved set is proposed in #studio-training (picture, caption, Max tagged, ✅/❌).
 //      Nothing reaches Meta until Max (or Benz) presses ✅ (Benz 2026-11-09: "ให้แมคกดอนุมัติ"). launchSet then builds
-//      "<template campaign> (Grok)": a copy of the product's best running campaign with only its ad set, one new ad
-//      (the set's picture + caption on the template ad's creative), 100/day for 14 days; at most MAX_ACTIVE at once
-//      and never over the shop-wide cap.
+//      "<template campaign> (Grok)": a copy of the product's best running campaign (campaign only), a new ad set built
+//      from that ad's ad set settings, one new ad (the set's picture + caption on the first running ad's creative
+//      that has a spec), 100/day for 14 days; at most MAX_ACTIVE at once and never over the shop-wide cap.
 //   5. stopExpired: after 14 days the campaign is paused and its 14-day numbers are reported.
 // Never touches a campaign it didn't create; the rules engine leaves these alone (no stage).
 
@@ -159,7 +159,9 @@ export async function captionForPicture(env: StudioEnv, code: string, imageId: n
 
 export interface GrokMeta {
   adTemplate(adId: string): Promise<{ name: string; adset_id: string; campaign_id: string; spec: any | null }>;
-  copyCampaignShell(campaignId: string, adsetId: string, suffix: string): Promise<{ campaign_id: string; adset_id: string }>;
+  copyCampaignOnly(campaignId: string, suffix: string): Promise<string>;
+  campaignHasBudget(campaignId: string): Promise<boolean>;
+  createAdsetFrom(templateAdsetId: string, campaignId: string, name: string, dailyBudget: number | null): Promise<string>;
   uploadImage(base64: string): Promise<string>;
   createCreative(name: string, spec: unknown): Promise<string>;
   createAd(adsetId: string, name: string, creativeId: string, status: 'ACTIVE' | 'PAUSED'): Promise<string>;
@@ -185,6 +187,18 @@ export function buildSpec(template: any, message: string, imageHash: string): an
   }
   delete spec.video_data;
   return spec;
+}
+
+/**
+ * Ads whose creative may serve as the template for the new ad's creative: this product's first, then any running
+ * ad, most spend first. Ads made from an existing page post have no spec, so the first one with a spec is used
+ * (Benz's 801/3 ad was post-based, 2026-11-09).
+ */
+async function creativeCandidates(db: D1Database, code: string, limit = 8): Promise<string[]> {
+  const { results } = await db.prepare(`SELECT code, ads FROM meta_posts WHERE active = 1 ORDER BY (code = ?1) DESC, spend DESC LIMIT 20`).bind(code).all<{ code: string; ads: string }>();
+  const ids: string[] = [];
+  for (const r of results) for (const a of JSON.parse(r.ads) as { ad_id: string; campaign_name: string }[]) if (!/\(Grok\)/.test(a.campaign_name) && !ids.includes(a.ad_id)) ids.push(a.ad_id);
+  return ids.slice(0, limit);
 }
 
 /** The product's running ad with the most spend (from /studio/posts), the template for a new "(Grok)" ad. */
@@ -262,22 +276,26 @@ export async function launchSet(env: StudioEnv, meta: GrokMeta, cfg: StudioAds, 
   const name = `${s.code} ชุด#${s.id} (Grok)`;
   let campaign: string | null = null;
   try {
-    const tpl = await meta.adTemplate(t.ad_id);
-    buildSpec(tpl.spec, s.caption_text, 'check'); // refuse before anything is created
+    const tpl = await meta.adTemplate(t.ad_id); // the product's ad set (audience, optimisation) comes from here
+    // The creative template: this ad if it has a spec, else the next running ad that has one.
+    let spec = tpl.spec;
+    if (!spec) for (const id of await creativeCandidates(env.DB, s.code)) { if (id === t.ad_id) continue; spec = (await meta.adTemplate(id).catch(() => null))?.spec ?? null; if (spec) break; }
+    buildSpec(spec, s.caption_text, 'check'); // refuse before anything is created
     const img = await env.DB.prepare('SELECT full FROM creative_candidates WHERE id = ?1').bind(s.image_id).first<{ full: ArrayBuffer | number[] | null }>();
     if (!img?.full) throw new Error('ไม่พบไฟล์ภาพของชุดนี้');
     const hash = await meta.uploadImage(toBase64(img.full));
-    const shell = await meta.copyCampaignShell(tpl.campaign_id, tpl.adset_id, ' (Grok)');
-    campaign = shell.campaign_id;
-    // CBO campaigns carry the budget; ABO ad sets do. Try the campaign first.
-    await meta.setDailyBudget(shell.campaign_id, cfg.budget).catch(() => meta.setDailyBudget(shell.adset_id, cfg.budget));
-    const creative = await meta.createCreative(name, buildSpec(tpl.spec, s.caption_text, hash));
-    const ad = await meta.createAd(shell.adset_id, name, creative, 'ACTIVE');
-    await meta.setStatus(shell.adset_id, 'ACTIVE');
-    await meta.setStatus(shell.campaign_id, 'ACTIVE');
+    campaign = await meta.copyCampaignOnly(tpl.campaign_id, ' (Grok)');
+    // CBO: the campaign carries the 100; ABO: the new ad set does.
+    const cbo = await meta.campaignHasBudget(campaign);
+    if (cbo) await meta.setDailyBudget(campaign, cfg.budget);
+    const adset = await meta.createAdsetFrom(tpl.adset_id, campaign, name, cbo ? null : cfg.budget);
+    const creative = await meta.createCreative(name, buildSpec(spec, s.caption_text, hash));
+    const ad = await meta.createAd(adset, name, creative, 'ACTIVE');
+    await meta.setStatus(adset, 'ACTIVE');
+    await meta.setStatus(campaign, 'ACTIVE');
     const now = new Date(), ends = new Date(now.getTime() + cfg.days * 86_400_000).toISOString();
     await env.DB.prepare(`UPDATE grok_ads SET status = 'running', template_ad_id = ?2, campaign_id = ?3, adset_id = ?4, ad_id = ?5, budget = ?6, launched_at = ?7, ends_at = ?8, error = NULL WHERE set_id = ?1`)
-      .bind(setId, t.ad_id, shell.campaign_id, shell.adset_id, ad, cfg.budget, now.toISOString(), ends).run();
+      .bind(setId, t.ad_id, campaign, adset, ad, cfg.budget, now.toISOString(), ends).run();
     return { ok: true, text: `เปิดแล้ว: แคม "${t.campaign_name} (Grok)" · แอด "${name}" · ${cfg.budget} บาท/วัน · ถึง ${ends.slice(0, 10)} แล้วหยุดเอง` };
   } catch (err: any) {
     if (campaign) await meta.setStatus(campaign, 'PAUSED').catch(() => null);
