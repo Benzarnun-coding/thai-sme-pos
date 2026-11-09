@@ -158,7 +158,13 @@ settings key `studio_ads` {budget 100, days 14, max_active 3}. Runs in the 3-hou
    Anything half-made is paused and named in the message. No stage: the rules engine leaves it alone.
 6. **After 14 days** (`stopExpired`): campaign paused, Meta's 14-day spend / purchases / value / ROAS stored and posted.
 
-Not done yet: the ROAS of these ads doesn't feed back into the room's judging (the AI judge still decides); promos
+7. **Back into the room** (Benz 2026-11-09): the 07:30 run imports the posts running as ads (`studioImport`, read
+   only: `activeAdPosts` + `fetchMissingPostPictures`, server-side, no resize), so "(Grok)" posts with ≥ 1,000 spend
+   and a good ROAS become `provenPosts` (what the caption writer and the AI judge measure against) and real-post
+   pairs, with nobody pressing ดึงโพสต์จากเพจ. `/studio` shows "ผลแอดทดสอบ (Grok)" (`grokResults`: picture, caption,
+   14-day ROAS, best first; running ones with their dates) for Grok to read before the next round.
+
+Not done yet: the AI judge still decides room pairs (real ROAS only reaches it through `provenPosts`); promos
 come from Max's "สินค้า: จุดขายและโปร", never invented; chat replies stay with the admins and Business AI.
 
 ## Materials (`/studio` วัตถุดิบ)

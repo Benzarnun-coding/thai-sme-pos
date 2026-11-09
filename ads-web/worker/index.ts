@@ -202,6 +202,19 @@ async function studioCron(env: Env, limit = 2): Promise<void> {
   }
 }
 
+/**
+ * 07:30 daily: the posts running as ads, read from Meta (read only), so the room's "posts that really sell" and its
+ * real-post pairs include the "(Grok)" ads' own results without anyone pressing ดึงโพสต์จากเพจ (Benz 2026-11-09).
+ */
+async function studioImport(env: Env): Promise<void> {
+  const got = await metaFor(env).activeAdPosts();
+  const r = { ...(await studio.importMetaPosts(env.DB, got.ads)), post_error: got.post_error };
+  const pictures = await studio.fetchMissingPostPictures(env.DB).catch(() => 0);
+  await studio.seedRealCaptions(env.DB).catch(() => 0);
+  await studio.seedRealImages(env.DB).catch(() => 0);
+  await audit(env.DB, 'cron', 'studio.meta_import', 'meta_posts', { ...r, pictures });
+}
+
 /** A playbook trial settles itself at 20 decided pairs (worker/playbookTrial.ts); the result goes to #studio-training. */
 async function settleTrial(env: Env, user: string): Promise<trial.TrialResult | null> {
   const settled = await trial.checkTrial(env.DB);
@@ -281,6 +294,7 @@ export default {
 
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     if (event.cron === COSTS_CRON) {
+      ctx.waitUntil(studioImport(env).catch((err) => console.error('studio import', err)));
       ctx.waitUntil(purgeChats(env.DB).then(() => sendChatReport(env, 'yesterday')).then(() => (aiEnabled(env) ? sendChatInsights(env, 'yesterday') : null)).catch((err) => console.error('chat report', err)));
       ctx.waitUntil(loadSettings(env.DB).then((s) => Promise.all([
         s.sheet_id ? syncCosts(env.DB, s) : [],
@@ -982,6 +996,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     await studio.judge(env.DB, await body(), user);
     return json({ ok: true, trial: await settleTrial(env, user) });
   }
+  if (path === '/api/studio/grok-results' && method === 'GET') return json({ rows: await grokAds.grokResults(env.DB) });
   if (path === '/api/studio/trial' && method === 'GET') { const [running, last] = await Promise.all([trial.trialStatus(env.DB), trial.lastTrial(env.DB)]); return json({ trial: running, last }); }
   if (path === '/api/studio/trial' && method === 'POST') { const id = await trial.startTrial(env.DB, await body(), user); await audit(env.DB, user, 'studio.trial.start', String(id), {}); return json({ id }); }
   if (path === '/api/studio/trial/step' && method === 'POST') {

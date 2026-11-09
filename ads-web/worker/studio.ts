@@ -559,6 +559,26 @@ export async function listMetaPosts(db: D1Database): Promise<MetaPost[]> {
   return results.map((r) => ({ ...r, ads: JSON.parse(r.ads || '[]') }));
 }
 
+/**
+ * Pictures of running posts nobody stored yet (the daily import runs with no browser to resize them): fetched from
+ * Meta's link while it is still valid and stored as they are, thumb = full. At most `limit`, ≤ 1.5 MB each.
+ */
+export async function fetchMissingPostPictures(db: D1Database, limit = 10): Promise<number> {
+  const { results } = await db.prepare(`SELECT key, image_url FROM meta_posts WHERE active = 1 AND full IS NULL AND image_url IS NOT NULL ORDER BY spend DESC LIMIT ?1`).bind(limit).all<{ key: string; image_url: string }>();
+  let n = 0;
+  for (const p of results) {
+    if (!allowedImageUrl(p.image_url)) continue;
+    const r = await fetch(p.image_url).catch(() => null);
+    const type = r?.headers.get('content-type') ?? '';
+    if (!r?.ok || !type.startsWith('image/')) continue;
+    const buf = new Uint8Array(await r.arrayBuffer());
+    if (buf.byteLength > 1_500_000) continue;
+    await db.prepare('UPDATE meta_posts SET thumb = ?2, full = ?2, mime = ?3 WHERE key = ?1').bind(p.key, buf, type.split(';')[0]).run();
+    n++;
+  }
+  return n;
+}
+
 export async function saveMetaPostImage(db: D1Database, form: FormData): Promise<void> {
   const key = cleanText(form.get('key'), 200);
   if (!key) throw new BadRequest('ไม่รู้ว่าเป็นรูปของโพสต์ไหน');

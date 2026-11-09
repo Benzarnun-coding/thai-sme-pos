@@ -966,6 +966,7 @@ tr:hover .po-label-btn { opacity: 1; }
 .kb-page { max-width: 880px; margin: 0 auto; padding: 24px 16px 64px; display: grid; gap: 16px; }
 .kb-head h1 { margin: 6px 0 4px; font-size: 24px; }
 .trial-box { margin: 8px 0; display: grid; gap: 4px; }
+.grok-row { display: flex; gap: 8px; align-items: flex-start; list-style: none; }
 .trial-rows { margin: 4px 0 10px; padding-left: 18px; display: grid; gap: 4px; }
 .trial-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
 .trial-text { white-space: pre-wrap; font: inherit; margin: 4px 0 0; }

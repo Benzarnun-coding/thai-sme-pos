@@ -45,9 +45,11 @@ export function StudioApp() {
   useEffect(() => { call<{ pending: { id: number } | null }>('GET', '/api/studio/playbook/pending').then((r) => setPendingId(r.pending?.id ?? null)).catch(() => null); }, []);
   const [trial, setTrial] = useState<Trial | null>(null);
   const [last, setLast] = useState<LastTrial | null>(null);
+  const [grok, setGrok] = useState<GrokResult[]>([]);
   const reload = () => Promise.all([
     call<Materials>('GET', '/api/studio/materials').then(setM).catch((e) => toast(e.message, 'bad')),
     call<{ trial: Trial | null; last: LastTrial | null }>('GET', '/api/studio/trial').then((r) => { setTrial(r.trial); setLast(r.last); }).catch(() => null),
+    call<{ rows: GrokResult[] }>('GET', '/api/studio/grok-results').then((r) => setGrok(r.rows)).catch(() => null),
   ]);
   useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -78,6 +80,7 @@ export function StudioApp() {
         onStop={async () => { if (await confirm({ title: 'หยุดทดสอบร่างนี้?', body: 'คู่มือที่ใช้อยู่ไม่เปลี่ยน' })) run(() => call('POST', '/api/studio/trial/stop'), 'หยุดทดสอบแล้ว'); }}
         onUndo={async () => { if (await confirm({ title: 'ย้อนกลับไปใช้คู่มือฉบับก่อนหน้า?', body: 'บันทึกเป็นเวอร์ชันใหม่ ฉบับปัจจุบันยังเก็บไว้' })) run(() => call('POST', '/api/studio/playbook/undo'), 'ย้อนกลับแล้ว'); }} />}
       {last && !trial && <LastTrialCard last={last} />}
+      {grok.length > 0 && <GrokResultsCard rows={grok} />}
 
       <section className="card">
         <h2>สไตล์ภาพ</h2>
@@ -140,6 +143,31 @@ function PlaybookCard({ playbook, trial, busy, onSave, onTrial, onStop, onUndo }
         <button disabled={busy || !changed || !!trial} title={trial ? 'มีร่างกำลังทดสอบอยู่' : ''} onClick={() => onTrial(text)}>ทดสอบก่อนใช้ (แนะนำ)</button>
       </div>
       <p className="muted small">"ทดสอบก่อนใช้" = บันทึกเป็นร่าง AI เขียนแคปชันจากทั้งร่างและฉบับเดิม AI กรรมการตัดสินแบบปิดตา (ไม่เห็นคู่มือ เทียบกับโพสต์ที่ขายดีจริง) ครบ 20 คู่ถ้าร่างชนะ ≥ 55% ระบบสลับให้เองและแจ้งใน Discord</p>
+    </section>
+  );
+}
+
+interface GrokResult { set_id: number; code: string; status: 'running' | 'done'; launched_at: string | null; ends_at: string | null; result: string | null; caption_text: string; image_id: number; old_picture: number }
+
+/** "(Grok)" test ads with their real result (Meta, 14 days): what to repeat and what to drop in the next round. */
+function GrokResultsCard({ rows }: { rows: GrokResult[] }) {
+  const d = (x: string | null) => (x ? new Date(x).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' }) : '');
+  const done = rows.filter((r) => r.status === 'done' && r.result).map((r) => ({ ...r, res: JSON.parse(r.result!) as { spend: number; purchases: number; value: number; roas: number } }))
+    .sort((a, b) => b.res.roas - a.res.roas);
+  const running = rows.filter((r) => r.status === 'running');
+  const Row = ({ r, line }: { r: GrokResult; line: string }) => (
+    <li className="grok-row">
+      <img className="mini" src={`/api/studio/picture/cand/${r.image_id}?size=thumb`} alt="" loading="lazy" />
+      <div><b>{r.code}</b> ชุด#{r.set_id} · {line}{r.old_picture ? <span className="muted"> · ภาพแอดเดิม</span> : null}
+        <details><summary className="muted small">แคปชัน</summary><pre className="trial-text small">{r.caption_text}</pre></details></div>
+    </li>
+  );
+  return (
+    <section className="card">
+      <h2>ผลแอดทดสอบ (Grok)</h2>
+      <p className="muted small">แอดที่ห้องฝึกสร้างเอง (100 บาท/วัน 14 วัน) · ตัวเลขจาก Meta ตอนครบกำหนด (ยอดแท็ก Meta ยอดจริงมักต่ำกว่า ~11–14%) · ROAS สูงสุดก่อน · ใช้ตัดสินว่ารอบหน้าควรทำภาพและแคปชันแบบไหน</p>
+      {done.length > 0 && <ul className="trial-rows">{done.map((r) => <Row key={r.set_id} r={r} line={`ROAS ${r.res.roas} · ค่าแอด ${r.res.spend} · ซื้อ ${r.res.purchases} · ยอด ${r.res.value}`} />)}</ul>}
+      {running.length > 0 && <><b className="small">กำลังยิง</b><ul className="trial-rows">{running.map((r) => <Row key={r.set_id} r={r} line={`${d(r.launched_at)} – ${d(r.ends_at)}`} />)}</ul></>}
     </section>
   );
 }
