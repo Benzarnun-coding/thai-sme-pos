@@ -132,8 +132,9 @@ the PDF "คู่มือสอน Grok" (sent 2026-11-09, not in git).
 ### "(Grok)" test ads: from the room to a real ad (Benz 2026-11-09)
 
 Benz: the room should make the picture, write the caption, open the ad and test it itself; ad names carry "(Grok)";
-14 days; Max approves each one in Discord; 100 baht/day. `worker/grokAds.ts`, migration 0064 (`grok_ads`),
-settings key `studio_ads` {budget 100, days 14, max_active 3}. Runs in the 3-hourly sweep after the playbook trial
+14 days; Max approves each one in Discord; 100 baht/day for the first three, 50 from the next six (Benz 2026-11-09).
+`worker/grokAds.ts`, migration 0064 (`grok_ads`), settings key `studio_ads` (defaults {budget 50, days 14,
+max_active 9}). Runs in the 3-hourly sweep after the playbook trial
 (`studioCron`), or "ตรวจ/เสนอตอนนี้" on `/studio/sets`.
 
 1. **Images**: Grok has ChatGPT in Max's account make them from the room's prompt ("ขอ prompt สำหรับ ChatGPT"), then
@@ -141,16 +142,17 @@ settings key `studio_ads` {budget 100, days 14, max_active 3}. Runs in the 3-hou
    link, the browser resizes and uploads as before, the AI check runs on upload). No image API, no extra cost.
 2. **AI image judge** (`aiJudgeImages`, ≤ 3 Claude calls a run): two images of one product + the real product photo,
    blind, one line why (`note`). A passed image = ≥ 1 win, no more losses, AI check not "fail" (`passedFor`).
-3. **Sets by themselves** (`autoSets`, ≤ 2 a run, 1 per "ตรวจ/เสนอตอนนี้"): a product with a passed caption and a
-   passed NEW image (never a picture of a current ad: Benz 2026-11-09 "ทำใหม่หมดเลย ทั้งภาพทั้งแคปชั่น") and no set in
-   the last 14 days gets one; approved by `auto` when `checkSet` says picture and caption agree, else the caption is
-   rewritten once from the picture with the check's issues (`captionForPicture`) and checked again. The first three
-   proposals (sets 4–6, 2026-11-09) used current-ad pictures before this rule; Benz kept them to try.
+3. **Sets by themselves** (`autoSets`, ≤ 6 a run): one set per fresh image (`freshImages`: new, in no set, AI check
+   not "fail"; best A/B record first; no A/B win needed since the ad is the test, Benz 2026-11-09 "6 more posts"),
+   with the product's best passed caption not used yet; approved by `auto` when `checkSet` says picture and caption
+   agree, else the caption is rewritten once from the picture (`captionForPicture`) and checked again, else the set
+   is rejected. A product may have several posts. The first three proposals (sets 4–6) used current-ad pictures
+   before this rule; Benz kept them to try (100/day, ran from 2026-11-09).
 4. **Proposal** (`proposeStep`): each approved set is posted once in #studio-training (`DISCORD_STUDIO_CHANNEL_ID`)
    with the picture attached, the caption, what will be created, Max tagged (`DISCORD_DECIDER_IDS`), buttons
    `grokad:<set>:yes|no`. Only `DISCORD_APPROVER_IDS` (Max, Benz) may press; kill switch refuses ✅.
 5. **Launch** on ✅ (`launchSet`, in the background, the message is edited with the result): template = the product's
-   running ad with the most spend (`meta_posts`); its campaign copied alone, PAUSED, suffix " (Grok)"
+   running ad with the most spend (`meta_posts`); its campaign copied alone, PAUSED, suffix " ชุด#<n> (Grok)"
    (`copyCampaignOnly`); a NEW ad set built from that ad's ad set settings (`createAdsetFrom`: targeting minus the
    fields Meta removed, optimisation, bidding, promoted object, destination). Copying the ad set failed on the first
    real presses (2026-11-09: "The targeting_optimization field has been removed"). Budget 100 on the campaign if it

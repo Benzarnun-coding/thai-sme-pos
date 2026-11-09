@@ -310,7 +310,7 @@ export default {
     } else if (event.cron === SWEEP_CRON) {
       ctx.waitUntil(cronSweep(env).catch((err) => console.error('cron sweep', err)));
       // A playbook trial nobody opened the training room for still gets its captions, one Claude call per sweep.
-      if (env.ANTHROPIC_API_KEY) ctx.waitUntil(trialCron(env).catch((err) => console.error('trial step', err)).then(() => studioCron(env)).catch((err) => console.error('studio cron', err)));
+      if (env.ANTHROPIC_API_KEY) ctx.waitUntil(trialCron(env).catch((err) => console.error('trial step', err)).then(() => studioCron(env, 6)).catch((err) => console.error('studio cron', err)));
       ctx.waitUntil(syncTitles(env).catch((err) => console.error('request titles', err)));
       ctx.waitUntil(checkBuilds(env).catch((err) => console.error('request builds', err)));
     } else if (event.cron === REMIND_CRON) {
@@ -1028,8 +1028,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     if (buf.byteLength > 12_000_000) throw new BadRequest('รูปใหญ่เกิน 12 MB');
     return new Response(buf, { headers: { 'Content-Type': type, 'Cache-Control': 'no-store' } });
   }
-  // "ตรวจ/เสนอตอนนี้": one set at a time, so a press proposes at most one post.
-  // Runs inside the request (a waitUntil gets ~30 s after the reply, too short for 5–6 Claude calls).
+  // "ตรวจ/เสนอตอนนี้": up to 6 sets, inside the request (a waitUntil gets ~30 s after the reply, too short).
   // Half-made "(Grok)" campaigns (paused, no ad set): GET lists them, POST {ids} deletes those ids if still empty.
   if (path === '/api/grok-ads/empty-campaigns' && (method === 'GET' || method === 'POST')) {
     const meta = metaFor(env) as any;
@@ -1063,7 +1062,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     await audit(env.DB, user, 'grokad.withdrawn', m[1], { reason: b?.reason ?? null });
     return json({ ok: true });
   }
-  if (path === '/api/studio/sets/run' && method === 'POST') { await studioCron(env, 1); return json({ ok: true, grok_ads: await grokAds.listGrokAds(env.DB) }); }
+  if (path === '/api/studio/sets/run' && method === 'POST') { await studioCron(env, 6); return json({ ok: true, grok_ads: await grokAds.listGrokAds(env.DB) }); }
   if (path === '/api/studio/trial/stop' && method === 'POST') { await trial.stopTrial(env.DB); await audit(env.DB, user, 'studio.trial.stop', 'playbook', {}); return json({ ok: true }); }
   if (path === '/api/studio/playbook/undo' && method === 'POST') { const id = await trial.undoPlaybook(env.DB, user); await audit(env.DB, user, 'studio.playbook.undo', String(id), {}); return json({ id }); }
   if (path === '/api/studio/stats' && method === 'GET') return json(await studio.stats(env.DB));

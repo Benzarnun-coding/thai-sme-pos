@@ -16,10 +16,10 @@
 import { REASONS, askClaude, createSet, currentPlaybook, decideSet, imageBlock, listProducts, passedFor, productPhoto, readyProducts, judge, type StudioEnv } from './studio.ts';
 import { AI_JUDGE } from './playbookTrial.ts';
 
-export const MAX_ACTIVE = 3;
+export const MAX_ACTIVE = 9;
 
 export interface StudioAds { budget: number; days: number; max_active: number }
-const DEFAULTS: StudioAds = { budget: 100, days: 14, max_active: MAX_ACTIVE };
+const DEFAULTS: StudioAds = { budget: 50, days: 14, max_active: 9 };
 
 export async function loadStudioAds(db: D1Database): Promise<StudioAds> {
   const v = await db.prepare(`SELECT value FROM settings WHERE key = 'studio_ads'`).first<{ value: string }>();
@@ -98,33 +98,49 @@ export async function aiJudgeImages(env: StudioEnv, calls = 3): Promise<number> 
 // ---- 3. post sets by themselves ----
 
 /**
- * Products with a passed caption and a passed NEW image (made for the room, never a picture of a current ad: Benz
- * 2026-11-09 "ทำใหม่หมดเลย ทั้งภาพทั้งแคปชั่น") and no set in the last `days` days get one. Approved by itself if
- * the AI finds picture and caption agree; on a clash the caption is rewritten once to fit the picture.
+ * New images (made for the room, never a picture of a current ad) that are in no set yet and that the AI check did not
+ * fail, best A/B record first. Benz 2026-11-09 (6 more posts): every such image becomes a post; the ad decides, not
+ * the room's A/B, so an image needs no win first.
  */
-export async function autoSets(env: StudioEnv, days: number, limit = 2): Promise<{ code: string; set_id: number; approved: boolean }[]> {
-  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+export async function freshImages(db: D1Database): Promise<{ id: number; code: string }[]> {
+  const { results } = await db.prepare(
+    `SELECT c.id, c.code, c.ai_check,
+            (SELECT count(*) FROM creative_judgements j WHERE j.winner_id = c.id) - (SELECT count(*) FROM creative_judgements j WHERE j.winner_id IS NOT NULL AND j.winner_id != c.id AND c.id IN (j.a_id, j.b_id)) AS score
+     FROM creative_candidates c
+     WHERE c.kind = 'image' AND c.status = 'open' AND c.hook != 'real' AND c.full IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM creative_sets s WHERE s.image_id = c.id AND s.status != 'rejected')
+     ORDER BY score DESC, c.id`,
+  ).all<{ id: number; code: string; ai_check: string | null; score: number }>();
+  return results.filter((r) => !r.ai_check || JSON.parse(r.ai_check).verdict !== 'fail').map((r) => ({ id: r.id, code: r.code }));
+}
+
+/**
+ * One post set per fresh image: the product's best passed caption not used in another set yet (else its best one),
+ * checked against the picture; on a clash the caption is rewritten once from the picture and checked again.
+ * Approved by itself when picture and caption agree.
+ */
+export async function autoSets(env: StudioEnv, _days: number, limit = 2): Promise<{ code: string; set_id: number; approved: boolean }[]> {
   const out: { code: string; set_id: number; approved: boolean }[] = [];
-  for (const r of await readyProducts(env.DB)) {
+  for (const img of await freshImages(env.DB)) {
     if (out.length >= limit) break;
-    if (!r.captions || !r.images) continue;
-    const recent = await env.DB.prepare(`SELECT 1 FROM creative_sets WHERE code = ?1 AND created_at > ?2 AND status != 'rejected' LIMIT 1`).bind(r.code, since).first();
-    if (recent) continue;
-    const p = await passedFor(env.DB, r.code);
-    const imageId = p.images[0].id;
-    let set = await createSet(env, { caption_id: p.captions[0].id, image_id: imageId }, 'auto');
+    const p = await passedFor(env.DB, img.code);
+    if (!p.captions.length) continue;
+    const used = new Set((await env.DB.prepare(`SELECT caption_id FROM creative_sets WHERE code = ?1 AND status != 'rejected'`).bind(img.code).all<{ caption_id: number }>()).results.map((r) => r.caption_id));
+    const caption = p.captions.find((c) => !used.has(c.id)) ?? p.captions[0];
+    let set = await createSet(env, { caption_id: caption.id, image_id: img.id }, 'auto');
     let check = set.ai_note ? JSON.parse(set.ai_note) as { match: boolean; issues: string } : null;
     // One rewrite when the check found a clash (price/promo/model on the picture): the issues go back to the writer.
     if (check && !check.match) {
-      const fixed = await captionForPicture(env, r.code, imageId, { text: set.caption_text, issues: check.issues }).catch(() => null);
+      const fixed = await captionForPicture(env, img.code, img.id, { text: set.caption_text, issues: check.issues }).catch(() => null);
       if (fixed) {
         await decideSet(env.DB, set.id, 'rejected', 'auto (แก้แคปชันแล้วตรวจใหม่)');
-        set = await createSet(env, { caption_id: fixed, image_id: imageId }, 'auto');
+        set = await createSet(env, { caption_id: fixed, image_id: img.id }, 'auto');
         check = set.ai_note ? JSON.parse(set.ai_note) : null;
       }
     }
     if (check?.match) await decideSet(env.DB, set.id, 'approved', 'auto (AI ตรวจว่าภาพกับแคปชันตรงกัน)');
-    out.push({ code: r.code, set_id: set.id, approved: !!check?.match });
+    else if (set.status !== 'rejected') await decideSet(env.DB, set.id, 'rejected', 'auto (ภาพกับแคปชันยังไม่ตรงกันหลังแก้ 1 รอบ)');
+    out.push({ code: img.code, set_id: set.id, approved: !!check?.match });
   }
   return out;
 }
@@ -220,7 +236,7 @@ export interface ProposeEnv extends StudioEnv { DISCORD_BOT_TOKEN?: string; DISC
 export function proposalText(s: { id: number; code: string; caption_text: string; real_image?: boolean }, t: { campaign_name: string } | null, cfg: StudioAds, mention: string): string {
   return [
     `📣 ${mention ? `${mention} ` : ''}**เสนอลงโพสต์ใหม่ + เทสแอด** สินค้า **${s.code}** (ชุด#${s.id} จากห้องฝึก ผ่าน AI กรรมการแล้ว)`,
-    t ? `กดอนุมัติแล้วระบบจะ: คัดลอกชุดโฆษณาจากแคม "${t.campaign_name}" (แอดของ ${s.code} ที่ใช้เงินมากสุด) เป็นแคมใหม่ "${t.campaign_name} (Grok)" · แอดใหม่ "${s.code} ชุด#${s.id} (Grok)" · งบ **${cfg.budget} บาท/วัน** · **${cfg.days} วัน** แล้วหยุดเอง และสรุปผลในห้องนี้`
+    t ? `กดอนุมัติแล้วระบบจะ: คัดลอกชุดโฆษณาจากแคม "${t.campaign_name}" (แอดของ ${s.code} ที่ใช้เงินมากสุด) เป็นแคมใหม่ "${t.campaign_name} ชุด#${s.id} (Grok)" · แอดใหม่ "${s.code} ชุด#${s.id} (Grok)" · งบ **${cfg.budget} บาท/วัน** · **${cfg.days} วัน** แล้วหยุดเอง และสรุปผลในห้องนี้`
       : `⚠️ ยังไม่มีแอดที่ยิงอยู่ของ ${s.code} ให้ใช้เป็นต้นแบบ กดอนุมัติแล้วจะยังสร้างไม่ได้`,
     '🖼 ภาพใหม่ (ทำใน ChatGPT ผ่าน AI กรรมการ) + แคปชันใหม่จากห้องฝึก',
     '**แคปชัน:**', s.caption_text.slice(0, 1200),
@@ -284,7 +300,7 @@ export async function launchSet(env: StudioEnv, meta: GrokMeta, cfg: StudioAds, 
     const img = await env.DB.prepare('SELECT full FROM creative_candidates WHERE id = ?1').bind(s.image_id).first<{ full: ArrayBuffer | number[] | null }>();
     if (!img?.full) throw new Error('ไม่พบไฟล์ภาพของชุดนี้');
     const hash = await meta.uploadImage(toBase64(img.full));
-    campaign = await meta.copyCampaignOnly(tpl.campaign_id, ' (Grok)');
+    campaign = await meta.copyCampaignOnly(tpl.campaign_id, ` ชุด#${s.id} (Grok)`); // one campaign per post, still ending "(Grok)"
     // CBO: the campaign carries the 100; ABO: the new ad set does.
     const cbo = await meta.campaignHasBudget(campaign);
     if (cbo) await meta.setDailyBudget(campaign, cfg.budget);
@@ -296,7 +312,7 @@ export async function launchSet(env: StudioEnv, meta: GrokMeta, cfg: StudioAds, 
     const now = new Date(), ends = new Date(now.getTime() + cfg.days * 86_400_000).toISOString();
     await env.DB.prepare(`UPDATE grok_ads SET status = 'running', template_ad_id = ?2, campaign_id = ?3, adset_id = ?4, ad_id = ?5, budget = ?6, launched_at = ?7, ends_at = ?8, error = NULL WHERE set_id = ?1`)
       .bind(setId, t.ad_id, campaign, adset, ad, cfg.budget, now.toISOString(), ends).run();
-    return { ok: true, text: `เปิดแล้ว: แคม "${t.campaign_name} (Grok)" · แอด "${name}" · ${cfg.budget} บาท/วัน · ถึง ${ends.slice(0, 10)} แล้วหยุดเอง` };
+    return { ok: true, text: `เปิดแล้ว: แคม "${t.campaign_name} ชุด#${s.id} (Grok)" · แอด "${name}" · ${cfg.budget} บาท/วัน · ถึง ${ends.slice(0, 10)} แล้วหยุดเอง` };
   } catch (err: any) {
     if (campaign) await meta.setStatus(campaign, 'PAUSED').catch(() => null);
     return fail(`${err?.message ?? err}${campaign ? ` (แคมที่สร้างค้างไว้ ${campaign} หยุดอยู่ ลบได้ใน Ads Manager)` : ''}`);

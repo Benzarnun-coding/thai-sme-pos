@@ -27,7 +27,7 @@ test('image verdict JSON', () => {
 test('proposal says what will be created, budget, days, and tags Max; buttons carry the set id', () => {
   const t = proposalText({ id: 7, code: '801/3', caption_text: 'แคปชัน' }, { campaign_name: '801 REV' }, { budget: 100, days: 14, max_active: 3 }, '<@9>');
   assert.match(t, /^📣 <@9> \*\*เสนอลงโพสต์ใหม่/);
-  assert.match(t, /"801 REV \(Grok\)".*"801\/3 ชุด#7 \(Grok\)".*100 บาท\/วัน.*14 วัน/s);
+  assert.match(t, /"801 REV ชุด#7 \(Grok\)".*"801\/3 ชุด#7 \(Grok\)".*100 บาท\/วัน.*14 วัน/s);
   assert.deepEqual(proposalButtons(7)[0].components.map((c) => c.custom_id), ['grokad:7:yes', 'grokad:7:no']);
   assert.match(proposalText({ id: 7, code: 'X', caption_text: 'c' }, null, { budget: 100, days: 14, max_active: 3 }, ''), /ยังไม่มีแอดที่ยิงอยู่/);
 });
