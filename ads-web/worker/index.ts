@@ -185,12 +185,12 @@ ${r.ok ? '✅' : '❌'} **${r.ok ? 'ลงแล้ว' : 'ลงไม่สำ
 }
 
 /** Every 3 h: judge new images, make post sets, propose them in #studio-training, stop "(Grok)" ads past 14 days. */
-async function studioCron(env: Env): Promise<void> {
+async function studioCron(env: Env, limit = 2): Promise<void> {
   const cfg = await grokAds.loadStudioAds(env.DB);
   await grokAds.aiJudgeImages(env, 3).catch((err) => console.error('image judge', err));
-  const sets = await grokAds.autoSets(env, cfg.days).catch((err) => { console.error('auto sets', err); return []; });
+  const sets = await grokAds.autoSets(env, cfg.days, limit).catch((err) => { console.error('auto sets', err); return []; });
   if (sets.length) await audit(env.DB, 'ai', 'studio.autosets', 'creative_sets', sets);
-  await grokAds.proposeStep(env, cfg).catch((err) => console.error('grok propose', err));
+  await grokAds.proposeStep(env, cfg, limit).catch((err) => console.error('grok propose', err));
   const meta = metaFor(env) as unknown as grokAds.GrokMeta;
   const due = (await env.DB.prepare(`SELECT count(*) n FROM grok_ads WHERE status = 'running' AND ends_at <= ?1`).bind(new Date().toISOString()).first<{ n: number }>())?.n ?? 0;
   if (!due) return;
@@ -1012,7 +1012,8 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     if (buf.byteLength > 12_000_000) throw new BadRequest('รูปใหญ่เกิน 12 MB');
     return new Response(buf, { headers: { 'Content-Type': type, 'Cache-Control': 'no-store' } });
   }
-  if (path === '/api/studio/sets/run' && method === 'POST') { ctx.waitUntil(studioCron(env).catch((err) => console.error('studio cron', err))); return json({ ok: true }); }
+  // "ตรวจ/เสนอตอนนี้": one set at a time, so a press proposes at most one post.
+  if (path === '/api/studio/sets/run' && method === 'POST') { ctx.waitUntil(studioCron(env, 1).catch((err) => console.error('studio cron', err))); return json({ ok: true }); }
   if (path === '/api/studio/trial/stop' && method === 'POST') { await trial.stopTrial(env.DB); await audit(env.DB, user, 'studio.trial.stop', 'playbook', {}); return json({ ok: true }); }
   if (path === '/api/studio/playbook/undo' && method === 'POST') { const id = await trial.undoPlaybook(env.DB, user); await audit(env.DB, user, 'studio.playbook.undo', String(id), {}); return json({ id }); }
   if (path === '/api/studio/stats' && method === 'GET') return json(await studio.stats(env.DB));

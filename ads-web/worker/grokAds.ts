@@ -97,20 +97,37 @@ export async function aiJudgeImages(env: StudioEnv, calls = 3): Promise<number> 
 
 // ---- 3. post sets by themselves ----
 
-/** Products with a passed caption and image and no set in the last `days` days get one; approved if the AI agrees. */
-export async function autoSets(env: StudioEnv, days: number, limit = 2): Promise<{ code: string; set_id: number; approved: boolean }[]> {
+/**
+ * A picture of the product's current ads (the room keeps them as 'real' candidates), most wins first: used when no
+ * new image has passed yet, so the first test runs a new caption on a proven picture (Benz 2026-11-09: "อยากเห็นเดี๋ยวนี้").
+ */
+async function bestRealImage(db: D1Database, code: string): Promise<number | null> {
+  const r = await db.prepare(
+    `SELECT c.id, (SELECT count(*) FROM creative_judgements j WHERE j.winner_id = c.id) - (SELECT count(*) FROM creative_judgements j WHERE j.winner_id IS NOT NULL AND j.winner_id != c.id AND c.id IN (j.a_id, j.b_id)) AS score
+     FROM creative_candidates c WHERE c.kind = 'image' AND c.code = ?1 AND c.hook = 'real' AND c.status = 'open' AND c.full IS NOT NULL ORDER BY score DESC, c.id DESC LIMIT 1`,
+  ).bind(code).first<{ id: number }>();
+  return r?.id ?? null;
+}
+
+/**
+ * Products with a passed caption and no set in the last `days` days get one: the best passed new image, else the
+ * best picture of its current ads. Approved by itself if the AI finds picture and caption agree.
+ */
+export async function autoSets(env: StudioEnv, days: number, limit = 2): Promise<{ code: string; set_id: number; approved: boolean; real_image: boolean }[]> {
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
-  const out: { code: string; set_id: number; approved: boolean }[] = [];
+  const out: { code: string; set_id: number; approved: boolean; real_image: boolean }[] = [];
   for (const r of await readyProducts(env.DB)) {
     if (out.length >= limit) break;
-    if (!r.captions || !r.images) continue;
+    if (!r.captions) continue;
     const recent = await env.DB.prepare(`SELECT 1 FROM creative_sets WHERE code = ?1 AND created_at > ?2 AND status != 'rejected' LIMIT 1`).bind(r.code, since).first();
     if (recent) continue;
     const p = await passedFor(env.DB, r.code);
-    const set = await createSet(env, { caption_id: p.captions[0].id, image_id: p.images[0].id }, 'auto');
+    const imageId = p.images[0]?.id ?? (await bestRealImage(env.DB, r.code));
+    if (!imageId) continue;
+    const set = await createSet(env, { caption_id: p.captions[0].id, image_id: imageId }, 'auto');
     const check = set.ai_note ? JSON.parse(set.ai_note) as { match: boolean } : null;
     if (check?.match) await decideSet(env.DB, set.id, 'approved', 'auto (AI ตรวจว่าภาพกับแคปชันตรงกัน)');
-    out.push({ code: r.code, set_id: set.id, approved: !!check?.match });
+    out.push({ code: r.code, set_id: set.id, approved: !!check?.match, real_image: !p.images[0] });
   }
   return out;
 }
@@ -163,11 +180,12 @@ const toBase64 = (data: ArrayBuffer | number[]) => {
 
 export interface ProposeEnv extends StudioEnv { DISCORD_BOT_TOKEN?: string; DISCORD_STUDIO_CHANNEL_ID?: string; DISCORD_DECIDER_IDS?: string }
 
-export function proposalText(s: { id: number; code: string; caption_text: string }, t: { campaign_name: string } | null, cfg: StudioAds, mention: string): string {
+export function proposalText(s: { id: number; code: string; caption_text: string; real_image?: boolean }, t: { campaign_name: string } | null, cfg: StudioAds, mention: string): string {
   return [
     `📣 ${mention ? `${mention} ` : ''}**เสนอลงโพสต์ใหม่ + เทสแอด** สินค้า **${s.code}** (ชุด#${s.id} จากห้องฝึก ผ่าน AI กรรมการแล้ว)`,
     t ? `กดอนุมัติแล้วระบบจะ: คัดลอกชุดโฆษณาจากแคม "${t.campaign_name}" (แอดของ ${s.code} ที่ใช้เงินมากสุด) เป็นแคมใหม่ "${t.campaign_name} (Grok)" · แอดใหม่ "${s.code} ชุด#${s.id} (Grok)" · งบ **${cfg.budget} บาท/วัน** · **${cfg.days} วัน** แล้วหยุดเอง และสรุปผลในห้องนี้`
       : `⚠️ ยังไม่มีแอดที่ยิงอยู่ของ ${s.code} ให้ใช้เป็นต้นแบบ กดอนุมัติแล้วจะยังสร้างไม่ได้`,
+    s.real_image ? '🖼 ภาพ: ภาพจากแอดที่ยิงอยู่แล้ว (ยังไม่มีภาพใหม่ที่ผ่าน) — รอบนี้ทดสอบแคปชันใหม่บนภาพเดิม' : '🖼 ภาพ: ภาพใหม่จากห้องฝึก (ผ่าน AI กรรมการ)',
     '**แคปชัน:**', s.caption_text.slice(0, 1200),
   ].join('\n').slice(0, 1990);
 }
@@ -181,16 +199,17 @@ export const proposalButtons = (setId: number) => [{ type: 1, components: [
 export async function proposeStep(env: ProposeEnv, cfg: StudioAds, limit = 2): Promise<number> {
   if (!env.DISCORD_BOT_TOKEN || !env.DISCORD_STUDIO_CHANNEL_ID) return 0;
   const { results: sets } = await env.DB.prepare(
-    `SELECT s.id, s.code, s.caption_text, s.image_id FROM creative_sets s LEFT JOIN grok_ads g ON g.set_id = s.id
+    `SELECT s.id, s.code, s.caption_text, s.image_id, c.hook = 'real' AS real_image FROM creative_sets s LEFT JOIN grok_ads g ON g.set_id = s.id
+     JOIN creative_candidates c ON c.id = s.image_id
      WHERE s.status = 'approved' AND g.set_id IS NULL ORDER BY s.id LIMIT ?1`,
-  ).bind(limit).all<{ id: number; code: string; caption_text: string; image_id: number }>();
+  ).bind(limit).all<{ id: number; code: string; caption_text: string; image_id: number; real_image: number }>();
   const mention = (env.DISCORD_DECIDER_IDS ?? '').split(',').map((x) => x.trim()).filter(Boolean).map((id) => `<@${id}>`).join(' ');
   let n = 0;
   for (const s of sets) {
     const t = await templateAd(env.DB, s.code);
     const img = await env.DB.prepare('SELECT full, mime FROM creative_candidates WHERE id = ?1').bind(s.image_id).first<{ full: ArrayBuffer | number[] | null; mime: string | null }>();
     const form = new FormData();
-    form.set('payload_json', JSON.stringify({ content: proposalText(s, t, cfg, mention), components: proposalButtons(s.id), allowed_mentions: { users: mention ? (env.DISCORD_DECIDER_IDS ?? '').split(',').map((x) => x.trim()).filter(Boolean) : [] } }));
+    form.set('payload_json', JSON.stringify({ content: proposalText({ ...s, real_image: !!s.real_image }, t, cfg, mention), components: proposalButtons(s.id), allowed_mentions: { users: mention ? (env.DISCORD_DECIDER_IDS ?? '').split(',').map((x) => x.trim()).filter(Boolean) : [] } }));
     if (img?.full) form.set('files[0]', new Blob([img.full instanceof ArrayBuffer ? img.full : Uint8Array.from(img.full)], { type: img.mime || 'image/jpeg' }), `set-${s.id}.jpg`);
     const res = await fetch(`https://discord.com/api/v10/channels/${env.DISCORD_STUDIO_CHANNEL_ID}/messages`, { method: 'POST', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` }, body: form });
     if (!res.ok) { console.error('grok proposal', res.status, await res.text()); break; }
