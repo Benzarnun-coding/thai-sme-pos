@@ -507,7 +507,10 @@ export function groupPosts(ads: ActiveAdPost[], codes: string[]): Omit<MetaPost,
   const models = new Map<string, string>();
   for (const c of codes) { const m = modelOf(c); if (m !== c && !models.has(m)) models.set(m, c); }
   const byModel = [...models.keys()].sort((x, y) => y.length - x.length);
-  const named = (p: { ads: { campaign_name: string }[] }, c: string) => p.ads.some((a) => nameHasFamily(norm(a.campaign_name), norm(c)));
+  // Prices are not codes (Benz 2026-11-09: "ni9 ผ้าสี 3ตัว499 ฿400" was read as product 499): drop "3ตัว499",
+  // "ตัวละ 189", "299 บาท" before matching.
+  const noPrice = (s: string) => s.replace(/\d+\s*ตัว\s*\d+/g, ' ').replace(/ตัวละ\s*\d+/g, ' ').replace(/\d+\s*(บาท|\.-)/g, ' ');
+  const named = (p: { ads: { campaign_name: string }[] }, c: string) => p.ads.some((a) => nameHasFamily(noPrice(norm(a.campaign_name)), norm(c)));
   for (const p of by.values()) {
     const hit = exact.find((c) => named(p, c));
     const model = hit ? undefined : byModel.find((m) => named(p, m));

@@ -32,3 +32,10 @@ test('campaign names that say only the model get its first sub-model; hyphens be
   ], ['801/2', '801/1', 'Ni9-1', 'SH-004', '444/1', '444']);
   assert.deepEqual(out.map((p) => p.code), ['801/2', 'Ni9-1', 'SH-004', '444/1', '']);
 });
+
+test('promo prices in a campaign name are not product codes ("ni9 ผ้าสี 3ตัว499 ฿400" is Ni9, not 499)', () => {
+  const out = groupPosts([
+    ad('1', 'p1', 'ni9 ผ้าสี 3ตัว499 ฿400', 10, 0), ad('2', 'p2', 'โปร 3 ตัว 549 กระบอก 801', 10, 0), ad('3', 'p3', 'ขาสั้น ตัวละ 189', 10, 0),
+  ], ['499', '549', '189', 'Ni9-1', '801/1']);
+  assert.deepEqual(out.map((p) => p.code), ['Ni9-1', '801/1', '']);
+});
