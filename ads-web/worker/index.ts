@@ -39,6 +39,7 @@ import { DISCORD_PERSONA, pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './chatLog.ts';
 import * as studio from './studio.ts';
 import * as trial from './playbookTrial.ts';
+import * as grokAds from './grokAds.ts';
 import { aiEnabled, askAI, botErrors, botRateText, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
 import { editKb, fixedBefore, kbMessage, kbModal, rewriteKb, kbPasteText, listKb, markApplied, postBot, proposeItems, repeatsText, setKbStatus, speaker, type KbItem } from './botKb.ts';
 import { checkDoc, docIdFrom, docLive, docText, loadDocSettings, saveDocSettings, serviceEmail, writeDoc } from './botKbDoc.ts';
@@ -141,6 +142,66 @@ export interface Env {
 }
 
 /** 20:00 Bangkok rule run. */
+/** Shop-wide daily budget left under the cap (Settings), for a new "(Grok)" campaign. */
+async function budgetRoom(env: Env): Promise<number> {
+  const [settings, entities] = await Promise.all([loadSettings(env.DB), metaFor(env).listEntities()]);
+  return settings.guardrails.max_total_daily_budget - sumBudget(entities);
+}
+
+async function editStudioMessage(env: Env, messageId: string, content: string): Promise<void> {
+  if (!env.DISCORD_BOT_TOKEN || !env.DISCORD_STUDIO_CHANNEL_ID) return;
+  await fetch(`https://discord.com/api/v10/channels/${env.DISCORD_STUDIO_CHANNEL_ID}/messages/${messageId}`, {
+    method: 'PATCH', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: content.slice(0, 2000), components: [] }),
+  }).catch(() => null);
+}
+
+/** ✅ / ❌ on a "(Grok)" ad proposal in #studio-training: approvers only (Max, Benz); ✅ builds it in the background. */
+async function grokAdPress(i: any, env: Env, ctx: ExecutionContext, who: string, userId: string, approvers: string[]): Promise<Response> {
+  if (approvers.length && !approvers.includes(userId)) return json({ type: 4, data: { content: `ปุ่มนี้ให้กดได้เฉพาะคุณแม็กซ์กับคุณเบ้นนะคะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
+  const [, setId, choice] = String(i.data?.custom_id ?? '').split(':');
+  const before = String(i.message?.content ?? '');
+  const at = new Date().toISOString();
+  if (choice === 'no') {
+    const r = await env.DB.prepare(`UPDATE grok_ads SET status = 'declined', decided_by = ?2 WHERE set_id = ?1 AND status IN ('proposed', 'failed')`).bind(Number(setId), who).run();
+    await audit(env.DB, `discord:${who}`, 'grokad.declined', setId, {});
+    return json({ type: 7, data: { content: `${before}
+${r.meta.changes ? `❌ **ไม่ลง** — ${who}` : 'ตัดสินไปแล้วค่ะ'}`.slice(0, 2000), components: [] } });
+  }
+  if ((await loadSettings(env.DB)).kill_switch) return json({ type: 4, data: { content: '⛔ ตอนนี้เปิด kill switch อยู่ (หน้าตั้งค่า) — ยังไม่ลงให้นะคะ ปิดแล้วกดใหม่ได้ค่ะ', flags: 64 } });
+  const claimed = await env.DB.prepare(`UPDATE grok_ads SET status = 'working', decided_by = ?2 WHERE set_id = ?1 AND status IN ('proposed', 'failed')`).bind(Number(setId), who).run();
+  if (!claimed.meta.changes) return json({ type: 4, data: { content: 'มีคนกดไปแล้วค่ะ', flags: 64 } });
+  const messageId = String(i.message?.id ?? '');
+  ctx.waitUntil((async () => {
+    const cfg = await grokAds.loadStudioAds(env.DB);
+    const r = await grokAds.launchSet(env, metaFor(env) as unknown as grokAds.GrokMeta, cfg, Number(setId), await budgetRoom(env).catch(() => 0))
+      .catch((err: any) => ({ ok: false, text: String(err?.message ?? err) }));
+    await audit(env.DB, `discord:${who}`, r.ok ? 'grokad.launched' : 'grokad.failed', setId, { text: r.text });
+    await editStudioMessage(env, messageId, `${before}
+${r.ok ? '✅' : '❌'} **${r.ok ? 'ลงแล้ว' : 'ลงไม่สำเร็จ'}** — ${who} อนุมัติ · ${r.text}`);
+  })().catch(() => null));
+  return json({ type: 7, data: { content: `${before}
+⏳ **กำลังสร้างแอด…** ${who} อนุมัติ ${at.slice(11, 16)} UTC · เสร็จแล้วข้อความนี้จะเปลี่ยนนะคะ`.slice(0, 2000), components: [] } });
+}
+
+/** Every 3 h: judge new images, make post sets, propose them in #studio-training, stop "(Grok)" ads past 14 days. */
+async function studioCron(env: Env): Promise<void> {
+  const cfg = await grokAds.loadStudioAds(env.DB);
+  await grokAds.aiJudgeImages(env, 3).catch((err) => console.error('image judge', err));
+  const sets = await grokAds.autoSets(env, cfg.days).catch((err) => { console.error('auto sets', err); return []; });
+  if (sets.length) await audit(env.DB, 'ai', 'studio.autosets', 'creative_sets', sets);
+  await grokAds.proposeStep(env, cfg).catch((err) => console.error('grok propose', err));
+  const meta = metaFor(env) as unknown as grokAds.GrokMeta;
+  const due = (await env.DB.prepare(`SELECT count(*) n FROM grok_ads WHERE status = 'running' AND ends_at <= ?1`).bind(new Date().toISOString()).first<{ n: number }>())?.n ?? 0;
+  if (!due) return;
+  const stats = await metaFor(env).insights('campaign', 'last_14d').catch(() => null);
+  const notes = await grokAds.stopExpired(env, meta, stats as any);
+  for (const n of notes) {
+    await audit(env.DB, 'ai', 'grokad.done', String(n.set_id), { text: n.text });
+    if (env.DISCORD_BOT_TOKEN) await postBot({ ...env, DISCORD_CHAT_CHANNEL_ID: env.DISCORD_STUDIO_CHANNEL_ID || env.DISCORD_CHAT_CHANNEL_ID }, { content: `🏁 แอดทดสอบ (Grok) ${n.code} ชุด#${n.set_id}: ${n.text}` }).catch(() => null);
+  }
+}
+
 /** A playbook trial settles itself at 20 decided pairs (worker/playbookTrial.ts); the result goes to #studio-training. */
 async function settleTrial(env: Env, user: string): Promise<trial.TrialResult | null> {
   const settled = await trial.checkTrial(env.DB);
@@ -234,7 +295,7 @@ export default {
     } else if (event.cron === SWEEP_CRON) {
       ctx.waitUntil(cronSweep(env).catch((err) => console.error('cron sweep', err)));
       // A playbook trial nobody opened the training room for still gets its captions, one Claude call per sweep.
-      if (env.ANTHROPIC_API_KEY) ctx.waitUntil(trialCron(env).catch((err) => console.error('trial step', err)));
+      if (env.ANTHROPIC_API_KEY) ctx.waitUntil(trialCron(env).catch((err) => console.error('trial step', err)).then(() => studioCron(env)).catch((err) => console.error('studio cron', err)));
       ctx.waitUntil(syncTitles(env).catch((err) => console.error('request titles', err)));
       ctx.waitUntil(checkBuilds(env).catch((err) => console.error('request builds', err)));
     } else if (event.cron === REMIND_CRON) {
@@ -940,6 +1001,18 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     await audit(env.DB, user, 'studio.trial.discord_test', channel, { status: res.status });
     return json({ ok: res.ok, status: res.status, error: res.ok ? null : detail?.message ?? null });
   }
+  // A picture by link (Grok pastes the ChatGPT image link): fetched here, then resized and uploaded by the browser.
+  if (path === '/api/studio/image-fetch' && method === 'GET') {
+    const u = new URL(url.searchParams.get('url') ?? '', 'https://x');
+    if (u.protocol !== 'https:' || u.hostname === 'x') throw new BadRequest('ต้องเป็นลิงก์ https ของรูป');
+    const r = await fetch(u.toString(), { redirect: 'follow' });
+    const type = r.headers.get('content-type') ?? '';
+    if (!r.ok || !type.startsWith('image/')) throw new BadRequest(`เปิดรูปจากลิงก์นี้ไม่ได้ (${r.status} ${type || 'ไม่ใช่รูป'}) — ลิงก์อาจหมดอายุ ลองดาวน์โหลดแล้วอัปโหลดไฟล์แทน`);
+    const buf = await r.arrayBuffer();
+    if (buf.byteLength > 12_000_000) throw new BadRequest('รูปใหญ่เกิน 12 MB');
+    return new Response(buf, { headers: { 'Content-Type': type, 'Cache-Control': 'no-store' } });
+  }
+  if (path === '/api/studio/sets/run' && method === 'POST') { ctx.waitUntil(studioCron(env).catch((err) => console.error('studio cron', err))); return json({ ok: true }); }
   if (path === '/api/studio/trial/stop' && method === 'POST') { await trial.stopTrial(env.DB); await audit(env.DB, user, 'studio.trial.stop', 'playbook', {}); return json({ ok: true }); }
   if (path === '/api/studio/playbook/undo' && method === 'POST') { const id = await trial.undoPlaybook(env.DB, user); await audit(env.DB, user, 'studio.playbook.undo', String(id), {}); return json({ id }); }
   if (path === '/api/studio/stats' && method === 'GET') return json(await studio.stats(env.DB));
@@ -963,7 +1036,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (path === '/api/studio/playbook/pending' && method === 'GET') return json({ pending: await studio.pendingPlaybook(env.DB) });
   if ((m = /^\/api\/studio\/playbook\/(\d+)\/approve$/.exec(path)) && method === 'POST') { const b = await body(); await studio.approvePlaybook(env.DB, Number(m[1]), b?.text, user); await audit(env.DB, user, 'studio.playbook.approve', m[1], {}); return json({ ok: true }); }
   if (path === '/api/studio/seed-real' && method === 'POST') return json({ added: await studio.seedRealCaptions(env.DB) });
-  if (path === '/api/studio/sets' && method === 'GET') return json({ sets: await studio.listSets(env.DB), ready: await studio.readyProducts(env.DB) });
+  if (path === '/api/studio/sets' && method === 'GET') return json({ sets: await studio.listSets(env.DB), ready: await studio.readyProducts(env.DB), grok_ads: await grokAds.listGrokAds(env.DB), grok_cfg: await grokAds.loadStudioAds(env.DB) });
   if (path === '/api/studio/passed' && method === 'GET') return json(await studio.passedFor(env.DB, url.searchParams.get('code') ?? ''));
   if (path === '/api/studio/sets' && method === 'POST') { const set = await studio.createSet(env, await body(), user); await audit(env.DB, user, 'studio.set', String(set.id), {}); return json({ set }); }
   if ((m = /^\/api\/studio\/sets\/(\d+)$/.exec(path)) && method === 'PUT') { const b = await body(); await studio.decideSet(env.DB, Number(m[1]), b?.status, user); await audit(env.DB, user, 'studio.set.decide', m[1], { status: b?.status }); return json({ ok: true }); }
@@ -2318,7 +2391,7 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
   if (i.type !== 3) return json({ type: 4, data: { content: 'ยังไม่รองรับคำสั่งนี้', flags: 64 } });
   // The bot works in one channel only: a press from anywhere else is refused (only the presser sees the reply).
   const svc = String(i.data?.custom_id ?? '').startsWith('svcdone:');
-  if (env.DISCORD_CHANNEL_ID && !svc && i.channel_id !== env.DISCORD_CHANNEL_ID && i.channel_id !== env.DISCORD_CHAT_CHANNEL_ID) return json({ type: 4, data: { content: 'บอทนี้ใช้ได้เฉพาะห้องรายงานแอด', flags: 64 } });
+  if (env.DISCORD_CHANNEL_ID && !svc && i.channel_id !== env.DISCORD_CHANNEL_ID && i.channel_id !== env.DISCORD_CHAT_CHANNEL_ID && i.channel_id !== env.DISCORD_STUDIO_CHANNEL_ID) return json({ type: 4, data: { content: 'บอทนี้ใช้ได้เฉพาะห้องรายงานแอด', flags: 64 } });
   const who = i.member?.user?.global_name || i.member?.user?.username || i.user?.username || 'ไม่ทราบชื่อ';
   // Only the listed people may decide (empty list = anyone in the channel); the refusal shows the presser their ID.
   const userId = String(i.member?.user?.id ?? i.user?.id ?? '');
@@ -2326,6 +2399,7 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
   const [verb0, arg0] = String(i.data?.custom_id ?? '').split(':');
   // Answer-bank decisions (✅ ใส่คลัง / ✏️ แก้ / ❌ ไม่ใช้): approvers + the bot updaters (Fear, Benz 2026-11-09).
   const kbDeciders = [...approvers, ...idList(env.DISCORD_KB_UPDATER_IDS)];
+  if (verb0 === 'grokad') return grokAdPress(i, env, ctx, who, userId, approvers);
   if (verb0 === 'kbapplied') {
     const allowed = [...approvers, ...idList(env.DISCORD_KB_UPDATER_IDS)];
     if (allowed.length && !allowed.includes(userId)) return json({ type: 4, data: { content: `ปุ่มนี้สำหรับคนอัปเดตบอทค่ะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });

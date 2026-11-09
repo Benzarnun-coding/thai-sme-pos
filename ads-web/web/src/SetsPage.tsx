@@ -14,6 +14,28 @@ interface PairCheck { match: boolean; issues: string; summary: string }
 
 const pic = (id: number, full = false) => `/api/studio/picture/cand/${id}?v=2${full ? '&size=full' : ''}`;
 
+interface GrokAd { set_id: number; code: string; status: string; campaign_id: string | null; ad_id: string | null; budget: number | null; error: string | null; decided_by: string | null; announced_at: string | null; launched_at: string | null; ends_at: string | null; result: string | null }
+const GROK_STATUS: Record<string, string> = { proposed: '⏳ รอแม็กซ์กดอนุมัติใน Discord', working: '⚙️ กำลังสร้าง', running: '🟢 กำลังยิง', done: '🏁 ครบกำหนด', failed: '❌ ลงไม่สำเร็จ', declined: '🚫 ไม่ลง' };
+
+/** "(Grok)" test ads: what was proposed in #studio-training, what runs, what ended (worker/grokAds.ts). */
+function GrokAds({ rows, cfg, onRun }: { rows: GrokAd[]; cfg: { budget: number; days: number; max_active: number } | null; onRun: () => void }) {
+  const d = (x: string | null) => (x ? new Date(x).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' }) : '');
+  return (
+    <section className="card">
+      <div className="row between"><h2>แอดทดสอบ (Grok)</h2><button className="ghost small" onClick={onRun}>ตรวจ/เสนอตอนนี้</button></div>
+      <p className="muted small">ระบบทำเองทุก 3 ชม.: AI ตัดสินภาพ → จับคู่ภาพ+แคปชันที่ผ่าน → เสนอในห้อง Discord studio-training พร้อมภาพ แม็กซ์กด ✅ แล้วจึงสร้างแคมใหม่ชื่อลงท้าย "(Grok)" งบ {cfg?.budget ?? 100} บาท/วัน {cfg?.days ?? 14} วัน แล้วหยุดเอง (เปิดพร้อมกันไม่เกิน {cfg?.max_active ?? 3} แคม) · ตัวเลขผลเป็นยอดแท็ก Meta</p>
+      {!rows.length ? <p className="muted small">ยังไม่มี — ต้องมีแคปชันและภาพที่ผ่านของสินค้าเดียวกันก่อน</p> : (
+        <table className="small"><thead><tr><th>ชุด</th><th>สินค้า</th><th>สถานะ</th><th>ช่วง</th><th>ผล / หมายเหตุ</th></tr></thead><tbody>
+          {rows.map((g) => { const r = g.result ? JSON.parse(g.result) : null; return (
+            <tr key={g.set_id}><td>#{g.set_id}</td><td>{g.code}</td><td>{GROK_STATUS[g.status] ?? g.status}{g.decided_by ? ` · ${g.decided_by}` : ''}</td>
+              <td>{g.launched_at ? `${d(g.launched_at)} – ${d(g.ends_at)}` : d(g.announced_at)}</td>
+              <td>{r ? `ค่าแอด ${r.spend} · ซื้อ ${r.purchases} · ROAS ${r.roas}` : g.error ?? (g.campaign_id ? `แคม ${g.campaign_id}` : '')}</td></tr>); })}
+        </tbody></table>
+      )}
+    </section>
+  );
+}
+
 export function SetsApp() {
   useEffect(() => { document.title = 'ห้องจับคู่'; }, []);
   const { toast } = useUi();
@@ -26,7 +48,9 @@ export function SetsApp() {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const load = () => call<{ sets: CreativeSet[]; ready: Ready[] }>('GET', '/api/studio/sets').then((r) => { setSets(r.sets); setReady(r.ready); if (!code && r.ready[0]) setCode(r.ready[0].code); }).catch((e) => toast(e.message, 'bad'));
+  const [grok, setGrok] = useState<GrokAd[]>([]);
+  const [cfg, setCfg] = useState<{ budget: number; days: number; max_active: number } | null>(null);
+  const load = () => call<{ sets: CreativeSet[]; ready: Ready[]; grok_ads: GrokAd[]; grok_cfg: { budget: number; days: number; max_active: number } }>('GET', '/api/studio/sets').then((r) => { setSets(r.sets); setReady(r.ready); setGrok(r.grok_ads ?? []); setCfg(r.grok_cfg ?? null); if (!code && r.ready[0]) setCode(r.ready[0].code); }).catch((e) => toast(e.message, 'bad'));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     setCap(null); setImg(null); setPassed(null);
@@ -55,9 +79,10 @@ export function SetsApp() {
       <SiteNav current="/studio/sets" />
       <header className="kb-head">
         <div className="row"><HomeLogo text="SE" /><h1>ห้องจับคู่</h1></div>
-        <p className="muted small">เอาแคปชันกับภาพที่<b>ผ่านกรรมการ</b>ใน <a href="/studio/train">ห้องฝึก</a> ของสินค้าเดียวกันมาประกอบเป็นโพสต์ · ผ่าน = แคปชันชนะมากกว่าแพ้ หรือกรรมการแก้แล้วให้ผ่าน; ภาพชนะ ≥ 1 ครั้ง ไม่แพ้มากกว่าชนะ และ AI ไม่ได้ตัดตก · AI เช็กว่าภาพกับแคปชันพูดเรื่องเดียวกัน (สินค้า ราคา โปร) · ชุดที่อนุมัติแล้วยังไม่ไปถึง Meta จนกว่าเบ้นจะเปิดการส่งต่อ · <a href="/studio-guide.pdf" target="_blank" rel="noreferrer">📖 คู่มือ (PDF)</a></p>
+        <p className="muted small">เอาแคปชันกับภาพที่<b>ผ่านกรรมการ</b>ใน <a href="/studio/train">ห้องฝึก</a> ของสินค้าเดียวกันมาประกอบเป็นโพสต์ · ผ่าน = แคปชันชนะมากกว่าแพ้ หรือกรรมการแก้แล้วให้ผ่าน; ภาพชนะ ≥ 1 ครั้ง ไม่แพ้มากกว่าชนะ และ AI ไม่ได้ตัดตก · AI เช็กว่าภาพกับแคปชันพูดเรื่องเดียวกัน (สินค้า ราคา โปร) · ชุดที่อนุมัติแล้วจะถูกเสนอในห้อง Discord studio-training ให้แม็กซ์กดลงแอดทดสอบ (Grok) ไม่มีอะไรไปถึง Meta ถ้าไม่มีคนกด · <a href="/studio-guide.pdf" target="_blank" rel="noreferrer">📖 คู่มือ (PDF)</a></p>
         <p className="small">รออนุมัติ {drafts.length} ชุด · อนุมัติแล้ว {approved.length} ชุด</p>
       </header>
+      <GrokAds rows={grok} cfg={cfg} onRun={() => call('POST', '/api/studio/sets/run').then(() => { toast('สั่งตรวจแล้ว — ถ้ามีชุดพร้อม จะเด้งในห้อง studio-training ภายในไม่กี่นาที', 'ok'); setTimeout(load, 60000); }).catch((e) => toast(e.message, 'bad'))} />
 
       <section className="card">
         <h2>ประกอบชุดใหม่</h2>

@@ -1,0 +1,267 @@
+// From training room to a real test ad, by itself (Benz 2026-11-09: "ทำภาพ เขียนแคปชั่น เปิดแอด แล้วทดลองเอง",
+// ad names carry "(Grok)", 50 baht, 14 days). docs/creative.md "(Grok) test ads".
+//   1. Images: Grok has ChatGPT (Max's account) make them from the room's prompt and adds them on /studio/train
+//      (file or link). Each is checked by the AI on upload, as before.
+//   2. aiJudgeImages: the AI judge decides image pairs of one product, blind, against the real product photo.
+//   3. autoSets: a product with a passed caption and a passed image gets a post set; approved by itself when the
+//      AI finds caption and picture agree (same product, same price/promo).
+//   4. proposeStep: each approved set is proposed in #studio-training (picture, caption, Max tagged, ✅/❌).
+//      Nothing reaches Meta until Max (or Benz) presses ✅ (Benz 2026-11-09: "ให้แมคกดอนุมัติ"). launchSet then builds
+//      "<template campaign> (Grok)": a copy of the product's best running campaign with only its ad set, one new ad
+//      (the set's picture + caption on the template ad's creative), 100/day for 14 days; at most MAX_ACTIVE at once
+//      and never over the shop-wide cap.
+//   5. stopExpired: after 14 days the campaign is paused and its 14-day numbers are reported.
+// Never touches a campaign it didn't create; the rules engine leaves these alone (no stage).
+
+import { REASONS, askClaude, createSet, decideSet, imageBlock, passedFor, productPhoto, readyProducts, judge, type StudioEnv } from './studio.ts';
+import { AI_JUDGE } from './playbookTrial.ts';
+
+export const MAX_ACTIVE = 3;
+
+export interface StudioAds { budget: number; days: number; max_active: number }
+const DEFAULTS: StudioAds = { budget: 100, days: 14, max_active: MAX_ACTIVE };
+
+export async function loadStudioAds(db: D1Database): Promise<StudioAds> {
+  const v = await db.prepare(`SELECT value FROM settings WHERE key = 'studio_ads'`).first<{ value: string }>();
+  return { ...DEFAULTS, ...(v ? JSON.parse(v.value) : {}) };
+}
+
+export async function saveStudioAds(db: D1Database, patch: Partial<StudioAds>): Promise<StudioAds> {
+  const cur = await loadStudioAds(db);
+  const next: StudioAds = {
+    budget: Math.min(500, Math.max(50, Number(patch.budget ?? cur.budget) || 100)),
+    days: Math.min(30, Math.max(3, Number(patch.days ?? cur.days) || 14)),
+    max_active: Math.min(10, Math.max(1, Number(patch.max_active ?? cur.max_active) || MAX_ACTIVE)),
+  };
+  await db.prepare(`INSERT INTO settings (key, value) VALUES ('studio_ads', ?1) ON CONFLICT (key) DO UPDATE SET value = excluded.value`).bind(JSON.stringify(next)).run();
+  return next;
+}
+
+// ---- 2. the AI judges image pairs ----
+
+type Img = { id: number; code: string; full: ArrayBuffer | number[] | null; mime: string | null };
+
+/** Image pairs of one product the AI judge hasn't decided; newest images first, at most n. */
+export function imagePairs(imgs: { id: number; code: string }[], seen: Set<string>, n: number): [number, number][] {
+  const byCode = new Map<string, number[]>();
+  for (const i of [...imgs].sort((a, b) => b.id - a.id)) byCode.set(i.code, [...(byCode.get(i.code) ?? []), i.id]);
+  const out: [number, number][] = [];
+  for (const ids of byCode.values()) {
+    for (let x = 0; x < ids.length && out.length < n; x++) for (let y = x + 1; y < ids.length && out.length < n; y++) {
+      const key = `${Math.min(ids[x], ids[y])}:${Math.max(ids[x], ids[y])}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push([ids[x], ids[y]]);
+    }
+  }
+  return out;
+}
+
+export function parseImageVerdict(text: string): { winner: 'A' | 'B'; reason: string; why: string } | null {
+  const m = /\{[\s\S]*\}/.exec(text);
+  try {
+    const x = JSON.parse(m?.[0] ?? '');
+    const winner = String(x?.winner).trim().toUpperCase();
+    if (winner !== 'A' && winner !== 'B') return null;
+    const reason = ['product_wrong', 'unreadable', 'style_off', 'fake', 'better'].includes(String(x?.reason)) ? String(x.reason) : 'better';
+    return { winner, reason, why: String(x?.why ?? '').replace(/\s+/g, ' ').trim().slice(0, 300) };
+  } catch { return null; }
+}
+
+/** Up to `calls` image pairs, one Claude call each (pictures are big): the real product photo, then A and B. */
+export async function aiJudgeImages(env: StudioEnv, calls = 3): Promise<number> {
+  const { results: imgs } = await env.DB.prepare(`SELECT id, code FROM creative_candidates WHERE kind = 'image' AND status = 'open'`).all<{ id: number; code: string }>();
+  const { results: done } = await env.DB.prepare(`SELECT a_id, b_id FROM creative_judgements WHERE kind = 'image' AND judge = ?1`).bind(AI_JUDGE).all<{ a_id: number; b_id: number }>();
+  const pairs = imagePairs(imgs, new Set(done.map((d) => `${Math.min(d.a_id, d.b_id)}:${Math.max(d.a_id, d.b_id)}`)), calls);
+  let n = 0;
+  for (const [x, y] of pairs) {
+    const [a, b] = Math.random() < 0.5 ? [x, y] : [y, x];
+    const rows = await env.DB.prepare('SELECT id, code, full, mime FROM creative_candidates WHERE id IN (?1, ?2)').bind(a, b).all<Img>();
+    const A = rows.results.find((r) => r.id === a), B = rows.results.find((r) => r.id === b);
+    if (!A?.full || !A.mime || !B?.full || !B.mime) continue;
+    const photo = await productPhoto(env.DB, A.code).catch(() => null);
+    const content: unknown[] = [];
+    if (photo) content.push({ type: 'text', text: 'รูปสินค้าจริง (ใช้เทียบว่าภาพโฆษณาไม่เปลี่ยนสินค้า):' }, imageBlock(photo.data, photo.mime));
+    content.push({ type: 'text', text: 'ภาพ A:' }, imageBlock(A.full, A.mime), { type: 'text', text: 'ภาพ B:' }, imageBlock(B.full, B.mime), {
+      type: 'text',
+      text: `ภาพโฆษณา Facebook ของร้านยีนส์ไทย (สินค้า ${A.code}) อันไหนน่าจะทำให้คนหยุดดูและทักแชทซื้อมากกว่า สินค้าในภาพต้องตรงกับของจริง (สี ทรง ตะเข็บ) ราคาบนภาพต้องอ่านออก ห้ามมีอีโมจิไฟ 🔥 ตอบ JSON เท่านั้น: {"winner": "A"|"B", "reason": "<เหตุที่อีกภาพแพ้: product_wrong|unreadable|style_off|fake|better>", "why": "<1 ประโยคภาษาไทย อันที่ชนะทำอะไรที่อีกอันไม่ทำ>"}`,
+    });
+    const out = await askClaude(env, 'คุณเป็นกรรมการตัดสินภาพโฆษณา ตอบตามสิ่งที่เห็นเท่านั้น', content, 2000, 'low');
+    const v = parseImageVerdict(out.text);
+    if (!v) continue;
+    await judge(env.DB, { a_id: a, b_id: b, winner_id: v.winner === 'A' ? a : b, reason: REASONS[v.reason] ? v.reason : 'better', note: v.why || null }, AI_JUDGE);
+    n++;
+  }
+  return n;
+}
+
+// ---- 3. post sets by themselves ----
+
+/** Products with a passed caption and image and no set in the last `days` days get one; approved if the AI agrees. */
+export async function autoSets(env: StudioEnv, days: number, limit = 2): Promise<{ code: string; set_id: number; approved: boolean }[]> {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const out: { code: string; set_id: number; approved: boolean }[] = [];
+  for (const r of await readyProducts(env.DB)) {
+    if (out.length >= limit) break;
+    if (!r.captions || !r.images) continue;
+    const recent = await env.DB.prepare(`SELECT 1 FROM creative_sets WHERE code = ?1 AND created_at > ?2 AND status != 'rejected' LIMIT 1`).bind(r.code, since).first();
+    if (recent) continue;
+    const p = await passedFor(env.DB, r.code);
+    const set = await createSet(env, { caption_id: p.captions[0].id, image_id: p.images[0].id }, 'auto');
+    const check = set.ai_note ? JSON.parse(set.ai_note) as { match: boolean } : null;
+    if (check?.match) await decideSet(env.DB, set.id, 'approved', 'auto (AI ตรวจว่าภาพกับแคปชันตรงกัน)');
+    out.push({ code: r.code, set_id: set.id, approved: !!check?.match });
+  }
+  return out;
+}
+
+// ---- 4. approved set → proposal in #studio-training → Max presses → "(Grok)" campaign ----
+
+export interface GrokMeta {
+  adTemplate(adId: string): Promise<{ name: string; adset_id: string; campaign_id: string; spec: any | null }>;
+  copyCampaignShell(campaignId: string, adsetId: string, suffix: string): Promise<{ campaign_id: string; adset_id: string }>;
+  uploadImage(base64: string): Promise<string>;
+  createCreative(name: string, spec: unknown): Promise<string>;
+  createAd(adsetId: string, name: string, creativeId: string, status: 'ACTIVE' | 'PAUSED'): Promise<string>;
+  rename(id: string, name: string): Promise<void>;
+  setDailyBudget(id: string, amount: number): Promise<void>;
+  setStatus(id: string, status: 'ACTIVE' | 'PAUSED'): Promise<void>;
+}
+
+/** The template ad's creative with the set's caption and picture; refuses a creative built from an existing post. */
+export function buildSpec(template: any, message: string, imageHash: string): any {
+  if (!template || typeof template !== 'object') throw new Error('แอดต้นแบบไม่มี object_story_spec (สร้างจากโพสต์เดิม) — ใช้เป็นต้นแบบไม่ได้');
+  const spec = JSON.parse(JSON.stringify(template));
+  if (spec.link_data) {
+    const l = spec.link_data;
+    delete l.picture; delete l.image_url; delete l.child_attachments; delete l.multi_share_optimized; delete l.multi_share_end_card;
+    l.message = message; l.image_hash = imageHash;
+  } else if (spec.photo_data) {
+    const p = spec.photo_data;
+    delete p.url; delete p.image_url;
+    p.caption = message; p.image_hash = imageHash;
+  } else {
+    throw new Error('แอดต้นแบบไม่ใช่แอดภาพ (link_data / photo_data) — ใช้เป็นต้นแบบไม่ได้');
+  }
+  delete spec.video_data;
+  return spec;
+}
+
+/** The product's running ad with the most spend (from /studio/posts), the template for a new "(Grok)" ad. */
+export async function templateAd(db: D1Database, code: string): Promise<{ ad_id: string; campaign_name: string } | null> {
+  const p = await db.prepare(`SELECT ads FROM meta_posts WHERE active = 1 AND code = ?1 ORDER BY spend DESC LIMIT 1`).bind(code).first<{ ads: string }>();
+  const ads = p ? (JSON.parse(p.ads) as { ad_id: string; campaign_name: string }[]).filter((a) => !/\(Grok\)/.test(a.campaign_name)) : [];
+  return ads[0] ? { ad_id: ads[0].ad_id, campaign_name: ads[0].campaign_name } : null;
+}
+
+const toBase64 = (data: ArrayBuffer | number[]) => {
+  const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : Uint8Array.from(data);
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+};
+
+export interface ProposeEnv extends StudioEnv { DISCORD_BOT_TOKEN?: string; DISCORD_STUDIO_CHANNEL_ID?: string; DISCORD_DECIDER_IDS?: string }
+
+export function proposalText(s: { id: number; code: string; caption_text: string }, t: { campaign_name: string } | null, cfg: StudioAds, mention: string): string {
+  return [
+    `📣 ${mention ? `${mention} ` : ''}**เสนอลงโพสต์ใหม่ + เทสแอด** สินค้า **${s.code}** (ชุด#${s.id} จากห้องฝึก ผ่าน AI กรรมการแล้ว)`,
+    t ? `กดอนุมัติแล้วระบบจะ: คัดลอกชุดโฆษณาจากแคม "${t.campaign_name}" (แอดของ ${s.code} ที่ใช้เงินมากสุด) เป็นแคมใหม่ "${t.campaign_name} (Grok)" · แอดใหม่ "${s.code} ชุด#${s.id} (Grok)" · งบ **${cfg.budget} บาท/วัน** · **${cfg.days} วัน** แล้วหยุดเอง และสรุปผลในห้องนี้`
+      : `⚠️ ยังไม่มีแอดที่ยิงอยู่ของ ${s.code} ให้ใช้เป็นต้นแบบ กดอนุมัติแล้วจะยังสร้างไม่ได้`,
+    '**แคปชัน:**', s.caption_text.slice(0, 1200),
+  ].join('\n').slice(0, 1990);
+}
+
+export const proposalButtons = (setId: number) => [{ type: 1, components: [
+  { type: 2, style: 3, label: '✅ อนุมัติ ลงเลย', custom_id: `grokad:${setId}:yes` },
+  { type: 2, style: 4, label: '❌ ไม่ลง', custom_id: `grokad:${setId}:no` },
+] }];
+
+/** Approved sets nobody was asked about yet: one message each (picture attached, Max tagged, two buttons). */
+export async function proposeStep(env: ProposeEnv, cfg: StudioAds, limit = 2): Promise<number> {
+  if (!env.DISCORD_BOT_TOKEN || !env.DISCORD_STUDIO_CHANNEL_ID) return 0;
+  const { results: sets } = await env.DB.prepare(
+    `SELECT s.id, s.code, s.caption_text, s.image_id FROM creative_sets s LEFT JOIN grok_ads g ON g.set_id = s.id
+     WHERE s.status = 'approved' AND g.set_id IS NULL ORDER BY s.id LIMIT ?1`,
+  ).bind(limit).all<{ id: number; code: string; caption_text: string; image_id: number }>();
+  const mention = (env.DISCORD_DECIDER_IDS ?? '').split(',').map((x) => x.trim()).filter(Boolean).map((id) => `<@${id}>`).join(' ');
+  let n = 0;
+  for (const s of sets) {
+    const t = await templateAd(env.DB, s.code);
+    const img = await env.DB.prepare('SELECT full, mime FROM creative_candidates WHERE id = ?1').bind(s.image_id).first<{ full: ArrayBuffer | number[] | null; mime: string | null }>();
+    const form = new FormData();
+    form.set('payload_json', JSON.stringify({ content: proposalText(s, t, cfg, mention), components: proposalButtons(s.id), allowed_mentions: { users: mention ? (env.DISCORD_DECIDER_IDS ?? '').split(',').map((x) => x.trim()).filter(Boolean) : [] } }));
+    if (img?.full) form.set('files[0]', new Blob([img.full instanceof ArrayBuffer ? img.full : Uint8Array.from(img.full)], { type: img.mime || 'image/jpeg' }), `set-${s.id}.jpg`);
+    const res = await fetch(`https://discord.com/api/v10/channels/${env.DISCORD_STUDIO_CHANNEL_ID}/messages`, { method: 'POST', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` }, body: form });
+    if (!res.ok) { console.error('grok proposal', res.status, await res.text()); break; }
+    const msg = (await res.json()) as { id: string };
+    await env.DB.prepare(`INSERT INTO grok_ads (set_id, code, status, template_ad_id, budget, message_id, announced_at) VALUES (?1, ?2, 'proposed', ?3, ?4, ?5, ?6) ON CONFLICT (set_id) DO NOTHING`)
+      .bind(s.id, s.code, t?.ad_id ?? null, cfg.budget, msg.id, new Date().toISOString()).run();
+    n++;
+  }
+  return n;
+}
+
+export interface LaunchResult { ok: boolean; text: string }
+
+/** Builds the "(Grok)" campaign for one set after Max's approval (≈ 8 Meta calls). Half-made objects stay PAUSED. */
+export async function launchSet(env: StudioEnv, meta: GrokMeta, cfg: StudioAds, setId: number, budgetRoom: number): Promise<LaunchResult> {
+  const s = await env.DB.prepare(`SELECT id, code, caption_text, image_id FROM creative_sets WHERE id = ?1`).bind(setId).first<{ id: number; code: string; caption_text: string; image_id: number }>();
+  if (!s) return { ok: false, text: 'ไม่พบชุดโพสต์นี้' };
+  const fail = async (err: string): Promise<LaunchResult> => {
+    await env.DB.prepare(`UPDATE grok_ads SET status = 'failed', error = ?2 WHERE set_id = ?1`).bind(setId, err.slice(0, 500)).run();
+    return { ok: false, text: err };
+  };
+  const running = (await env.DB.prepare(`SELECT count(*) n FROM grok_ads WHERE status = 'running'`).first<{ n: number }>())?.n ?? 0;
+  if (running >= cfg.max_active) return fail(`มีแคม (Grok) เปิดอยู่ครบ ${cfg.max_active} แล้ว รอตัวเก่าครบ ${cfg.days} วันก่อน`);
+  if (budgetRoom < cfg.budget) return fail(`งบรวมจะเกินเพดานที่ตั้งไว้ (เหลือ ${Math.round(budgetRoom)} บาท) ขยายเพดานในหน้าตั้งค่าก่อน`);
+  const t = await templateAd(env.DB, s.code);
+  if (!t) return fail(`ยังไม่มีแอดที่ยิงอยู่ของ ${s.code} ให้ใช้เป็นต้นแบบ`);
+  const name = `${s.code} ชุด#${s.id} (Grok)`;
+  let campaign: string | null = null;
+  try {
+    const tpl = await meta.adTemplate(t.ad_id);
+    buildSpec(tpl.spec, s.caption_text, 'check'); // refuse before anything is created
+    const img = await env.DB.prepare('SELECT full FROM creative_candidates WHERE id = ?1').bind(s.image_id).first<{ full: ArrayBuffer | number[] | null }>();
+    if (!img?.full) throw new Error('ไม่พบไฟล์ภาพของชุดนี้');
+    const hash = await meta.uploadImage(toBase64(img.full));
+    const shell = await meta.copyCampaignShell(tpl.campaign_id, tpl.adset_id, ' (Grok)');
+    campaign = shell.campaign_id;
+    // CBO campaigns carry the budget; ABO ad sets do. Try the campaign first.
+    await meta.setDailyBudget(shell.campaign_id, cfg.budget).catch(() => meta.setDailyBudget(shell.adset_id, cfg.budget));
+    const creative = await meta.createCreative(name, buildSpec(tpl.spec, s.caption_text, hash));
+    const ad = await meta.createAd(shell.adset_id, name, creative, 'ACTIVE');
+    await meta.setStatus(shell.adset_id, 'ACTIVE');
+    await meta.setStatus(shell.campaign_id, 'ACTIVE');
+    const now = new Date(), ends = new Date(now.getTime() + cfg.days * 86_400_000).toISOString();
+    await env.DB.prepare(`UPDATE grok_ads SET status = 'running', template_ad_id = ?2, campaign_id = ?3, adset_id = ?4, ad_id = ?5, budget = ?6, launched_at = ?7, ends_at = ?8, error = NULL WHERE set_id = ?1`)
+      .bind(setId, t.ad_id, shell.campaign_id, shell.adset_id, ad, cfg.budget, now.toISOString(), ends).run();
+    return { ok: true, text: `เปิดแล้ว: แคม "${t.campaign_name} (Grok)" · แอด "${name}" · ${cfg.budget} บาท/วัน · ถึง ${ends.slice(0, 10)} แล้วหยุดเอง` };
+  } catch (err: any) {
+    if (campaign) await meta.setStatus(campaign, 'PAUSED').catch(() => null);
+    return fail(`${err?.message ?? err}${campaign ? ` (แคมที่สร้างค้างไว้ ${campaign} หยุดอยู่ ลบได้ใน Ads Manager)` : ''}`);
+  }
+}
+
+// ---- 5. after 14 days ----
+
+export interface StopNote { set_id: number; code: string; text: string }
+
+/** Pauses "(Grok)" campaigns past their end and stores their numbers (Meta, last 14 days; Meta-tagged sales). */
+export async function stopExpired(env: StudioEnv, meta: GrokMeta | null, stats: Map<string, { spend: number; purchases: number; purchase_value: number }> | null): Promise<StopNote[]> {
+  const { results } = await env.DB.prepare(`SELECT set_id, code, campaign_id FROM grok_ads WHERE status = 'running' AND ends_at <= ?1`).bind(new Date().toISOString()).all<{ set_id: number; code: string; campaign_id: string }>();
+  const out: StopNote[] = [];
+  for (const g of results) {
+    if (!meta) break;
+    await meta.setStatus(g.campaign_id, 'PAUSED');
+    const m = stats?.get(g.campaign_id);
+    const result = m ? { spend: Math.round(m.spend), purchases: m.purchases, value: Math.round(m.purchase_value), roas: m.spend ? Math.round((m.purchase_value / m.spend) * 100) / 100 : 0 } : null;
+    await env.DB.prepare(`UPDATE grok_ads SET status = 'done', result = ?2 WHERE set_id = ?1`).bind(g.set_id, result ? JSON.stringify(result) : null).run();
+    out.push({ set_id: g.set_id, code: g.code, text: result ? `ครบกำหนด หยุดแล้ว: ค่าแอด ${result.spend} · ซื้อ ${result.purchases} · ยอด ${result.value} · ROAS ${result.roas} (ยอดแท็ก Meta)` : 'ครบกำหนด หยุดแล้ว (อ่านตัวเลขไม่ได้)' });
+  }
+  return out;
+}
+
+export async function listGrokAds(db: D1Database) {
+  return (await db.prepare(`SELECT * FROM grok_ads ORDER BY set_id DESC LIMIT 50`).all()).results;
+}

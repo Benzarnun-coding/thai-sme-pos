@@ -308,6 +308,50 @@ export class MetaClient {
     return { id, children };
   }
 
+  // ---- new ads from the training room (ads-web/worker/grokAds.ts, Benz 2026-11-09) ----
+
+  /** A running ad's creative spec, ad set and campaign: the template a "(Grok)" ad is built from. */
+  async adTemplate(adId: string): Promise<{ name: string; adset_id: string; campaign_id: string; spec: any | null }> {
+    const a = await this.get(adId, { fields: 'name,adset_id,campaign_id,creative{object_story_spec}' });
+    return { name: String(a.name ?? ''), adset_id: String(a.adset_id), campaign_id: String(a.campaign_id), spec: a.creative?.object_story_spec ?? null };
+  }
+
+  /** Copy of a campaign with only one of its ad sets and no ads, PAUSED, renamed with the suffix. */
+  async copyCampaignShell(campaignId: string, adsetId: string, suffix: string): Promise<{ campaign_id: string; adset_id: string }> {
+    const c = await this.post(`${campaignId}/copies`, {
+      deep_copy: 'false', status_option: 'PAUSED',
+      rename_options: JSON.stringify({ rename_strategy: 'ONLY_TOP_LEVEL_RENAME', rename_suffix: suffix }),
+    });
+    if (!c.copied_campaign_id) throw new Error('Meta ไม่ได้ส่ง id แคมเปญใหม่กลับมา');
+    const s = await this.post(`${adsetId}/copies`, { campaign_id: String(c.copied_campaign_id), deep_copy: 'false', status_option: 'PAUSED' });
+    if (!s.copied_adset_id) throw new Error(`Meta ไม่ได้ส่ง id ชุดโฆษณาใหม่กลับมา (แคมเปญใหม่ ${c.copied_campaign_id})`);
+    return { campaign_id: String(c.copied_campaign_id), adset_id: String(s.copied_adset_id) };
+  }
+
+  /** Uploads a picture (base64) to the ad account's image library; returns its hash. */
+  async uploadImage(base64: string): Promise<string> {
+    const r = await this.post(`${this.accountId}/adimages`, { bytes: base64 });
+    const hash = Object.values(r.images ?? {}).map((x: any) => x?.hash).find(Boolean);
+    if (!hash) throw new Error('Meta ไม่ได้ส่ง hash ของภาพกลับมา');
+    return String(hash);
+  }
+
+  async createCreative(name: string, spec: unknown): Promise<string> {
+    const r = await this.post(`${this.accountId}/adcreatives`, { name, object_story_spec: JSON.stringify(spec) });
+    if (!r.id) throw new Error('Meta ไม่ได้ส่ง id ครีเอทีฟกลับมา');
+    return String(r.id);
+  }
+
+  async createAd(adsetId: string, name: string, creativeId: string, status: 'ACTIVE' | 'PAUSED'): Promise<string> {
+    const r = await this.post(`${this.accountId}/ads`, { name, adset_id: adsetId, creative: JSON.stringify({ creative_id: creativeId }), status });
+    if (!r.id) throw new Error('Meta ไม่ได้ส่ง id โฆษณากลับมา');
+    return String(r.id);
+  }
+
+  async rename(id: string, name: string): Promise<void> {
+    await this.post(id, { name });
+  }
+
   /** amount in account currency; Meta wants minor units */
   async setDailyBudget(id: string, amount: number): Promise<void> {
     await this.post(id, { daily_budget: String(Math.round(amount * 100)) });

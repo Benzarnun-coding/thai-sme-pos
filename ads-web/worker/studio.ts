@@ -656,7 +656,7 @@ export async function approvePlaybook(db: D1Database, id: number, text: unknown,
 // ---- the AI looks at images ----
 
 /** A D1 BLOB (ArrayBuffer or number array) as a Messages API image block. */
-function imageBlock(data: ArrayBuffer | number[] | Uint8Array, mime: string): unknown {
+export function imageBlock(data: ArrayBuffer | number[] | Uint8Array, mime: string): unknown {
   const bytes = data instanceof Uint8Array ? data : data instanceof ArrayBuffer ? new Uint8Array(data) : Uint8Array.from(data);
   let bin = '';
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -674,7 +674,7 @@ export interface ImageCheck {
 }
 
 /** The product's real photo: the catalog upload, else column J's link (allowed hosts only). */
-async function productPhoto(db: D1Database, code: string): Promise<{ data: Uint8Array; mime: string } | null> {
+export async function productPhoto(db: D1Database, code: string): Promise<{ data: Uint8Array; mime: string } | null> {
   const p = (await listProducts(db, code, true))[0];
   if (!p) return null;
   if (p.image_key) {

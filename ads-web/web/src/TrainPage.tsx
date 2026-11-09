@@ -152,7 +152,21 @@ export function TrainApp() {
       setPrompt(r.prompt); setTrying(r.learned ? r.trying : '');
     } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
   };
-  const uploadImages = async (files: FileList | null) => {
+  const [link, setLink] = useState('');
+  /** A picture by link (the ChatGPT image link Grok copies): fetched by the Worker, then the same upload as a file. */
+  const addFromLink = async () => {
+    if (!link.trim() || !code) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/studio/image-fetch?url=${encodeURIComponent(link.trim())}`);
+      if (!res.ok) { const d: any = await res.json().catch(() => ({})); throw new Error(d.error ?? `HTTP ${res.status}`); }
+      const blob = await res.blob();
+      setLink('');
+      setBusy(false);
+      await uploadImages([new File([blob], 'link.jpg', { type: blob.type })]);
+    } catch (e: any) { toast(e.message, 'bad'); setBusy(false); }
+  };
+  const uploadImages = async (files: FileList | File[] | null) => {
     if (!files?.length || !code) return;
     setBusy(true);
     try {
@@ -218,6 +232,8 @@ export function TrainApp() {
               <button className="ghost" disabled={!code || !styleId} onClick={getPrompt}>ขอ prompt สำหรับ ChatGPT</button>
             </div>
             <div className="row wrap">
+              <input style={{ flex: 1, minWidth: 220 }} placeholder="หรือวางลิงก์รูป (เช่น ลิงก์รูปจาก ChatGPT)" value={link} disabled={busy || !code} onChange={(e) => setLink(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addFromLink(); }} />
+              <button className="ghost" disabled={busy || !code || !link.trim()} onClick={addFromLink}>เพิ่มจากลิงก์</button>
               <label className={`button ${busy || !code ? 'disabled' : ''}`}>③ อัปโหลดรูป (เลือกได้หลายรูป)<input type="file" accept="image/*" multiple hidden disabled={busy || !code} onChange={(e) => { uploadImages(e.target.files); e.target.value = ''; }} /></label>
               <span className="small muted">รูปจาก ChatGPT หรือรูปที่ทำเอง · ต้องมีอย่างน้อย 2 รูปของสินค้าเดียวกันจึงขึ้นเป็นคู่ให้ตัดสิน</span>
             </div>
