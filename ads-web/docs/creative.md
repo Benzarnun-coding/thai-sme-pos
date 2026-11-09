@@ -118,6 +118,10 @@ has to beat the live playbook in the room (`worker/playbookTrial.ts`, migration 
    draft wins ≥ `TRIAL_WIN` (55%) → `approved_by = 'ทดสอบชนะ'`, live by itself; else `trial = 'lost'`. Result in
    `trial_result`, audit `studio.trial.won|lost`, a bot note in #studio-training (`DISCORD_STUDIO_CHANNEL_ID`, Benz 2026-11-09; was #meta-chat).
 5. "ย้อนกลับฉบับก่อน" puts the previous different approved text back as a new version (`undoPlaybook`).
+6. The AI judge also writes one line per pair, what the winner does that the other doesn't (`creative_judgements.note`,
+   migration 0063). `/studio` shows the last settled trial (`lastTrial`): score, and every pair's line grouped by
+   which side won, with both captions folded — what Grok reads before the next draft. First real trial (2026-11-09,
+   draft #2 from Grok): lost 10/20; it ran before the reason lines existed.
 
 Trial drafts never show as the AI-analysis pending draft (`pendingPlaybook` skips `trial IS NOT NULL`). 20 / 55% /
 4 products / 5 per side are the starting numbers Benz accepted; change them in `playbookTrial.ts`. Weak spot: an AI

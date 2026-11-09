@@ -921,7 +921,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     await studio.judge(env.DB, await body(), user);
     return json({ ok: true, trial: await settleTrial(env, user) });
   }
-  if (path === '/api/studio/trial' && method === 'GET') return json({ trial: await trial.trialStatus(env.DB) });
+  if (path === '/api/studio/trial' && method === 'GET') { const [running, last] = await Promise.all([trial.trialStatus(env.DB), trial.lastTrial(env.DB)]); return json({ trial: running, last }); }
   if (path === '/api/studio/trial' && method === 'POST') { const id = await trial.startTrial(env.DB, await body(), user); await audit(env.DB, user, 'studio.trial.start', String(id), {}); return json({ id }); }
   if (path === '/api/studio/trial/step' && method === 'POST') {
     const r = await trial.trialStep(env, user);

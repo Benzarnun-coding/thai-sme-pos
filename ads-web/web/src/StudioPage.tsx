@@ -13,6 +13,8 @@ interface Example { id: number; text: string; liked: number; reason: string; cre
 interface Playbook { id: number | null; text: string; proposed_by: string; created_at: string }
 /** A draft playbook being tested against the live one (worker/playbookTrial.ts). */
 export interface Trial { id: number; text: string; proposed_by: string; created_at: string; pairs: number; wins: number; need: number; win_at: number; products: { code: string; draft: number; live: number }[]; ready: boolean }
+/** The last settled trial: score and the judge's line per pair (what to fix in the next draft). */
+export interface LastTrial { id: number; result: 'won' | 'lost'; pairs: number; wins: number; settled_at: string | null; proposed_by: string; rows: { code: string; winner: 'draft' | 'live'; reason: string; note: string | null; judge: string; draft: string; live: string }[] }
 export interface Materials { styles: StyleCard[]; examples: Example[]; playbook: Playbook; hooks: Record<string, string>; reasons: Record<string, string>; ai: boolean }
 
 export async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -42,9 +44,10 @@ export function StudioApp() {
   const [pendingId, setPendingId] = useState<number | null>(null);
   useEffect(() => { call<{ pending: { id: number } | null }>('GET', '/api/studio/playbook/pending').then((r) => setPendingId(r.pending?.id ?? null)).catch(() => null); }, []);
   const [trial, setTrial] = useState<Trial | null>(null);
+  const [last, setLast] = useState<LastTrial | null>(null);
   const reload = () => Promise.all([
     call<Materials>('GET', '/api/studio/materials').then(setM).catch((e) => toast(e.message, 'bad')),
-    call<{ trial: Trial | null }>('GET', '/api/studio/trial').then((r) => setTrial(r.trial)).catch(() => null),
+    call<{ trial: Trial | null; last: LastTrial | null }>('GET', '/api/studio/trial').then((r) => { setTrial(r.trial); setLast(r.last); }).catch(() => null),
   ]);
   useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -74,6 +77,7 @@ export function StudioApp() {
         onTrial={(text) => run(() => call('POST', '/api/studio/trial', { text }), 'บันทึกเป็นร่างแล้ว — ห้องฝึกจะให้ AI เขียนแคปชันจากทั้งสองฉบับ แล้วให้กรรมการตัดสิน')}
         onStop={async () => { if (await confirm({ title: 'หยุดทดสอบร่างนี้?', body: 'คู่มือที่ใช้อยู่ไม่เปลี่ยน' })) run(() => call('POST', '/api/studio/trial/stop'), 'หยุดทดสอบแล้ว'); }}
         onUndo={async () => { if (await confirm({ title: 'ย้อนกลับไปใช้คู่มือฉบับก่อนหน้า?', body: 'บันทึกเป็นเวอร์ชันใหม่ ฉบับปัจจุบันยังเก็บไว้' })) run(() => call('POST', '/api/studio/playbook/undo'), 'ย้อนกลับแล้ว'); }} />}
+      {last && !trial && <LastTrialCard last={last} />}
 
       <section className="card">
         <h2>สไตล์ภาพ</h2>
@@ -136,6 +140,26 @@ function PlaybookCard({ playbook, trial, busy, onSave, onTrial, onStop, onUndo }
         <button disabled={busy || !changed || !!trial} title={trial ? 'มีร่างกำลังทดสอบอยู่' : ''} onClick={() => onTrial(text)}>ทดสอบก่อนใช้ (แนะนำ)</button>
       </div>
       <p className="muted small">"ทดสอบก่อนใช้" = บันทึกเป็นร่าง AI เขียนแคปชันจากทั้งร่างและฉบับเดิม AI กรรมการตัดสินแบบปิดตา (ไม่เห็นคู่มือ เทียบกับโพสต์ที่ขายดีจริง) ครบ 20 คู่ถ้าร่างชนะ ≥ 55% ระบบสลับให้เองและแจ้งใน Discord</p>
+    </section>
+  );
+}
+
+/** Result of the last playbook trial with the judge's one-line reason per pair, draft wins first. */
+function LastTrialCard({ last }: { last: LastTrial }) {
+  const when = last.settled_at ? new Date(last.settled_at).toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' }) : '';
+  const group = (w: 'draft' | 'live') => last.rows.filter((r) => r.winner === w);
+  const Rows = ({ rows }: { rows: LastTrial['rows'] }) => (
+    <ul className="small trial-rows">{rows.map((r, i) => (
+      <li key={i}><b>{r.code}</b> · {r.note || r.reason}{r.judge !== 'ai-judge' ? <span className="muted"> ({r.judge})</span> : null}
+        <details><summary className="muted">ดูแคปชันทั้งสอง</summary><div className="trial-pair"><div><b>ร่าง</b><pre className="trial-text">{r.draft}</pre></div><div><b>ฉบับเดิม</b><pre className="trial-text">{r.live}</pre></div></div></details>
+      </li>))}</ul>
+  );
+  return (
+    <section className="card">
+      <h2>ผลทดสอบล่าสุด: ร่าง #{last.id} {last.result === 'won' ? 'ชนะ ✅ ใช้แล้ว' : 'แพ้ — ใช้ฉบับเดิมต่อ'}</h2>
+      <p className="muted small">ร่างชนะ {last.wins}/{last.pairs} คู่ ({last.pairs ? Math.round((last.wins / last.pairs) * 100) : 0}%, ต้อง ≥ 55%) · โดย {last.proposed_by}{when ? ` · จบ ${when}` : ''} · เหตุผลแต่ละคู่จาก AI กรรมการ (ตัดสินแบบปิดตา) ใช้แก้ร่างรอบหน้า</p>
+      <b className="small">ร่างชนะ ({group('draft').length})</b><Rows rows={group('draft')} />
+      <b className="small">ฉบับเดิมชนะ ({group('live').length})</b><Rows rows={group('live')} />
     </section>
   );
 }

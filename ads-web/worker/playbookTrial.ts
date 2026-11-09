@@ -179,14 +179,14 @@ export function trialPairs(cands: C[], trialId: number, seen: Set<string>, n: nu
 const LOSER_REASONS = ['wrong_fact', 'boring', 'too_long', 'not_our_voice', 'claim', 'better'];
 
 /** The judge's JSON: one verdict per pair number; unknown reasons become 'better', missing pairs are skipped. */
-export function parseVerdicts(text: string, n: number): { pair: number; winner: 'A' | 'B'; reason: string }[] {
+export function parseVerdicts(text: string, n: number): { pair: number; winner: 'A' | 'B'; reason: string; why: string }[] {
   const m = /\[[\s\S]*\]/.exec(text);
   if (!m) return [];
   let arr: any;
   try { arr = JSON.parse(m[0]); } catch { return []; }
   if (!Array.isArray(arr)) return [];
   const seen = new Set<number>();
-  return arr.map((x: any) => ({ pair: Number(x?.pair), winner: String(x?.winner).trim().toUpperCase() as 'A' | 'B', reason: LOSER_REASONS.includes(String(x?.reason)) ? String(x.reason) : 'better' }))
+  return arr.map((x: any) => ({ pair: Number(x?.pair), winner: String(x?.winner).trim().toUpperCase() as 'A' | 'B', reason: LOSER_REASONS.includes(String(x?.reason)) ? String(x.reason) : 'better', why: String(x?.why ?? '').replace(/\s+/g, ' ').trim().slice(0, 300) }))
     .filter((v) => Number.isInteger(v.pair) && v.pair >= 1 && v.pair <= n && (v.winner === 'A' || v.winner === 'B') && !seen.has(v.pair) && !!seen.add(v.pair));
 }
 
@@ -214,15 +214,43 @@ export async function aiJudgeStep(env: StudioEnv, t: Playbook): Promise<{ judged
     proven.length ? `## โพสต์ที่ยิงแอดอยู่และขายดีจริง (ROAS จากยอดแท็ก Meta 14 วัน)\n${proven.map((p) => `- [ROAS ${p.roas.toFixed(1)}] ${p.message.replace(/\n/g, ' / ').slice(0, 500)}`).join('\n')}` : '',
     examples.length ? `## ตัวอย่างที่ทีมชอบ/ไม่ชอบ\n${examples.slice(0, 20).map((e) => `- ${e.liked ? 'ชอบ' : 'ไม่ชอบ'}: "${e.text.replace(/\n/g, ' / ').slice(0, 300)}" — ${e.reason}`).join('\n')}` : '',
     `## ข้อมูลสินค้า\n${facts}`,
-    `## รูปแบบคำตอบ\nJSON array เท่านั้น: [{"pair": <เลขคู่>, "winner": "A"|"B", "reason": "<เหตุผลที่อีกอันแพ้ หนึ่งใน ${LOSER_REASONS.join('|')}>"}] ครบทุกคู่ ห้ามเสมอ`,
+    `## รูปแบบคำตอบ\nJSON array เท่านั้น: [{"pair": <เลขคู่>, "winner": "A"|"B", "reason": "<เหตุผลที่อีกอันแพ้ หนึ่งใน ${LOSER_REASONS.join('|')}>", "why": "<1 ประโยคภาษาไทย ไม่เกิน 120 ตัวอักษร: อันที่ชนะทำอะไรที่อีกอันไม่ทำ เจาะจง เช่น บรรทัดแรกบอกราคาแพ็ก 3 ตัว / อีกอันยาวเกินและไม่บอกวิธีสั่ง ห้ามตอบแค่ว่าดีกว่า>"}] ครบทุกคู่ ห้ามเสมอ`,
   ].filter(Boolean).join('\n\n');
   const user = pairs.map(([a, b], i) => `คู่ที่ ${i + 1} (สินค้า ${a.code})\nA: ${a.text}\nB: ${b.text}`).join('\n\n---\n\n');
   const out = await askClaude(env, system, user, 4000, 'medium');
   const verdicts = parseVerdicts(out.text, pairs.length);
   for (const v of verdicts) {
     const [a, b] = pairs[v.pair - 1];
-    await judge(env.DB, { a_id: a.id, b_id: b.id, winner_id: v.winner === 'A' ? a.id : b.id, reason: REASONS[v.reason] ? v.reason : 'better' }, AI_JUDGE);
+    await judge(env.DB, { a_id: a.id, b_id: b.id, winner_id: v.winner === 'A' ? a.id : b.id, reason: REASONS[v.reason] ? v.reason : 'better', note: v.why || null }, AI_JUDGE);
   }
   if (!verdicts.length) throw new Error('AI กรรมการตอบไม่ได้ (อ่าน JSON ไม่ได้)');
   return { judged: verdicts.length, tokens: { input: out.input, output: out.output } };
+}
+
+// ---- the last settled trial, for /studio (what Grok reads before writing the next draft) ----
+
+export interface LastTrial {
+  id: number; result: 'won' | 'lost'; pairs: number; wins: number; settled_at: string | null; proposed_by: string;
+  /** every decided draft-vs-live pair: which side won, why (the judge's line), and both captions */
+  rows: { code: string; winner: 'draft' | 'live'; reason: string; note: string | null; judge: string; draft: string; live: string }[];
+}
+
+export async function lastTrial(db: D1Database): Promise<LastTrial | null> {
+  const t = await db.prepare(`SELECT * FROM playbook_versions WHERE trial IN ('won', 'lost') ORDER BY id DESC LIMIT 1`).first<Playbook>();
+  if (!t || t.id === null) return null;
+  const settled = await db.prepare(`SELECT max(at) AS at FROM audit WHERE action IN ('studio.trial.won', 'studio.trial.lost') AND target = ?1`).bind(String(t.id)).first<{ at: string | null }>();
+  const { results } = await db.prepare(
+    `SELECT a.code, j.reason, j.note, j.judge, w.playbook_id = ?1 AS draft_won,
+            CASE WHEN a.playbook_id = ?1 THEN a.text ELSE b.text END AS draft, CASE WHEN a.playbook_id = ?1 THEN b.text ELSE a.text END AS live
+     FROM creative_judgements j JOIN creative_candidates a ON a.id = j.a_id JOIN creative_candidates b ON b.id = j.b_id JOIN creative_candidates w ON w.id = j.winner_id
+     WHERE j.kind = 'caption' AND j.winner_id IS NOT NULL
+       AND ((a.playbook_id = ?1 AND b.playbook_id IS ?2 AND b.hook != 'real' AND b.created_by = 'ai')
+         OR (b.playbook_id = ?1 AND a.playbook_id IS ?2 AND a.hook != 'real' AND a.created_by = 'ai'))
+     ORDER BY j.id`,
+  ).bind(t.id, t.base_id ?? null).all<{ code: string; reason: string; note: string | null; judge: string; draft_won: number; draft: string; live: string }>();
+  const r = JSON.parse(t.trial_result || '{}');
+  return {
+    id: t.id, result: t.trial as 'won' | 'lost', pairs: r.pairs ?? results.length, wins: r.wins ?? 0, settled_at: settled?.at ?? null, proposed_by: t.proposed_by,
+    rows: results.map((x) => ({ code: x.code, winner: x.draft_won ? 'draft' : 'live', reason: REASONS[x.reason] ?? x.reason, note: x.note, judge: x.judge, draft: x.draft, live: x.live })),
+  };
 }

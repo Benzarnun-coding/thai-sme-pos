@@ -37,7 +37,7 @@ test('two products still reach 20 pairs (shifted pairings)', () => {
 });
 
 test('verdicts: one per pair, A/B only, unknown reason → better', () => {
-  const v = parseVerdicts('ผล:\n[{"pair":1,"winner":"a","reason":"boring"},{"pair":1,"winner":"B"},{"pair":2,"winner":"B","reason":"xx"},{"pair":3,"winner":"C"},{"pair":9,"winner":"A"}]', 3);
-  assert.deepEqual(v, [{ pair: 1, winner: 'A', reason: 'boring' }, { pair: 2, winner: 'B', reason: 'better' }]);
+  const v = parseVerdicts('ผล:\n[{"pair":1,"winner":"a","reason":"boring","why":" บรรทัดแรก\\n บอกราคาแพ็ก 3 ตัว "},{"pair":1,"winner":"B"},{"pair":2,"winner":"B","reason":"xx"},{"pair":3,"winner":"C"},{"pair":9,"winner":"A"}]', 3);
+  assert.deepEqual(v, [{ pair: 1, winner: 'A', reason: 'boring', why: 'บรรทัดแรก บอกราคาแพ็ก 3 ตัว' }, { pair: 2, winner: 'B', reason: 'better', why: '' }]);
   assert.deepEqual(parseVerdicts('no json', 2), []);
 });

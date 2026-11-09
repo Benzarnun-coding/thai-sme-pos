@@ -396,8 +396,9 @@ export async function judge(db: D1Database, input: any, user: string): Promise<v
   if (!kind) throw new BadRequest('ไม่พบชิ้นงาน');
   const reason = REASONS[String(input?.reason)] ? String(input.reason) : '';
   const edited = kind === 'caption' && input?.edited_text ? cleanText(input.edited_text, 2000) : null;
-  await db.prepare('INSERT INTO creative_judgements (kind, a_id, b_id, winner_id, reason, edited_text, judge, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)')
-    .bind(kind, a, b, winner, reason, edited, user, now()).run();
+  const note = input?.note ? cleanText(input.note, 300) : null;
+  await db.prepare('INSERT INTO creative_judgements (kind, a_id, b_id, winner_id, reason, edited_text, judge, created_at, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)')
+    .bind(kind, a, b, winner, reason, edited, user, now(), note).run();
 }
 
 export interface Stats {
