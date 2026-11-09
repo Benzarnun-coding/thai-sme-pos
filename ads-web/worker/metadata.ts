@@ -6,6 +6,7 @@
 import type { CampaignDayRow, DailyRow, HourlyConversion } from '../../ads-engine/src/meta.ts';
 import type { Entity, Level, Metrics, Window } from '../../ads-engine/src/types.ts';
 import { windowDates } from './conversionStore.ts';
+import { cutSpendFromMetrics, cutSpendFromRows, loadSpendCuts, type SpendCut } from './metaAdjust.ts';
 import { MockMeta } from './mock.ts';
 import type { MetaLike } from './run.ts';
 
@@ -100,6 +101,9 @@ export async function loadMetaData(db: D1Database, meta: MetaLike, fresh: boolea
   }
 
   const base = await cached('entities', 'entities', async () => ({ account: await meta.accountName(), entities: await meta.listEntities() }));
+  // Spend that wasn't ours (meta_adjustments.spend) comes off every figure below; ad-set rows keep Meta's number.
+  let cutsP: Promise<SpendCut[]> | null = null;
+  const cuts = () => (cutsP ??= cacheable ? loadSpendCuts(db) : Promise.resolve([]));
 
   const hidden = excludedIds(base.entities);
 
@@ -128,9 +132,12 @@ export async function loadMetaData(db: D1Database, meta: MetaLike, fresh: boolea
   return {
     account: base.account,
     entities: base.entities.filter((e) => !hidden.has(e.id)),
-    insights: async (level, window) => new Map([...await rawInsights(level, window)].filter(([id]) => !hidden.has(id))),
-    daily: (campaignId, window) => cached(`daily:${campaignId}:${window}`, 'daily', () => meta.dailyInsights(campaignId, window)),
-    dailyAll: async (window) => (await dailyAll(window)).filter((r) => !hidden.has(r.campaign_id)),
+    insights: async (level, window) => {
+      const m = new Map([...await rawInsights(level, window)].filter(([id]) => !hidden.has(id)));
+      return level === 'campaign' ? cutSpendFromMetrics(m, await cuts(), windowDates(window)) : m;
+    },
+    daily: async (campaignId, window) => cutSpendFromRows(await cached(`daily:${campaignId}:${window}`, 'daily', () => meta.dailyInsights(campaignId, window)), await cuts(), campaignId),
+    dailyAll: async (window) => cutSpendFromRows((await dailyAll(window)).filter((r) => !hidden.has(r.campaign_id)), await cuts()),
     hourly: async (date) => (await cached(`hourly:${date}`, 'daily', () => meta.hourlyConversions(date))).filter((r) => !hidden.has(r.campaign_id)),
     fetchedAt: () => (times.length ? times.reduce((a, b) => (a < b ? a : b)) : new Date().toISOString()),
     warning: () => warning,
