@@ -15,7 +15,7 @@ interface PairCheck { match: boolean; issues: string; summary: string }
 const pic = (id: number, full = false) => `/api/studio/picture/cand/${id}?v=2${full ? '&size=full' : ''}`;
 
 interface GrokAd { set_id: number; code: string; status: string; campaign_id: string | null; ad_id: string | null; budget: number | null; error: string | null; decided_by: string | null; announced_at: string | null; launched_at: string | null; ends_at: string | null; result: string | null }
-const GROK_STATUS: Record<string, string> = { proposed: '⏳ รอแม็กซ์กดอนุมัติใน Discord', working: '⚙️ กำลังสร้าง', running: '🟢 กำลังยิง', done: '🏁 ครบกำหนด', failed: '❌ ลงไม่สำเร็จ', declined: '🚫 ไม่ลง' };
+const GROK_STATUS: Record<string, string> = { proposed: '⏳ รอแม็กซ์กดอนุมัติใน Discord', working: '⚙️ กำลังสร้าง', running: '🟢 กำลังยิง', done: '🏁 ครบกำหนด', failed: '❌ ลงไม่สำเร็จ', declined: '🚫 ไม่ลง', withdrawn: '↩️ ถอนแล้ว' };
 
 /** "(Grok)" test ads: what was proposed in #studio-training, what runs, what ended (worker/grokAds.ts). */
 function GrokAds({ rows, cfg, onRun }: { rows: GrokAd[]; cfg: { budget: number; days: number; max_active: number } | null; onRun: () => void }) {

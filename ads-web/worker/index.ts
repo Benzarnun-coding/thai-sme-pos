@@ -1014,6 +1014,15 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
   // "ตรวจ/เสนอตอนนี้": one set at a time, so a press proposes at most one post.
   // Runs inside the request (a waitUntil gets ~30 s after the reply, too short for 5–6 Claude calls).
+  // Withdraw a (Grok) proposal (owners/admins: the path is outside /api/studio): edits the Discord message.
+  if ((m = /^\/api\/grok-ads\/(\d+)\/withdraw$/.exec(path)) && method === 'POST') {
+    const b = await body().catch(() => ({}));
+    const msg = await grokAds.withdraw(env.DB, Number(m[1]), user);
+    if (msg === null) throw new BadRequest('ถอนไม่ได้ (ไม่ได้รอกดอยู่)');
+    if (msg) await editStudioMessage(env, msg, `🚫 **ถอนข้อเสนอนี้แล้ว** (ชุด#${m[1]}) — ${String(b?.reason ?? 'ต้องเป็นภาพใหม่และแคปชันใหม่ทั้งคู่ รอชุดใหม่')}`);
+    await audit(env.DB, user, 'grokad.withdrawn', m[1], { reason: b?.reason ?? null });
+    return json({ ok: true });
+  }
   if (path === '/api/studio/sets/run' && method === 'POST') { await studioCron(env, 1); return json({ ok: true, grok_ads: await grokAds.listGrokAds(env.DB) }); }
   if (path === '/api/studio/trial/stop' && method === 'POST') { await trial.stopTrial(env.DB); await audit(env.DB, user, 'studio.trial.stop', 'playbook', {}); return json({ ok: true }); }
   if (path === '/api/studio/playbook/undo' && method === 'POST') { const id = await trial.undoPlaybook(env.DB, user); await audit(env.DB, user, 'studio.playbook.undo', String(id), {}); return json({ id }); }

@@ -98,38 +98,24 @@ export async function aiJudgeImages(env: StudioEnv, calls = 3): Promise<number> 
 // ---- 3. post sets by themselves ----
 
 /**
- * A picture of the product's current ads (the room keeps them as 'real' candidates), most wins first: used when no
- * new image has passed yet, so the first test runs a new caption on a proven picture (Benz 2026-11-09: "อยากเห็นเดี๋ยวนี้").
+ * Products with a passed caption and a passed NEW image (made for the room, never a picture of a current ad: Benz
+ * 2026-11-09 "ทำใหม่หมดเลย ทั้งภาพทั้งแคปชั่น") and no set in the last `days` days get one. Approved by itself if
+ * the AI finds picture and caption agree; on a clash the caption is rewritten once to fit the picture.
  */
-async function bestRealImage(db: D1Database, code: string): Promise<number | null> {
-  const r = await db.prepare(
-    `SELECT c.id, (SELECT count(*) FROM creative_judgements j WHERE j.winner_id = c.id) - (SELECT count(*) FROM creative_judgements j WHERE j.winner_id IS NOT NULL AND j.winner_id != c.id AND c.id IN (j.a_id, j.b_id)) AS score
-     FROM creative_candidates c WHERE c.kind = 'image' AND c.code = ?1 AND c.hook = 'real' AND c.status = 'open' AND c.full IS NOT NULL ORDER BY score DESC, c.id DESC LIMIT 1`,
-  ).bind(code).first<{ id: number }>();
-  return r?.id ?? null;
-}
-
-/**
- * Products with a passed caption and no set in the last `days` days get one: the best passed new image, else the
- * best picture of its current ads. Approved by itself if the AI finds picture and caption agree.
- */
-export async function autoSets(env: StudioEnv, days: number, limit = 2): Promise<{ code: string; set_id: number; approved: boolean; real_image: boolean }[]> {
+export async function autoSets(env: StudioEnv, days: number, limit = 2): Promise<{ code: string; set_id: number; approved: boolean }[]> {
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
-  const out: { code: string; set_id: number; approved: boolean; real_image: boolean }[] = [];
+  const out: { code: string; set_id: number; approved: boolean }[] = [];
   for (const r of await readyProducts(env.DB)) {
     if (out.length >= limit) break;
-    if (!r.captions) continue;
+    if (!r.captions || !r.images) continue;
     const recent = await env.DB.prepare(`SELECT 1 FROM creative_sets WHERE code = ?1 AND created_at > ?2 AND status != 'rejected' LIMIT 1`).bind(r.code, since).first();
     if (recent) continue;
     const p = await passedFor(env.DB, r.code);
-    const imageId = p.images[0]?.id ?? (await bestRealImage(env.DB, r.code));
-    if (!imageId) continue;
-    // A current-ad picture has its own price/promo printed on it: the caption is written from the picture.
-    const captionId = p.images[0] ? p.captions[0].id : (await captionForPicture(env, r.code, imageId).catch(() => null)) ?? p.captions[0].id;
-    let set = await createSet(env, { caption_id: captionId, image_id: imageId }, 'auto');
+    const imageId = p.images[0].id;
+    let set = await createSet(env, { caption_id: p.captions[0].id, image_id: imageId }, 'auto');
     let check = set.ai_note ? JSON.parse(set.ai_note) as { match: boolean; issues: string } : null;
-    // One rewrite when the check found a clash on a current-ad picture: the issues go back to the writer.
-    if (!p.images[0] && check && !check.match) {
+    // One rewrite when the check found a clash (price/promo/model on the picture): the issues go back to the writer.
+    if (check && !check.match) {
       const fixed = await captionForPicture(env, r.code, imageId, { text: set.caption_text, issues: check.issues }).catch(() => null);
       if (fixed) {
         await decideSet(env.DB, set.id, 'rejected', 'auto (แก้แคปชันแล้วตรวจใหม่)');
@@ -138,7 +124,7 @@ export async function autoSets(env: StudioEnv, days: number, limit = 2): Promise
       }
     }
     if (check?.match) await decideSet(env.DB, set.id, 'approved', 'auto (AI ตรวจว่าภาพกับแคปชันตรงกัน)');
-    out.push({ code: r.code, set_id: set.id, approved: !!check?.match, real_image: !p.images[0] });
+    out.push({ code: r.code, set_id: set.id, approved: !!check?.match });
   }
   return out;
 }
@@ -222,7 +208,7 @@ export function proposalText(s: { id: number; code: string; caption_text: string
     `📣 ${mention ? `${mention} ` : ''}**เสนอลงโพสต์ใหม่ + เทสแอด** สินค้า **${s.code}** (ชุด#${s.id} จากห้องฝึก ผ่าน AI กรรมการแล้ว)`,
     t ? `กดอนุมัติแล้วระบบจะ: คัดลอกชุดโฆษณาจากแคม "${t.campaign_name}" (แอดของ ${s.code} ที่ใช้เงินมากสุด) เป็นแคมใหม่ "${t.campaign_name} (Grok)" · แอดใหม่ "${s.code} ชุด#${s.id} (Grok)" · งบ **${cfg.budget} บาท/วัน** · **${cfg.days} วัน** แล้วหยุดเอง และสรุปผลในห้องนี้`
       : `⚠️ ยังไม่มีแอดที่ยิงอยู่ของ ${s.code} ให้ใช้เป็นต้นแบบ กดอนุมัติแล้วจะยังสร้างไม่ได้`,
-    s.real_image ? '🖼 ภาพ: ภาพจากแอดที่ยิงอยู่แล้ว (ยังไม่มีภาพใหม่ที่ผ่าน) — รอบนี้ทดสอบแคปชันใหม่บนภาพเดิม' : '🖼 ภาพ: ภาพใหม่จากห้องฝึก (ผ่าน AI กรรมการ)',
+    '🖼 ภาพใหม่ (ทำใน ChatGPT ผ่าน AI กรรมการ) + แคปชันใหม่จากห้องฝึก',
     '**แคปชัน:**', s.caption_text.slice(0, 1200),
   ].join('\n').slice(0, 1990);
 }
@@ -238,7 +224,7 @@ export async function proposeStep(env: ProposeEnv, cfg: StudioAds, limit = 2): P
   const { results: sets } = await env.DB.prepare(
     `SELECT s.id, s.code, s.caption_text, s.image_id, c.hook = 'real' AS real_image FROM creative_sets s LEFT JOIN grok_ads g ON g.set_id = s.id
      JOIN creative_candidates c ON c.id = s.image_id
-     WHERE s.status = 'approved' AND g.set_id IS NULL ORDER BY s.id LIMIT ?1`,
+     WHERE s.status = 'approved' AND g.set_id IS NULL AND c.hook != 'real' ORDER BY s.id LIMIT ?1`,
   ).bind(limit).all<{ id: number; code: string; caption_text: string; image_id: number; real_image: number }>();
   const mention = (env.DISCORD_DECIDER_IDS ?? '').split(',').map((x) => x.trim()).filter(Boolean).map((id) => `<@${id}>`).join(' ');
   let n = 0;
@@ -320,4 +306,10 @@ export async function stopExpired(env: StudioEnv, meta: GrokMeta | null, stats: 
 
 export async function listGrokAds(db: D1Database) {
   return (await db.prepare(`SELECT * FROM grok_ads ORDER BY set_id DESC LIMIT 50`).all()).results;
+}
+
+/** Takes a proposal back (it was wrong to ask): status withdrawn; the caller edits the Discord message. */
+export async function withdraw(db: D1Database, setId: number, who: string): Promise<string | null> {
+  const r = await db.prepare(`UPDATE grok_ads SET status = 'withdrawn', decided_by = ?2 WHERE set_id = ?1 AND status IN ('proposed', 'failed') RETURNING message_id`).bind(setId, who).first<{ message_id: string | null }>();
+  return r ? r.message_id ?? '' : null;
 }

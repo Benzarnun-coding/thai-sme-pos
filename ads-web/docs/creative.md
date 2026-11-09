@@ -141,11 +141,11 @@ settings key `studio_ads` {budget 100, days 14, max_active 3}. Runs in the 3-hou
    link, the browser resizes and uploads as before, the AI check runs on upload). No image API, no extra cost.
 2. **AI image judge** (`aiJudgeImages`, ≤ 3 Claude calls a run): two images of one product + the real product photo,
    blind, one line why (`note`). A passed image = ≥ 1 win, no more losses, AI check not "fail" (`passedFor`).
-3. **Sets by themselves** (`autoSets`, ≤ 2 a run, 1 per "ตรวจ/เสนอตอนนี้"): a product with a passed caption and no set
-   in the last 14 days gets one: the best passed new image, else the best picture of its current ads (`bestRealImage`,
-   Benz 2026-11-09: a first test today; that picture has its own price/promo printed on it, so the caption is
-   written from the picture by `captionForPicture` in the live playbook's style; the proposal says which); approved by `auto`
-   when `checkSet` says picture and caption agree.
+3. **Sets by themselves** (`autoSets`, ≤ 2 a run, 1 per "ตรวจ/เสนอตอนนี้"): a product with a passed caption and a
+   passed NEW image (never a picture of a current ad: Benz 2026-11-09 "ทำใหม่หมดเลย ทั้งภาพทั้งแคปชั่น") and no set in
+   the last 14 days gets one; approved by `auto` when `checkSet` says picture and caption agree, else the caption is
+   rewritten once from the picture with the check's issues (`captionForPicture`) and checked again. The first three
+   proposals (sets 4–6, 2026-11-09) used current-ad pictures before this rule; Benz kept them to try.
 4. **Proposal** (`proposeStep`): each approved set is posted once in #studio-training (`DISCORD_STUDIO_CHANNEL_ID`)
    with the picture attached, the caption, what will be created, Max tagged (`DISCORD_DECIDER_IDS`), buttons
    `grokad:<set>:yes|no`. Only `DISCORD_APPROVER_IDS` (Max, Benz) may press; kill switch refuses ✅.
