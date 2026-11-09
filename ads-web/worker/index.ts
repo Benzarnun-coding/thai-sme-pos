@@ -1030,6 +1030,18 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
   // "ตรวจ/เสนอตอนนี้": one set at a time, so a press proposes at most one post.
   // Runs inside the request (a waitUntil gets ~30 s after the reply, too short for 5–6 Claude calls).
+  // Half-made "(Grok)" campaigns (paused, no ad set): GET lists them, POST {ids} deletes those ids if still empty.
+  if (path === '/api/grok-ads/empty-campaigns' && (method === 'GET' || method === 'POST')) {
+    const meta = metaFor(env) as any;
+    const empty: { id: string; name: string }[] = await meta.emptyGrokCampaigns();
+    if (method === 'GET') return json({ campaigns: empty });
+    const b = await body();
+    const want = new Set((Array.isArray(b?.ids) ? b.ids : []).map(String));
+    const del = empty.filter((c) => want.has(c.id));
+    for (const c of del) await meta.deleteCampaign(c.id);
+    await audit(env.DB, user, 'grokad.cleanup', 'campaigns', { deleted: del });
+    return json({ deleted: del, skipped: [...want].filter((id) => !del.some((c) => c.id === id)) });
+  }
   // Put 🔁 / ❌ back on failed proposals (owners/admins), e.g. after a fix was deployed.
   if (path === '/api/grok-ads/retry-buttons' && method === 'POST') {
     const { results } = await env.DB.prepare(`SELECT set_id, message_id FROM grok_ads WHERE status = 'failed' AND message_id IS NOT NULL`).all<{ set_id: number; message_id: string }>();

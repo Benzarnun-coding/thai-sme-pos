@@ -365,6 +365,20 @@ export class MetaClient {
     return String(r.id);
   }
 
+  /** Paused campaigns named "… (Grok)" with no ad set: what a half-made "(Grok)" launch leaves behind. */
+  async emptyGrokCampaigns(): Promise<{ id: string; name: string }[]> {
+    const rows = await this.getAll(`${this.accountId}/campaigns`, {
+      fields: 'id,name,effective_status,adsets.limit(1){id}',
+      filtering: JSON.stringify([{ field: 'name', operator: 'CONTAIN', value: '(Grok)' }]),
+    });
+    return rows.filter((c: any) => /\(Grok\)\s*$/.test(String(c.name)) && c.effective_status === 'PAUSED' && !(c.adsets?.data ?? []).length)
+      .map((c: any) => ({ id: String(c.id), name: String(c.name) }));
+  }
+
+  async deleteCampaign(id: string): Promise<void> {
+    await this.post(id, { status: 'DELETED' });
+  }
+
   /** Uploads a picture (base64) to the ad account's image library; returns its hash. */
   async uploadImage(base64: string): Promise<string> {
     const r = await this.post(`${this.accountId}/adimages`, { bytes: base64 });
