@@ -928,6 +928,18 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     if (r.made || r.judged) await audit(env.DB, user, 'studio.trial.step', r.made?.code ?? 'judge', { ...r.made, judged: r.judged, ...r.tokens });
     return json({ ...r, trial_result: r.judged ? await settleTrial(env, user) : null });
   }
+  // One test message to #studio-training, to check the bot may post there (Benz 2026-11-09).
+  if (path === '/api/studio/trial/discord-test' && method === 'POST') {
+    const channel = env.DISCORD_STUDIO_CHANNEL_ID;
+    if (!env.DISCORD_BOT_TOKEN || !channel) throw new BadRequest('ยังไม่ได้ตั้ง DISCORD_BOT_TOKEN / DISCORD_STUDIO_CHANNEL_ID');
+    const res = await fetch(`https://discord.com/api/v10/channels/${channel}/messages`, {
+      method: 'POST', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: '🧪 **ข้อความทดสอบ** ห้องนี้จะได้ผลทดสอบคู่มือแคปชันของห้องฝึก: ทุกครั้งที่คู่มือใหม่ครบ 20 คู่ จะบอกว่าชนะหรือแพ้ฉบับเดิม และใช้ฉบับไหนต่อ', allowed_mentions: { parse: [] } }),
+    });
+    const detail: any = await res.json().catch(() => ({}));
+    await audit(env.DB, user, 'studio.trial.discord_test', channel, { status: res.status });
+    return json({ ok: res.ok, status: res.status, error: res.ok ? null : detail?.message ?? null });
+  }
   if (path === '/api/studio/trial/stop' && method === 'POST') { await trial.stopTrial(env.DB); await audit(env.DB, user, 'studio.trial.stop', 'playbook', {}); return json({ ok: true }); }
   if (path === '/api/studio/playbook/undo' && method === 'POST') { const id = await trial.undoPlaybook(env.DB, user); await audit(env.DB, user, 'studio.playbook.undo', String(id), {}); return json({ id }); }
   if (path === '/api/studio/stats' && method === 'GET') return json(await studio.stats(env.DB));
