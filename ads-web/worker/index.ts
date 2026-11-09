@@ -1922,8 +1922,9 @@ async function kbReminder(env: Env, test = false): Promise<string | void> {
 async function kbFormSubmit(i: any, env: Env, ctx: ExecutionContext): Promise<Response> {
   const who = i.member?.user?.global_name || i.member?.user?.username || i.user?.username || 'ไม่ทราบชื่อ';
   const userId = String(i.member?.user?.id ?? i.user?.id ?? '');
-  const approvers = idList(env.DISCORD_APPROVER_IDS);
-  if (approvers.length && !approvers.includes(userId)) return json({ type: 4, data: { content: 'ปุ่มนี้ให้กดได้เฉพาะคุณเบ้นกับคุณแม็กซ์นะคะ 🙏', flags: 64 } });
+  // Same people as the ✅/✏️/❌ buttons: approvers + the bot updaters (Fear).
+  const allowed = [...idList(env.DISCORD_APPROVER_IDS), ...idList(env.DISCORD_KB_UPDATER_IDS)];
+  if (allowed.length && !allowed.includes(userId)) return json({ type: 4, data: { content: 'ปุ่มนี้ให้กดได้เฉพาะคุณเบ้น คุณแม็กซ์ และคนอัปเดตบอทนะคะ 🙏', flags: 64 } });
   const id = Number(String(i.data.custom_id).slice(7));
   const it = await env.DB.prepare('SELECT * FROM bot_kb WHERE id = ?').bind(id).first<KbItem>();
   if (!it || it.status === 'applied' || it.status === 'rejected') return json({ type: 4, data: { content: 'ข้อนี้ตัดสินไปแล้วค่ะ', flags: 64 } });
@@ -2274,6 +2275,8 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
   const userId = String(i.member?.user?.id ?? i.user?.id ?? '');
   const approvers = idList(env.DISCORD_APPROVER_IDS);
   const [verb0, arg0] = String(i.data?.custom_id ?? '').split(':');
+  // Answer-bank decisions (✅ ใส่คลัง / ✏️ แก้ / ❌ ไม่ใช้): approvers + the bot updaters (Fear, Benz 2026-11-09).
+  const kbDeciders = [...approvers, ...idList(env.DISCORD_KB_UPDATER_IDS)];
   if (verb0 === 'kbapplied') {
     const allowed = [...approvers, ...idList(env.DISCORD_KB_UPDATER_IDS)];
     if (allowed.length && !allowed.includes(userId)) return json({ type: 4, data: { content: `ปุ่มนี้สำหรับคนอัปเดตบอทค่ะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
@@ -2304,13 +2307,13 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
     return json({ type: 7, data: { content: `${before}\n↩️ **เอาออกจากบอทแล้ว** — ${who} (แก้ใหม่ได้ที่ https://pkjeans-ads.ads-web.workers.dev/botkb)`.slice(0, 2000), components: [] } });
   }
   if (verb0 === 'kbedit') {
-    if (approvers.length && !approvers.includes(userId)) return json({ type: 4, data: { content: `ขอโทษค่ะ ปุ่มนี้ให้กดได้เฉพาะคุณเบ้นกับคุณแม็กซ์นะคะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
+    if (kbDeciders.length && !kbDeciders.includes(userId)) return json({ type: 4, data: { content: `ขอโทษค่ะ ปุ่มนี้ให้กดได้เฉพาะคุณเบ้น คุณแม็กซ์ และคนอัปเดตบอทนะคะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
     const it = await env.DB.prepare('SELECT * FROM bot_kb WHERE id = ?').bind(Number(arg0)).first<KbItem>();
     if (!it || it.status === 'applied' || it.status === 'rejected') return json({ type: 4, data: { content: 'ข้อนี้ตัดสินไปแล้วค่ะ — แก้ต่อได้ที่ https://pkjeans-ads.ads-web.workers.dev/botkb', flags: 64 } });
     return json({ type: 9, data: kbModal(it) });
   }
   if (verb0 === 'kbok' || verb0 === 'kbno') {
-    if (approvers.length && !approvers.includes(userId)) return json({ type: 4, data: { content: `ขอโทษค่ะ ปุ่มนี้ให้กดได้เฉพาะคุณเบ้นกับคุณแม็กซ์นะคะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
+    if (kbDeciders.length && !kbDeciders.includes(userId)) return json({ type: 4, data: { content: `ขอโทษค่ะ ปุ่มนี้ให้กดได้เฉพาะคุณเบ้น คุณแม็กซ์ และคนอัปเดตบอทนะคะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
     const it = await setKbStatus(env.DB, Number(arg0), verb0 === 'kbok' ? 'approved' : 'rejected', `discord:${who}`);
     if (!it) return json({ type: 7, data: { content: 'ข้อนี้ใส่บอทไปแล้ว หรือไม่พบแล้วค่ะ', components: [] } });
     const m = kbMessage(it, '');

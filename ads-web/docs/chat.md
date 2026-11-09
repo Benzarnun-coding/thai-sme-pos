@@ -47,7 +47,7 @@ Meta has no API for Business AI's settings, so a person pastes the answers in.
 
 - **Mon/Thu 08:00** (after the rule run):
   - The AI reads the chats since the last round and proposes up to 8 fixes: where the bot was wrong, promised a discount, or should have handed over.
-  - Each fix is posted by the bot in #meta-chat (`DISCORD_CHAT_CHANNEL_ID`) with ✅ / ✏️ แก้/อธิบายเพิ่ม / ❌ buttons (`kbok` / `kbedit` / `kbno`). Only `DISCORD_APPROVER_IDS` (Benz, Max) can press them.
+  - Each fix is posted by the bot in #meta-chat (`DISCORD_CHAT_CHANNEL_ID`) with ✅ / ✏️ แก้/อธิบายเพิ่ม / ❌ buttons (`kbok` / `kbedit` / `kbno`). `DISCORD_APPROVER_IDS` (Benz, Max) and `DISCORD_KB_UPDATER_IDS` (Fear, from 2026-11-09) can press them; the ad approval buttons stay Benz/Max only.
   - ✏️ (Benz 23 Oct: not just yes/no) opens a Discord form (`kbModal`). It has the answer and rule filled in, plus "อธิบายเพิ่ม".
     - Edited text only: approved as typed and written to the Doc. One press.
     - With an explanation: อูนิ rewrites the answer from it (`rewriteKb`; the team's facts win, costs are stated, no "ทีมต้องยืนยัน").
