@@ -153,6 +153,12 @@ are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,4
   themselves; a starting balance is owner/admin only.
 - รับของเข้า at พี่เปีย (idea #16, มอส): the same SKUs are also cut from PK's stock (`out`, ref `pia-in:…`, once PK has a starting
   balance; SKUs PK doesn't keep are left alone); deleting the typed receipt deletes that cut too (`cutPkForPia`).
+- Shops (idea #25, Moss): tabs AR / BB / BBW / BT / GG / Clima(CM) / CN, one place per catalog tab (`SHOP_LOCS`,
+  `web/src/stockLocs.ts`), BB = every BB supplier as one. Any SKU of the tab; no starting balance — "รับของเข้า" /
+  "ปรับยอด" search the catalog tab and save moves. A saved round cuts a shop for its rows (`purchase_lines.tab`) that are
+  not in พี่เปีย / GoSell / เก็บตกแทน, only for SKUs with stock entered on or before the round's day, less "ของไม่มี"
+  (`syncPlace`, same once-per-order+SKU rule). The order page shows a คงเหลือ column + "ตัดจากสต็อก" on those rows.
+  No forecast / returns for shops yet.
 - Starting balance: the sheet's "Stock คงเหลือ" on 2026-10-15 after the noon round (pia 540, gosell 811; sizes at 0
   left out), loaded once; cutting from the order sheets starts with rounds of 2026-10-16. The sheet is retired after that.
 - Forecast (`web/src/forecast.ts`, Benz 2026-10-15 "ตาม trend"): each cell shows how many days the balance lasts, and a

@@ -1,6 +1,7 @@
 // Typed client for the Worker API. Types mirror worker/model.ts and ads-engine/src/types.ts (the UI never imports worker code).
 import type { MoneyMap, MpOrder, Platform } from './money.ts';
 import type { WebSku } from './catalog.ts';
+import type { ShopLoc } from './stockLocs.ts';
 
 export type Level = 'campaign' | 'adset';
 export type Window = 'today' | 'yesterday' | 'last_3d' | 'last_7d' | 'last_14d' | 'last_30d';
@@ -345,7 +346,7 @@ export interface ProfitData {
 export interface ImportMap { signature: string; map: MoneyMap; platform: Platform | 'auto'; updated_by: string; updated_at: string }
 /** /catalog/stock: our own stock at พี่เปีย's BB branch ('pia') and in GoSell's warehouse ('gosell'). */
 export interface StockReturnRow { id: number; loc: StockLoc; sku: string; qty: number; track_tail: string; status: 'pending' | 'approved' | 'rejected'; created_by: string; created_at: string; decided_by: string | null; decided_at: string | null }
-export type StockLoc = 'pia' | 'gosell' | 'pk';
+export type StockLoc = 'pia' | 'gosell' | 'pk' | ShopLoc;
 export interface StockItem { sku: string; code: string; size: string; sort: number; locs: StockLoc[] }
 export interface StockMove { id: number; loc: StockLoc; sku: string; qty: number; kind: 'open' | 'in' | 'out' | 'adjust'; ref: string; date: string; note: string; created_by: string; created_at: string }
 export interface StockData {
@@ -355,6 +356,8 @@ export interface StockData {
   moves: StockMove[];
   cut: { loc: StockLoc; order_no: string; sku: string; ref: string }[];
   links: { loc: StockLoc; sku: string; stock_sku: string }[];
+  /** The shops' SKUs that have stock entries (AR / BB / … tabs) */
+  shops: { loc: StockLoc; sku: string; code: string | null; name: string | null; color: string | null; size: string | null }[];
 }
 export interface GosellCut { cut: { sku: string; qty: number }[]; orders: number; already: number; other: number }
 /** A round's item that is not from the Bigseller file: a Facebook order line (Page365) or a line typed by hand. */

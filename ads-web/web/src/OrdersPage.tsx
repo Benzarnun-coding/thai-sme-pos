@@ -4,6 +4,7 @@
 // Who supplies a product can be changed right here; it is saved for that product and used every day after.
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
+import { isShopLoc, shopLocOfTab } from './stockLocs.ts';
 import { api, type CatalogAlias, type FoundOrder, type LedgerRow, type PurchaseUpload, type PurchaseExtra, type SavedPurchaseLine, type StockData } from './api.ts';
 import { SkuMatch } from './SkuMatch.tsx';
 import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from './catalog.ts';
@@ -159,8 +160,15 @@ export function OrdersApp() {
     const bal = (loc: string) => new Map((stock?.balances ?? []).filter((b) => b.loc === loc).map((b) => [b.sku, b.qty]));
     const pia = bal('pia'), gs = bal('gosell');
     const link = new Map((stock?.links ?? []).filter((k) => k.loc === 'pia').map((k) => [k.sku, k.stock_sku]));
-    return (group: string, sku: string): number | null =>
-      group === STOCK_GROUP ? pia.get(link.get(sku) ?? sku) ?? null : group === GOSELL_GROUP ? gs.get(sku) ?? null : null;
+    // The shops' tabs (AR / BB / …): rows of any other sheet whose SKU has stock entered at its tab's place.
+    const shop = new Map((stock?.balances ?? []).filter((b) => isShopLoc(b.loc)).map((b) => [`${b.loc}|${b.sku}`, b.qty]));
+    return (group: string, sku: string, tab = ''): number | null => {
+      if (group === STOCK_GROUP) return pia.get(link.get(sku) ?? sku) ?? null;
+      if (group === GOSELL_GROUP) return gs.get(sku) ?? null;
+      if (group === MISSING_GROUP) return null;
+      const loc = shopLocOfTab(tab);
+      return loc ? shop.get(`${loc}|${sku}`) ?? null : null;
+    };
   }, [stock]);
   const warehouses = useMemo(() => new Set([...(meta?.tabs ?? []).map((t) => t.tab), ...(stock?.items.length ? [STOCK_GROUP, GOSELL_GROUP] : [])]), [meta?.tabs, stock?.items.length]);
   // Moves (out of stock → another supplier, ตรวจสอบ rows …) apply to a new upload and to a round reopened from history.
@@ -608,7 +616,7 @@ export function OrdersApp() {
               canRemember={canEdit} movable={!viewing || canEdit} targets={targets} onMove={moveLine}
               matchRows={allRows} onMatched={canEdit ? (a) => setMeta((m) => (m ? { ...m, aliases: [a, ...m.aliases.filter((x) => x.alias !== a.alias)] } : m)) : null}
               ours={ours} onReplace={canEdit ? replaceSku : null} onUnmerge={canEdit ? unmerge : null}
-              onSupplier={setSupplier} onHand={(sku) => onHandOf(g.name, sku)} onExcel={() => exportExcel(g)} onPrint={() => print(g)} busy={!!busy}
+              onSupplier={setSupplier} onHand={(sku, tab) => onHandOf(g.name, sku, tab)} onExcel={() => exportExcel(g)} onPrint={() => print(g)} busy={!!busy}
               onPictures={() => { save(); setPictures(g); }}
               shopRows={allRows} lookup={lookup} onAddHere={viewing ? null : addManual}
             />
@@ -729,9 +737,13 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
   canRemember: boolean; movable: boolean; targets: string[]; onMove: (l: PurchaseLine, to: string) => void;
   matchRows: CatalogRow[]; onMatched: ((a: CatalogAlias) => void) | null;
   ours: Map<string, Map<string, string>>; onReplace: ((from: string, to: string) => Promise<void>) | null; onUnmerge: ((from: string) => Promise<void>) | null;
-  onSupplier: (items: { tab: string; spu: string }[], shop: string) => Promise<void>; onHand: (sku: string) => number | null; onExcel: () => void; onPrint: () => void; onPictures: () => void; busy: boolean;
+  onSupplier: (items: { tab: string; spu: string }[], shop: string) => Promise<void>; onHand: (sku: string, tab: string) => number | null; onExcel: () => void; onPrint: () => void; onPictures: () => void; busy: boolean;
 }) {
   const rowsOnSheet = sheetRows(g).length;
+  // our own stock groups, or a shop's sheet where some SKUs have stock entered (cut from it when the round is saved)
+  const ownStock = g.name === STOCK_GROUP || g.name === GOSELL_GROUP;
+  const shopStock = !ownStock && g.lines.some((l) => onHand(l.sku, l.tab) != null);
+  const showStock = ownStock || shopStock;
   const products = useMemo(() => {
     const seen = new Map<string, { tab: string; spu: string }>();
     for (const l of g.lines) if (l.kind !== 'review' && l.tab && !seen.has(`${l.tab}|${spuOf(l.sku)}`)) seen.set(`${l.tab}|${spuOf(l.sku)}`, { tab: l.tab, spu: spuOf(l.sku) });
@@ -829,7 +841,7 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
               <thead>
                 <tr>
                   {movable && g.lines.length > 1 && <th className="center"><input type="checkbox" aria-label="เลือกทั้งหมดในกลุ่ม" checked={pickedLines.length === g.lines.length} onChange={(e) => setPicked(e.target.checked ? new Set(g.lines.map((l) => l.sku)) : new Set())} /></th>}
-                  <th>{g.kind === 'review' ? 'SKU ใน Bigseller' : 'รหัสสินค้า'}</th><th>ไซส์</th><th className="num">จำนวน</th>{(g.name === STOCK_GROUP || g.name === GOSELL_GROUP) && <th className="num" title="ยอดสต็อกตอนนี้ (จากหน้าสต็อก)">คงเหลือ</th>}
+                  <th>{g.kind === 'review' ? 'SKU ใน Bigseller' : 'รหัสสินค้า'}</th><th>ไซส์</th><th className="num">จำนวน</th>{showStock && <th className="num" title="ยอดสต็อกตอนนี้ (จากหน้าสต็อก)">คงเหลือ</th>}
                   <th>{g.kind === 'review' ? 'ปัญหา / ตัวเลือกสินค้า' : 'SKU'}</th><th>ร้านขาย · เลขคำสั่งซื้อ</th>
                   {g.kind !== 'review' && <th className="center">ของไม่มี</th>}
                   {g.kind !== 'review' && <th className="num po-internal" title="ภายใน ไม่ส่งร้าน">ทุน/ตัว</th>}
@@ -847,7 +859,7 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
                       <td><LabelCell line={l} strong={!!firstOfProduct || g.kind === 'review'} onSave={onLabel(l) ? (text, onlySize) => onLabel(l)!(l, text, onlySize) : null} ours={ours} onReplace={onReplace} onUnmerge={onUnmerge} /></td>
                       <td>{l.size || '—'}</td>
                       <td className="num"><b>{num(l.qty)}</b></td>
-                      {(g.name === STOCK_GROUP || g.name === GOSELL_GROUP) && <td className="num">{onHand(l.sku) != null ? num(onHand(l.sku)!) : <span className="muted">—</span>}</td>}
+                      {showStock && <td className="num">{onHand(l.sku, l.tab) != null ? <>{num(onHand(l.sku, l.tab)!)}{shopStock && <div className="small muted" title="ใบนี้ตัดจากสต็อกร้านเมื่อบันทึก">ตัดจากสต็อก</div>}</> : <span className="muted">—</span>}</td>}
                       <td className="small">
                         {g.kind === 'review' ? l.note : <>
                           <code>{l.sku.startsWith('?') ? '(ไม่มี SKU)' : l.sku}</code>

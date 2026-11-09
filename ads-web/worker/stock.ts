@@ -4,6 +4,9 @@
 //           is there, or moved by hand), each order + SKU once (stock_orders), less pieces ticked "ของไม่มี".
 //           Only rounds after the day of the starting balance count (the sheet covered the days before).
 //   gosell: cut by a button after a GoSell file (the page sends order + SKU + qty; each order + SKU once).
+//   shops:  AR / BB / BBW / BT / GG / CM / CN (idea #25): one place per catalog tab, any SKU of the tab, no starting
+//           balance (typed received / counted); rows of the tab on a saved round cut it, only for SKUs that already
+//           have stock entered, and not rows moved to พี่เปีย / GoSell / เก็บตกแทน.
 //   pk:     our PK warehouse (2026-10-19): every size of our own codes, cut by the order sheets' "PK" sheet the same way.
 // Which place keeps which SKU: stock_locs. A sold SKU cut from another SKU's stock: stock_links (601/1–3 → 501/1–3 at
 // พี่เปีย). The order sheets' Facebook orders and typed lines (purchase_uploads.extra) are cut too.
@@ -11,8 +14,9 @@
 
 import { cleanSku, cleanText } from '../web/src/catalog.ts';
 import { BadRequest } from './validate.ts';
+import { isShopLoc, SHOP_LOCS, shopTab } from '../web/src/stockLocs.ts';
 
-export const LOCS = ['pia', 'gosell', 'pk'] as const;
+export const LOCS = ['pia', 'gosell', 'pk', ...SHOP_LOCS] as const;
 export type Loc = (typeof LOCS)[number];
 /** The order-sheet group that is the พี่เปีย branch (same as the page's STOCK_GROUP). */
 export const STOCK_GROUP = 'พี่เปีย';
@@ -34,6 +38,8 @@ export interface StockData {
   cut: { loc: Loc; order_no: string; sku: string; ref: string }[];
   /** Sold SKU → the SKU whose stock it is cut from, per place */
   links: { loc: Loc; sku: string; stock_sku: string }[];
+  /** The shops' SKUs that have stock entries, with what the catalog says about them */
+  shops: { loc: Loc; sku: string; code: string; name: string; color: string; size: string }[];
 }
 
 const today = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
@@ -41,7 +47,7 @@ const minus = (iso: string, d: number) => new Date(Date.parse(iso) - d * 86400_0
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function stockData(db: D1Database): Promise<StockData> {
-  const [items, balances, start, moves, cut, links] = await db.batch([
+  const [items, balances, start, moves, cut, links, shops] = await db.batch([
     db.prepare('SELECT i.sku, i.code, i.size, i.sort, GROUP_CONCAT(m.loc) AS locs FROM stock_items i JOIN stock_locs m ON m.sku = i.sku GROUP BY i.sku ORDER BY i.sort'),
     db.prepare('SELECT loc, sku, SUM(qty) AS qty FROM stock_moves GROUP BY loc, sku'),
     db.prepare("SELECT loc, MAX(date) AS date FROM stock_moves WHERE kind = 'open' GROUP BY loc"),
@@ -51,10 +57,15 @@ export async function stockData(db: D1Database): Promise<StockData> {
        WHERE s.ref >= ?1 OR s.ref LIKE 'gosell:%'`,
     ).bind(minus(today(), 14)),
     db.prepare('SELECT loc, sku, stock_sku FROM stock_links'),
+    db.prepare(
+      `SELECT m.loc, m.sku, c.code, c.name, c.color, c.size FROM (SELECT DISTINCT loc, sku FROM stock_moves WHERE loc IN (SELECT value FROM json_each(?1))) m
+       LEFT JOIN catalog c ON c.tab = upper(m.loc) AND c.sku = m.sku ORDER BY m.loc, c.pos`,
+    ).bind(JSON.stringify(SHOP_LOCS)),
   ]);
   return {
     items: (items.results as (Omit<StockItem, 'locs'> & { locs: string })[]).map((i) => ({ ...i, locs: i.locs.split(',') as Loc[] })),
     links: links.results as StockData['links'],
+    shops: shops.results as StockData['shops'],
     balances: (balances.results as StockData['balances']).map((b) => ({ ...b, qty: Number(b.qty) || 0 })),
     start: Object.fromEntries((start.results as { loc: Loc; date: string }[]).map((r) => [r.loc, r.date])),
     moves: moves.results as StockMove[],
@@ -79,7 +90,9 @@ export function validateMoves(input: any): { loc: Loc; kind: 'in' | 'adjust' | '
 }
 
 export async function saveMoves(db: D1Database, m: ReturnType<typeof validateMoves>, user: string): Promise<number> {
-  const known = new Set(((await db.prepare('SELECT sku FROM stock_locs WHERE loc = ?1').bind(m.loc).all<{ sku: string }>()).results).map((r) => r.sku));
+  const known = new Set(((await (isShopLoc(m.loc)
+    ? db.prepare('SELECT sku FROM catalog WHERE tab = ?1 AND sku IN (SELECT value FROM json_each(?2))').bind(shopTab(m.loc), JSON.stringify(m.items.map((x) => x.sku)))
+    : db.prepare('SELECT sku FROM stock_locs WHERE loc = ?1').bind(m.loc)).all<{ sku: string }>()).results).map((r) => r.sku));
   const bad = m.items.filter((x) => !known.has(x.sku));
   if (bad.length) throw new BadRequest(`ไม่ใช่สินค้าในสต็อก: ${bad.map((x) => x.sku).join(', ')}`);
   const now = new Date().toISOString();
@@ -131,9 +144,15 @@ async function insertMoves(db: D1Database, rows: Omit<StockMove, 'id'>[]): Promi
  */
 export async function syncRoundStock(db: D1Database, uploadId: string, user: string): Promise<void> {
   for (const { loc, group } of SHEET_STOCK) await syncPlace(db, uploadId, user, loc, group);
+  for (const loc of SHOP_LOCS) await syncPlace(db, uploadId, user, loc, shopTab(loc));
 }
 
+/** Groups of our own stock / the missing sheet: rows there are not cut from a shop's stock. */
+const NOT_SHOP_GROUPS = [STOCK_GROUP, 'GoSell', 'เก็บตกแทน'];
+
+/** `group` is an order-sheet group name, or for a shop place the catalog tab its rows come from. */
 async function syncPlace(db: D1Database, uploadId: string, user: string, loc: Loc, group: string): Promise<void> {
+  const shop = isShopLoc(loc);
   const [up, start] = await db.batch([
     db.prepare('SELECT date FROM purchase_uploads WHERE id = ?1').bind(uploadId),
     db.prepare("SELECT MAX(date) AS date FROM stock_moves WHERE loc = ?1 AND kind = 'open'").bind(loc),
@@ -145,7 +164,14 @@ async function syncPlace(db: D1Database, uploadId: string, user: string, loc: Lo
     db.prepare("DELETE FROM stock_moves WHERE loc = ?2 AND kind = 'out' AND ref = ?1").bind(uploadId, loc),
   ];
   // Deleted round, no starting balance yet, or a day the starting balance already covered: nothing to cut.
-  if (!date || !from || date <= from) { await db.batch(clear); return; }
+  if (!date || !DAY.test(date) || (!shop && (!from || date <= from))) { await db.batch(clear); return; }
+  // A shop has no starting balance: its rows are cut only for SKUs that had stock entered on or before the round's day.
+  const inGroup = shop
+    ? `upper(l.tab) = ?2 AND l.kind <> 'review' AND l.grp NOT IN (${NOT_SHOP_GROUPS.map((g) => `'${g}'`).join(', ')})`
+    : 'l.grp = ?2';
+  const kept = (sku: string) => shop
+    ? `EXISTS (SELECT 1 FROM stock_moves s WHERE s.loc = ?3 AND s.sku = ${sku} AND s.kind <> 'out' AND s.date <= '${date}')`
+    : `EXISTS (SELECT 1 FROM stock_locs m WHERE m.loc = ?3 AND m.sku = ${sku})`;
   // An extra item's SKU as the page reads it: through a forced match, or a match of a SKU the catalog doesn't know.
   // `raw` must be qualified (p.sku): a bare "sku" inside these subqueries is catalog_aliases.sku / catalog.sku, which
   // silently skipped every matched SKU (idea #7, 2026-10-21: 501-BB-MD-31 → 5011-PK-MD-31 never cut at พี่เปีย).
@@ -166,18 +192,16 @@ async function syncPlace(db: D1Database, uploadId: string, user: string, loc: Lo
        INSERT OR IGNORE INTO stock_orders (loc, order_no, sku, ref, qty)
        SELECT ?3, it.key, COALESCE(k.stock_sku, l.sku), ?1, SUM(it.qty)
        FROM items it
-       JOIN purchase_lines l ON l.upload_id = ?1 AND upper(l.sku) = it.sku AND l.grp = ?2
+       JOIN purchase_lines l ON l.upload_id = ?1 AND upper(l.sku) = it.sku AND ${inGroup}
        LEFT JOIN stock_links k ON k.loc = ?3 AND k.sku = l.sku
-       JOIN stock_locs m ON m.loc = ?3 AND m.sku = COALESCE(k.stock_sku, l.sku)
-       WHERE it.match IS NULL OR EXISTS (SELECT 1 FROM json_each(l.orders) o WHERE o.value = it.match)
+       WHERE ${kept('COALESCE(k.stock_sku, l.sku)')} AND (it.match IS NULL OR EXISTS (SELECT 1 FROM json_each(l.orders) o WHERE o.value = it.match))
        GROUP BY it.key, COALESCE(k.stock_sku, l.sku)`,
     ).bind(uploadId, group, loc),
     db.prepare('SELECT sku, SUM(qty) AS qty FROM stock_orders WHERE loc = ?2 AND ref = ?1 GROUP BY sku').bind(uploadId, loc),
     db.prepare(
       `SELECT COALESCE(k.stock_sku, l.sku) AS sku, SUM(l.missing) AS missing FROM purchase_lines l
        LEFT JOIN stock_links k ON k.loc = ?3 AND k.sku = l.sku
-       JOIN stock_locs m ON m.loc = ?3 AND m.sku = COALESCE(k.stock_sku, l.sku)
-       WHERE l.upload_id = ?1 AND l.grp = ?2 GROUP BY COALESCE(k.stock_sku, l.sku)`,
+       WHERE l.upload_id = ?1 AND ${inGroup} AND ${kept('COALESCE(k.stock_sku, l.sku)')} GROUP BY COALESCE(k.stock_sku, l.sku)`,
     ).bind(uploadId, group, loc),
   ]);
   const miss = new Map((missing.results as { sku: string; missing: number }[]).map((r) => [r.sku, Number(r.missing) || 0]));
@@ -236,6 +260,7 @@ export async function gosellCut(db: D1Database, input: any, user: string): Promi
 export async function lowStock(db: D1Database, low = 5): Promise<{ loc: Loc; code: string; size: string; qty: number }[]> {
   const { results } = await db.prepare(
     `SELECT m.loc, i.code, i.size, SUM(m.qty) AS qty FROM stock_moves m JOIN stock_items i ON i.sku = m.sku
+     WHERE m.loc IN ('pia', 'gosell', 'pk')
      GROUP BY m.loc, m.sku HAVING SUM(m.qty) <= ?1 ORDER BY m.loc, i.sort`,
   ).bind(low).all<{ loc: Loc; code: string; size: string; qty: number }>();
   return results;

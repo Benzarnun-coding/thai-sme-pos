@@ -82,3 +82,16 @@ test('returns: parcel hash must be sha-256 hex, items positive, place known', ()
   assert.throws(() => validateReturns({ loc: 'pia', parcels: [{ hash: 'abc', items: [{ sku: '5012-PK-NV-30', qty: 1 }] }] }));
   assert.throws(() => validateReturns({ loc: 'pia', parcels: [{ hash, items: [] }] }));
 });
+
+test('shop places are one catalog tab each and accept typed stock', async () => {
+  const { isShopLoc, shopTab, shopLocOfTab, SHOP_LOCS } = await import('../web/src/stockLocs.ts');
+  const { validateMoves, LOCS } = await import('./stock.ts');
+  assert.deepEqual([...SHOP_LOCS], ['ar', 'bb', 'bbw', 'bt', 'gg', 'cm', 'cn']);
+  assert.ok(SHOP_LOCS.every((l) => LOCS.includes(l)));
+  assert.equal(shopTab('cm'), 'CM');
+  assert.equal(shopLocOfTab('BBW'), 'bbw');
+  assert.equal(shopLocOfTab('PK'), null);
+  assert.equal(isShopLoc('pia'), false);
+  const m = validateMoves({ loc: 'bb', kind: 'in', items: [{ sku: '39-BB-MD-34', qty: 6 }] });
+  assert.deepEqual([m.loc, m.items], ['bb', [{ sku: '39-BB-MD-34', qty: 6 }]]);
+});
