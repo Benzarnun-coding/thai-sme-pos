@@ -205,7 +205,7 @@ export function TrainApp() {
           </div>
         )}
         {kind === 'caption' ? (
-          <div className="row gap"><button disabled={busy || !code || !m?.ai} onClick={generate}>{busy ? 'กำลังเขียน…' : '② ให้ AI เขียนแคปชัน 6 แบบ'}</button>{!code && <span className="small muted">เลือกสินค้าในช่อง ① ก่อน ปุ่มนี้จึงกดได้</span>}{!m?.ai && <span className="small warn">ยังไม่ได้ตั้ง ANTHROPIC_API_KEY</span>}</div>
+          <div className="row gap"><button disabled={busy || !code || !m?.ai} onClick={generate}>{busy ? 'กำลังเขียน…' : '② ให้ AI เขียนแคปชัน 6 แบบ'}</button>{!code && <span className="small muted">เลือกสินค้าในช่อง ① ก่อน ปุ่มนี้จึงกดได้</span>}{!m ? <span className="small muted">กำลังโหลด…</span> : !m.ai && <span className="small warn">ยังไม่ได้ตั้ง ANTHROPIC_API_KEY</span>}</div>
         ) : (
           <div className="image-tools">
             {!code && <p className="small warn">เลือกสินค้าในช่อง ① ก่อน ปุ่มขอ prompt และอัปโหลดรูปจึงกดได้ (รูปทุกรูปต้องรู้ว่าเป็นสินค้าตัวไหน)</p>}
