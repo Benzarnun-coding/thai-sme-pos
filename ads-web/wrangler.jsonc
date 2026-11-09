@@ -51,6 +51,8 @@
     "DISCORD_SERVICE_IDS": "1179672160122458124",
     // #meta-chat: bot posts about chats and the answer bank (fixes with buttons, Fear's Monday reminder).
     "DISCORD_CHAT_CHANNEL_ID": "1560180109045014528",
+    // #studio-training: playbook trial results (worker/playbookTrial.ts, Benz 2026-11-09)
+    "DISCORD_STUDIO_CHANNEL_ID": "1569265342369366138",
     // /ไอเดีย feature requests (worker/featureRequests.ts): the forum channel id; empty = off. Deciders (ให้ทำ/ผ่าน) = Benz.
     "DISCORD_REQUEST_CHANNEL_ID": "1562012646394298389",
     "DISCORD_REQUEST_DECIDER_IDS": "869116667945439323",

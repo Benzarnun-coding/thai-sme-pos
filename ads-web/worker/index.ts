@@ -97,6 +97,8 @@ export interface Env {
   GOOGLE_SA_KEY?: string;
   /** #meta-chat: the bot posts everything about chats and the answer bank here (needs View + Send there) */
   DISCORD_CHAT_CHANNEL_ID?: string;
+  /** #studio-training: playbook trial results */
+  DISCORD_STUDIO_CHANNEL_ID?: string;
   /** Discord "service ลูกค้า" (secret webhook URL, the switch) and who answers there (Fear) — worker/serviceAlert.ts */
   DISCORD_SERVICE_WEBHOOK_URL?: string;
   DISCORD_SERVICE_IDS?: string;
@@ -139,12 +141,13 @@ export interface Env {
 }
 
 /** 20:00 Bangkok rule run. */
-/** A playbook trial settles itself at 20 decided pairs (worker/playbookTrial.ts); the result goes to #meta-chat. */
+/** A playbook trial settles itself at 20 decided pairs (worker/playbookTrial.ts); the result goes to #studio-training. */
 async function settleTrial(env: Env, user: string): Promise<trial.TrialResult | null> {
   const settled = await trial.checkTrial(env.DB);
   if (!settled) return null;
   await audit(env.DB, user, `studio.trial.${settled.result}`, String(settled.id), settled);
-  if (env.DISCORD_BOT_TOKEN) await postBot(env, { content: trial.trialMessage(settled, 'https://pkjeans-ads.ads-web.workers.dev') }).catch(() => null);
+  // Posted in #studio-training (Benz 2026-11-09); #meta-chat only if that var is missing.
+  if (env.DISCORD_BOT_TOKEN) await postBot({ ...env, DISCORD_CHAT_CHANNEL_ID: env.DISCORD_STUDIO_CHANNEL_ID || env.DISCORD_CHAT_CHANNEL_ID }, { content: trial.trialMessage(settled, 'https://pkjeans-ads.ads-web.workers.dev') }).catch(() => null);
   return settled;
 }
 

@@ -8,7 +8,7 @@
 //      sell (best ROAS) and the team's liked/disliked examples. People may still judge in /studio/train (nextPair
 //      serves trial pairs first); every vote counts.
 //   4. At TRIAL_PAIRS decided pairs: draft won >= TRIAL_WIN → it goes live by itself; else it is set aside. Either way
-//      a note goes to Discord. "ย้อนกลับฉบับก่อน" on /studio puts the previous version back.
+//      a note goes to Discord #studio-training. "ย้อนกลับฉบับก่อน" on /studio puts the previous version back.
 // Nothing here leaves the room: no Meta, no customers.
 
 import { DEFAULT_PLAYBOOK, REASONS, askClaude, currentPlaybook, generateCaptions, judge, listExamples, listProducts, provenPosts, recommendedProducts, stopTrials, type Candidate, type Playbook, type StudioEnv } from './studio.ts';

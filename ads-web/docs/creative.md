@@ -116,7 +116,7 @@ has to beat the live playbook in the room (`worker/playbookTrial.ts`, migration 
    may still judge on `/studio/train` (`nextPair` serves trial pairs first); every vote counts.
 4. After every caption judgement, `checkTrial`: at `TRIAL_PAIRS` (20) decided pairs (every judge's vote counts),
    draft wins ≥ `TRIAL_WIN` (55%) → `approved_by = 'ทดสอบชนะ'`, live by itself; else `trial = 'lost'`. Result in
-   `trial_result`, audit `studio.trial.won|lost`, a bot note in #meta-chat (`postBot`).
+   `trial_result`, audit `studio.trial.won|lost`, a bot note in #studio-training (`DISCORD_STUDIO_CHANNEL_ID`, Benz 2026-11-09; was #meta-chat).
 5. "ย้อนกลับฉบับก่อน" puts the previous different approved text back as a new version (`undoPlaybook`).
 
 Trial drafts never show as the AI-analysis pending draft (`pendingPlaybook` skips `trial IS NOT NULL`). 20 / 55% /
