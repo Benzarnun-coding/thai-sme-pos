@@ -126,8 +126,17 @@ export async function autoSets(env: StudioEnv, days: number, limit = 2): Promise
     if (!imageId) continue;
     // A current-ad picture has its own price/promo printed on it: the caption is written from the picture.
     const captionId = p.images[0] ? p.captions[0].id : (await captionForPicture(env, r.code, imageId).catch(() => null)) ?? p.captions[0].id;
-    const set = await createSet(env, { caption_id: captionId, image_id: imageId }, 'auto');
-    const check = set.ai_note ? JSON.parse(set.ai_note) as { match: boolean } : null;
+    let set = await createSet(env, { caption_id: captionId, image_id: imageId }, 'auto');
+    let check = set.ai_note ? JSON.parse(set.ai_note) as { match: boolean; issues: string } : null;
+    // One rewrite when the check found a clash on a current-ad picture: the issues go back to the writer.
+    if (!p.images[0] && check && !check.match) {
+      const fixed = await captionForPicture(env, r.code, imageId, { text: set.caption_text, issues: check.issues }).catch(() => null);
+      if (fixed) {
+        await decideSet(env.DB, set.id, 'rejected', 'auto (แก้แคปชันแล้วตรวจใหม่)');
+        set = await createSet(env, { caption_id: fixed, image_id: imageId }, 'auto');
+        check = set.ai_note ? JSON.parse(set.ai_note) : null;
+      }
+    }
     if (check?.match) await decideSet(env.DB, set.id, 'approved', 'auto (AI ตรวจว่าภาพกับแคปชันตรงกัน)');
     out.push({ code: r.code, set_id: set.id, approved: !!check?.match, real_image: !p.images[0] });
   }
@@ -138,7 +147,7 @@ export async function autoSets(env: StudioEnv, days: number, limit = 2): Promise
  * A caption written for one picture: Claude reads the picture (price, promo, colours, model printed on it) and writes
  * one caption in the live playbook's style that says the same. Stored as an AI caption candidate (hook 'price').
  */
-export async function captionForPicture(env: StudioEnv, code: string, imageId: number): Promise<number | null> {
+export async function captionForPicture(env: StudioEnv, code: string, imageId: number, fix?: { text: string; issues: string }): Promise<number | null> {
   const [img, product, playbook] = await Promise.all([
     env.DB.prepare('SELECT full, mime FROM creative_candidates WHERE id = ?1').bind(imageId).first<{ full: ArrayBuffer | number[] | null; mime: string | null }>(),
     listProducts(env.DB, code, true).then((r) => r[0]),
@@ -147,7 +156,7 @@ export async function captionForPicture(env: StudioEnv, code: string, imageId: n
   if (!img?.full || !img.mime || !product) return null;
   const out = await askClaude(env, `คุณเขียนแคปชันโพสต์ขายยีนส์ให้ร้าน PK Jeans ตามคู่มือนี้อย่างเคร่งครัด\n## คู่มือ\n${playbook.text}`, [
     imageBlock(img.full, img.mime),
-    { type: 'text', text: `นี่คือภาพโฆษณาที่จะใช้ (สินค้า ${product.code} ${product.name}) เขียนแคปชัน 1 อันที่ตรงกับสิ่งที่เขียนบนภาพทุกอย่าง: รุ่น ผ้า สี ราคา โปร เงื่อนไข ใช้เฉพาะตัวเลขที่เห็นบนภาพ ถ้าภาพไม่มีราคาให้ใช้: ${product.promo || 'ไม่ระบุราคา'} ห้ามใช้ 🔥 ตอบ JSON เท่านั้น: {"text": "<แคปชัน>"}` },
+    { type: 'text', text: `นี่คือภาพโฆษณาที่จะใช้ (สินค้า ${product.code} ${product.name}) เขียนแคปชัน 1 อันที่ตรงกับสิ่งที่เขียนบนภาพทุกอย่าง: รุ่น ผ้า สี ราคา โปร เงื่อนไข ใช้เฉพาะตัวเลขที่เห็นบนภาพ และเขียนเงื่อนไขโปรให้ตรงกับบนภาพคำต่อคำ (เช่น จำกัดกี่ตัว ราคาปกติ ส่งฟรีหรือไม่) ถ้าภาพไม่มีราคาให้ใช้: ${product.promo || 'ไม่ระบุราคา'} ห้ามใช้ 🔥${fix ? `\nแคปชันก่อนหน้าโดนตีกลับ:\n${fix.text}\nปัญหาที่ต้องแก้: ${fix.issues}` : ''} ตอบ JSON เท่านั้น: {"text": "<แคปชัน>"}` },
   ], 3000, 'medium');
   const m = /\{[\s\S]*\}/.exec(out.text);
   let text = '';
