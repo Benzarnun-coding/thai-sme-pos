@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { HomeLogo, SiteNav } from './SiteNav.tsx';
 import { useUi } from './ui.tsx';
 import { productPictures } from './imageResize.ts';
-import { call, productPic, type Materials, type StudioProduct } from './StudioPage.tsx';
+import { call, productPic, type Materials, type StudioProduct, type Trial } from './StudioPage.tsx';
 
 interface Candidate { id: number; kind: 'caption' | 'image'; code: string; product_name: string; promo: string; hook: string; style_id: number | null; text: string | null; created_by: string; created_at: string; ai_check?: string | null }
 interface ImageCheck { product_match: number; product_issues: string; text_readable: boolean | null; text_issues: string; style_match: number | null; looks_fake: number; verdict: 'pass' | 'check' | 'fail'; summary: string }
@@ -92,6 +92,25 @@ export function TrainApp() {
   const [uploaded, setUploaded] = useState<{ id: number; check: ImageCheck | { error: string } | null }[]>([]);
 
   const loadStats = () => call<Stats>('GET', '/api/studio/stats').then(setStats).catch(() => null);
+  // Playbook trial: while its captions aren't ready, this page asks the Worker for them one batch at a time.
+  const [trial, setTrial] = useState<Trial | null>(null);
+  const [preparing, setPreparing] = useState('');
+  const loadTrial = () => call<{ trial: Trial | null }>('GET', '/api/studio/trial').then((r) => { setTrial(r.trial); return r.trial; }).catch(() => null);
+  useEffect(() => {
+    let stop = false;
+    (async () => {
+      let t = await loadTrial();
+      for (let i = 0; t && !t.ready && !stop && i < 12; i++) {
+        setPreparing(`กำลังให้ AI เขียนแคปชันทดสอบคู่มือใหม่ (${t.products.filter((p) => p.draft >= 5 && p.live >= 5).length}/${t.products.length} สินค้า)…`);
+        const r = await call<{ done: boolean; error?: string }>('POST', '/api/studio/trial/step').catch((e) => ({ done: true, error: e.message as string }));
+        if (r.error) { toast(r.error, 'bad'); break; }
+        t = await loadTrial();
+        if (r.done) break;
+      }
+      if (!stop) { setPreparing(''); loadPair(); }
+    })();
+    return () => { stop = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const loadPair = (k = kind, c = code) => call<{ pair: Pair | null }>('GET', `/api/studio/pair?kind=${k}&code=${encodeURIComponent(c)}`).then((r) => { setPair(r.pair); setEdit(null); }).catch((e) => toast(e.message, 'bad'));
   useEffect(() => { call<Materials>('GET', '/api/studio/materials').then(setM).catch((e) => toast(e.message, 'bad')); loadStats(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { loadPair(); }, [kind, code]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -110,7 +129,9 @@ export function TrainApp() {
     if (!pair) return;
     setBusy(true);
     try {
-      await call('POST', '/api/studio/judge', { a_id: pair.a.id, b_id: pair.b.id, winner_id: winner, reason, edited_text: edit && edit.id === winner ? edit.text : undefined });
+      const res = await call<{ trial: { result: 'won' | 'lost'; wins: number; pairs: number } | null }>('POST', '/api/studio/judge', { a_id: pair.a.id, b_id: pair.b.id, winner_id: winner, reason, edited_text: edit && edit.id === winner ? edit.text : undefined });
+      if (res.trial) toast(res.trial.result === 'won' ? `🧪 คู่มือใหม่ชนะ ${res.trial.wins}/${res.trial.pairs} คู่ — ใช้คู่มือใหม่แล้ว` : `🧪 คู่มือใหม่แพ้ (${res.trial.wins}/${res.trial.pairs}) — ใช้ฉบับเดิมต่อ`, 'info');
+      loadTrial();
       // Revealed only after the vote: which one was the real post running as an ad.
       const real = [pair.a, pair.b].find((c) => c.hook === 'real');
       if (pair.a.kind === 'image') {
@@ -164,6 +185,7 @@ export function TrainApp() {
             <li>ทำวันละ ~10 นาที (แคปชัน ~20 คู่ ภาพ ~10 คู่) · ของที่ผ่านไปประกอบเป็นโพสต์ที่ <a href="/studio/sets">ห้องจับคู่</a></li>
           </ol>
         </details>
+        {(trial || preparing) && <p className="small card trial-box">🧪 <b>กำลังทดสอบคู่มือใหม่</b> (<a href="/studio">ดูร่าง</a>){trial ? <> · ตัดสินแล้ว <b>{trial.pairs}/{trial.need}</b> คู่{trial.pairs ? ` · ร่างชนะ ${trial.wins}` : ''} · คู่ทดสอบขึ้นก่อน (ไม่บอกว่าอันไหนมาจากร่าง) · ครบ {trial.need} คู่ ถ้าร่างชนะ ≥ {Math.round(trial.win_at * 100)}% ใช้ร่างเอง</> : null}{preparing && <><br /><span className="muted">{preparing}</span></>}</p>}
         {stats && <p className="small">วันนี้ตัดสินแล้ว <b>{stats.today}</b> คู่ · รวม {stats.judged} · รอตัดสิน แคปชัน {stats.open.caption} / ภาพ {stats.open.image}{stats.agreement.pairs ? ` · กรรมการเห็นตรงกัน ${Math.round((stats.agreement.agreed / stats.agreement.pairs) * 100)}% (${stats.agreement.pairs} คู่)` : ''}</p>}
         {stats && <p className="small"><b>AI เทียบโพสต์จริงแบบปิดตา:</b> {stats.vs_real.pairs ? `AI ชนะ ${stats.vs_real.ai_wins}/${stats.vs_real.pairs} คู่ (${Math.round((stats.vs_real.ai_wins / stats.vs_real.pairs) * 100)}%)` : 'ยังไม่มี'} · คู่ที่มีโพสต์จริงจะถูกส่งมาก่อน ไม่บอกว่าอันไหนคือของจริงจนกว่าจะกดเลือก · เป้าก่อนให้ AI ทำงานจริง: ชนะ ≥ 50% จาก ≥ 40 คู่</p>}
         {stats && kind === 'image' && <p className="small"><b>ภาพใหม่เทียบภาพโพสต์จริงแบบปิดตา:</b> {stats.vs_real_img.pairs ? `ชนะ ${stats.vs_real_img.ai_wins}/${stats.vs_real_img.pairs} คู่ (${Math.round((stats.vs_real_img.ai_wins / stats.vs_real_img.pairs) * 100)}%)` : 'ยังไม่มี'} · เป้า ≥ 50% จาก ≥ 30 คู่{stats.held ? ` · กันไว้เพราะสินค้าเพี้ยน ${stats.held} ภาพ` : ''}</p>}

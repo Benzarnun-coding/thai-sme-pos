@@ -11,6 +11,8 @@ export interface StudioProduct { code: string; name: string; price_min: number |
 export interface StyleCard { id: number; name: string; note: string; created_by: string; refs: { id: number; note: string }[] }
 interface Example { id: number; text: string; liked: number; reason: string; created_by: string }
 interface Playbook { id: number | null; text: string; proposed_by: string; created_at: string }
+/** A draft playbook being tested against the live one (worker/playbookTrial.ts). */
+export interface Trial { id: number; text: string; proposed_by: string; created_at: string; pairs: number; wins: number; need: number; win_at: number; products: { code: string; draft: number; live: number }[]; ready: boolean }
 export interface Materials { styles: StyleCard[]; examples: Example[]; playbook: Playbook; hooks: Record<string, string>; reasons: Record<string, string>; ai: boolean }
 
 export async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -39,7 +41,11 @@ export function StudioApp() {
   const [busy, setBusy] = useState(false);
   const [pendingId, setPendingId] = useState<number | null>(null);
   useEffect(() => { call<{ pending: { id: number } | null }>('GET', '/api/studio/playbook/pending').then((r) => setPendingId(r.pending?.id ?? null)).catch(() => null); }, []);
-  const reload = () => call<Materials>('GET', '/api/studio/materials').then(setM).catch((e) => toast(e.message, 'bad'));
+  const [trial, setTrial] = useState<Trial | null>(null);
+  const reload = () => Promise.all([
+    call<Materials>('GET', '/api/studio/materials').then(setM).catch((e) => toast(e.message, 'bad')),
+    call<{ trial: Trial | null }>('GET', '/api/studio/trial').then((r) => setTrial(r.trial)).catch(() => null),
+  ]);
   useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const t = setTimeout(() => call<{ products: StudioProduct[] }>('GET', `/api/studio/products?q=${encodeURIComponent(q)}`).then((r) => setProducts(r.products)).catch((e) => toast(e.message, 'bad')), 250);
@@ -63,7 +69,11 @@ export function StudioApp() {
 
       {tab === 'posts' ? <PostsPanel /> : <>
       {pendingId && <p className="card small">🧠 มีร่างคู่มือจาก AI ที่วิเคราะห์โพสต์จริงรออยู่ — <button className="ghost small" onClick={() => show('posts')}>ดูและกดใช้ที่แท็บโพสต์ที่ยิงอยู่</button></p>}
-      {m && <PlaybookCard playbook={m.playbook} busy={busy} onSave={(text) => run(() => call('PUT', '/api/studio/playbook', { text }), 'บันทึกคู่มือแล้ว')} />}
+      {m && <PlaybookCard playbook={m.playbook} trial={trial} busy={busy}
+        onSave={async (text) => { if (!trial || await confirm({ title: 'บันทึกและใช้ทันที?', body: 'มีร่างกำลังทดสอบอยู่ บันทึกตรงจะหยุดการทดสอบนั้น' })) run(() => call('PUT', '/api/studio/playbook', { text }), 'บันทึกคู่มือแล้ว — ใช้ทันที'); }}
+        onTrial={(text) => run(() => call('POST', '/api/studio/trial', { text }), 'บันทึกเป็นร่างแล้ว — ห้องฝึกจะให้ AI เขียนแคปชันจากทั้งสองฉบับ แล้วให้กรรมการตัดสิน')}
+        onStop={async () => { if (await confirm({ title: 'หยุดทดสอบร่างนี้?', body: 'คู่มือที่ใช้อยู่ไม่เปลี่ยน' })) run(() => call('POST', '/api/studio/trial/stop'), 'หยุดทดสอบแล้ว'); }}
+        onUndo={async () => { if (await confirm({ title: 'ย้อนกลับไปใช้คู่มือฉบับก่อนหน้า?', body: 'บันทึกเป็นเวอร์ชันใหม่ ฉบับปัจจุบันยังเก็บไว้' })) run(() => call('POST', '/api/studio/playbook/undo'), 'ย้อนกลับแล้ว'); }} />}
 
       <section className="card">
         <h2>สไตล์ภาพ</h2>
@@ -101,15 +111,31 @@ export function StudioApp() {
   );
 }
 
-function PlaybookCard({ playbook, busy, onSave }: { playbook: Playbook; busy: boolean; onSave: (text: string) => void }) {
+function PlaybookCard({ playbook, trial, busy, onSave, onTrial, onStop, onUndo }: { playbook: Playbook; trial: Trial | null; busy: boolean; onSave: (text: string) => void; onTrial: (text: string) => void; onStop: () => void; onUndo: () => void }) {
   const [text, setText] = useState(playbook.text);
   useEffect(() => setText(playbook.text), [playbook.text]);
+  const changed = text.trim() !== playbook.text.trim();
+  const pct = (w: number, n: number) => (n ? Math.round((w / n) * 100) : 0);
   return (
     <section className="card">
       <h2>คู่มือ (เสียงของร้าน · คำห้าม · ต้องมี)</h2>
       <p className="muted small">{playbook.id ? `เวอร์ชัน #${playbook.id} โดย ${playbook.proposed_by}` : 'ยังใช้ค่าตั้งต้น — แก้ได้เลย'} · ทุกครั้งที่บันทึกเป็นเวอร์ชันใหม่ ของเก่าเก็บไว้</p>
+      {trial && (
+        <div className="card small trial-box">
+          <b>🧪 กำลังทดสอบร่าง #{trial.id}</b> (โดย {trial.proposed_by}) กับคู่มือที่ใช้อยู่ · ตัดสินแล้ว <b>{trial.pairs}/{trial.need}</b> คู่
+          {trial.pairs ? <> · ร่างชนะ <b>{trial.wins}</b> ({pct(trial.wins, trial.pairs)}%)</> : null} · ครบ {trial.need} คู่ ถ้าร่างชนะ ≥ {Math.round(trial.win_at * 100)}% ระบบใช้ร่างเอง ถ้าไม่ถึงใช้ฉบับเดิมต่อ
+          <div className="muted">{trial.ready ? <>แคปชันพร้อมแล้ว — ตัดสินที่ <a href="/studio/train">ห้องฝึก</a> (คู่ทดสอบขึ้นก่อน)</> : <>กำลังเตรียมแคปชัน — เปิด <a href="/studio/train">ห้องฝึก</a> แล้วระบบเขียนให้เอง (หรือรอรอบอัตโนมัติทุก 3 ชม.)</>}</div>
+          <details><summary>ดูร่าง</summary><pre className="trial-text">{trial.text}</pre></details>
+          <div className="row end"><button className="ghost small" disabled={busy} onClick={onStop}>หยุดทดสอบ</button></div>
+        </div>
+      )}
       <textarea rows={8} value={text} onChange={(e) => setText(e.target.value)} />
-      <div className="row end"><button disabled={busy || text.trim() === playbook.text.trim()} onClick={() => onSave(text)}>บันทึกคู่มือ</button></div>
+      <div className="row wrap end">
+        {playbook.id !== null && <button className="ghost small" disabled={busy} onClick={onUndo}>ย้อนกลับฉบับก่อน</button>}
+        <button className="ghost" disabled={busy || !changed} onClick={() => onSave(text)}>บันทึกและใช้ทันที</button>
+        <button disabled={busy || !changed || !!trial} title={trial ? 'มีร่างกำลังทดสอบอยู่' : ''} onClick={() => onTrial(text)}>ทดสอบก่อนใช้ (แนะนำ)</button>
+      </div>
+      <p className="muted small">"ทดสอบก่อนใช้" = บันทึกเป็นร่าง AI เขียนแคปชันจากทั้งร่างและฉบับเดิม กรรมการตัดสินแบบปิดตา ครบ 20 คู่ถ้าร่างชนะ ≥ 55% ระบบสลับให้เองและแจ้งใน Discord</p>
     </section>
   );
 }

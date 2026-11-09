@@ -93,6 +93,31 @@ picture and caption agree (same product, same price/promo) → `creative_sets` (
    (`checkerLessons`): images the AI passed but judges turned down for product/text/fake/style go into the next
    check's prompt (latest 6).
 
+### Playbook trial: a new playbook has to win first (Benz 2026-11-09)
+
+Benz trains Grok outside the site (his ChatGPT history, the page); Grok logs into the site like the team and writes
+what it learned into the caption playbook. So that the loop closes without anyone approving each version, a draft
+has to beat the live playbook in the room (`worker/playbookTrial.ts`, migration 0062):
+
+1. `/studio` playbook card: "ทดสอบก่อนใช้ (แนะนำ)" saves the text as a `playbook_versions` row with `trial =
+   'running'`, `base_id` = the live version (NULL = built-in default), `approved_by` NULL. One trial at a time.
+   "บันทึกและใช้ทันที" (the old save) and approving an AI analysis draft still go live at once and stop a running
+   trial (`stopTrials`): the draft was being compared with a version no longer used.
+2. Captions: for the `TRIAL_PRODUCTS` (4) products with most ad spend (`recommendedProducts`), `PER_SIDE` (5) open AI
+   captions written with the draft and 5 with the live version (`generateCaptions(..., use)`; candidates keep
+   `playbook_id`, so existing live-playbook captions count). One Claude call per `trialStep`: `/studio/train` loops
+   it while the trial isn't ready, and the 3-hourly sweep does one step as backup.
+3. `nextPair` serves draft-vs-live pairs of one product before anything else, blind like every pair.
+4. After every caption judgement, `checkTrial`: at `TRIAL_PAIRS` (20) decided pairs (every judge's vote counts),
+   draft wins ≥ `TRIAL_WIN` (55%) → `approved_by = 'ทดสอบชนะ'`, live by itself; else `trial = 'lost'`. Result in
+   `trial_result`, audit `studio.trial.won|lost`, a bot note in #meta-chat (`postBot`).
+5. "ย้อนกลับฉบับก่อน" puts the previous different approved text back as a new version (`undoPlaybook`).
+
+Trial drafts never show as the AI-analysis pending draft (`pendingPlaybook` skips `trial IS NOT NULL`). 20 / 55% /
+4 products / 5 per side are the starting numbers Benz accepted; change them in `playbookTrial.ts`. Judges should be
+people who did not write the draft (Grok judging its own draft would test nothing). Benz's instructions to Grok:
+the PDF "คู่มือสอน Grok" (sent 2026-11-09, not in git).
+
 ## Materials (`/studio` วัตถุดิบ)
 
 | Material | Where it lives | Notes |

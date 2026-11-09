@@ -26,7 +26,7 @@ export const REASONS: Record<string, string> = {
   product_wrong: 'สินค้าเพี้ยน', unreadable: 'อ่านป้ายไม่ออก', style_off: 'สไตล์ไม่ใช่', fake: 'ดูปลอม', better: 'อีกอันดีกว่าเฉยๆ',
 };
 
-const DEFAULT_PLAYBOOK = `เสียงของร้าน: พูดกับลูกค้าเหมือนเพื่อนที่ขายยีนส์มานาน ตรงไปตรงมา ไม่โอเวอร์ ภาษาไทยทั่วไป มีอีโมจิได้นิดหน่อย
+export const DEFAULT_PLAYBOOK = `เสียงของร้าน: พูดกับลูกค้าเหมือนเพื่อนที่ขายยีนส์มานาน ตรงไปตรงมา ไม่โอเวอร์ ภาษาไทยทั่วไป มีอีโมจิได้นิดหน่อย
 ห้าม: อ้างเรื่องรูปร่าง/สุขภาพ (ผอมลง ขาเรียว), ตัวเลขที่ไม่ได้ให้มา, คำว่า "ดีที่สุด" "อันดับ 1"
 ต้องมี: ราคาและโปรตามที่ให้มา, วิธีสั่ง (ทักแชท), ไซส์ที่มี
 ความยาว: 3–6 บรรทัด บรรทัดแรกต้องหยุดนิ้วได้`;
@@ -201,7 +201,7 @@ export async function addExample(db: D1Database, input: any, user: string): Prom
   return Number(r.meta.last_row_id);
 }
 
-export interface Playbook { id: number | null; text: string; proposed_by: string; approved_by: string | null; created_at: string; note?: string | null }
+export interface Playbook { id: number | null; text: string; proposed_by: string; approved_by: string | null; created_at: string; note?: string | null; trial?: string | null; base_id?: number | null; trial_result?: string | null }
 
 /** Latest approved playbook; the built-in default before anyone writes one. */
 export async function currentPlaybook(db: D1Database): Promise<Playbook> {
@@ -213,7 +213,13 @@ export async function savePlaybook(db: D1Database, input: any, user: string): Pr
   const text = cleanText(input?.text, 6000);
   if (!text) throw new BadRequest('คู่มือว่างเปล่า');
   const r = await db.prepare('INSERT INTO playbook_versions (text, proposed_by, approved_by, created_at) VALUES (?1, ?2, ?2, ?3)').bind(text, user, now()).run();
+  await stopTrials(db);
   return Number(r.meta.last_row_id);
+}
+
+/** A playbook put live by hand ends any running trial: the draft was being tested against a version no longer used. */
+export async function stopTrials(db: D1Database): Promise<void> {
+  await db.prepare(`UPDATE playbook_versions SET trial = 'stopped' WHERE trial = 'running'`).run();
 }
 
 // ---- caption generation ----
@@ -234,8 +240,8 @@ async function goldCaptions(db: D1Database, limit = 12): Promise<{ text: string;
 }
 
 /** Everything the caption agent is told, so a judge can see why a caption came out the way it did. */
-export async function captionPrompt(db: D1Database, product: StudioProduct, n: number): Promise<{ system: string; user: string; playbook_id: number | null }> {
-  const [playbook, examples, gold, proven] = await Promise.all([currentPlaybook(db), listExamples(db), goldCaptions(db), provenPosts(db).catch(() => [])]);
+export async function captionPrompt(db: D1Database, product: StudioProduct, n: number, use?: Playbook): Promise<{ system: string; user: string; playbook_id: number | null }> {
+  const [playbook, examples, gold, proven] = await Promise.all([use ?? currentPlaybook(db), listExamples(db), goldCaptions(db), provenPosts(db).catch(() => [])]);
   const liked = examples.filter((e) => e.liked).slice(0, 10), disliked = examples.filter((e) => !e.liked).slice(0, 10);
   const system = [
     'คุณเขียนแคปชันโพสต์ขายยีนส์ให้ร้าน PK Jeans (ขายผ่านแชท Facebook ลูกค้าไทย) ตามคู่มือและตัวอย่างด้านล่างอย่างเคร่งครัด',
@@ -282,12 +288,13 @@ async function askClaude(env: StudioEnv, system: string, content: unknown, maxTo
   return { text, input: body.usage?.input_tokens ?? 0, output: body.usage?.output_tokens ?? 0 };
 }
 
-export async function generateCaptions(env: StudioEnv, code: string, n: number, user: string): Promise<{ batch: string; candidates: Candidate[]; tokens: { input: number; output: number } }> {
+/** `use` = write with this playbook instead of the live one (a playbook trial's draft or its base). */
+export async function generateCaptions(env: StudioEnv, code: string, n: number, user: string, use?: Playbook): Promise<{ batch: string; candidates: Candidate[]; tokens: { input: number; output: number } }> {
   if (!env.ANTHROPIC_API_KEY) throw new BadRequest('ยังไม่ได้ตั้ง ANTHROPIC_API_KEY');
   const product = (await listProducts(env.DB, code, true))[0];
   if (!product) throw new BadRequest('ไม่พบรหัสสินค้านี้ในแคตตาล็อก');
   const count = Math.min(10, Math.max(2, n || 6));
-  const p = await captionPrompt(env.DB, product, count);
+  const p = await captionPrompt(env.DB, product, count, use);
   await seedRealCaptions(env.DB).catch(() => 0);
   const { text, input, output } = await askClaude(env, p.system, p.user, 16000, 'medium');
   const captions = parseCaptions(text);
@@ -348,6 +355,23 @@ export async function nextPair(db: D1Database, kind: 'caption' | 'image', judge:
   for (const c of results) byCode.set(c.code, [...(byCode.get(c.code) ?? []), c]);
   const { results: done } = await db.prepare('SELECT a_id, b_id FROM creative_judgements WHERE kind = ?1 AND judge = ?2').bind(kind, judge).all<{ a_id: number; b_id: number }>();
   const seenPair = new Set(done.map((d) => `${Math.min(d.a_id, d.b_id)}:${Math.max(d.a_id, d.b_id)}`));
+  // A running playbook trial goes first: a caption from the draft against one from the playbook it challenges.
+  const trial = kind === 'caption' ? await db.prepare(`SELECT id, base_id FROM playbook_versions WHERE trial = 'running' ORDER BY id DESC LIMIT 1`).first<{ id: number; base_id: number | null }>() : null;
+  if (trial) {
+    const { results: tc } = await db.prepare(
+      `SELECT id, kind, code, product_name, promo, hook, style_id, text, '' AS prompt, playbook_id, batch, created_by, created_at, status, ai_check
+       FROM creative_candidates WHERE kind = 'caption' AND status = 'open' AND (?1 = '' OR code = ?1)
+       AND (playbook_id = ?2 OR (playbook_id IS ?3 AND hook != 'real' AND created_by = 'ai')) ORDER BY id DESC LIMIT 300`,
+    ).bind(code ?? '', trial.id, trial.base_id).all<Candidate>();
+    const codes = new Map<string, Candidate[]>();
+    for (const c of tc) codes.set(c.code, [...(codes.get(c.code) ?? []), c]);
+    for (const list of codes.values()) {
+      for (const a of list.filter((c) => c.playbook_id === trial.id)) for (const b of list.filter((c) => c.playbook_id !== trial.id)) {
+        if (seenPair.has(`${Math.min(a.id, b.id)}:${Math.max(a.id, b.id)}`)) continue;
+        return Math.random() < 0.5 ? { a, b, same_product: true } : { a: b, b: a, same_product: true };
+      }
+    }
+  }
   // An AI caption against a real post first (the readiness number), then any unseen pair; the order of A and B is
   // random so judges can't learn where the real one sits.
   let fallback: Pair | null = null;
@@ -613,15 +637,16 @@ findings 5–8 ข้อ ทุกข้อต้องมีหลักฐา�
 /** The newest proposal that nobody approved yet, with its findings. */
 export async function pendingPlaybook(db: D1Database): Promise<(Playbook & { findings: { point: string; evidence: string }[] }) | null> {
   const current = await currentPlaybook(db);
-  const row = await db.prepare('SELECT * FROM playbook_versions WHERE approved_by IS NULL AND id > ?1 ORDER BY id DESC LIMIT 1').bind(current.id ?? 0).first<Playbook>();
+  const row = await db.prepare('SELECT * FROM playbook_versions WHERE approved_by IS NULL AND trial IS NULL AND id > ?1 ORDER BY id DESC LIMIT 1').bind(current.id ?? 0).first<Playbook>();
   if (!row) return null;
   return { ...row, findings: JSON.parse(row.note || '{}').findings ?? [] };
 }
 
 export async function approvePlaybook(db: D1Database, id: number, text: unknown, user: string): Promise<void> {
   const t = cleanText(text, 6000);
-  const r = await db.prepare('UPDATE playbook_versions SET approved_by = ?2, text = CASE WHEN ?3 = \'\' THEN text ELSE ?3 END WHERE id = ?1 AND approved_by IS NULL').bind(id, user, t).run();
+  const r = await db.prepare('UPDATE playbook_versions SET approved_by = ?2, text = CASE WHEN ?3 = \'\' THEN text ELSE ?3 END WHERE id = ?1 AND approved_by IS NULL AND trial IS NULL').bind(id, user, t).run();
   if (!r.meta.changes) throw new BadRequest('ไม่พบข้อเสนอนี้ หรือมีคนกดไปแล้ว');
+  await stopTrials(db);
 }
 
 // ---- the AI looks at images ----

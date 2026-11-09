@@ -38,6 +38,7 @@ import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, del
 import { DISCORD_PERSONA, pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './chatLog.ts';
 import * as studio from './studio.ts';
+import * as trial from './playbookTrial.ts';
 import { aiEnabled, askAI, botErrors, botRateText, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
 import { editKb, fixedBefore, kbMessage, kbModal, rewriteKb, kbPasteText, listKb, markApplied, postBot, proposeItems, repeatsText, setKbStatus, speaker, type KbItem } from './botKb.ts';
 import { checkDoc, docIdFrom, docLive, docText, loadDocSettings, saveDocSettings, serviceEmail, writeDoc } from './botKbDoc.ts';
@@ -210,6 +211,8 @@ export default {
         .then(() => dailyDigest(env).catch((err) => console.error('digest', err)))));
     } else if (event.cron === SWEEP_CRON) {
       ctx.waitUntil(cronSweep(env).catch((err) => console.error('cron sweep', err)));
+      // A playbook trial nobody opened the training room for still gets its captions, one Claude call per sweep.
+      if (env.ANTHROPIC_API_KEY) ctx.waitUntil(trial.trialStep(env, 'ai').then((r) => (r.made ? audit(env.DB, 'ai', 'studio.trial.step', r.made.code, { ...r.made, ...r.tokens }) : null)).catch((err) => console.error('trial step', err)));
       ctx.waitUntil(syncTitles(env).catch((err) => console.error('request titles', err)));
       ctx.waitUntil(checkBuilds(env).catch((err) => console.error('request builds', err)));
     } else if (event.cron === REMIND_CRON) {
@@ -892,7 +895,25 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if ((m = /^\/api\/studio\/check-image\/(\d+)$/.exec(path)) && method === 'POST') return json({ check: await studio.checkImage(env, Number(m[1])) });
   if ((m = /^\/api\/studio\/candidate\/(\d+)$/.exec(path)) && method === 'DELETE') { await studio.rejectCandidate(env.DB, Number(m[1])); await audit(env.DB, user, 'studio.reject', m[1], {}); return json({ ok: true }); }
   if (path === '/api/studio/pair' && method === 'GET') return json({ pair: await studio.nextPair(env.DB, url.searchParams.get('kind') === 'image' ? 'image' : 'caption', user, url.searchParams.get('code') ?? undefined) });
-  if (path === '/api/studio/judge' && method === 'POST') { await studio.judge(env.DB, await body(), user); return json({ ok: true }); }
+  if (path === '/api/studio/judge' && method === 'POST') {
+    await studio.judge(env.DB, await body(), user);
+    // A playbook trial settles itself at 20 decided pairs (worker/playbookTrial.ts).
+    const settled = await trial.checkTrial(env.DB);
+    if (settled) {
+      await audit(env.DB, user, `studio.trial.${settled.result}`, String(settled.id), settled);
+      if (env.DISCORD_BOT_TOKEN) ctx.waitUntil(postBot(env, { content: trial.trialMessage(settled, url.origin) }).catch(() => null));
+    }
+    return json({ ok: true, trial: settled });
+  }
+  if (path === '/api/studio/trial' && method === 'GET') return json({ trial: await trial.trialStatus(env.DB) });
+  if (path === '/api/studio/trial' && method === 'POST') { const id = await trial.startTrial(env.DB, await body(), user); await audit(env.DB, user, 'studio.trial.start', String(id), {}); return json({ id }); }
+  if (path === '/api/studio/trial/step' && method === 'POST') {
+    const r = await trial.trialStep(env, user);
+    if (r.made) await audit(env.DB, user, 'studio.trial.step', r.made.code, { ...r.made, ...r.tokens });
+    return json(r);
+  }
+  if (path === '/api/studio/trial/stop' && method === 'POST') { await trial.stopTrial(env.DB); await audit(env.DB, user, 'studio.trial.stop', 'playbook', {}); return json({ ok: true }); }
+  if (path === '/api/studio/playbook/undo' && method === 'POST') { const id = await trial.undoPlaybook(env.DB, user); await audit(env.DB, user, 'studio.playbook.undo', String(id), {}); return json({ id }); }
   if (path === '/api/studio/stats' && method === 'GET') return json(await studio.stats(env.DB));
   if (path === '/api/studio/meta-posts' && method === 'GET') return json({ posts: await studio.listMetaPosts(env.DB) });
   if (path === '/api/studio/meta-posts/import' && method === 'POST') {
