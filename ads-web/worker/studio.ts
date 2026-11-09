@@ -273,7 +273,7 @@ export function parseCaptions(text: string): { hook: string; text: string }[] {
 }
 
 /** One Claude call (Messages API); content may hold images. Returns the text and token counts. */
-async function askClaude(env: StudioEnv, system: string, content: unknown, maxTokens: number, effort: 'low' | 'medium' | 'high'): Promise<{ text: string; input: number; output: number }> {
+export async function askClaude(env: StudioEnv, system: string, content: unknown, maxTokens: number, effort: 'low' | 'medium' | 'high'): Promise<{ text: string; input: number; output: number }> {
   if (!env.ANTHROPIC_API_KEY) throw new BadRequest('ยังไม่ได้ตั้ง ANTHROPIC_API_KEY');
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',

@@ -139,6 +139,25 @@ export interface Env {
 }
 
 /** 20:00 Bangkok rule run. */
+/** A playbook trial settles itself at 20 decided pairs (worker/playbookTrial.ts); the result goes to #meta-chat. */
+async function settleTrial(env: Env, user: string): Promise<trial.TrialResult | null> {
+  const settled = await trial.checkTrial(env.DB);
+  if (!settled) return null;
+  await audit(env.DB, user, `studio.trial.${settled.result}`, String(settled.id), settled);
+  if (env.DISCORD_BOT_TOKEN) await postBot(env, { content: trial.trialMessage(settled, 'https://pkjeans-ads.ads-web.workers.dev') }).catch(() => null);
+  return settled;
+}
+
+/** Every 3 h: write and judge a running trial's captions (≤ 10 Claude calls), so it finishes with nobody on the site. */
+async function trialCron(env: Env): Promise<void> {
+  for (let i = 0; i < 10; i++) {
+    const r = await trial.trialStep(env, 'ai');
+    if (r.made || r.judged) await audit(env.DB, 'ai', 'studio.trial.step', r.made?.code ?? 'judge', { ...r.made, judged: r.judged, ...r.tokens });
+    if (r.judged && (await settleTrial(env, 'ai'))) return;
+    if (r.done) return;
+  }
+}
+
 const RULES_CRON = '0 13 * * *';
 /** Morning rule run: every 10 min 08:00–13:50 Bangkok, morningRun.ts decides (08:00 sharp, or when Page365's file is in / 13:00). */
 const MORNING_CRON = '*/10 1-6 * * *';
@@ -212,7 +231,7 @@ export default {
     } else if (event.cron === SWEEP_CRON) {
       ctx.waitUntil(cronSweep(env).catch((err) => console.error('cron sweep', err)));
       // A playbook trial nobody opened the training room for still gets its captions, one Claude call per sweep.
-      if (env.ANTHROPIC_API_KEY) ctx.waitUntil(trial.trialStep(env, 'ai').then((r) => (r.made ? audit(env.DB, 'ai', 'studio.trial.step', r.made.code, { ...r.made, ...r.tokens }) : null)).catch((err) => console.error('trial step', err)));
+      if (env.ANTHROPIC_API_KEY) ctx.waitUntil(trialCron(env).catch((err) => console.error('trial step', err)));
       ctx.waitUntil(syncTitles(env).catch((err) => console.error('request titles', err)));
       ctx.waitUntil(checkBuilds(env).catch((err) => console.error('request builds', err)));
     } else if (event.cron === REMIND_CRON) {
@@ -897,20 +916,14 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (path === '/api/studio/pair' && method === 'GET') return json({ pair: await studio.nextPair(env.DB, url.searchParams.get('kind') === 'image' ? 'image' : 'caption', user, url.searchParams.get('code') ?? undefined) });
   if (path === '/api/studio/judge' && method === 'POST') {
     await studio.judge(env.DB, await body(), user);
-    // A playbook trial settles itself at 20 decided pairs (worker/playbookTrial.ts).
-    const settled = await trial.checkTrial(env.DB);
-    if (settled) {
-      await audit(env.DB, user, `studio.trial.${settled.result}`, String(settled.id), settled);
-      if (env.DISCORD_BOT_TOKEN) ctx.waitUntil(postBot(env, { content: trial.trialMessage(settled, url.origin) }).catch(() => null));
-    }
-    return json({ ok: true, trial: settled });
+    return json({ ok: true, trial: await settleTrial(env, user) });
   }
   if (path === '/api/studio/trial' && method === 'GET') return json({ trial: await trial.trialStatus(env.DB) });
   if (path === '/api/studio/trial' && method === 'POST') { const id = await trial.startTrial(env.DB, await body(), user); await audit(env.DB, user, 'studio.trial.start', String(id), {}); return json({ id }); }
   if (path === '/api/studio/trial/step' && method === 'POST') {
     const r = await trial.trialStep(env, user);
-    if (r.made) await audit(env.DB, user, 'studio.trial.step', r.made.code, { ...r.made, ...r.tokens });
-    return json(r);
+    if (r.made || r.judged) await audit(env.DB, user, 'studio.trial.step', r.made?.code ?? 'judge', { ...r.made, judged: r.judged, ...r.tokens });
+    return json({ ...r, trial_result: r.judged ? await settleTrial(env, user) : null });
   }
   if (path === '/api/studio/trial/stop' && method === 'POST') { await trial.stopTrial(env.DB); await audit(env.DB, user, 'studio.trial.stop', 'playbook', {}); return json({ ok: true }); }
   if (path === '/api/studio/playbook/undo' && method === 'POST') { const id = await trial.undoPlaybook(env.DB, user); await audit(env.DB, user, 'studio.playbook.undo', String(id), {}); return json({ id }); }

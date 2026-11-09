@@ -124,7 +124,7 @@ function PlaybookCard({ playbook, trial, busy, onSave, onTrial, onStop, onUndo }
         <div className="card small trial-box">
           <b>🧪 กำลังทดสอบร่าง #{trial.id}</b> (โดย {trial.proposed_by}) กับคู่มือที่ใช้อยู่ · ตัดสินแล้ว <b>{trial.pairs}/{trial.need}</b> คู่
           {trial.pairs ? <> · ร่างชนะ <b>{trial.wins}</b> ({pct(trial.wins, trial.pairs)}%)</> : null} · ครบ {trial.need} คู่ ถ้าร่างชนะ ≥ {Math.round(trial.win_at * 100)}% ระบบใช้ร่างเอง ถ้าไม่ถึงใช้ฉบับเดิมต่อ
-          <div className="muted">{trial.ready ? <>แคปชันพร้อมแล้ว — ตัดสินที่ <a href="/studio/train">ห้องฝึก</a> (คู่ทดสอบขึ้นก่อน)</> : <>กำลังเตรียมแคปชัน — เปิด <a href="/studio/train">ห้องฝึก</a> แล้วระบบเขียนให้เอง (หรือรอรอบอัตโนมัติทุก 3 ชม.)</>}</div>
+          <div className="muted">{trial.ready ? <>แคปชันพร้อมแล้ว — AI กรรมการตัดสินเองแบบปิดตา (เปิด <a href="/studio/train">ห้องฝึก</a> ให้เร็วขึ้น หรือรอรอบอัตโนมัติทุก 3 ชม.)</> : <>กำลังเตรียมแคปชัน — เปิด <a href="/studio/train">ห้องฝึก</a> แล้วระบบเขียนให้เอง (หรือรอรอบอัตโนมัติทุก 3 ชม.)</>}</div>
           <details><summary>ดูร่าง</summary><pre className="trial-text">{trial.text}</pre></details>
           <div className="row end"><button className="ghost small" disabled={busy} onClick={onStop}>หยุดทดสอบ</button></div>
         </div>
@@ -135,7 +135,7 @@ function PlaybookCard({ playbook, trial, busy, onSave, onTrial, onStop, onUndo }
         <button className="ghost" disabled={busy || !changed} onClick={() => onSave(text)}>บันทึกและใช้ทันที</button>
         <button disabled={busy || !changed || !!trial} title={trial ? 'มีร่างกำลังทดสอบอยู่' : ''} onClick={() => onTrial(text)}>ทดสอบก่อนใช้ (แนะนำ)</button>
       </div>
-      <p className="muted small">"ทดสอบก่อนใช้" = บันทึกเป็นร่าง AI เขียนแคปชันจากทั้งร่างและฉบับเดิม กรรมการตัดสินแบบปิดตา ครบ 20 คู่ถ้าร่างชนะ ≥ 55% ระบบสลับให้เองและแจ้งใน Discord</p>
+      <p className="muted small">"ทดสอบก่อนใช้" = บันทึกเป็นร่าง AI เขียนแคปชันจากทั้งร่างและฉบับเดิม AI กรรมการตัดสินแบบปิดตา (ไม่เห็นคู่มือ เทียบกับโพสต์ที่ขายดีจริง) ครบ 20 คู่ถ้าร่างชนะ ≥ 55% ระบบสลับให้เองและแจ้งใน Discord</p>
     </section>
   );
 }

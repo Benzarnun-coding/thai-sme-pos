@@ -107,15 +107,22 @@ has to beat the live playbook in the room (`worker/playbookTrial.ts`, migration 
    captions written with the draft and 5 with the live version (`generateCaptions(..., use)`; candidates keep
    `playbook_id`, so existing live-playbook captions count). One Claude call per `trialStep`: `/studio/train` loops
    it while the trial isn't ready, and the 3-hourly sweep does one step as backup.
-3. `nextPair` serves draft-vs-live pairs of one product before anything else, blind like every pair.
+3. **AI judge** (Benz 2026-11-09: no daily human judging, "ต้อง AI ทำเองเลย"): once the captions are ready each
+   `trialStep` decides `JUDGE_BATCH` (5) draft-vs-live pairs in one Claude call (`aiJudgeStep`, judge
+   `ai-judge`). Pairs from `trialPairs`: draft[i] × live[i] per product, then shifted, so 20 distinct pairs exist
+   even with 2 products. Blind: random A/B, the judge never sees either playbook or a side label; it is anchored on
+   `provenPosts` (best-ROAS running posts), the team's liked/disliked examples and the product facts (wrong
+   price/promo loses). The 3-hourly sweep runs up to 10 steps, so a trial finishes with nobody on the site. People
+   may still judge on `/studio/train` (`nextPair` serves trial pairs first); every vote counts.
 4. After every caption judgement, `checkTrial`: at `TRIAL_PAIRS` (20) decided pairs (every judge's vote counts),
    draft wins ≥ `TRIAL_WIN` (55%) → `approved_by = 'ทดสอบชนะ'`, live by itself; else `trial = 'lost'`. Result in
    `trial_result`, audit `studio.trial.won|lost`, a bot note in #meta-chat (`postBot`).
 5. "ย้อนกลับฉบับก่อน" puts the previous different approved text back as a new version (`undoPlaybook`).
 
 Trial drafts never show as the AI-analysis pending draft (`pendingPlaybook` skips `trial IS NOT NULL`). 20 / 55% /
-4 products / 5 per side are the starting numbers Benz accepted; change them in `playbookTrial.ts`. Judges should be
-people who did not write the draft (Grok judging its own draft would test nothing). Benz's instructions to Grok:
+4 products / 5 per side are the starting numbers Benz accepted; change them in `playbookTrial.ts`. Weak spot: an AI
+judging AI-written captions may prefer what reads well to an AI, not what sells; the real test is ad ROAS, which
+needs the hand-off to the ads side (off until Benz switches it on). Benz's instructions to Grok:
 the PDF "คู่มือสอน Grok" (sent 2026-11-09, not in git).
 
 ## Materials (`/studio` วัตถุดิบ)

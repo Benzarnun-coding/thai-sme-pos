@@ -3,18 +3,23 @@
 //   1. "ทดสอบก่อนใช้" on /studio saves the draft (trial = running, base_id = the live version).
 //   2. The room writes captions for the products running as ads, PER_SIDE with the draft and PER_SIDE with the live
 //      playbook (one Claude call per step: the training room page loops, the 3-hourly sweep does one step as backup).
-//   3. Judges get draft-vs-live pairs first (nextPair in studio.ts), blind like every pair.
+//   3. The AI judge (Benz 2026-11-09: "ต้อง AI ทำเองเลย") decides draft-vs-live pairs JUDGE_BATCH at a time, blind:
+//      it never sees either playbook or which side a caption came from, and is anchored on the posts that really
+//      sell (best ROAS) and the team's liked/disliked examples. People may still judge in /studio/train (nextPair
+//      serves trial pairs first); every vote counts.
 //   4. At TRIAL_PAIRS decided pairs: draft won >= TRIAL_WIN → it goes live by itself; else it is set aside. Either way
 //      a note goes to Discord. "ย้อนกลับฉบับก่อน" on /studio puts the previous version back.
 // Nothing here leaves the room: no Meta, no customers.
 
-import { DEFAULT_PLAYBOOK, currentPlaybook, generateCaptions, recommendedProducts, stopTrials, type Playbook, type StudioEnv } from './studio.ts';
+import { DEFAULT_PLAYBOOK, REASONS, askClaude, currentPlaybook, generateCaptions, judge, listExamples, listProducts, provenPosts, recommendedProducts, stopTrials, type Candidate, type Playbook, type StudioEnv } from './studio.ts';
 import { BadRequest } from './validate.ts';
 
 export const TRIAL_PAIRS = 20;
 export const TRIAL_WIN = 0.55;
 export const TRIAL_PRODUCTS = 4;
 export const PER_SIDE = 5;
+export const JUDGE_BATCH = 5;
+export const AI_JUDGE = 'ai-judge';
 
 export interface TrialStatus {
   id: number; text: string; proposed_by: string; created_at: string; base_id: number | null;
@@ -81,13 +86,16 @@ export async function trialStatus(db: D1Database): Promise<TrialStatus | null> {
  * One preparation step: the first product short of captions on either side gets 6 from that side's playbook.
  * Returns what it made, or done when every product has enough (or there are no products running as ads).
  */
-export async function trialStep(env: StudioEnv, user: string): Promise<{ done: boolean; made?: { code: string; side: 'draft' | 'live'; n: number }; error?: string; tokens?: { input: number; output: number } }> {
+export async function trialStep(env: StudioEnv, user: string): Promise<{ done: boolean; made?: { code: string; side: 'draft' | 'live'; n: number }; judged?: number; error?: string; tokens?: { input: number; output: number } }> {
   const t = await runningTrial(env.DB);
   if (!t || t.id === null) return { done: true };
   const products = await trialProducts(env.DB, t);
   if (!products.length) return { done: true, error: 'ยังไม่มีสินค้าที่ยิงแอดอยู่ — ไปที่วัตถุดิบ › โพสต์ที่ยิงอยู่ แล้วกด "ดึงโพสต์จากเพจ" ก่อน' };
   const p = products.find((x) => x.draft < PER_SIDE || x.live < PER_SIDE);
-  if (!p) return { done: true };
+  if (!p) {
+    const j = await aiJudgeStep(env, t);
+    return j.judged ? { done: false, judged: j.judged, tokens: j.tokens } : { done: true };
+  }
   const side = p.draft < PER_SIDE ? 'draft' : 'live';
   // The live side writes with the version the draft is tested against, even if it is the built-in default.
   const live = await currentPlaybook(env.DB);
@@ -116,8 +124,8 @@ export async function checkTrial(db: D1Database): Promise<TrialResult | null> {
 export function trialMessage(r: TrialResult, origin: string): string {
   const pct = Math.round((r.wins / r.pairs) * 100);
   return r.result === 'won'
-    ? `🧪 คู่มือแคปชันฉบับใหม่ (#${r.id}) **ชนะ** ฉบับเดิม ${r.wins}/${r.pairs} คู่ (${pct}%) ในห้องฝึก — ใช้ฉบับใหม่แล้วอัตโนมัติ\nไม่ชอบ: ${origin}/studio กด "ย้อนกลับฉบับก่อน"`
-    : `🧪 คู่มือแคปชันฉบับใหม่ (#${r.id}) **แพ้** ฉบับเดิม ชนะแค่ ${r.wins}/${r.pairs} คู่ (${pct}%, ต้อง ≥ ${Math.round(TRIAL_WIN * 100)}%) — ใช้ฉบับเดิมต่อ\nดูเหตุผลที่กรรมการให้ได้ที่ ${origin}/studio/train`;
+    ? `🧪 คู่มือแคปชันฉบับใหม่ (#${r.id}) **ชนะ** ฉบับเดิม ${r.wins}/${r.pairs} คู่ (${pct}%) ในห้องฝึก (AI กรรมการตัดสินแบบปิดตา) — ใช้ฉบับใหม่แล้วอัตโนมัติ\nไม่ชอบ: ${origin}/studio กด "ย้อนกลับฉบับก่อน"`
+    : `🧪 คู่มือแคปชันฉบับใหม่ (#${r.id}) **แพ้** ฉบับเดิม (AI กรรมการตัดสินแบบปิดตา) ชนะแค่ ${r.wins}/${r.pairs} คู่ (${pct}%, ต้อง ≥ ${Math.round(TRIAL_WIN * 100)}%) — ใช้ฉบับเดิมต่อ\nดูเหตุผลที่กรรมการให้ได้ที่ ${origin}/studio/train`;
 }
 
 export async function stopTrial(db: D1Database): Promise<void> {
@@ -134,4 +142,87 @@ export async function undoPlaybook(db: D1Database, user: string): Promise<number
   const r = await db.prepare('INSERT INTO playbook_versions (text, proposed_by, approved_by, created_at) VALUES (?1, ?2, ?2, ?3)').bind(text, `ย้อนกลับ (${user})`, new Date().toISOString()).run();
   await stopTrials(db);
   return Number(r.meta.last_row_id);
+}
+
+// ---- the AI judge ----
+
+type C = Pick<Candidate, 'id' | 'code' | 'text' | 'playbook_id'>;
+
+/**
+ * Draft-vs-live pairs the AI judge hasn't decided, spread over the products: first draft[i] with live[i], then
+ * shifted (draft[i] with live[i+1] …), so 4 products × 5 per side give 20 distinct pairs in the first round.
+ */
+export function trialPairs(cands: C[], trialId: number, seen: Set<string>, n: number): [C, C][] {
+  const byCode = new Map<string, { draft: C[]; live: C[] }>();
+  for (const c of [...cands].sort((a, b) => a.id - b.id)) {
+    const g = byCode.get(c.code) ?? { draft: [], live: [] };
+    (c.playbook_id === trialId ? g.draft : g.live).push(c);
+    byCode.set(c.code, g);
+  }
+  const out: [C, C][] = [];
+  const maxShift = Math.max(0, ...[...byCode.values()].map((g) => g.live.length));
+  for (let k = 0; k < maxShift && out.length < n; k++) {
+    for (let i = 0; i < PER_SIDE * 2 && out.length < n; i++) {
+      for (const g of byCode.values()) {
+        if (out.length >= n || i >= g.draft.length || !g.live.length) continue;
+        const a = g.draft[i], b = g.live[(i + k) % g.live.length];
+        const key = `${Math.min(a.id, b.id)}:${Math.max(a.id, b.id)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push([a, b]);
+      }
+    }
+  }
+  return out;
+}
+
+const LOSER_REASONS = ['wrong_fact', 'boring', 'too_long', 'not_our_voice', 'claim', 'better'];
+
+/** The judge's JSON: one verdict per pair number; unknown reasons become 'better', missing pairs are skipped. */
+export function parseVerdicts(text: string, n: number): { pair: number; winner: 'A' | 'B'; reason: string }[] {
+  const m = /\[[\s\S]*\]/.exec(text);
+  if (!m) return [];
+  let arr: any;
+  try { arr = JSON.parse(m[0]); } catch { return []; }
+  if (!Array.isArray(arr)) return [];
+  const seen = new Set<number>();
+  return arr.map((x: any) => ({ pair: Number(x?.pair), winner: String(x?.winner).trim().toUpperCase() as 'A' | 'B', reason: LOSER_REASONS.includes(String(x?.reason)) ? String(x.reason) : 'better' }))
+    .filter((v) => Number.isInteger(v.pair) && v.pair >= 1 && v.pair <= n && (v.winner === 'A' || v.winner === 'B') && !seen.has(v.pair) && !!seen.add(v.pair));
+}
+
+/** Decides up to JUDGE_BATCH pairs in one Claude call; A/B order is random and the judge never sees a playbook. */
+export async function aiJudgeStep(env: StudioEnv, t: Playbook): Promise<{ judged: number; tokens?: { input: number; output: number } }> {
+  const codes = (await recommendedProducts(env.DB, TRIAL_PRODUCTS)).map((p) => p.code);
+  if (!codes.length || t.id === null) return { judged: 0 };
+  const { results: cands } = await env.DB.prepare(
+    `SELECT id, code, text, playbook_id FROM creative_candidates WHERE kind = 'caption' AND status = 'open' AND code IN (SELECT value FROM json_each(?3))
+     AND (playbook_id = ?1 OR (playbook_id IS ?2 AND hook != 'real' AND created_by = 'ai'))`,
+  ).bind(t.id, t.base_id ?? null, JSON.stringify(codes)).all<C>();
+  const { results: done } = await env.DB.prepare(`SELECT a_id, b_id FROM creative_judgements WHERE kind = 'caption' AND judge = ?1`).bind(AI_JUDGE).all<{ a_id: number; b_id: number }>();
+  const pairs = trialPairs(cands, t.id, new Set(done.map((d) => `${Math.min(d.a_id, d.b_id)}:${Math.max(d.a_id, d.b_id)}`)), JUDGE_BATCH)
+    .map(([x, y]) => (Math.random() < 0.5 ? [x, y] : [y, x]) as [C, C]);
+  if (!pairs.length) return { judged: 0 };
+  const [products, proven, examples] = await Promise.all([
+    Promise.all([...new Set(pairs.map(([a]) => a.code))].map((c) => listProducts(env.DB, c, true).then((r) => r[0]))),
+    provenPosts(env.DB).catch(() => []),
+    listExamples(env.DB),
+  ]);
+  const facts = products.filter(Boolean).map((p) => `- ${p.code} ${p.name} · ราคาต่อตัว ${p.price_min ?? 'ไม่ทราบ'}${p.price_max !== p.price_min ? `–${p.price_max}` : ''} · โปร: ${p.promo || 'ไม่มีข้อมูล'} · จุดขาย: ${p.selling_points || 'ไม่มีข้อมูล'}`).join('\n');
+  const system = [
+    'คุณเป็นกรรมการตัดสินแคปชันโฆษณา Facebook ของร้านยีนส์ไทย PK Jeans ที่ขายผ่านแชท เลือกแคปชันที่น่าจะทำให้ลูกค้าหยุดดูและทักแชทสั่งซื้อมากกว่า',
+    'ตัดสินจากสิ่งที่ขายได้จริงด้านล่าง ไม่ใช่จากความสวยของภาษา แคปชันที่ใช้ราคา/โปร/ข้อมูลไม่ตรงกับข้อมูลสินค้าต้องแพ้ (reason: wrong_fact) อ้างเกินจริงแพ้ (claim)',
+    proven.length ? `## โพสต์ที่ยิงแอดอยู่และขายดีจริง (ROAS จากยอดแท็ก Meta 14 วัน)\n${proven.map((p) => `- [ROAS ${p.roas.toFixed(1)}] ${p.message.replace(/\n/g, ' / ').slice(0, 500)}`).join('\n')}` : '',
+    examples.length ? `## ตัวอย่างที่ทีมชอบ/ไม่ชอบ\n${examples.slice(0, 20).map((e) => `- ${e.liked ? 'ชอบ' : 'ไม่ชอบ'}: "${e.text.replace(/\n/g, ' / ').slice(0, 300)}" — ${e.reason}`).join('\n')}` : '',
+    `## ข้อมูลสินค้า\n${facts}`,
+    `## รูปแบบคำตอบ\nJSON array เท่านั้น: [{"pair": <เลขคู่>, "winner": "A"|"B", "reason": "<เหตุผลที่อีกอันแพ้ หนึ่งใน ${LOSER_REASONS.join('|')}>"}] ครบทุกคู่ ห้ามเสมอ`,
+  ].filter(Boolean).join('\n\n');
+  const user = pairs.map(([a, b], i) => `คู่ที่ ${i + 1} (สินค้า ${a.code})\nA: ${a.text}\nB: ${b.text}`).join('\n\n---\n\n');
+  const out = await askClaude(env, system, user, 4000, 'medium');
+  const verdicts = parseVerdicts(out.text, pairs.length);
+  for (const v of verdicts) {
+    const [a, b] = pairs[v.pair - 1];
+    await judge(env.DB, { a_id: a.id, b_id: b.id, winner_id: v.winner === 'A' ? a.id : b.id, reason: REASONS[v.reason] ? v.reason : 'better' }, AI_JUDGE);
+  }
+  if (!verdicts.length) throw new Error('AI กรรมการตอบไม่ได้ (อ่าน JSON ไม่ได้)');
+  return { judged: verdicts.length, tokens: { input: out.input, output: out.output } };
 }
