@@ -38,8 +38,7 @@ export function StudioApp() {
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const [pendingId, setPendingId] = useState<number | null>(null);
-  const [pendingBy, setPendingBy] = useState('');
-  useEffect(() => { call<{ pending: { id: number; proposed_by: string } | null }>('GET', '/api/studio/playbook/pending').then((r) => { setPendingId(r.pending?.id ?? null); setPendingBy(r.pending?.proposed_by ?? ''); }).catch(() => null); }, []);
+  useEffect(() => { call<{ pending: { id: number } | null }>('GET', '/api/studio/playbook/pending').then((r) => setPendingId(r.pending?.id ?? null)).catch(() => null); }, []);
   const reload = () => call<Materials>('GET', '/api/studio/materials').then(setM).catch((e) => toast(e.message, 'bad'));
   useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -63,7 +62,7 @@ export function StudioApp() {
       </header>
 
       {tab === 'posts' ? <PostsPanel /> : <>
-      {pendingId && <p className="card small">🧠 มีร่างคู่มือจาก {pendingBy === 'grok' ? 'Grok' : 'AI ที่วิเคราะห์โพสต์จริง'} รออยู่ — <button className="ghost small" onClick={() => show('posts')}>ดูและกดใช้ที่แท็บโพสต์ที่ยิงอยู่</button></p>}
+      {pendingId && <p className="card small">🧠 มีร่างคู่มือจาก AI ที่วิเคราะห์โพสต์จริงรออยู่ — <button className="ghost small" onClick={() => show('posts')}>ดูและกดใช้ที่แท็บโพสต์ที่ยิงอยู่</button></p>}
       {m && <PlaybookCard playbook={m.playbook} busy={busy} onSave={(text) => run(() => call('PUT', '/api/studio/playbook', { text }), 'บันทึกคู่มือแล้ว')} />}
 
       <section className="card">

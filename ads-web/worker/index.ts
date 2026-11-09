@@ -28,7 +28,6 @@ import { bkkDate, loadConversionHours, lockedHourDays, saveConversionDay, syncCo
 import { addCompetitorCheck, deleteCompetitor, deleteCompetitorAd, listCompetitors, saveCompetitor, saveCompetitorAd } from './competitors.ts';
 import { friendlyD1Error, friendlyMetaError, insertBudgetChanges, loadMetaData, MetaCacheError, patchCachedEntity, recentBudgetChanges, type MetaData } from './metadata.ts';
 import { PRIVACY_HTML } from './privacy.ts';
-import { grokRoute } from './grok.ts';
 import { parseRange, salesData } from './sales.ts';
 import { listImportMaps, profitData, saveImportMap, saveMpOrders, validateMpOrders } from './mpOrders.ts';
 import { opsFacts, opsText } from './opsDigest.ts';
@@ -133,8 +132,6 @@ export interface Env {
   CF_API_TOKEN?: string;
   CF_ACCOUNT_ID?: string;
   CF_ACCESS_POLICY_ID?: string;
-  /** Grok's key for /webhook/grok/* (secret; unset = closed) */
-  GROK_KEY?: string;
   /** Local development only (.dev.vars) */
   DEV_MOCK_META?: string;
   DEV_BYPASS_AUTH?: string;
@@ -164,8 +161,6 @@ export default {
     // น้องอูนิ's picture: Discord fetches it for every webhook post, so it sits on the path Access lets through.
     if (url.pathname === '/webhook/uni.jpg' && env.ASSETS) return env.ASSETS.fetch(new Request(new URL('/uni.jpg', url)));
     if (url.pathname === '/webhook/privacy') return new Response(PRIVACY_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-    // Grok's door into the training room: own key (secret GROK_KEY), closed while it isn't set. worker/grok.ts
-    if (url.pathname.startsWith('/webhook/grok/')) return grokRoute(req, env, url).catch((err) => { console.error('grok', err); return new Response('error', { status: 500 }); });
     if (url.pathname === '/webhook/discord' && req.method === 'POST') return discordInteraction(req, env, ctx);
     // The idea routine pings this when it's done (no auth: it only re-reads GitHub, same as the 3-hourly sweep).
     if (url.pathname === '/webhook/idea-check' && req.method === 'POST') return json({ found: await checkBuilds(env).catch(() => 0) });
