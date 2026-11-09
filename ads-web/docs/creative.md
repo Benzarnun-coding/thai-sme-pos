@@ -143,7 +143,8 @@ settings key `studio_ads` {budget 100, days 14, max_active 3}. Runs in the 3-hou
    blind, one line why (`note`). A passed image = ≥ 1 win, no more losses, AI check not "fail" (`passedFor`).
 3. **Sets by themselves** (`autoSets`, ≤ 2 a run, 1 per "ตรวจ/เสนอตอนนี้"): a product with a passed caption and no set
    in the last 14 days gets one: the best passed new image, else the best picture of its current ads (`bestRealImage`,
-   Benz 2026-11-09: a first test today, new caption on a proven picture; the proposal says which); approved by `auto`
+   Benz 2026-11-09: a first test today; that picture has its own price/promo printed on it, so the caption is
+   written from the picture by `captionForPicture` in the live playbook's style; the proposal says which); approved by `auto`
    when `checkSet` says picture and caption agree.
 4. **Proposal** (`proposeStep`): each approved set is posted once in #studio-training (`DISCORD_STUDIO_CHANNEL_ID`)
    with the picture attached, the caption, what will be created, Max tagged (`DISCORD_DECIDER_IDS`), buttons

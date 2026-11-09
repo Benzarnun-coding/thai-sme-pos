@@ -13,7 +13,7 @@
 //   5. stopExpired: after 14 days the campaign is paused and its 14-day numbers are reported.
 // Never touches a campaign it didn't create; the rules engine leaves these alone (no stage).
 
-import { REASONS, askClaude, createSet, decideSet, imageBlock, passedFor, productPhoto, readyProducts, judge, type StudioEnv } from './studio.ts';
+import { REASONS, askClaude, createSet, currentPlaybook, decideSet, imageBlock, listProducts, passedFor, productPhoto, readyProducts, judge, type StudioEnv } from './studio.ts';
 import { AI_JUDGE } from './playbookTrial.ts';
 
 export const MAX_ACTIVE = 3;
@@ -124,12 +124,40 @@ export async function autoSets(env: StudioEnv, days: number, limit = 2): Promise
     const p = await passedFor(env.DB, r.code);
     const imageId = p.images[0]?.id ?? (await bestRealImage(env.DB, r.code));
     if (!imageId) continue;
-    const set = await createSet(env, { caption_id: p.captions[0].id, image_id: imageId }, 'auto');
+    // A current-ad picture has its own price/promo printed on it: the caption is written from the picture.
+    const captionId = p.images[0] ? p.captions[0].id : (await captionForPicture(env, r.code, imageId).catch(() => null)) ?? p.captions[0].id;
+    const set = await createSet(env, { caption_id: captionId, image_id: imageId }, 'auto');
     const check = set.ai_note ? JSON.parse(set.ai_note) as { match: boolean } : null;
     if (check?.match) await decideSet(env.DB, set.id, 'approved', 'auto (AI ตรวจว่าภาพกับแคปชันตรงกัน)');
     out.push({ code: r.code, set_id: set.id, approved: !!check?.match, real_image: !p.images[0] });
   }
   return out;
+}
+
+/**
+ * A caption written for one picture: Claude reads the picture (price, promo, colours, model printed on it) and writes
+ * one caption in the live playbook's style that says the same. Stored as an AI caption candidate (hook 'price').
+ */
+export async function captionForPicture(env: StudioEnv, code: string, imageId: number): Promise<number | null> {
+  const [img, product, playbook] = await Promise.all([
+    env.DB.prepare('SELECT full, mime FROM creative_candidates WHERE id = ?1').bind(imageId).first<{ full: ArrayBuffer | number[] | null; mime: string | null }>(),
+    listProducts(env.DB, code, true).then((r) => r[0]),
+    currentPlaybook(env.DB),
+  ]);
+  if (!img?.full || !img.mime || !product) return null;
+  const out = await askClaude(env, `คุณเขียนแคปชันโพสต์ขายยีนส์ให้ร้าน PK Jeans ตามคู่มือนี้อย่างเคร่งครัด\n## คู่มือ\n${playbook.text}`, [
+    imageBlock(img.full, img.mime),
+    { type: 'text', text: `นี่คือภาพโฆษณาที่จะใช้ (สินค้า ${product.code} ${product.name}) เขียนแคปชัน 1 อันที่ตรงกับสิ่งที่เขียนบนภาพทุกอย่าง: รุ่น ผ้า สี ราคา โปร เงื่อนไข ใช้เฉพาะตัวเลขที่เห็นบนภาพ ถ้าภาพไม่มีราคาให้ใช้: ${product.promo || 'ไม่ระบุราคา'} ห้ามใช้ 🔥 ตอบ JSON เท่านั้น: {"text": "<แคปชัน>"}` },
+  ], 3000, 'medium');
+  const m = /\{[\s\S]*\}/.exec(out.text);
+  let text = '';
+  try { text = String(JSON.parse(m?.[0] ?? '').text ?? '').trim().slice(0, 2000); } catch { return null; }
+  if (!text) return null;
+  const r = await env.DB.prepare(
+    `INSERT INTO creative_candidates (kind, code, product_name, promo, hook, text, prompt, playbook_id, batch, created_by, created_at)
+     VALUES ('caption', ?1, ?2, ?3, 'price', ?4, ?5, ?6, ?7, 'ai', ?8)`,
+  ).bind(code, product.name, product.promo, text, `written for picture #${imageId}`, playbook.id, crypto.randomUUID(), new Date().toISOString()).run();
+  return Number(r.meta.last_row_id);
 }
 
 // ---- 4. approved set → proposal in #studio-training → Max presses → "(Grok)" campaign ----
