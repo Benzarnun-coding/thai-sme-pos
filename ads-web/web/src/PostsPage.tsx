@@ -17,7 +17,7 @@ interface MetaPost {
 interface TagRow { dim: string; value: string; label: string; posts: number; spend: number; roas: number | null; wins: number; losses: number }
 type Dims = Record<string, { label: string; values: Record<string, string> }>;
 
-interface Pending { id: number; text: string; findings: { point: string; evidence: string }[] }
+interface Pending { id: number; text: string; proposed_by?: string; findings: { point: string; evidence: string }[] }
 
 const b = (x: number) => Math.round(x).toLocaleString('th-TH');
 const roasOf = (p: MetaPost) => (p.spend > 0 ? p.purchase_value / p.spend : 0);
@@ -168,7 +168,7 @@ function PendingPlaybook({ p, onDone, onAgain, busy }: { p: Pending; onDone: () 
   useEffect(() => setText(p.text), [p.text]);
   return (
     <div className="pending-playbook">
-      <b className="small">สิ่งที่ AI เห็น</b>
+      <b className="small">{p.proposed_by === 'grok' ? 'ร่างจาก Grok: สิ่งที่ Grok เห็น' : 'สิ่งที่ AI เห็น'}</b>
       <ol className="small">{p.findings.map((f, i) => <li key={i}>{f.point} <span className="muted">— {f.evidence}</span></li>)}</ol>
       <b className="small">ร่างคู่มือ (แก้ได้ก่อนกดใช้)</b>
       <textarea rows={14} value={text} onChange={(e) => setText(e.target.value)} />

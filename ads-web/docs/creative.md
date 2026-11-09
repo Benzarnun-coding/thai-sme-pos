@@ -93,6 +93,19 @@ picture and caption agree (same product, same price/promo) → `creative_sets` (
    (`checkerLessons`): images the AI passed but judges turned down for product/text/fake/style go into the next
    check's prompt (latest 6).
 
+### Grok's door (Benz 2026-11-09)
+
+Benz trains Grok outside the site (it reads his ChatGPT history and the page) and wants Grok to write what it learns
+into the room itself. Grok can't pass Cloudflare Access, so `worker/grok.ts` answers under `/webhook/grok/` (Access
+bypasses `/webhook`) with its own key, the secret `GROK_KEY` (unset = 503, closed; Benz sets it with
+`npx wrangler secret put GROK_KEY`). `GET /webhook/grok/playbook?key=…` (or Bearer) = the live playbook + the liked /
+disliked caption examples with reasons, as plain text. `POST` with `Authorization: Bearer …` only (a key in a link
+ends up in logs) and JSON `{playbook, findings: [{point, evidence}]}`, every finding needs evidence → a
+`playbook_versions` row `proposed_by = 'grok'`, `approved_by` NULL: the same pending draft as the AI analysis, shown on
+`/studio/posts` as "ร่างจาก Grok" until an owner presses "ใช้คู่มือนี้". ≤ 10 drafts a day. Grok never changes the live
+playbook. If Grok can't POST, Benz pastes its text into the playbook box on `/studio`. Benz's instructions to Grok:
+the PDF "คู่มือสอน Grok" (sent 2026-11-09, not in git).
+
 ## Materials (`/studio` วัตถุดิบ)
 
 | Material | Where it lives | Notes |
