@@ -82,7 +82,7 @@ export function SetsApp() {
         <p className="muted small">เอาแคปชันกับภาพที่<b>ผ่านกรรมการ</b>ใน <a href="/studio/train">ห้องฝึก</a> ของสินค้าเดียวกันมาประกอบเป็นโพสต์ · ผ่าน = แคปชันชนะมากกว่าแพ้ หรือกรรมการแก้แล้วให้ผ่าน; ภาพชนะ ≥ 1 ครั้ง ไม่แพ้มากกว่าชนะ และ AI ไม่ได้ตัดตก · AI เช็กว่าภาพกับแคปชันพูดเรื่องเดียวกัน (สินค้า ราคา โปร) · ชุดที่อนุมัติแล้วจะถูกเสนอในห้อง Discord studio-training ให้แม็กซ์กดลงแอดทดสอบ (Grok) ไม่มีอะไรไปถึง Meta ถ้าไม่มีคนกด · <a href="/studio-guide.pdf" target="_blank" rel="noreferrer">📖 คู่มือ (PDF)</a></p>
         <p className="small">รออนุมัติ {drafts.length} ชุด · อนุมัติแล้ว {approved.length} ชุด</p>
       </header>
-      <GrokAds rows={grok} cfg={cfg} onRun={() => call('POST', '/api/studio/sets/run').then(() => { toast('สั่งตรวจแล้ว — ถ้ามีชุดพร้อม จะเด้งในห้อง studio-training ภายในไม่กี่นาที', 'ok'); setTimeout(load, 60000); }).catch((e) => toast(e.message, 'bad'))} />
+      <GrokAds rows={grok} cfg={cfg} onRun={() => { toast('กำลังตรวจ… (1–2 นาที)', 'info'); call('POST', '/api/studio/sets/run').then(() => { toast('ตรวจเสร็จ — ถ้ามีชุดผ่าน ข้อเสนอเด้งในห้อง studio-training แล้ว', 'ok'); load(); }).catch((e) => toast(e.message, 'bad')); }} />
 
       <section className="card">
         <h2>ประกอบชุดใหม่</h2>

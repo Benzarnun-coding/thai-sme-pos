@@ -188,7 +188,7 @@ ${r.ok ? '✅' : '❌'} **${r.ok ? 'ลงแล้ว' : 'ลงไม่สำ
 async function studioCron(env: Env, limit = 2): Promise<void> {
   const cfg = await grokAds.loadStudioAds(env.DB);
   await grokAds.aiJudgeImages(env, 3).catch((err) => console.error('image judge', err));
-  const sets = await grokAds.autoSets(env, cfg.days, limit).catch((err) => { console.error('auto sets', err); return []; });
+  const sets = await grokAds.autoSets(env, cfg.days, limit).catch(async (err) => { console.error('auto sets', err); await audit(env.DB, 'ai', 'studio.autosets.error', 'creative_sets', { error: String(err?.message ?? err) }); return []; });
   if (sets.length) await audit(env.DB, 'ai', 'studio.autosets', 'creative_sets', sets);
   await grokAds.proposeStep(env, cfg, limit).catch((err) => console.error('grok propose', err));
   const meta = metaFor(env) as unknown as grokAds.GrokMeta;
@@ -1013,7 +1013,8 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     return new Response(buf, { headers: { 'Content-Type': type, 'Cache-Control': 'no-store' } });
   }
   // "ตรวจ/เสนอตอนนี้": one set at a time, so a press proposes at most one post.
-  if (path === '/api/studio/sets/run' && method === 'POST') { ctx.waitUntil(studioCron(env, 1).catch((err) => console.error('studio cron', err))); return json({ ok: true }); }
+  // Runs inside the request (a waitUntil gets ~30 s after the reply, too short for 5–6 Claude calls).
+  if (path === '/api/studio/sets/run' && method === 'POST') { await studioCron(env, 1); return json({ ok: true, grok_ads: await grokAds.listGrokAds(env.DB) }); }
   if (path === '/api/studio/trial/stop' && method === 'POST') { await trial.stopTrial(env.DB); await audit(env.DB, user, 'studio.trial.stop', 'playbook', {}); return json({ ok: true }); }
   if (path === '/api/studio/playbook/undo' && method === 'POST') { const id = await trial.undoPlaybook(env.DB, user); await audit(env.DB, user, 'studio.playbook.undo', String(id), {}); return json({ id }); }
   if (path === '/api/studio/stats' && method === 'GET') return json(await studio.stats(env.DB));
