@@ -148,6 +148,11 @@ max_active 9}). Runs in the 3-hourly sweep after the playbook trial
    agree, else the caption is rewritten once from the picture (`captionForPicture`) and checked again, else the set
    is rejected. A product may have several posts. The first three proposals (sets 4–6) used current-ad pictures
    before this rule; Benz kept them to try (100/day, ran from 2026-11-09).
+   **Ad gate** (`adGate`, Benz 2026-11-09 after rejecting a folded-jeans picture the product check had passed): before
+   a set is made, Claude checks the picture against `AD_RULES` (worn by a person, waist down or full body, jeans
+   60–80% of the frame, colours side by side, price readable and matching the promo, bottom bar SIZE/COD, no 🔥);
+   stored in `ai_check.ad_gate`, a failed picture is never proposed. The room's ChatGPT prompt (`imagePrompt`, and
+   `learnedImagePrompt`'s rewrite) now carries the same rules; it used to say "no people".
 4. **Proposal** (`proposeStep`): each approved set is posted once in #studio-training (`DISCORD_STUDIO_CHANNEL_ID`)
    with the picture attached, the caption, what will be created, Max tagged (`DISCORD_DECIDER_IDS`), buttons
    `grokad:<set>:yes|no`. Only `DISCORD_APPROVER_IDS` (Max, Benz) may press; kill switch refuses ✅.

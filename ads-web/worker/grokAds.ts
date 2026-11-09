@@ -13,7 +13,7 @@
 //   5. stopExpired: after 14 days the campaign is paused and its 14-day numbers are reported.
 // Never touches a campaign it didn't create; the rules engine leaves these alone (no stage).
 
-import { REASONS, askClaude, createSet, currentPlaybook, decideSet, imageBlock, listProducts, passedFor, productPhoto, readyProducts, judge, type StudioEnv } from './studio.ts';
+import { AD_RULES, REASONS, askClaude, createSet, currentPlaybook, decideSet, imageBlock, listProducts, passedFor, productPhoto, readyProducts, judge, type StudioEnv } from './studio.ts';
 import { AI_JUDGE } from './playbookTrial.ts';
 
 export const MAX_ACTIVE = 9;
@@ -102,7 +102,7 @@ export async function aiJudgeImages(env: StudioEnv, calls = 3): Promise<number> 
  * fail, best A/B record first. Benz 2026-11-09 (6 more posts): every such image becomes a post; the ad decides, not
  * the room's A/B, so an image needs no win first.
  */
-export async function freshImages(db: D1Database): Promise<{ id: number; code: string }[]> {
+export async function freshImages(db: D1Database): Promise<{ id: number; code: string; ai_check: string | null }[]> {
   const { results } = await db.prepare(
     `SELECT c.id, c.code, c.ai_check,
             (SELECT count(*) FROM creative_judgements j WHERE j.winner_id = c.id) - (SELECT count(*) FROM creative_judgements j WHERE j.winner_id IS NOT NULL AND j.winner_id != c.id AND c.id IN (j.a_id, j.b_id)) AS score
@@ -111,7 +111,7 @@ export async function freshImages(db: D1Database): Promise<{ id: number; code: s
        AND NOT EXISTS (SELECT 1 FROM creative_sets s WHERE s.image_id = c.id AND s.status != 'rejected')
      ORDER BY score DESC, c.id`,
   ).all<{ id: number; code: string; ai_check: string | null; score: number }>();
-  return results.filter((r) => !r.ai_check || JSON.parse(r.ai_check).verdict !== 'fail').map((r) => ({ id: r.id, code: r.code }));
+  return results.filter((r) => !r.ai_check || (JSON.parse(r.ai_check).verdict !== 'fail' && JSON.parse(r.ai_check).ad_gate?.pass !== false)).map((r) => ({ id: r.id, code: r.code, ai_check: r.ai_check }));
 }
 
 /**
@@ -119,10 +119,39 @@ export async function freshImages(db: D1Database): Promise<{ id: number; code: s
  * checked against the picture; on a clash the caption is rewritten once from the picture and checked again.
  * Approved by itself when picture and caption agree.
  */
+export function parseGate(text: string): { pass: boolean; why: string } | null {
+  const m = /\{[\s\S]*\}/.exec(text);
+  try { const x = JSON.parse(m?.[0] ?? ''); return { pass: x.pass === true, why: String(x.why ?? '').replace(/\s+/g, ' ').trim().slice(0, 300) }; } catch { return null; }
+}
+
+/**
+ * Would this picture sell, by the shop's rules (AD_RULES: worn by a person, price readable, colours, bottom bar)?
+ * Benz rejected a folded-jeans picture the product check had passed (2026-11-09). Stored in ai_check.ad_gate so a
+ * picture is judged once; a failed one is never proposed.
+ */
+export async function adGate(env: StudioEnv, imageId: number, promo: string): Promise<{ pass: boolean; why: string } | null> {
+  const img = await env.DB.prepare('SELECT full, mime, ai_check FROM creative_candidates WHERE id = ?1').bind(imageId).first<{ full: ArrayBuffer | number[] | null; mime: string | null; ai_check: string | null }>();
+  if (!img?.full || !img.mime) return null;
+  const out = await askClaude(env, 'คุณคัดภาพโฆษณา Facebook ของร้านยีนส์ไทยก่อนลงแอด เข้มงวด ตอบตามสิ่งที่เห็นเท่านั้น', [
+    imageBlock(img.full, img.mime),
+    { type: 'text', text: `ภาพนี้ผ่านเกณฑ์ภาพโฆษณาของร้านไหม (ต้องผ่านทุกข้อหลัก):\n${AD_RULES}\n- มีราคาบนภาพ อ่านออกชัด${promo ? ` และตรงกับโปร "${promo}"` : ''}\n- ไม่มีอีโมจิไฟ 🔥\nข้อหลักที่ห้ามพลาด: มีคนใส่กางเกง และมีราคาอ่านออก ตอบ JSON เท่านั้น: {"pass": true/false, "why": "<1 ประโยคภาษาไทย ถ้าไม่ผ่านบอกว่าขาดอะไร>"}` },
+  ], 1500, 'low');
+  const g = parseGate(out.text);
+  if (!g) return null;
+  const cur = img.ai_check ? JSON.parse(img.ai_check) : {};
+  await env.DB.prepare('UPDATE creative_candidates SET ai_check = ?2 WHERE id = ?1').bind(imageId, JSON.stringify({ ...cur, ad_gate: g })).run();
+  return g;
+}
+
 export async function autoSets(env: StudioEnv, _days: number, limit = 2): Promise<{ code: string; set_id: number; approved: boolean }[]> {
   const out: { code: string; set_id: number; approved: boolean }[] = [];
   for (const img of await freshImages(env.DB)) {
     if (out.length >= limit) break;
+    if (!(img.ai_check && JSON.parse(img.ai_check).ad_gate?.pass)) {
+      const product = (await listProducts(env.DB, img.code, true))[0];
+      const g = await adGate(env, img.id, product?.promo ?? '').catch(() => null);
+      if (!g?.pass) continue;
+    }
     const p = await passedFor(env.DB, img.code);
     if (!p.captions.length) continue;
     const used = new Set((await env.DB.prepare(`SELECT caption_id FROM creative_sets WHERE code = ?1 AND status != 'rejected'`).bind(img.code).all<{ caption_id: number }>()).results.map((r) => r.caption_id));

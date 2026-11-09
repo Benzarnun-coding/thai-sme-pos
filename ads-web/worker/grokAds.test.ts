@@ -31,3 +31,14 @@ test('proposal says what will be created, budget, days, and tags Max; buttons ca
   assert.deepEqual(proposalButtons(7)[0].components.map((c) => c.custom_id), ['grokad:7:yes', 'grokad:7:no']);
   assert.match(proposalText({ id: 7, code: 'X', caption_text: 'c' }, null, { budget: 100, days: 14, max_active: 3 }, ''), /ยังไม่มีแอดที่ยิงอยู่/);
 });
+
+import { parseGate } from './grokAds.ts';
+import { AD_RULES } from './studio.ts';
+
+test('ad gate: pass only on an explicit true; the shop rules ask for a person wearing them', () => {
+  assert.deepEqual(parseGate('{"pass": true, "why": "มีคนใส่ ราคาชัด"}'), { pass: true, why: 'มีคนใส่ ราคาชัด' });
+  assert.deepEqual(parseGate('{"pass": "yes", "why": "กางเกงพับ\n ไม่มีคน"}'.replace('\n', '\\n')), { pass: false, why: 'กางเกงพับ ไม่มีคน' });
+  assert.equal(parseGate('ไม่รู้'), null);
+  assert.match(AD_RULES, /คนใส่กางเกงจริง/);
+  assert.match(AD_RULES, /ห้ามภาพกางเกงพับ/);
+});

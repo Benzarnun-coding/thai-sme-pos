@@ -324,6 +324,13 @@ export async function addImageCandidate(db: D1Database, form: FormData, user: st
 }
 
 /** The prompt staff paste into ChatGPT for an image of this product in this style. */
+/** What every ad picture must have (the room's prompt, its learned rewrite, and the (Grok) ad gate check the same). */
+export const AD_RULES = [
+  'ต้องมีคนใส่กางเกงจริง ครอปจากเอวลงหรือเห็นทั้งตัว เสื้อยืดเรียบ รองเท้าสีขาว กางเกงกินพื้นที่ 60–80% ของภาพ (ห้ามภาพกางเกงพับ/วางเฉย ๆ/แขวน)',
+  'ถ้าสินค้ามีหลายสี ให้โชว์ 2–3 สีเรียงกัน พร้อมชื่อสีกำกับ',
+  'แถบล่าง: SIZE ที่มี + เก็บเงินปลายทาง + แกะก่อนจ่ายได้',
+].join('\n');
+
 export async function imagePrompt(db: D1Database, code: string, styleId: number): Promise<string> {
   const [product, card] = await Promise.all([listProducts(db, code, true).then((l) => l[0]), db.prepare('SELECT * FROM style_cards WHERE id = ?').bind(styleId).first<StyleCard>()]);
   if (!product) throw new BadRequest('ไม่พบรหัสสินค้านี้');
@@ -332,8 +339,10 @@ export async function imagePrompt(db: D1Database, code: string, styleId: number)
     `ทำภาพโฆษณา Facebook (สี่เหลี่ยมจัตุรัส 1080×1080) ของกางเกงยีนส์ในรูปที่แนบมา (${product.code} ${product.name})`,
     `ห้ามเปลี่ยนตัวสินค้า: สีผ้า ทรง ตะเข็บ ป้าย ต้องเหมือนรูปที่แนบทุกประการ เปลี่ยนได้เฉพาะฉาก แสง มุม และองค์ประกอบรอบตัวสินค้า`,
     `สไตล์: ${card.name} — ${card.note || 'ตามรูปตัวอย่างที่แนบ'}`,
-    product.promo ? `ใส่ป้ายข้อความ (ภาษาไทย อ่านง่าย ตัวใหญ่): "${product.promo}"` : 'ไม่ต้องใส่ข้อความราคา',
-    'ไม่มีลายน้ำ ไม่มีโลโก้แบรนด์อื่น ไม่มีคน (ยกเว้นสไตล์ระบุว่ามีนางแบบ)',
+    // Benz 2026-11-09: a folded-jeans picture was rejected; what sells is the jeans worn, colours side by side, a big price.
+    AD_RULES,
+    product.promo ? `ราคาบนภาพ (ตัวใหญ่ อ่านง่าย ตัวเลขเหลือง/ทองบนพื้นแดงหรือดำ ต้องตรงทุกตัวอักษร): "${product.promo}"` : 'ราคา: ใช้ราคาตามที่ร้านแจ้งเท่านั้น ถ้าไม่มีให้เว้นที่ไว้',
+    'ไม่มีลายน้ำ ไม่มีโลโก้แบรนด์อื่น ห้ามอีโมจิไฟ 🔥',
   ].join('\n');
 }
 
@@ -970,7 +979,7 @@ export async function learnedImagePrompt(env: StudioEnv, code: string, styleId: 
   ]);
   const tagLines = tags.map((t) => `- ${IMAGE_TAGS[t.dim]?.label ?? t.dim}: ${t.label} — โพสต์จริง ${t.posts} โพสต์${t.roas !== null ? ` ROAS ${t.roas.toFixed(2)} ค่าแอด ${Math.round(t.spend)}` : ''} · ในห้อง ชนะ ${t.wins} แพ้ ${t.losses}`).join('\n');
   const out = await askClaude(env, 'คุณเขียน prompt ให้ ChatGPT ทำภาพโฆษณายีนส์ของร้านไทย จากสิ่งที่ร้านเรียนรู้มา', [
-    { type: 'text', text: `prompt ตั้งต้น (ต้องคงกฎเรื่องห้ามเปลี่ยนสินค้าไว้เสมอ):\n${base}\n
+    { type: 'text', text: `prompt ตั้งต้น (ต้องคงกฎเรื่องห้ามเปลี่ยนสินค้า และกฎภาพโฆษณานี้ไว้เสมอ:\n${AD_RULES}):\n${base}\n
 ## ภาพแบบไหนขายได้ (ป้ายภาพ × ROAS ของโพสต์ที่ยิงอยู่ ยอดแท็ก Meta 14 วัน; คุ้มทุน ~2.9) และชนะในห้องฝึก
 ${tagLines || '(ยังไม่มีข้อมูล)'}
 ## prompt ของภาพที่ชนะในห้องฝึก
