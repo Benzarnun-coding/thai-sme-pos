@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # ubuntu-latest became 26.04 (Nov 2026); Playwright 1.56 has no chromium for it
     steps:
       - uses: actions/checkout@v4
         with:
