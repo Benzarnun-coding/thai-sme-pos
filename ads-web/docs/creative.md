@@ -156,6 +156,9 @@ max_active 9}). Runs in the 3-hourly sweep after the playbook trial
 4. **Proposal** (`proposeStep`): each approved set is posted once in #studio-training (`DISCORD_STUDIO_CHANNEL_ID`)
    with the picture attached, the caption, what will be created, Max tagged (`DISCORD_DECIDER_IDS`), buttons
    `grokad:<set>:yes|no`. Only `DISCORD_APPROVER_IDS` (Max, Benz) may press; kill switch refuses ✅.
+   ✅ answers Discord at once (3 s limit) and does the kill-switch check, claim and launch afterwards (2026-11-09:
+   three presses timed out and stuck in `working`); a row `working` for 10 min (`claimed_at`, migration 0065) can be
+   pressed again, and the message keeps 🔁 while it builds.
 5. **Launch** on ✅ (`launchSet`, in the background, the message is edited with the result): template = the product's
    running ad with the most spend (`meta_posts`); its campaign copied alone, PAUSED, suffix " ชุด#<n> (Grok)"
    (`copyCampaignOnly`); a NEW ad set built from that ad's ad set settings (`createAdsetFrom`: targeting minus the

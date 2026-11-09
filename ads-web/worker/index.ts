@@ -156,33 +156,50 @@ async function editStudioMessage(env: Env, messageId: string, content: string, c
   }).catch(() => null);
 }
 
-/** ✅ / ❌ on a "(Grok)" ad proposal in #studio-training: approvers only (Max, Benz); ✅ builds it in the background. */
+const grokRetryButtons = (setId: string | number) => [{ type: 1, components: [{ type: 2, style: 1, label: '🔁 ลองใหม่', custom_id: `grokad:${setId}:yes` }, { type: 2, style: 4, label: '❌ ไม่ลง', custom_id: `grokad:${setId}:no` }] }];
+
+/**
+ * ✅ / ❌ on a "(Grok)" ad proposal in #studio-training: approvers only (Max, Benz). Discord gives 3 s for the answer,
+ * so ✅ answers at once with no database call and does the kill-switch check, the claim and the launch afterwards,
+ * editing the message with the result (2026-11-09: three presses hit "didn't respond in time" and stayed 'working').
+ * A row left 'working' for 10 minutes (the background launch was cut off) may be claimed again.
+ */
 async function grokAdPress(i: any, env: Env, ctx: ExecutionContext, who: string, userId: string, approvers: string[]): Promise<Response> {
   if (approvers.length && !approvers.includes(userId)) return json({ type: 4, data: { content: `ปุ่มนี้ให้กดได้เฉพาะคุณแม็กซ์กับคุณเบ้นนะคะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
   const [, setId, choice] = String(i.data?.custom_id ?? '').split(':');
-  const before = String(i.message?.content ?? '');
+  const before = String(i.message?.content ?? '').split('\n').filter((l) => !/^(⏳|❌ \*\*ลงไม่สำเร็จ|🔧|⛔|ℹ️)/.test(l)).join('\n');
   const at = new Date().toISOString();
+  const messageId = String(i.message?.id ?? '');
   if (choice === 'no') {
     const r = await env.DB.prepare(`UPDATE grok_ads SET status = 'declined', decided_by = ?2 WHERE set_id = ?1 AND status IN ('proposed', 'failed')`).bind(Number(setId), who).run();
     await audit(env.DB, `discord:${who}`, 'grokad.declined', setId, {});
-    return json({ type: 7, data: { content: `${before}
-${r.meta.changes ? `❌ **ไม่ลง** — ${who}` : 'ตัดสินไปแล้วค่ะ'}`.slice(0, 2000), components: [] } });
+    return json({ type: 7, data: { content: `${before}\n${r.meta.changes ? `❌ **ไม่ลง** — ${who}` : 'ตัดสินไปแล้วค่ะ'}`.slice(0, 2000), components: [] } });
   }
-  if ((await loadSettings(env.DB)).kill_switch) return json({ type: 4, data: { content: '⛔ ตอนนี้เปิด kill switch อยู่ (หน้าตั้งค่า) — ยังไม่ลงให้นะคะ ปิดแล้วกดใหม่ได้ค่ะ', flags: 64 } });
-  const claimed = await env.DB.prepare(`UPDATE grok_ads SET status = 'working', decided_by = ?2 WHERE set_id = ?1 AND status IN ('proposed', 'failed')`).bind(Number(setId), who).run();
-  if (!claimed.meta.changes) return json({ type: 4, data: { content: 'มีคนกดไปแล้วค่ะ', flags: 64 } });
-  const messageId = String(i.message?.id ?? '');
   ctx.waitUntil((async () => {
+    if ((await loadSettings(env.DB)).kill_switch) {
+      await editStudioMessage(env, messageId, `${before}\n⛔ ตอนนี้เปิด kill switch อยู่ (หน้าตั้งค่า) — ยังไม่ลงให้นะคะ ปิดแล้วกดใหม่ได้ค่ะ`, grokAds.proposalButtons(Number(setId)));
+      return;
+    }
+    const stale = new Date(Date.now() - 10 * 60_000).toISOString();
+    const claimed = await env.DB.prepare(
+      `UPDATE grok_ads SET status = 'working', decided_by = ?2, claimed_at = ?3
+        WHERE set_id = ?1 AND (status IN ('proposed', 'failed') OR (status = 'working' AND (claimed_at IS NULL OR claimed_at < ?4)))`,
+    ).bind(Number(setId), who, at, stale).run();
+    if (!claimed.meta.changes) {
+      const g = await env.DB.prepare(`SELECT status FROM grok_ads WHERE set_id = ?1`).bind(Number(setId)).first<{ status: string }>();
+      await editStudioMessage(env, messageId, `${before}\nℹ️ ${g?.status === 'working' ? 'กำลังสร้างอยู่แล้วค่ะ (มีคนกดไปแล้ว) ถ้า 10 นาทีแล้วยังไม่เปลี่ยน กดใหม่ได้' : g?.status === 'running' ? 'ลงไปแล้วค่ะ' : 'ตัดสินไปแล้วค่ะ'}`,
+        g?.status === 'working' ? grokRetryButtons(setId) : []);
+      return;
+    }
     const cfg = await grokAds.loadStudioAds(env.DB);
     const r = await grokAds.launchSet(env, metaFor(env) as unknown as grokAds.GrokMeta, cfg, Number(setId), await budgetRoom(env).catch(() => 0))
       .catch((err: any) => ({ ok: false, text: String(err?.message ?? err) }));
     await audit(env.DB, `discord:${who}`, r.ok ? 'grokad.launched' : 'grokad.failed', setId, { text: r.text });
     // A failure keeps a retry button (and ❌), so a fixed bug or a raised cap needs only another press.
-    await editStudioMessage(env, messageId, `${before}\n${r.ok ? '✅' : '❌'} **${r.ok ? 'ลงแล้ว' : 'ลงไม่สำเร็จ'}** — ${who} อนุมัติ · ${r.text}`,
-      r.ok ? [] : [{ type: 1, components: [{ type: 2, style: 1, label: '🔁 ลองใหม่', custom_id: `grokad:${setId}:yes` }, { type: 2, style: 4, label: '❌ ไม่ลง', custom_id: `grokad:${setId}:no` }] }]);
-  })().catch(() => null));
+    await editStudioMessage(env, messageId, `${before}\n${r.ok ? '✅' : '❌'} **${r.ok ? 'ลงแล้ว' : 'ลงไม่สำเร็จ'}** — ${who} อนุมัติ · ${r.text}`, r.ok ? [] : grokRetryButtons(setId));
+  })().catch((err) => console.error('grokad press', err)));
   return json({ type: 7, data: { content: `${before}
-⏳ **กำลังสร้างแอด…** ${who} อนุมัติ ${at.slice(11, 16)} UTC · เสร็จแล้วข้อความนี้จะเปลี่ยนนะคะ`.slice(0, 2000), components: [] } });
+⏳ **กำลังสร้างแอด…** ${who} อนุมัติ ${at.slice(11, 16)} UTC · เสร็จแล้วข้อความนี้จะเปลี่ยนนะคะ (ถ้า 10 นาทีแล้วยังไม่เปลี่ยน กด 🔁 ได้)`.slice(0, 2000), components: grokRetryButtons(setId) } });
 }
 
 /** Every 3 h: judge new images, make post sets, propose them in #studio-training, stop "(Grok)" ads past 14 days. */
@@ -1043,12 +1060,12 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
   // Put 🔁 / ❌ back on failed proposals (owners/admins), e.g. after a fix was deployed.
   if (path === '/api/grok-ads/retry-buttons' && method === 'POST') {
-    const { results } = await env.DB.prepare(`SELECT set_id, message_id FROM grok_ads WHERE status = 'failed' AND message_id IS NOT NULL`).all<{ set_id: number; message_id: string }>();
+    const { results } = await env.DB.prepare(`SELECT set_id, message_id FROM grok_ads WHERE (status = 'failed' OR (status = 'working' AND (claimed_at IS NULL OR claimed_at < ?1))) AND message_id IS NOT NULL`).bind(new Date(Date.now() - 10 * 60_000).toISOString()).all<{ set_id: number; message_id: string }>();
     for (const g of results) {
       const res = await fetch(`https://discord.com/api/v10/channels/${env.DISCORD_STUDIO_CHANNEL_ID}/messages/${g.message_id}`, { headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` } });
       const msg: any = await res.json().catch(() => ({}));
       const lines = String(msg.content ?? '').split('\n').filter((l: string) => !l.startsWith('🔧'));
-      await editStudioMessage(env, g.message_id, [...lines, '🔧 แก้แล้ว กด 🔁 ลองใหม่ได้เลย'].join('\n'), [{ type: 1, components: [{ type: 2, style: 1, label: '🔁 ลองใหม่', custom_id: `grokad:${g.set_id}:yes` }, { type: 2, style: 4, label: '❌ ไม่ลง', custom_id: `grokad:${g.set_id}:no` }] }]);
+      await editStudioMessage(env, g.message_id, [...lines, '🔧 แก้แล้ว กด 🔁 ลองใหม่ได้เลย'].join('\n'), grokRetryButtons(g.set_id));
     }
     await audit(env.DB, user, 'grokad.retry_buttons', 'grok_ads', { n: results.length });
     return json({ ok: true, n: results.length });
