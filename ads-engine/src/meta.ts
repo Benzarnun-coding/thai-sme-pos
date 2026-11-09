@@ -350,14 +350,15 @@ export class MetaClient {
    * removed (2026-11-09: "The targeting_optimization field has been removed"), so those are dropped here.
    */
   async createAdsetFrom(templateAdsetId: string, campaignId: string, name: string, dailyBudget: number | null): Promise<string> {
-    const t = await this.get(templateAdsetId, { fields: 'optimization_goal,billing_event,bid_strategy,bid_amount,targeting,promoted_object,destination_type,attribution_spec' });
+    const t = await this.get(templateAdsetId, { fields: 'optimization_goal,billing_event,bid_strategy,bid_amount,targeting,promoted_object,destination_type' });
     const targeting = { ...(t.targeting ?? {}) };
     for (const k of ['targeting_optimization', 'targeting_automation', 'targeting_relaxation_types']) delete (targeting as any)[k];
     const params: Record<string, string> = { campaign_id: campaignId, name, status: 'PAUSED', targeting: JSON.stringify(targeting) };
     for (const k of ['optimization_goal', 'billing_event', 'bid_strategy', 'destination_type']) if (t[k]) params[k] = String(t[k]);
     if (t.bid_amount) params.bid_amount = String(t.bid_amount);
     if (t.promoted_object) params.promoted_object = JSON.stringify(t.promoted_object);
-    if (t.attribution_spec) params.attribution_spec = JSON.stringify(t.attribution_spec);
+    // attribution_spec is left out: Meta refuses the template's windows for new ad sets of this objective
+    // (2026-11-09: "use one of these supported windows: 1 days") and the default is what it accepts.
     if (dailyBudget !== null) params.daily_budget = String(Math.round(dailyBudget * 100));
     const r = await this.post(`${this.accountId}/adsets`, params);
     if (!r.id) throw new Error('Meta ไม่ได้ส่ง id ชุดโฆษณาใหม่กลับมา');
