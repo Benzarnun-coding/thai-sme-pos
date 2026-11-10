@@ -15,11 +15,13 @@
 
 import { AD_RULES, REASONS, askClaude, createSet, currentPlaybook, decideSet, imageBlock, listProducts, passedFor, productPhoto, readyProducts, judge, type StudioEnv } from './studio.ts';
 import { AI_JUDGE } from './playbookTrial.ts';
+import { reviewAd, type ReviewMode, type Verdict } from './grokLoop.ts';
 
 export const MAX_ACTIVE = 9;
 
-export interface StudioAds { budget: number; days: number; max_active: number }
-const DEFAULTS: StudioAds = { budget: 50, days: 14, max_active: 9 };
+/** review: the 3-hourly look at running ads (grokLoop.reviewAd): 'dry' shows what it would do, 'on' does it. */
+export interface StudioAds { budget: number; days: number; max_active: number; review: ReviewMode }
+const DEFAULTS: StudioAds = { budget: 50, days: 14, max_active: 9, review: 'dry' };
 
 export async function loadStudioAds(db: D1Database): Promise<StudioAds> {
   const v = await db.prepare(`SELECT value FROM settings WHERE key = 'studio_ads'`).first<{ value: string }>();
@@ -32,6 +34,7 @@ export async function saveStudioAds(db: D1Database, patch: Partial<StudioAds>): 
     budget: Math.min(500, Math.max(50, Number(patch.budget ?? cur.budget) || 100)),
     days: Math.min(30, Math.max(3, Number(patch.days ?? cur.days) || 14)),
     max_active: Math.min(10, Math.max(1, Number(patch.max_active ?? cur.max_active) || MAX_ACTIVE)),
+    review: (['off', 'dry', 'on'] as const).includes(patch.review as ReviewMode) ? (patch.review as ReviewMode) : cur.review,
   };
   await db.prepare(`INSERT INTO settings (key, value) VALUES ('studio_ads', ?1) ON CONFLICT (key) DO UPDATE SET value = excluded.value`).bind(JSON.stringify(next)).run();
   return next;
@@ -352,17 +355,70 @@ export async function launchSet(env: StudioEnv, meta: GrokMeta, cfg: StudioAds, 
 
 export interface StopNote { set_id: number; code: string; text: string }
 
-/** Pauses "(Grok)" campaigns past their end and stores their numbers (Meta, last 14 days; Meta-tagged sales). */
-export async function stopExpired(env: StudioEnv, meta: GrokMeta | null, stats: Map<string, { spend: number; purchases: number; purchase_value: number }> | null): Promise<StopNote[]> {
+type Stats = Map<string, { spend: number; purchases: number; purchase_value: number }>;
+
+/** Page365 orders credited to each "(Grok)" campaign since it was launched (uploaded days only). */
+export async function realByCampaign(db: D1Database): Promise<Map<string, { orders: number; value: number }>> {
+  const { results } = await db.prepare(
+    `SELECT o.campaign_id AS id, count(*) AS orders, sum(o.total) AS value
+     FROM p365_orders o JOIN grok_ads g ON g.campaign_id = o.campaign_id
+     WHERE o.date >= substr(g.launched_at, 1, 10) GROUP BY o.campaign_id`,
+  ).all<{ id: string; orders: number; value: number }>();
+  return new Map(results.map((r) => [r.id, { orders: r.orders, value: r.value }]));
+}
+
+const resultOf = (m: { spend: number; purchases: number; purchase_value: number } | undefined, real: { orders: number; value: number } | undefined) => (m ? {
+  spend: Math.round(m.spend), purchases: m.purchases, value: Math.round(m.purchase_value), roas: m.spend ? Math.round((m.purchase_value / m.spend) * 100) / 100 : 0,
+  real_orders: real?.orders ?? 0, real_value: Math.round(real?.value ?? 0), real_roas: m.spend ? Math.round(((real?.value ?? 0) / m.spend) * 100) / 100 : 0,
+} : null);
+const resultText = (r: NonNullable<ReturnType<typeof resultOf>>) => `ค่าแอด ${r.spend} · ยอดจริง Page365 ${r.real_orders} ออเดอร์ ${r.real_value} บาท ROAS ${r.real_roas} · ยอดแท็ก Meta ${r.purchases} ออเดอร์ ${r.value} บาท ROAS ${r.roas}`;
+
+/** Pauses "(Grok)" campaigns past their end and stores their numbers (Meta, last 14 days, plus Page365's credited orders). */
+export async function stopExpired(env: StudioEnv, meta: GrokMeta | null, stats: Stats | null): Promise<StopNote[]> {
   const { results } = await env.DB.prepare(`SELECT set_id, code, campaign_id FROM grok_ads WHERE status = 'running' AND ends_at <= ?1`).bind(new Date().toISOString()).all<{ set_id: number; code: string; campaign_id: string }>();
   const out: StopNote[] = [];
+  const real = results.length ? await realByCampaign(env.DB).catch(() => new Map<string, { orders: number; value: number }>()) : new Map<string, { orders: number; value: number }>();
   for (const g of results) {
     if (!meta) break;
     await meta.setStatus(g.campaign_id, 'PAUSED');
-    const m = stats?.get(g.campaign_id);
-    const result = m ? { spend: Math.round(m.spend), purchases: m.purchases, value: Math.round(m.purchase_value), roas: m.spend ? Math.round((m.purchase_value / m.spend) * 100) / 100 : 0 } : null;
+    const result = resultOf(stats?.get(g.campaign_id), real.get(g.campaign_id));
     await env.DB.prepare(`UPDATE grok_ads SET status = 'done', result = ?2 WHERE set_id = ?1`).bind(g.set_id, result ? JSON.stringify(result) : null).run();
-    out.push({ set_id: g.set_id, code: g.code, text: result ? `ครบกำหนด หยุดแล้ว: ค่าแอด ${result.spend} · ซื้อ ${result.purchases} · ยอด ${result.value} · ROAS ${result.roas} (ยอดแท็ก Meta)` : 'ครบกำหนด หยุดแล้ว (อ่านตัวเลขไม่ได้)' });
+    out.push({ set_id: g.set_id, code: g.code, text: result ? `ครบกำหนด หยุดแล้ว: ${resultText(result)}` : 'ครบกำหนด หยุดแล้ว (อ่านตัวเลขไม่ได้)' });
+  }
+  return out;
+}
+
+/**
+ * Every sweep, each running ad that is not due yet gets a verdict (grokLoop.reviewAd) stored in `review`. Mode 'dry'
+ * stops there. Mode 'on': graduate = `toTesting` puts the campaign in the testing stage (the stage rules then own its
+ * budget) and the row leaves the test slots as 'graduated'; stop = campaign paused, row 'done'. Returns what was done.
+ */
+export async function reviewRunning(
+  env: StudioEnv, meta: GrokMeta | null, stats: Stats, breakeven: number | null, mode: ReviewMode,
+  toTesting: (campaignId: string, name: string) => Promise<void>, now = new Date(),
+): Promise<StopNote[]> {
+  if (mode === 'off') return [];
+  const { results } = await env.DB.prepare(`SELECT set_id, code, campaign_id, launched_at FROM grok_ads WHERE status = 'running' AND ends_at > ?1 AND campaign_id IS NOT NULL`)
+    .bind(now.toISOString()).all<{ set_id: number; code: string; campaign_id: string; launched_at: string }>();
+  if (!results.length) return [];
+  const real = await realByCampaign(env.DB);
+  const out: StopNote[] = [];
+  for (const g of results) {
+    const m = stats.get(g.campaign_id), r = real.get(g.campaign_id);
+    const nums = { days: Math.floor((now.getTime() - Date.parse(g.launched_at)) / 86_400_000), spend: m?.spend ?? 0, meta_purchases: m?.purchases ?? 0, real_orders: r?.orders ?? 0, real_value: r?.value ?? 0 };
+    const v: Verdict = reviewAd(nums, breakeven);
+    await env.DB.prepare(`UPDATE grok_ads SET review = ?2 WHERE set_id = ?1`).bind(g.set_id, JSON.stringify({ at: now.toISOString(), ...v, ...nums, dry: mode !== 'on' })).run();
+    if (mode !== 'on' || v.action === 'wait' || !meta) continue;
+    const result = JSON.stringify(resultOf(m, r));
+    if (v.action === 'graduate') {
+      await toTesting(g.campaign_id, `${g.code} ชุด#${g.set_id} (Grok)`);
+      await env.DB.prepare(`UPDATE grok_ads SET status = 'graduated', result = ?2 WHERE set_id = ?1`).bind(g.set_id, result).run();
+      out.push({ set_id: g.set_id, code: g.code, text: `🎓 ผ่าน: ${v.why}` });
+    } else {
+      await meta.setStatus(g.campaign_id, 'PAUSED');
+      await env.DB.prepare(`UPDATE grok_ads SET status = 'done', result = ?2 WHERE set_id = ?1`).bind(g.set_id, result).run();
+      out.push({ set_id: g.set_id, code: g.code, text: `✂️ ${v.why}` });
+    }
   }
   return out;
 }
@@ -380,8 +436,8 @@ export async function withdraw(db: D1Database, setId: number, who: string): Prom
 /** "(Grok)" ads that ran, with their caption, picture and result: what Grok reads on /studio before the next round. */
 export async function grokResults(db: D1Database) {
   return (await db.prepare(
-    `SELECT g.set_id, g.code, g.status, g.launched_at, g.ends_at, g.result, g.campaign_id, s.caption_text, s.image_id, c.hook = 'real' AS old_picture
+    `SELECT g.set_id, g.code, g.status, g.launched_at, g.ends_at, g.result, g.review, g.campaign_id, s.caption_text, s.image_id, c.hook = 'real' AS old_picture
      FROM grok_ads g JOIN creative_sets s ON s.id = g.set_id JOIN creative_candidates c ON c.id = s.image_id
-     WHERE g.status IN ('running', 'done') ORDER BY g.launched_at DESC LIMIT 30`,
+     WHERE g.status IN ('running', 'done', 'graduated') ORDER BY g.launched_at DESC LIMIT 30`,
   ).all()).results;
 }

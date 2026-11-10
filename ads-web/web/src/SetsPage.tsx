@@ -15,21 +15,35 @@ interface PairCheck { match: boolean; issues: string; summary: string }
 const pic = (id: number, full = false) => `/api/studio/picture/cand/${id}?v=2${full ? '&size=full' : ''}`;
 
 interface GrokAd { set_id: number; code: string; status: string; campaign_id: string | null; ad_id: string | null; budget: number | null; error: string | null; decided_by: string | null; announced_at: string | null; launched_at: string | null; ends_at: string | null; result: string | null }
-const GROK_STATUS: Record<string, string> = { proposed: '⏳ รอแม็กซ์กดอนุมัติใน Discord', working: '⚙️ กำลังสร้าง', running: '🟢 กำลังยิง', done: '🏁 ครบกำหนด', failed: '❌ ลงไม่สำเร็จ', declined: '🚫 ไม่ลง', withdrawn: '↩️ ถอนแล้ว' };
+type GrokCfg = { budget: number; days: number; max_active: number; review: 'off' | 'dry' | 'on' };
+const GROK_STATUS: Record<string, string> = { graduated: '🎓 ผ่าน — อยู่กลุ่มทดสอบแล้ว', proposed: '⏳ รอแม็กซ์กดอนุมัติใน Discord', working: '⚙️ กำลังสร้าง', running: '🟢 กำลังยิง', done: '🏁 ครบกำหนด', failed: '❌ ลงไม่สำเร็จ', declined: '🚫 ไม่ลง', withdrawn: '↩️ ถอนแล้ว' };
 
 /** "(Grok)" test ads: what was proposed in #studio-training, what runs, what ended (worker/grokAds.ts). */
-function GrokAds({ rows, cfg, onRun }: { rows: GrokAd[]; cfg: { budget: number; days: number; max_active: number } | null; onRun: () => void }) {
+function GrokAds({ rows, cfg, onRun, onSave }: { rows: GrokAd[]; cfg: GrokCfg | null; onRun: () => void; onSave: (c: GrokCfg) => void }) {
+  const [edit, setEdit] = useState<GrokCfg | null>(null);
+  useEffect(() => setEdit(cfg), [cfg]);
   const d = (x: string | null) => (x ? new Date(x).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' }) : '');
   return (
     <section className="card">
       <div className="row between"><h2>แอดทดสอบ (Grok)</h2><button className="ghost small" onClick={onRun}>ตรวจ/เสนอตอนนี้</button></div>
-      <p className="muted small">ระบบทำเองทุก 3 ชม.: AI ตัดสินภาพ → จับคู่ภาพ+แคปชันที่ผ่าน → เสนอในห้อง Discord studio-training พร้อมภาพ แม็กซ์กด ✅ แล้วจึงสร้างแคมใหม่ชื่อลงท้าย "(Grok)" งบ {cfg?.budget ?? 100} บาท/วัน {cfg?.days ?? 14} วัน แล้วหยุดเอง (เปิดพร้อมกันไม่เกิน {cfg?.max_active ?? 3} แคม) · ตัวเลขผลเป็นยอดแท็ก Meta</p>
+      <p className="muted small">ระบบทำเองทุก 3 ชม.: AI ตัดสินภาพ → จับคู่ภาพ+แคปชันที่ผ่าน → เสนอในห้อง Discord studio-training พร้อมภาพ แม็กซ์กด ✅ แล้วจึงสร้างแคมใหม่ชื่อลงท้าย "(Grok)" งบ {cfg?.budget ?? 100} บาท/วัน {cfg?.days ?? 14} วัน แล้วหยุดเอง (เปิดพร้อมกันไม่เกิน {cfg?.max_active ?? 3} แคม) · ผล: ออเดอร์จริงจาก Page365 ที่จับคู่กับแคม เทียบกับยอดแท็ก Meta</p>
+      {edit && <details><summary className="small">ตั้งค่า (เฉพาะเจ้าของ) — ตรวจแอดที่ยิงอยู่: {edit.review === 'on' ? 'ทำจริง' : edit.review === 'dry' ? 'แสดงอย่างเดียว' : 'ปิด'}</summary>
+        <div className="row small" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>
+          <label>งบชุดใหม่ บาท/วัน<input type="number" min={50} max={500} value={edit.budget} onChange={(e) => setEdit({ ...edit, budget: Number(e.target.value) })} /></label>
+          <label>จำนวนวัน<input type="number" min={3} max={30} value={edit.days} onChange={(e) => setEdit({ ...edit, days: Number(e.target.value) })} /></label>
+          <label>เปิดพร้อมกันไม่เกิน<input type="number" min={1} max={10} value={edit.max_active} onChange={(e) => setEdit({ ...edit, max_active: Number(e.target.value) })} /></label>
+          <label>ตรวจแอดที่ยิงอยู่ทุก 3 ชม.<select value={edit.review} onChange={(e) => setEdit({ ...edit, review: e.target.value as GrokCfg['review'] })}>
+            <option value="off">ปิด</option><option value="dry">แสดงอย่างเดียว (ยังไม่แตะ Meta)</option><option value="on">ทำจริง</option></select></label>
+          <button className="small" onClick={() => onSave(edit)}>บันทึก</button>
+        </div>
+        <p className="muted small">"ทำจริง" = ตัวที่ค่าแอด ≥ 500, ออเดอร์จริง ≥ 3, ROAS จริง ≥ 1.5× จุดคุ้มทุนร้าน ถูกย้ายเข้ากลุ่มทดสอบ (กฎงบของกลุ่มนั้นเพิ่ม/ลดงบต่อเอง) · ตัวที่ครบ 5 วัน ค่าแอด ≥ 300 ไม่มีออเดอร์เลยถูกหยุดก่อนกำหนด · งบใหม่ใช้กับชุดที่เสนอหลังจากนี้ ชุดที่เปิดแล้วไม่เปลี่ยน</p>
+      </details>}
       {!rows.length ? <p className="muted small">ยังไม่มี — ต้องมีแคปชันและภาพที่ผ่านของสินค้าเดียวกันก่อน</p> : (
         <table className="small"><thead><tr><th>ชุด</th><th>สินค้า</th><th>สถานะ</th><th>ช่วง</th><th>ผล / หมายเหตุ</th></tr></thead><tbody>
           {rows.map((g) => { const r = g.result ? JSON.parse(g.result) : null; return (
             <tr key={g.set_id}><td>#{g.set_id}</td><td>{g.code}</td><td>{GROK_STATUS[g.status] ?? g.status}{g.decided_by ? ` · ${g.decided_by}` : ''}</td>
               <td>{g.launched_at ? `${d(g.launched_at)} – ${d(g.ends_at)}` : d(g.announced_at)}</td>
-              <td>{r ? `ค่าแอด ${r.spend} · ซื้อ ${r.purchases} · ROAS ${r.roas}` : g.error ?? (g.campaign_id ? `แคม ${g.campaign_id}` : '')}</td></tr>); })}
+              <td>{r ? `ค่าแอด ${r.spend} · ${r.real_roas !== undefined ? `จริง ${r.real_orders} ออเดอร์ ROAS ${r.real_roas} · ` : ''}Meta ${r.purchases} ออเดอร์ ROAS ${r.roas}` : g.error ?? (g.campaign_id ? `แคม ${g.campaign_id}` : '')}</td></tr>); })}
         </tbody></table>
       )}
     </section>
@@ -49,8 +63,8 @@ export function SetsApp() {
   const [busy, setBusy] = useState(false);
 
   const [grok, setGrok] = useState<GrokAd[]>([]);
-  const [cfg, setCfg] = useState<{ budget: number; days: number; max_active: number } | null>(null);
-  const load = () => call<{ sets: CreativeSet[]; ready: Ready[]; grok_ads: GrokAd[]; grok_cfg: { budget: number; days: number; max_active: number } }>('GET', '/api/studio/sets').then((r) => { setSets(r.sets); setReady(r.ready); setGrok(r.grok_ads ?? []); setCfg(r.grok_cfg ?? null); if (!code && r.ready[0]) setCode(r.ready[0].code); }).catch((e) => toast(e.message, 'bad'));
+  const [cfg, setCfg] = useState<GrokCfg | null>(null);
+  const load = () => call<{ sets: CreativeSet[]; ready: Ready[]; grok_ads: GrokAd[]; grok_cfg: GrokCfg }>('GET', '/api/studio/sets').then((r) => { setSets(r.sets); setReady(r.ready); setGrok(r.grok_ads ?? []); setCfg(r.grok_cfg ?? null); if (!code && r.ready[0]) setCode(r.ready[0].code); }).catch((e) => toast(e.message, 'bad'));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     setCap(null); setImg(null); setPassed(null);
@@ -82,7 +96,7 @@ export function SetsApp() {
         <p className="muted small">เอาแคปชันกับภาพที่<b>ผ่านกรรมการ</b>ใน <a href="/studio/train">ห้องฝึก</a> ของสินค้าเดียวกันมาประกอบเป็นโพสต์ · ผ่าน = แคปชันชนะมากกว่าแพ้ หรือกรรมการแก้แล้วให้ผ่าน; ภาพชนะ ≥ 1 ครั้ง ไม่แพ้มากกว่าชนะ และ AI ไม่ได้ตัดตก · AI เช็กว่าภาพกับแคปชันพูดเรื่องเดียวกัน (สินค้า ราคา โปร) · ชุดที่อนุมัติแล้วจะถูกเสนอในห้อง Discord studio-training ให้แม็กซ์กดลงแอดทดสอบ (Grok) ไม่มีอะไรไปถึง Meta ถ้าไม่มีคนกด · <a href="/studio-guide.pdf" target="_blank" rel="noreferrer">📖 คู่มือ (PDF)</a></p>
         <p className="small">รออนุมัติ {drafts.length} ชุด · อนุมัติแล้ว {approved.length} ชุด</p>
       </header>
-      <GrokAds rows={grok} cfg={cfg} onRun={() => { toast('กำลังตรวจ… (1–2 นาที)', 'info'); call('POST', '/api/studio/sets/run').then(() => { toast('ตรวจเสร็จ — ถ้ามีชุดผ่าน ข้อเสนอเด้งในห้อง studio-training แล้ว', 'ok'); load(); }).catch((e) => toast(e.message, 'bad')); }} />
+      <GrokAds rows={grok} cfg={cfg} onSave={(c) => call<{ grok_cfg: GrokCfg }>('POST', '/api/studio/ads-settings', c).then((r) => { setCfg(r.grok_cfg); toast('บันทึกแล้ว', 'ok'); }).catch((e) => toast(e.message, 'bad'))} onRun={() => { toast('กำลังตรวจ… (1–2 นาที)', 'info'); call('POST', '/api/studio/sets/run').then(() => { toast('ตรวจเสร็จ — ถ้ามีชุดผ่าน ข้อเสนอเด้งในห้อง studio-training แล้ว', 'ok'); load(); }).catch((e) => toast(e.message, 'bad')); }} />
 
       <section className="card">
         <h2>ประกอบชุดใหม่</h2>

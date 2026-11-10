@@ -46,10 +46,12 @@ export function StudioApp() {
   const [trial, setTrial] = useState<Trial | null>(null);
   const [last, setLast] = useState<LastTrial | null>(null);
   const [grok, setGrok] = useState<GrokResult[]>([]);
+  const [brief, setBrief] = useState<Brief | null>(null);
   const reload = () => Promise.all([
     call<Materials>('GET', '/api/studio/materials').then(setM).catch((e) => toast(e.message, 'bad')),
     call<{ trial: Trial | null; last: LastTrial | null }>('GET', '/api/studio/trial').then((r) => { setTrial(r.trial); setLast(r.last); }).catch(() => null),
     call<{ rows: GrokResult[] }>('GET', '/api/studio/grok-results').then((r) => setGrok(r.rows)).catch(() => null),
+    call<Brief>('GET', '/api/studio/brief').then(setBrief).catch(() => null),
   ]);
   useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -73,6 +75,7 @@ export function StudioApp() {
       </header>
 
       {tab === 'posts' ? <PostsPanel /> : <>
+      {brief && <BriefCard b={brief} />}
       {pendingId && <p className="card small">🧠 มีร่างคู่มือจาก AI ที่วิเคราะห์โพสต์จริงรออยู่ — <button className="ghost small" onClick={() => show('posts')}>ดูและกดใช้ที่แท็บโพสต์ที่ยิงอยู่</button></p>}
       {m && <PlaybookCard playbook={m.playbook} trial={trial} busy={busy}
         onSave={async (text) => { if (!trial || await confirm({ title: 'บันทึกและใช้ทันที?', body: 'มีร่างกำลังทดสอบอยู่ บันทึกตรงจะหยุดการทดสอบนั้น' })) run(() => call('PUT', '/api/studio/playbook', { text }), 'บันทึกคู่มือแล้ว — ใช้ทันที'); }}
@@ -147,13 +150,36 @@ function PlaybookCard({ playbook, trial, busy, onSave, onTrial, onStop, onUndo }
   );
 }
 
-interface GrokResult { set_id: number; code: string; status: 'running' | 'done'; launched_at: string | null; ends_at: string | null; result: string | null; caption_text: string; image_id: number; old_picture: number }
+interface Brief { lines: string[]; images_now: number; month: string | null; voice: string; products: { code: string; name: string; spend: number; promo: string; waiting: number; testing: number }[] }
+
+/** What to make today, worked back from the month's goal (worker/grokLoop.ts brief). */
+function BriefCard({ b }: { b: Brief }) {
+  return (
+    <section className="card">
+      <h2>งานวันนี้ของ Grok</h2>
+      <p className="muted small">คิดย้อนจากเป้ากำไรของเดือน (หน้าภาพรวม: ยอดจริง Page365 − ต้นทุน − ค่าธรรมเนียม − ค่าแอด) · จำนวนแอดทดสอบจากห้องจับคู่ · สินค้าเรียงตามค่าแอด 14 วันของโพสต์ที่ยิงอยู่ ตัวที่ยังมีชุดทดสอบน้อยขึ้นก่อน</p>
+      <ul className="small trial-rows">{b.lines.map((l, i) => <li key={i}>{l}</li>)}</ul>
+      {b.images_now > 0 && b.products.length > 0 && <>
+        <b className="small">ทำภาพของสินค้าไหน (ขอ prompt ได้ที่ห้องฝึก)</b>
+        <ul className="small trial-rows">{b.products.slice(0, Math.max(3, b.images_now)).map((p) => (
+          <li key={p.code}><b>{p.code}</b> {p.name} · ค่าแอด 14 วัน {p.spend.toLocaleString('th-TH')}{p.promo ? ` · โปร ${p.promo}` : ''} · <span className="muted">ภาพรอ {p.waiting} · กำลังทดสอบ {p.testing}</span></li>))}</ul>
+      </>}
+      {b.voice && <details><summary className="small">ลูกค้าถามอะไร / ทำไมยังไม่ซื้อ (จากแชท 3 วันล่าสุด — ใช้เป็นมุมภาพและแคปชัน ตัวเขียนแคปชันได้รับชุดเดียวกันนี้)</summary><pre className="trial-text small">{b.voice}</pre></details>}
+    </section>
+  );
+}
+
+interface GrokRes { spend: number; purchases: number; value: number; roas: number; real_orders?: number; real_value?: number; real_roas?: number }
+interface GrokResult { set_id: number; code: string; status: 'running' | 'done' | 'graduated'; launched_at: string | null; ends_at: string | null; result: string | null; review: string | null; caption_text: string; image_id: number; old_picture: number }
 
 /** "(Grok)" test ads with their real result (Meta, 14 days): what to repeat and what to drop in the next round. */
 function GrokResultsCard({ rows }: { rows: GrokResult[] }) {
   const d = (x: string | null) => (x ? new Date(x).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' }) : '');
-  const done = rows.filter((r) => r.status === 'done' && r.result).map((r) => ({ ...r, res: JSON.parse(r.result!) as { spend: number; purchases: number; value: number; roas: number } }))
-    .sort((a, b) => b.res.roas - a.res.roas);
+  const score = (x: GrokRes) => x.real_roas ?? x.roas;
+  const done = rows.filter((r) => r.status !== 'running' && r.result).map((r) => ({ ...r, res: JSON.parse(r.result!) as GrokRes }))
+    .sort((a, b) => score(b.res) - score(a.res));
+  const resLine = (r: GrokResult, x: GrokRes) => `${r.status === 'graduated' ? '🎓 ผ่าน ย้ายเข้ากลุ่มทดสอบ · ' : ''}${x.real_roas !== undefined ? `ROAS จริง ${x.real_roas} (${x.real_orders} ออเดอร์ ${x.real_value} บาท) · ` : ''}Meta ROAS ${x.roas} · ค่าแอด ${x.spend} · แท็ก ${x.purchases} ออเดอร์`;
+  const review = (r: GrokResult) => { try { const v = r.review ? JSON.parse(r.review) as { action: string; why: string; dry: boolean } : null; return v ? ` · ${v.action === 'graduate' ? '🎓' : v.action === 'stop' ? '✂️' : '⏳'} ${v.why}${v.dry && v.action !== 'wait' ? ' (ยังไม่ทำจริง — สวิตช์อยู่ที่ห้องจับคู่)' : ''}` : ''; } catch { return ''; } };
   const running = rows.filter((r) => r.status === 'running');
   const Row = ({ r, line }: { r: GrokResult; line: string }) => (
     <li className="grok-row">
@@ -165,9 +191,9 @@ function GrokResultsCard({ rows }: { rows: GrokResult[] }) {
   return (
     <section className="card">
       <h2>ผลแอดทดสอบ (Grok)</h2>
-      <p className="muted small">แอดที่ห้องฝึกสร้างเอง (100 บาท/วัน 14 วัน) · ตัวเลขจาก Meta ตอนครบกำหนด (ยอดแท็ก Meta ยอดจริงมักต่ำกว่า ~11–14%) · ROAS สูงสุดก่อน · ใช้ตัดสินว่ารอบหน้าควรทำภาพและแคปชันแบบไหน</p>
-      {done.length > 0 && <ul className="trial-rows">{done.map((r) => <Row key={r.set_id} r={r} line={`ROAS ${r.res.roas} · ค่าแอด ${r.res.spend} · ซื้อ ${r.res.purchases} · ยอด ${r.res.value}`} />)}</ul>}
-      {running.length > 0 && <><b className="small">กำลังยิง</b><ul className="trial-rows">{running.map((r) => <Row key={r.set_id} r={r} line={`${d(r.launched_at)} – ${d(r.ends_at)}`} />)}</ul></>}
+      <p className="muted small">แอดที่ห้องฝึกสร้างเอง · ROAS จริง = ออเดอร์ Page365 ที่จับคู่กับแคมนี้ ÷ ค่าแอดจาก Meta (วันที่ยังไม่อัปโหลดไฟล์นับแต่ค่าแอด จึงไม่สูงเกินจริง) · ยอดแท็ก Meta ไว้เทียบ · ดีสุดก่อน · ตัวที่กำลังยิงถูกตรวจทุก 3 ชม.</p>
+      {done.length > 0 && <ul className="trial-rows">{done.map((r) => <Row key={r.set_id} r={r} line={resLine(r, r.res)} />)}</ul>}
+      {running.length > 0 && <><b className="small">กำลังยิง</b><ul className="trial-rows">{running.map((r) => <Row key={r.set_id} r={r} line={`${d(r.launched_at)} – ${d(r.ends_at)}${review(r)}`} />)}</ul></>}
     </section>
   );
 }

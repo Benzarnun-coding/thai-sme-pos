@@ -5,6 +5,7 @@ import { BadRequest } from './validate.ts';
 import { allowedImageUrl, imageType } from './catalog.ts';
 import type { ActiveAdPost } from '../../ads-engine/src/meta.ts';
 import { nameHasFamily } from './postIdeas.ts';
+import { chatVoice } from './grokLoop.ts';
 
 export interface StudioEnv {
   DB: D1Database;
@@ -239,14 +240,21 @@ async function goldCaptions(db: D1Database, limit = 12): Promise<{ text: string;
   return results;
 }
 
+/** What customers asked / why they didn't buy, from the last 3 daily chat reads (audit 'chat.insights'; grokLoop.chatVoice). */
+export async function customerVoice(db: D1Database): Promise<string> {
+  const { results } = await db.prepare(`SELECT detail ->> '$.text' AS text FROM audit WHERE at >= ?1 AND action = 'chat.insights' ORDER BY at DESC LIMIT 3`).bind(new Date(Date.now() - 4 * 86_400_000).toISOString()).all<{ text: string | null }>();
+  return chatVoice(results.map((r) => r.text ?? ''));
+}
+
 /** Everything the caption agent is told, so a judge can see why a caption came out the way it did. */
 export async function captionPrompt(db: D1Database, product: StudioProduct, n: number, use?: Playbook): Promise<{ system: string; user: string; playbook_id: number | null }> {
-  const [playbook, examples, gold, proven] = await Promise.all([use ?? currentPlaybook(db), listExamples(db), goldCaptions(db), provenPosts(db).catch(() => [])]);
+  const [playbook, examples, gold, proven, voice] = await Promise.all([use ?? currentPlaybook(db), listExamples(db), goldCaptions(db), provenPosts(db).catch(() => []), customerVoice(db).catch(() => '')]);
   const liked = examples.filter((e) => e.liked).slice(0, 10), disliked = examples.filter((e) => !e.liked).slice(0, 10);
   const system = [
     'คุณเขียนแคปชันโพสต์ขายยีนส์ให้ร้าน PK Jeans (ขายผ่านแชท Facebook ลูกค้าไทย) ตามคู่มือและตัวอย่างด้านล่างอย่างเคร่งครัด',
     '## คู่มือ', playbook.text,
     proven.length ? `## แคปชันที่ยิงแอดจริงอยู่ตอนนี้และขายได้ดี (ROAS จากยอดแท็ก Meta 14 วัน)\n${proven.map((p) => `- [ROAS ${p.roas.toFixed(1)}] ${p.message.replace(/\n/g, ' / ').slice(0, 600)}`).join('\n')}` : '',
+    voice ? `## สิ่งที่ลูกค้าถามและเหตุผลที่ยังไม่ซื้อ (จากแชทจริง 3 วันล่าสุด)\nถ้าตอบข้อกังวลเหล่านี้ได้ด้วยข้อมูลสินค้าที่ให้มา ให้ตอบในแคปชัน ห้ามแต่งข้อมูลสินค้าเพื่อตอบ\n${voice}` : '',
     gold.length ? `## แคปชันที่ทีมอนุมัติแล้ว (เลียนแบบน้ำเสียงนี้)\n${gold.map((g) => `- [${g.hook}] ${g.text.replace(/\n/g, ' / ')}`).join('\n')}` : '',
     liked.length ? `## ตัวอย่างที่ทีมชอบ\n${liked.map((e) => `- "${e.text.replace(/\n/g, ' / ')}" — ชอบเพราะ: ${e.reason}`).join('\n')}` : '',
     disliked.length ? `## ตัวอย่างที่ทีมไม่ชอบ (อย่าทำแบบนี้)\n${disliked.map((e) => `- "${e.text.replace(/\n/g, ' / ')}" — เพราะ: ${e.reason}`).join('\n')}` : '',

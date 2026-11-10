@@ -40,6 +40,7 @@ import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './
 import * as studio from './studio.ts';
 import * as trial from './playbookTrial.ts';
 import * as grokAds from './grokAds.ts';
+import { brief } from './grokLoop.ts';
 import { aiEnabled, askAI, botErrors, botRateText, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
 import { editKb, fixedBefore, kbMessage, kbModal, rewriteKb, kbPasteText, listKb, markApplied, postBot, proposeItems, repeatsText, setKbStatus, speaker, type KbItem } from './botKb.ts';
 import { checkDoc, docIdFrom, docLive, docText, loadDocSettings, saveDocSettings, serviceEmail, writeDoc } from './botKbDoc.ts';
@@ -202,6 +203,26 @@ async function grokAdPress(i: any, env: Env, ctx: ExecutionContext, who: string,
 ⏳ **กำลังสร้างแอด…** ${who} อนุมัติ ${at.slice(11, 16)} UTC · เสร็จแล้วข้อความนี้จะเปลี่ยนนะคะ (ถ้า 10 นาทีแล้วยังไม่เปลี่ยน กด 🔁 ได้)`.slice(0, 2000), components: grokRetryButtons(setId) } });
 }
 
+/** What Grok should make today, from the month's goal gap (grokLoop.brief) — the card at the top of /studio. */
+async function loadBrief(env: Env) {
+  const [goal, cfg, counts, fresh, products] = await Promise.all([
+    loadGoal(env).catch(() => null), grokAds.loadStudioAds(env.DB),
+    env.DB.prepare(`SELECT sum(status = 'running') running, sum(status = 'proposed') proposed, sum(status = 'done') done, sum(status = 'graduated') graduated FROM grok_ads`).first<{ running: number | null; proposed: number | null; done: number | null; graduated: number | null }>(),
+    grokAds.freshImages(env.DB), studio.recommendedProducts(env.DB, 8).catch(() => []),
+  ]);
+  const { results: live } = await env.DB.prepare(`SELECT code, count(*) n FROM grok_ads WHERE status IN ('running', 'proposed', 'working') GROUP BY code`).all<{ code: string; n: number }>();
+  const b = brief({
+    needed_per_day: goal?.needed_per_day ?? null, avg_net: goal?.avg_net ?? null, mer: goal?.mer_7d ?? goal?.mer ?? null, gross_margin: goal?.gross_margin ?? null,
+    running: counts?.running ?? 0, max_active: cfg.max_active, waiting_images: fresh.length, proposed: counts?.proposed ?? 0,
+    finished: (counts?.done ?? 0) + (counts?.graduated ?? 0), graduated: counts?.graduated ?? 0,
+  });
+  const lc = (x: string) => x.toLowerCase();
+  // Products in order of what the shop spends on them now; fewest tests in hand first, so no product gets all the posts.
+  const rows = products.map((p) => ({ code: p.code, name: p.name, spend: p.spend, promo: p.promo ?? '', waiting: fresh.filter((f) => lc(f.code) === lc(p.code)).length, testing: live.find((l) => lc(l.code) === lc(p.code))?.n ?? 0 }))
+    .sort((x, y) => (x.waiting + x.testing) - (y.waiting + y.testing) || y.spend - x.spend);
+  return { ...b, month: goal?.month ?? null, products: rows, voice: await studio.customerVoice(env.DB).catch(() => '') };
+}
+
 /** Every 3 h: judge new images, make post sets, propose them in #studio-training, stop "(Grok)" ads past 14 days. */
 async function studioCron(env: Env, limit = 2): Promise<void> {
   const cfg = await grokAds.loadStudioAds(env.DB);
@@ -210,10 +231,19 @@ async function studioCron(env: Env, limit = 2): Promise<void> {
   if (sets.length) await audit(env.DB, 'ai', 'studio.autosets', 'creative_sets', sets);
   await grokAds.proposeStep(env, cfg, limit).catch((err) => console.error('grok propose', err));
   const meta = metaFor(env) as unknown as grokAds.GrokMeta;
-  const due = (await env.DB.prepare(`SELECT count(*) n FROM grok_ads WHERE status = 'running' AND ends_at <= ?1`).bind(new Date().toISOString()).first<{ n: number }>())?.n ?? 0;
-  if (!due) return;
+  const running = (await env.DB.prepare(`SELECT count(*) n, sum(ends_at <= ?1) due FROM grok_ads WHERE status = 'running'`).bind(new Date().toISOString()).first<{ n: number; due: number | null }>()) ?? { n: 0, due: 0 };
+  if (!running.due && (!running.n || cfg.review === 'off')) return;
   const stats = await metaFor(env).insights('campaign', 'last_14d').catch(() => null);
-  const notes = await grokAds.stopExpired(env, meta, stats as any);
+  const notes = running.due ? await grokAds.stopExpired(env, meta, stats as any) : [];
+  // The look at the ads still running (docs/creative.md "Full loop"): 'dry' only stores the verdict, 'on' acts.
+  if (stats && cfg.review !== 'off') {
+    const settings = await loadSettings(env.DB);
+    const be = await shopBreakeven(env.DB, settings, new Date()).catch(() => null);
+    const acted = await grokAds.reviewRunning(env, settings.kill_switch ? null : meta, stats as any, be, cfg.review,
+      (id, name) => applyMoves(env.DB, [{ campaign_id: id, name, from: null, to: 'testing' }], new Date().toISOString()))
+      .catch(async (err) => { console.error('grok review', err); await audit(env.DB, 'ai', 'grokad.review.error', 'grok_ads', { error: String(err?.message ?? err) }); return []; });
+    notes.push(...acted);
+  }
   for (const n of notes) {
     await audit(env.DB, 'ai', 'grokad.done', String(n.set_id), { text: n.text });
     if (env.DISCORD_BOT_TOKEN) await postBot({ ...env, DISCORD_CHAT_CHANNEL_ID: env.DISCORD_STUDIO_CHANNEL_ID || env.DISCORD_CHAT_CHANNEL_ID }, { content: `🏁 แอดทดสอบ (Grok) ${n.code} ชุด#${n.set_id}: ${n.text}` }).catch(() => null);
@@ -1015,6 +1045,15 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     return json({ ok: true, trial: await settleTrial(env, user) });
   }
   if (path === '/api/studio/grok-results' && method === 'GET') return json({ rows: await grokAds.grokResults(env.DB) });
+  if (path === '/api/studio/brief' && method === 'GET') return json(await loadBrief(env));
+  // Budget / days / slots of the "(Grok)" test ads and the review switch (off | dry | on): owners only, it moves money.
+  if (path === '/api/studio/ads-settings' && method === 'POST') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const b = await body();
+    const next = await grokAds.saveStudioAds(env.DB, { budget: b?.budget, days: b?.days, max_active: b?.max_active, review: b?.review });
+    await audit(env.DB, user, 'studio.ads_settings', 'studio_ads', next);
+    return json({ grok_cfg: next });
+  }
   if (path === '/api/studio/trial' && method === 'GET') { const [running, last] = await Promise.all([trial.trialStatus(env.DB), trial.lastTrial(env.DB)]); return json({ trial: running, last }); }
   if (path === '/api/studio/trial' && method === 'POST') { const id = await trial.startTrial(env.DB, await body(), user); await audit(env.DB, user, 'studio.trial.start', String(id), {}); return json({ id }); }
   if (path === '/api/studio/trial/step' && method === 'POST') {

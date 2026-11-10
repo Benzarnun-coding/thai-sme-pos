@@ -178,6 +178,31 @@ max_active 9}; production set to budget 100 on 2026-11-10 so a test reaches 500 
    pairs, with nobody pressing ดึงโพสต์จากเพจ. `/studio` shows "ผลแอดทดสอบ (Grok)" (`grokResults`: picture, caption,
    14-day ROAS, best first; running ones with their dates) for Grok to read before the next round.
 
+### Full loop, phase 1 (Benz 2026-11-10)
+
+Benz's plan: phase 1 = Grok trains the room and has ChatGPT make the pictures by hand; phase 2 = the site makes the
+pictures itself (needs an image API, not built). What phase 1 adds so the month's goal drives the room
+(`worker/grokLoop.ts`, tests beside it; migration 0066 `grok_ads.review`):
+
+- **Brief** (`brief`, `loadBrief`, `GET /api/studio/brief`, card "งานวันนี้ของ Grok" on `/studio`): goal gap per day
+  (`loadGoal`) ÷ net per ad baht (real 7-day MER × gross margin − 1) = extra spend → ÷ 1,000 a winner
+  (`WINNER_ABSORBS`) = winners → ÷ hit rate (assumed 1 in 3 until 5 tests ended, then graduated ÷ ended) = tests →
+  capped by free slots, less images waiting and proposals open = images to make today, with the products to make
+  them for (running spend first, fewest tests in hand first) and what customers asked in chat.
+- **Review of running ads** (`reviewAd`, `reviewRunning`, each 3-hourly sweep): real orders = Page365 orders credited
+  to the campaign since launch (`realByCampaign`), spend = Meta 14 days. Graduate: spend ≥ 500, ≥ 3 real orders, real
+  ROAS ≥ 1.5× shop break-even → testing stage (`applyMoves`; the stage rules then own the budget), row `graduated`,
+  slot freed. Stop early: ≥ 5 days, ≥ 300 spend, no order in Meta or Page365 → paused, row `done`. Switch
+  `studio_ads.review` off | dry | on, **ships `dry`** (verdict stored and shown, Meta untouched; kill switch also
+  holds it); Benz switches it on in `/studio/sets` → ตั้งค่า (owners; also budget / days / slots,
+  `POST /api/studio/ads-settings`).
+- **Results in real orders**: the 14-day result and both cards show Page365 orders / value / ROAS beside Meta's.
+- **Chat → captions** (`chatVoice`, `customerVoice`): "ลูกค้าถามบ่อย" and "ทำไมไม่ซื้อ" from the last 3 daily chat
+  reads (audit `chat.insights`) go into the caption writer's prompt and the brief; product facts still only from
+  Max's notes.
+
+Still by hand in phase 1: making the pictures, Max's ✅ per ad, closing the sale in chat.
+
 Not done yet: the AI judge still decides room pairs (real ROAS only reaches it through `provenPosts`); promos
 come from Max's "สินค้า: จุดขายและโปร", never invented; chat replies stay with the admins and Business AI.
 
