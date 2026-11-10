@@ -134,7 +134,7 @@ the PDF "คู่มือสอน Grok" (sent 2026-11-09, not in git).
 Benz: the room should make the picture, write the caption, open the ad and test it itself; ad names carry "(Grok)";
 14 days; Max approves each one in Discord; 100 baht/day for the first three, 50 from the next six (Benz 2026-11-09).
 `worker/grokAds.ts`, migration 0064 (`grok_ads`), settings key `studio_ads` (defaults {budget 50, days 14,
-max_active 9}). Runs in the 3-hourly sweep after the playbook trial
+max_active 9}; production set to budget 100 on 2026-11-10 so a test reaches 500 spend by day 5). Runs in the 3-hourly sweep after the playbook trial
 (`studioCron`), or "ตรวจ/เสนอตอนนี้" on `/studio/sets`.
 
 1. **Images**: Grok has ChatGPT in Max's account make them from the room's prompt ("ขอ prompt สำหรับ ChatGPT"), then
@@ -173,8 +173,8 @@ max_active 9}). Runs in the 3-hourly sweep after the playbook trial
 6. **After 14 days** (`stopExpired`): campaign paused, Meta's 14-day spend / purchases / value / ROAS stored and posted.
 
 7. **Back into the room** (Benz 2026-11-09): the 07:30 run imports the posts running as ads (`studioImport`, read
-   only: `activeAdPosts` + `fetchMissingPostPictures`, server-side, no resize), so "(Grok)" posts with ≥ 1,000 spend
-   and a good ROAS become `provenPosts` (what the caption writer and the AI judge measure against) and real-post
+   only: `activeAdPosts` + `fetchMissingPostPictures`, server-side, no resize), so "(Grok)" posts with ≥ 500 spend (other posts ≥ 1,000;
+   `PROVEN_SPEND_GROK`, Benz 2026-11-10 "fastest full loop") and a good ROAS become `provenPosts` (what the caption writer and the AI judge measure against) and real-post
    pairs, with nobody pressing ดึงโพสต์จากเพจ. `/studio` shows "ผลแอดทดสอบ (Grok)" (`grokResults`: picture, caption,
    14-day ROAS, best first; running ones with their dates) for Grok to read before the next round.
 

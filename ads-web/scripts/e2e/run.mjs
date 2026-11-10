@@ -30,7 +30,7 @@ try {
     await new Promise((r) => setTimeout(r, 1000));
   }
 
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(process.env.E2E_CHROMIUM ? { executablePath: process.env.E2E_CHROMIUM } : {}) // cloud sessions: E2E_CHROMIUM=/opt/pw-browsers/chromium;
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   page.on('pageerror', (e) => errors.push(`page error on ${page.url()}: ${e.message}`));
   page.on('response', (r) => {

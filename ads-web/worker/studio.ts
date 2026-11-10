@@ -604,11 +604,17 @@ export async function metaPostPicture(db: D1Database, key: string, size: 'thumb'
   return blobResponse(row);
 }
 
-/** Posts that sold best on real spend (Meta-tagged ROAS, ≥ 1,000 spend in 14 days): the caption agent's first examples. */
+/** Spend a post needs (Meta, 14 days) before its ROAS counts: our own "(Grok)" tests sooner, so the loop closes in days. */
+export const PROVEN_SPEND = 1000;
+export const PROVEN_SPEND_GROK = 500; // Benz 2026-11-10 "fastest full loop": 100/day reaches it on day 5
+
+/** Posts that sold best on real spend (Meta-tagged ROAS, ≥ 1,000 spend in 14 days, "(Grok)" ≥ 500): the caption agent's first examples. */
 export async function provenPosts(db: D1Database, limit = 6): Promise<{ message: string; roas: number; spend: number }[]> {
   const { results } = await db.prepare(
-    `SELECT message, purchase_value / spend AS roas, spend FROM meta_posts WHERE spend >= 1000 AND message != '' ORDER BY purchase_value / spend DESC LIMIT ?`,
-  ).bind(limit).all<{ message: string; roas: number; spend: number }>();
+    `SELECT message, purchase_value / spend AS roas, spend FROM meta_posts
+      WHERE message != '' AND (spend >= ?2 OR (spend >= ?3 AND ads LIKE '%(Grok)%'))
+      ORDER BY purchase_value / spend DESC LIMIT ?1`,
+  ).bind(limit, PROVEN_SPEND, PROVEN_SPEND_GROK).all<{ message: string; roas: number; spend: number }>();
   return results;
 }
 
