@@ -151,7 +151,10 @@ max_active 9}; production set to budget 100 on 2026-11-10 so a test reaches 500 
    **Ad gate** (`adGate`, Benz 2026-11-09 after rejecting a folded-jeans picture the product check had passed): before
    a set is made, Claude checks the picture against `AD_RULES` (worn by a person, waist down or full body, jeans
    60–80% of the frame, colours side by side, price readable and matching the promo, bottom bar SIZE/COD, no 🔥);
-   stored in `ai_check.ad_gate`, a failed picture is never proposed. The room's ChatGPT prompt (`imagePrompt`, and
+   stored in `ai_check.ad_gate` (with `v` = `GATE_VERSION`; older results are checked again), a failed picture is
+   never proposed and is listed with its reason on `/studio/sets`. v2 (2026-11-10): pass/fail on the main rules only
+   (person wearing them, readable price not clashing with the promo, jeans, no 🔥); the rest only goes into `why` —
+   v1 had dropped a good 501/3 picture for "SIZE without sizes". The room's ChatGPT prompt (`imagePrompt`, and
    `learnedImagePrompt`'s rewrite) now carries the same rules; it used to say "no people".
 4. **Proposal** (`proposeStep`): each approved set is posted once in #studio-training (`DISCORD_STUDIO_CHANNEL_ID`)
    with the picture attached, the caption, what will be created, Max tagged (`DISCORD_DECIDER_IDS`), buttons

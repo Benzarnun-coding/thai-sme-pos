@@ -1142,7 +1142,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (path === '/api/studio/playbook/pending' && method === 'GET') return json({ pending: await studio.pendingPlaybook(env.DB) });
   if ((m = /^\/api\/studio\/playbook\/(\d+)\/approve$/.exec(path)) && method === 'POST') { const b = await body(); await studio.approvePlaybook(env.DB, Number(m[1]), b?.text, user); await audit(env.DB, user, 'studio.playbook.approve', m[1], {}); return json({ ok: true }); }
   if (path === '/api/studio/seed-real' && method === 'POST') return json({ added: await studio.seedRealCaptions(env.DB) });
-  if (path === '/api/studio/sets' && method === 'GET') return json({ sets: await studio.listSets(env.DB), ready: await studio.readyProducts(env.DB), grok_ads: await grokAds.listGrokAds(env.DB), grok_cfg: await grokAds.loadStudioAds(env.DB) });
+  if (path === '/api/studio/sets' && method === 'GET') return json({ sets: await studio.listSets(env.DB), ready: await studio.readyProducts(env.DB), grok_ads: await grokAds.listGrokAds(env.DB), grok_cfg: await grokAds.loadStudioAds(env.DB), gate_rejects: await grokAds.gateRejects(env.DB) });
   if (path === '/api/studio/passed' && method === 'GET') return json(await studio.passedFor(env.DB, url.searchParams.get('code') ?? ''));
   if (path === '/api/studio/sets' && method === 'POST') { const set = await studio.createSet(env, await body(), user); await audit(env.DB, user, 'studio.set', String(set.id), {}); return json({ set }); }
   if ((m = /^\/api\/studio\/sets\/(\d+)$/.exec(path)) && method === 'PUT') { const b = await body(); await studio.decideSet(env.DB, Number(m[1]), b?.status, user); await audit(env.DB, user, 'studio.set.decide', m[1], { status: b?.status }); return json({ ok: true }); }

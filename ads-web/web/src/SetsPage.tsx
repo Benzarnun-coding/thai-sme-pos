@@ -19,7 +19,8 @@ type GrokCfg = { budget: number; days: number; max_active: number; review: 'off'
 const GROK_STATUS: Record<string, string> = { graduated: '🎓 ผ่าน — อยู่กลุ่มทดสอบแล้ว', proposed: '⏳ รอแม็กซ์กดอนุมัติใน Discord', working: '⚙️ กำลังสร้าง', running: '🟢 กำลังยิง', done: '🏁 ครบกำหนด', failed: '❌ ลงไม่สำเร็จ', declined: '🚫 ไม่ลง', withdrawn: '↩️ ถอนแล้ว' };
 
 /** "(Grok)" test ads: what was proposed in #studio-training, what runs, what ended (worker/grokAds.ts). */
-function GrokAds({ rows, cfg, onRun, onSave }: { rows: GrokAd[]; cfg: GrokCfg | null; onRun: () => void; onSave: (c: GrokCfg) => void }) {
+type GateReject = { id: number; code: string; why: string };
+function GrokAds({ rows, cfg, onRun, onSave, rejects = [] }: { rows: GrokAd[]; cfg: GrokCfg | null; onRun: () => void; onSave: (c: GrokCfg) => void; rejects?: GateReject[] }) {
   const [edit, setEdit] = useState<GrokCfg | null>(null);
   useEffect(() => setEdit(cfg), [cfg]);
   const d = (x: string | null) => (x ? new Date(x).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' }) : '');
@@ -46,6 +47,10 @@ function GrokAds({ rows, cfg, onRun, onSave }: { rows: GrokAd[]; cfg: GrokCfg | 
               <td>{r ? `ค่าแอด ${r.spend} · ${r.real_roas !== undefined ? `จริง ${r.real_orders} ออเดอร์ ROAS ${r.real_roas} · ` : ''}Meta ${r.purchases} ออเดอร์ ROAS ${r.roas}` : g.error ?? (g.campaign_id ? `แคม ${g.campaign_id}` : '')}</td></tr>); })}
         </tbody></table>
       )}
+      {rejects.length > 0 && <>
+        <b className="small">ภาพใหม่ที่ตัวคัดไม่ให้ผ่าน (ไม่ถูกเสนอ)</b>
+        <ul className="trial-rows small">{rejects.map((r) => <li key={r.id} className="grok-row"><img className="mini" src={`/api/studio/picture/cand/${r.id}?size=thumb`} alt="" /><span><b>{r.code}</b> ภาพ#{r.id} · {r.why}</span></li>)}</ul>
+      </>}
     </section>
   );
 }
@@ -63,8 +68,9 @@ export function SetsApp() {
   const [busy, setBusy] = useState(false);
 
   const [grok, setGrok] = useState<GrokAd[]>([]);
+  const [rejects, setRejects] = useState<GateReject[]>([]);
   const [cfg, setCfg] = useState<GrokCfg | null>(null);
-  const load = () => call<{ sets: CreativeSet[]; ready: Ready[]; grok_ads: GrokAd[]; grok_cfg: GrokCfg }>('GET', '/api/studio/sets').then((r) => { setSets(r.sets); setReady(r.ready); setGrok(r.grok_ads ?? []); setCfg(r.grok_cfg ?? null); if (!code && r.ready[0]) setCode(r.ready[0].code); }).catch((e) => toast(e.message, 'bad'));
+  const load = () => call<{ sets: CreativeSet[]; ready: Ready[]; grok_ads: GrokAd[]; grok_cfg: GrokCfg; gate_rejects?: GateReject[] }>('GET', '/api/studio/sets').then((r) => { setSets(r.sets); setReady(r.ready); setGrok(r.grok_ads ?? []); setCfg(r.grok_cfg ?? null); setRejects(r.gate_rejects ?? []); if (!code && r.ready[0]) setCode(r.ready[0].code); }).catch((e) => toast(e.message, 'bad'));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     setCap(null); setImg(null); setPassed(null);
@@ -96,7 +102,7 @@ export function SetsApp() {
         <p className="muted small">เอาแคปชันกับภาพที่<b>ผ่านกรรมการ</b>ใน <a href="/studio/train">ห้องฝึก</a> ของสินค้าเดียวกันมาประกอบเป็นโพสต์ · ผ่าน = แคปชันชนะมากกว่าแพ้ หรือกรรมการแก้แล้วให้ผ่าน; ภาพชนะ ≥ 1 ครั้ง ไม่แพ้มากกว่าชนะ และ AI ไม่ได้ตัดตก · AI เช็กว่าภาพกับแคปชันพูดเรื่องเดียวกัน (สินค้า ราคา โปร) · ชุดที่อนุมัติแล้วจะถูกเสนอในห้อง Discord studio-training ให้แม็กซ์กดลงแอดทดสอบ (Grok) ไม่มีอะไรไปถึง Meta ถ้าไม่มีคนกด · <a href="/studio-guide.pdf" target="_blank" rel="noreferrer">📖 คู่มือ (PDF)</a></p>
         <p className="small">รออนุมัติ {drafts.length} ชุด · อนุมัติแล้ว {approved.length} ชุด</p>
       </header>
-      <GrokAds rows={grok} cfg={cfg} onSave={(c) => call<{ grok_cfg: GrokCfg }>('POST', '/api/studio/ads-settings', c).then((r) => { setCfg(r.grok_cfg); toast('บันทึกแล้ว', 'ok'); }).catch((e) => toast(e.message, 'bad'))} onRun={() => { toast('กำลังตรวจ… (1–2 นาที)', 'info'); call('POST', '/api/studio/sets/run').then(() => { toast('ตรวจเสร็จ — ถ้ามีชุดผ่าน ข้อเสนอเด้งในห้อง studio-training แล้ว', 'ok'); load(); }).catch((e) => toast(e.message, 'bad')); }} />
+      <GrokAds rows={grok} cfg={cfg} rejects={rejects} onSave={(c) => call<{ grok_cfg: GrokCfg }>('POST', '/api/studio/ads-settings', c).then((r) => { setCfg(r.grok_cfg); toast('บันทึกแล้ว', 'ok'); }).catch((e) => toast(e.message, 'bad'))} onRun={() => { toast('กำลังตรวจ… (1–2 นาที)', 'info'); call('POST', '/api/studio/sets/run').then(() => { toast('ตรวจเสร็จ — ถ้ามีชุดผ่าน ข้อเสนอเด้งในห้อง studio-training แล้ว', 'ok'); load(); }).catch((e) => toast(e.message, 'bad')); }} />
 
       <section className="card">
         <h2>ประกอบชุดใหม่</h2>

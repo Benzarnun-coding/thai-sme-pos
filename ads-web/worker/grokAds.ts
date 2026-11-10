@@ -114,7 +114,7 @@ export async function freshImages(db: D1Database): Promise<{ id: number; code: s
        AND NOT EXISTS (SELECT 1 FROM creative_sets s WHERE s.image_id = c.id AND s.status != 'rejected')
      ORDER BY score DESC, c.id`,
   ).all<{ id: number; code: string; ai_check: string | null; score: number }>();
-  return results.filter((r) => !r.ai_check || (JSON.parse(r.ai_check).verdict !== 'fail' && JSON.parse(r.ai_check).ad_gate?.pass !== false)).map((r) => ({ id: r.id, code: r.code, ai_check: r.ai_check }));
+  return results.filter((r) => !r.ai_check || (JSON.parse(r.ai_check).verdict !== 'fail' && gateOf(r.ai_check)?.pass !== false)).map((r) => ({ id: r.id, code: r.code, ai_check: r.ai_check }));
 }
 
 /**
@@ -122,6 +122,13 @@ export async function freshImages(db: D1Database): Promise<{ id: number; code: s
  * checked against the picture; on a clash the caption is rewritten once from the picture and checked again.
  * Approved by itself when picture and caption agree.
  */
+/** Bumped when the gate's rules change: results from an older version are checked again. 2 = main rules only. */
+export const GATE_VERSION = 2;
+const gateOf = (aiCheck: string | null): { pass: boolean; why: string; v?: number } | null => {
+  const g = aiCheck ? JSON.parse(aiCheck).ad_gate : null;
+  return g && g.v === GATE_VERSION ? g : null;
+};
+
 export function parseGate(text: string): { pass: boolean; why: string } | null {
   const m = /\{[\s\S]*\}/.exec(text);
   try { const x = JSON.parse(m?.[0] ?? ''); return { pass: x.pass === true, why: String(x.why ?? '').replace(/\s+/g, ' ').trim().slice(0, 300) }; } catch { return null; }
@@ -137,12 +144,12 @@ export async function adGate(env: StudioEnv, imageId: number, promo: string): Pr
   if (!img?.full || !img.mime) return null;
   const out = await askClaude(env, 'คุณคัดภาพโฆษณา Facebook ของร้านยีนส์ไทยก่อนลงแอด เข้มงวด ตอบตามสิ่งที่เห็นเท่านั้น', [
     imageBlock(img.full, img.mime),
-    { type: 'text', text: `ภาพนี้ผ่านเกณฑ์ภาพโฆษณาของร้านไหม (ต้องผ่านทุกข้อหลัก):\n${AD_RULES}\n- มีราคาบนภาพ อ่านออกชัด${promo ? ` และตรงกับโปร "${promo}"` : ''}\n- ไม่มีอีโมจิไฟ 🔥\nข้อหลักที่ห้ามพลาด: มีคนใส่กางเกง และมีราคาอ่านออก ตอบ JSON เท่านั้น: {"pass": true/false, "why": "<1 ประโยคภาษาไทย ถ้าไม่ผ่านบอกว่าขาดอะไร>"}` },
+    { type: 'text', text: `ตัดสินว่าภาพนี้ลงแอดได้ไหม ดูแค่ข้อหลัก 4 ข้อ:\n1. มีคนใส่กางเกงจริง (ไม่ใช่กางเกงพับ วางเฉย ๆ หรือแขวน)\n2. มีราคาบนภาพ อ่านออกชัด${promo ? ` และไม่ขัดกับโปร "${promo}"` : ''}\n3. สินค้าในภาพเป็นกางเกงยีนส์ ไม่ใช่สินค้าอื่น\n4. ไม่มีอีโมจิไฟ 🔥\npass = true ถ้าผ่านครบ 4 ข้อหลัก ข้อรองต่อไปนี้ไม่ทำให้ตก แค่เขียนไว้ใน why ถ้าขาด: ${AD_RULES.replace(/\n/g, ' / ')}\nตอบ JSON เท่านั้น: {"pass": true/false, "why": "<1 ประโยคภาษาไทย: ถ้าตก บอกข้อหลักที่ขาด ถ้าผ่าน บอกข้อรองที่ควรปรับ (ถ้ามี)>"}` },
   ], 1500, 'low');
   const g = parseGate(out.text);
   if (!g) return null;
   const cur = img.ai_check ? JSON.parse(img.ai_check) : {};
-  await env.DB.prepare('UPDATE creative_candidates SET ai_check = ?2 WHERE id = ?1').bind(imageId, JSON.stringify({ ...cur, ad_gate: g })).run();
+  await env.DB.prepare('UPDATE creative_candidates SET ai_check = ?2 WHERE id = ?1').bind(imageId, JSON.stringify({ ...cur, ad_gate: { ...g, v: GATE_VERSION } })).run();
   return g;
 }
 
@@ -150,7 +157,7 @@ export async function autoSets(env: StudioEnv, _days: number, limit = 2): Promis
   const out: { code: string; set_id: number; approved: boolean }[] = [];
   for (const img of await freshImages(env.DB)) {
     if (out.length >= limit) break;
-    if (!(img.ai_check && JSON.parse(img.ai_check).ad_gate?.pass)) {
+    if (!gateOf(img.ai_check)?.pass) {
       const product = (await listProducts(env.DB, img.code, true))[0];
       const g = await adGate(env, img.id, product?.promo ?? '').catch(() => null);
       if (!g?.pass) continue;
@@ -440,4 +447,12 @@ export async function grokResults(db: D1Database) {
      FROM grok_ads g JOIN creative_sets s ON s.id = g.set_id JOIN creative_candidates c ON c.id = s.image_id
      WHERE g.status IN ('running', 'done', 'graduated') ORDER BY g.launched_at DESC LIMIT 30`,
   ).all()).results;
+}
+
+/** New pictures the ad gate turned down, with why (shown on /studio/sets so a skipped picture is never silent). */
+export async function gateRejects(db: D1Database) {
+  const { results } = await db.prepare(
+    `SELECT id, code, ai_check FROM creative_candidates WHERE kind = 'image' AND status = 'open' AND hook != 'real' AND ai_check LIKE '%ad_gate%' ORDER BY id DESC LIMIT 30`,
+  ).all<{ id: number; code: string; ai_check: string }>();
+  return results.map((r) => ({ id: r.id, code: r.code, gate: gateOf(r.ai_check) })).filter((r) => r.gate && !r.gate.pass).map((r) => ({ id: r.id, code: r.code, why: r.gate!.why }));
 }
