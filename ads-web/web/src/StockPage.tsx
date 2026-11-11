@@ -202,11 +202,23 @@ function ShopStock({ loc, data, canEdit, onChanged }: { loc: StockLoc; data: Sto
   const rows = useMemo(() => data.shops.filter((r) => r.loc === loc), [data, loc]);
   const shown = rows.filter((r) => !q.trim() || `${r.sku} ${r.code ?? ''} ${r.name ?? ''} ${r.color ?? ''}`.toLowerCase().includes(q.trim().toLowerCase()));
   const total = rows.reduce((t, r) => t + (balance.get(r.sku) ?? 0), 0);
+  // like PK: one line per model (+ colour), sizes across the top (same size order as everywhere else)
+  const grid = useMemo(() => {
+    const lines = new Map<string, { key: string; label: string; bySize: Map<string, (typeof shown)[number]> }>();
+    for (const r of shown) {
+      const label = [r.code, r.color].filter(Boolean).join(' · ') || r.name || r.sku;
+      const l = lines.get(label) ?? { key: label, label, bySize: new Map() };
+      l.bySize.set(r.size || '', r);
+      lines.set(label, l);
+    }
+    const sizes = [...new Set(shown.map((r) => r.size || ''))].sort((a, b) => (a === '' ? 1 : b === '' ? -1 : compareSize(a, b)));
+    return { sizes, lines: [...lines.values()].sort((a, b) => a.label.localeCompare(b.label, 'en', { numeric: true })) };
+  }, [shown]);
   useEffect(() => { setMode(null); setQ(''); }, [loc]);
   return (
     <section className="card table-card">
       <div className="table-card-head">
-        <h2>คงเหลือ {LOC_LABEL[loc]} <span className="muted small">{num(rows.length)} SKU · {num(total)} ตัว</span></h2>
+        <h2>คงเหลือ {LOC_LABEL[loc]} <span className="muted small">{num(rows.length)} SKU · {num(total)} ตัว · เลื่อนเมาส์ที่ตัวเลขเพื่อดู SKU</span></h2>
         {canEdit && !mode && (
           <div className="row-actions">
             <button className="small primary" onClick={() => setMode('in')}>+ รับของเข้า</button>
@@ -221,21 +233,21 @@ function ShopStock({ loc, data, canEdit, onChanged }: { loc: StockLoc; data: Sto
         <>
           {rows.length > 6 && <div className="cat-price-actions"><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหา SKU / รหัส / สี" /></div>}
           <div className="table-wrap">
-            <table className="data-table">
-              <thead><tr><th>SKU</th><th>สินค้า</th><th>ไซส์</th><th className="num">คงเหลือ</th></tr></thead>
+            <table className="stock-grid">
+              <thead><tr><th>รหัส</th>{grid.sizes.map((z) => <th key={z}>{z ? `#${z}` : '—'}</th>)}<th>รวม</th></tr></thead>
               <tbody>
-                {shown.map((r) => {
-                  const n = balance.get(r.sku) ?? 0;
-                  return (
-                    <tr key={r.sku}>
-                      <td><code>{r.sku}</code></td>
-                      <td>{[r.code, r.color].filter(Boolean).join(' · ') || r.name || '—'}</td>
-                      <td>{r.size || '—'}</td>
-                      <td className={`num ${n <= 0 ? 'bad' : n <= LOW ? 'warn' : ''}`}><b>{num(n)}</b></td>
-                    </tr>
-                  );
-                })}
-                {!shown.length && <tr><td colSpan={4} className="muted">{rows.length ? 'ไม่พบ' : 'ยังไม่มีสต็อก · กด "+ รับของเข้า" แล้วค้นหา SKU จากแคตตาล็อก'}</td></tr>}
+                {grid.lines.map((l) => (
+                  <tr key={l.key}>
+                    <td><b>{l.label}</b></td>
+                    {grid.sizes.map((z) => {
+                      const r = l.bySize.get(z);
+                      const n = r ? balance.get(r.sku) ?? 0 : null;
+                      return <td key={z} title={r?.sku} className={n === null ? 'muted' : n <= 0 ? 'out' : n <= LOW ? 'low' : ''}>{n === null ? '—' : num(n)}</td>;
+                    })}
+                    <td><b>{num([...l.bySize.values()].reduce((t, r) => t + (balance.get(r.sku) ?? 0), 0))}</b></td>
+                  </tr>
+                ))}
+                {!grid.lines.length && <tr><td colSpan={grid.sizes.length + 2} className="muted">{rows.length ? 'ไม่พบ' : 'ยังไม่มีสต็อก · กด "+ รับของเข้า" แล้วค้นหา SKU จากแคตตาล็อก'}</td></tr>}
               </tbody>
             </table>
           </div>
