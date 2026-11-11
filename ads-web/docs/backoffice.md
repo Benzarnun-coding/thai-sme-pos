@@ -168,6 +168,7 @@ are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,4
   weighted straight line (recent days count more, 0.9 per day back), kept between ¼ and 3× the average; fewer → the
   average. Split over sizes by their share of the model's pieces (+½ piece per size). พี่เปีย has little history until
   the order rounds build up (only rounds saved with order rows count).
+- New PK models (2003, 2003/1, 2003/2, L68-1, L68-2; idea #26, migration 0067) take their sizes from the catalog PK tab, balance 0.
 - 07:30 #report lists sizes at ≤ 5 pieces.
 
 - Returned parcels (idea #20, Mzmuchzeee; `worker/stockReturns.ts`, `web/src/returns.ts`, table `stock_returns`): card on the stock page. Pick the
