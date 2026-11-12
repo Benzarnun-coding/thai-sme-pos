@@ -196,6 +196,7 @@ async function grokAdPress(i: any, env: Env, ctx: ExecutionContext, who: string,
     const r = await grokAds.launchSet(env, metaFor(env) as unknown as grokAds.GrokMeta, cfg, Number(setId), await budgetRoom(env).catch(() => 0))
       .catch((err: any) => ({ ok: false, text: String(err?.message ?? err) }));
     await audit(env.DB, `discord:${who}`, r.ok ? 'grokad.launched' : 'grokad.failed', setId, { text: r.text });
+    if (r.ok) await grokAds.stageGrok(env.DB).catch(() => []);
     // A failure keeps a retry button (and ❌), so a fixed bug or a raised cap needs only another press.
     await editStudioMessage(env, messageId, `${before}\n${r.ok ? '✅' : '❌'} **${r.ok ? 'ลงแล้ว' : 'ลงไม่สำเร็จ'}** — ${who} อนุมัติ · ${r.text}`, r.ok ? [] : grokRetryButtons(setId));
   })().catch((err) => console.error('grokad press', err)));
@@ -230,6 +231,9 @@ async function studioCron(env: Env, limit = 2): Promise<void> {
   const sets = await grokAds.autoSets(env, cfg.days, limit).catch(async (err) => { console.error('auto sets', err); await audit(env.DB, 'ai', 'studio.autosets.error', 'creative_sets', { error: String(err?.message ?? err) }); return []; });
   if (sets.length) await audit(env.DB, 'ai', 'studio.autosets', 'creative_sets', sets);
   await grokAds.proposeStep(env, cfg, limit).catch((err) => console.error('grok propose', err));
+  // New "(Grok)" campaigns (ours and hand-made) into the "experiment" stage: the scale up / down rules take them from here.
+  const staged = await grokAds.stageGrok(env.DB).catch((err) => { console.error('grok stage', err); return []; });
+  if (staged.length) await audit(env.DB, 'ai', 'grokad.staged', 'campaigns', staged);
   // Hand-made "Grok …" campaigns past their 14 days (adopted at 07:30 in studioImport): paused and reported.
   const extDue = (await env.DB.prepare(`SELECT count(*) n FROM grok_external WHERE status = 'running' AND ends_at <= ?1`).bind(new Date().toISOString()).first<{ n: number }>())?.n ?? 0;
   if (extDue) {
@@ -271,6 +275,7 @@ async function studioImport(env: Env): Promise<void> {
   const gcfg = await grokAds.loadStudioAds(env.DB);
   const adopted = await grokAds.adoptExternal(env.DB, metaFor(env) as unknown as grokAds.ExternalMeta, gcfg.days).catch((err) => { console.error('adopt grok', err); return []; });
   if (adopted.length) await audit(env.DB, 'cron', 'grokad.adopted', 'campaigns', adopted);
+  await grokAds.stageGrok(env.DB).catch(() => []);
   await studio.seedRealCaptions(env.DB).catch(() => 0);
   await studio.seedRealImages(env.DB).catch(() => 0);
   await audit(env.DB, 'cron', 'studio.meta_import', 'meta_posts', { ...r, pictures });
@@ -1136,7 +1141,9 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const cfg = await grokAds.loadStudioAds(env.DB);
     const adopted = await grokAds.adoptExternal(env.DB, metaFor(env) as unknown as grokAds.ExternalMeta, cfg.days);
     await audit(env.DB, user, 'grokad.adopted', 'campaigns', adopted);
-    return json({ adopted, all: await grokAds.listExternal(env.DB) });
+    const staged = await grokAds.stageGrok(env.DB);
+    if (staged.length) await audit(env.DB, user, 'grokad.staged', 'campaigns', staged);
+    return json({ adopted, staged, all: await grokAds.listExternal(env.DB) });
   }
   if (path === '/api/studio/sets/run' && method === 'POST') { await studioCron(env, 6); return json({ ok: true, grok_ads: await grokAds.listGrokAds(env.DB) }); }
   if (path === '/api/studio/trial/stop' && method === 'POST') { await trial.stopTrial(env.DB); await audit(env.DB, user, 'studio.trial.stop', 'playbook', {}); return json({ ok: true }); }

@@ -213,6 +213,13 @@ Still by hand in phase 1: making the pictures, Max's ✅ per ad, closing the sal
    in the 3-hourly run). Budget and ads are never touched. Listed on `/studio/sets`; `POST /api/grok-ads/adopt`
    adopts now.
 
+9. **Into the scale up / down rules at once** (Benz 2026-11-12: "ต้องจัดกลุ่ม automate ไม่ต้องมาถาม"): every running
+   "(Grok)" campaign without a stage (ours and adopted) goes into "experiment" / ทดลอง (`stageGrok`, each 3-hourly
+   run, after a launch and after adopting): no sale after 300 → pause; ≥ 1× BE with ≥ 3 sales after 3 days → testing,
+   where ±20% budget moves run. Their pauses and moves to retest are not asked in Discord (`isGrokCampaign` in
+   run.ts); the kill switch still stops everything. At 14 days a campaign the rules moved to testing / winning is
+   not paused (status `graduated`); the stage rules own it from then on.
+
 Not done yet: the AI judge still decides room pairs (real ROAS only reaches it through `provenPosts`); promos
 come from Max's "สินค้า: จุดขายและโปร", never invented; chat replies stay with the admins and Business AI.
 

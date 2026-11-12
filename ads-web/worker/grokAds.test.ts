@@ -42,3 +42,12 @@ test('ad gate: pass only on an explicit true; the shop rules ask for a person we
   assert.match(AD_RULES, /คนใส่กางเกงจริง/);
   assert.match(AD_RULES, /ห้ามภาพกางเกงพับ/);
 });
+
+import { isGrokCampaign } from './grokAds.ts';
+
+test('a (Grok) test campaign: ours ends with "(Grok)", hand-made ones start with "Grok"', () => {
+  assert.equal(isGrokCampaign('REV 801 - กระบอกยืด 3 ตัว 799 - V1 ฿200 ชุด#4 (Grok)'), true);
+  assert.equal(isGrokCampaign('Grok : Ni9 ขาสั้นผ้า Cotton 3ตัว499 - A ฿50'), true);
+  assert.equal(isGrokCampaign('REV 801 - กระบอกยืด 3 ตัว 799'), false);
+  assert.equal(isGrokCampaign('แอดผี Grokking 3ตัว'), false);
+});

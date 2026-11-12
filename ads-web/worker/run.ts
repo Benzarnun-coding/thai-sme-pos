@@ -9,6 +9,7 @@ import { buildGroups, neededWindows, planDecisions, sectionMap, type MoveDecisio
 import { loadOrders, orderFees } from './p365.ts';
 import { applyActual } from './actualMetrics.ts';
 import { campaignBreakevens, type BreakevenSource, type CampaignBreakeven } from './breakevens.ts';
+import { isGrokCampaign } from './grokAds.ts';
 import { approvalsEnabled, expireOld, postProposal, recentlyAsked, saveProposals, type Proposal } from './discord.ts';
 
 /** The break-even a campaign is judged by: its own (breakevens.ts, when switched on) or the shop's. */
@@ -139,12 +140,15 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
         return 'รออนุมัติใน Discord';
       };
       const actual = plan.notes.some((n) => n.startsWith('ตัดสินจากยอดขายจริง'));
+      // "(Grok)" test campaigns are never asked about (Benz 2026-11-12: "automate ไม่ต้องมาถามเลย"): their pauses and
+      // moves to retest go through like budget changes do. The kill switch still stops everything.
+      const grokTest = (name: string) => isGrokCampaign(name);
       for (const d of plan.decisions) {
-        if (d.skipped_reason || d.action.type !== 'pause') continue;
+        if (d.skipped_reason || d.action.type !== 'pause' || grokTest(d.entity.name)) continue;
         d.skipped_reason = hold('pause', d.entity.id, d.entity.name, d.rule_id, d.plan, { level: d.entity.level, window: d.window, metric: d.metric, observed: d.observed, threshold: d.threshold, actual });
       }
       for (const m of report.moves) {
-        if (m.skipped_reason || m.move_to !== 'retest') continue;
+        if (m.skipped_reason || m.move_to !== 'retest' || grokTest(m.entity.name)) continue;
         m.skipped_reason = hold('move', m.entity.id, m.entity.name, m.rule_id, m.plan, { level: 'campaign', move_from: m.move_from, move_to: m.move_to, window: m.window, metric: m.metric, observed: m.observed, threshold: m.threshold, actual });
       }
       // A winner sitting at the per-campaign cap and still well above break-even: offer a copy (new campaign at a

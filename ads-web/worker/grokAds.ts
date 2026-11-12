@@ -15,6 +15,7 @@
 
 import { AD_RULES, REASONS, askClaude, createSet, currentPlaybook, decideSet, imageBlock, listProducts, passedFor, productPhoto, readyProducts, judge, type StudioEnv } from './studio.ts';
 import { AI_JUDGE } from './playbookTrial.ts';
+import { applyMoves } from './db.ts';
 import { reviewAd, type ReviewMode, type Verdict } from './grokLoop.ts';
 
 export const MAX_ACTIVE = 9;
@@ -387,6 +388,13 @@ export async function stopExpired(env: StudioEnv, meta: GrokMeta | null, stats: 
   const real = results.length ? await realByCampaign(env.DB).catch(() => new Map<string, { orders: number; value: number }>()) : new Map<string, { orders: number; value: number }>();
   for (const g of results) {
     if (!meta) break;
+    // Moved up by the rules (testing / winning): it sells, so it keeps running under the stage rules.
+    const up = await promoted(env.DB, g.campaign_id);
+    if (up) {
+      await env.DB.prepare(`UPDATE grok_ads SET status = 'graduated' WHERE set_id = ?1`).bind(g.set_id).run();
+      out.push({ set_id: g.set_id, code: g.code, text: `ครบ 14 วันแล้ว แต่ขายได้จนกฎย้ายขึ้นกลุ่ม "${up === 'winning' ? 'ทำเงิน' : 'ทดสอบระบบ'}" — ไม่หยุด ให้กฎปรับงบต่อ` });
+      continue;
+    }
     await meta.setStatus(g.campaign_id, 'PAUSED');
     const result = resultOf(stats?.get(g.campaign_id), real.get(g.campaign_id));
     await env.DB.prepare(`UPDATE grok_ads SET status = 'done', result = ?2 WHERE set_id = ?1`).bind(g.set_id, result ? JSON.stringify(result) : null).run();
@@ -486,6 +494,12 @@ export async function stopExternal(db: D1Database, meta: ExternalMeta, stats: Ma
   const { results } = await db.prepare(`SELECT campaign_id, name FROM grok_external WHERE status = 'running' AND ends_at <= ?1`).bind(new Date().toISOString()).all<{ campaign_id: string; name: string }>();
   const out: { id: string; name: string; text: string }[] = [];
   for (const g of results) {
+    const up = await promoted(db, g.campaign_id);
+    if (up) {
+      await db.prepare(`UPDATE grok_external SET status = 'graduated' WHERE campaign_id = ?1`).bind(g.campaign_id).run();
+      out.push({ id: g.campaign_id, name: g.name, text: `ครบ 14 วันแล้ว แต่ขายได้จนกฎย้ายขึ้นกลุ่ม "${up === 'winning' ? 'ทำเงิน' : 'ทดสอบระบบ'}" — ไม่หยุด ให้กฎปรับงบต่อ` });
+      continue;
+    }
     await meta.setStatus(g.campaign_id, 'PAUSED');
     const m = stats?.get(g.campaign_id);
     const result = m ? { spend: Math.round(m.spend), purchases: m.purchases, value: Math.round(m.purchase_value), roas: m.spend ? Math.round((m.purchase_value / m.spend) * 100) / 100 : 0 } : null;
@@ -497,4 +511,35 @@ export async function stopExternal(db: D1Database, meta: ExternalMeta, stats: Ma
 
 export async function listExternal(db: D1Database) {
   return (await db.prepare(`SELECT * FROM grok_external ORDER BY status = 'running' DESC, ends_at`).all()).results;
+}
+
+// ---- into the scale up / scale down rules at once (Benz 2026-11-12: "ต้องจัดกลุ่ม automate ไม่ต้องมาถาม") ----
+
+/** A "(Grok)" test campaign: made by the room ("… (Grok)") or by hand ("Grok : …"). */
+export function isGrokCampaign(name: string): boolean {
+  return /\(Grok\)\s*$/.test(name) || /^\s*Grok\b/i.test(name);
+}
+
+/**
+ * Every running "(Grok)" campaign without a stage goes into "experiment" (ทดลอง): its rules stop a no-sale ad after
+ * 300 spend and move one that sells (≥ 1× break-even, ≥ 3 sales, ≥ 3 days) to "testing", where budgets go ±20%.
+ * Never overrides a stage someone (or a rule) already set. Returns the campaigns it placed.
+ */
+export async function stageGrok(db: D1Database): Promise<{ campaign_id: string; name: string }[]> {
+  const { results } = await db.prepare(
+    `SELECT x.campaign_id, x.name FROM (
+       SELECT g.campaign_id, g.code || ' ชุด#' || g.set_id || ' (Grok)' AS name FROM grok_ads g WHERE g.status = 'running' AND g.campaign_id IS NOT NULL
+       UNION SELECT e.campaign_id, e.name FROM grok_external e WHERE e.status = 'running'
+     ) x LEFT JOIN campaigns c ON c.campaign_id = x.campaign_id WHERE c.stage_id IS NULL`,
+  ).all<{ campaign_id: string; name: string }>();
+  if (results.length) await applyMoves(db, results.map((r) => ({ campaign_id: r.campaign_id, name: r.name, from: null, to: 'experiment' })), new Date().toISOString());
+  return results;
+}
+
+/** Stages the rules count as "made it": a campaign there is not stopped at 14 days, the rules own it from then on. */
+export const PROMOTED = ['testing', 'winning'];
+
+async function promoted(db: D1Database, campaignId: string): Promise<string | null> {
+  const r = await db.prepare(`SELECT stage_id FROM campaigns WHERE campaign_id = ?1`).bind(campaignId).first<{ stage_id: string | null }>();
+  return r?.stage_id && PROMOTED.includes(r.stage_id) ? r.stage_id : null;
 }
