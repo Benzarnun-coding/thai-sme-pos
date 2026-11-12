@@ -218,7 +218,9 @@ Still by hand in phase 1: making the pictures, Max's ✅ per ad, closing the sal
    run, after a launch and after adopting): no sale after 300 → pause; ≥ 1× BE with ≥ 3 sales after 3 days → testing,
    where ±20% budget moves run. Their pauses and moves to retest are not asked in Discord (`isGrokCampaign` in
    run.ts); the kill switch still stops everything. At 14 days a campaign the rules moved to testing / winning is
-   not paused (status `graduated`); the stage rules own it from then on.
+   not paused (status `graduated`); the stage rules own it from then on. From 2026-11-12 (Benz: "ไม่ต้องหยุด ปล่อยไปเลย
+อันไหนดีก็ scale") nothing is paused at 14 days at all: the day-14 step only posts the numbers; stopping is the
+   experiment rules' job (no sale after 300 spend).
 
 Not done yet: the AI judge still decides room pairs (real ROAS only reaches it through `provenPosts`); promos
 come from Max's "สินค้า: จุดขายและโปร", never invented; chat replies stay with the admins and Business AI.

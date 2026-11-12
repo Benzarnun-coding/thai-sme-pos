@@ -276,7 +276,7 @@ export interface ProposeEnv extends StudioEnv { DISCORD_BOT_TOKEN?: string; DISC
 export function proposalText(s: { id: number; code: string; caption_text: string; real_image?: boolean }, t: { campaign_name: string } | null, cfg: StudioAds, mention: string): string {
   return [
     `📣 ${mention ? `${mention} ` : ''}**เสนอลงโพสต์ใหม่ + เทสแอด** สินค้า **${s.code}** (ชุด#${s.id} จากห้องฝึก ผ่าน AI กรรมการแล้ว)`,
-    t ? `กดอนุมัติแล้วระบบจะ: คัดลอกชุดโฆษณาจากแคม "${t.campaign_name}" (แอดของ ${s.code} ที่ใช้เงินมากสุด) เป็นแคมใหม่ "${t.campaign_name} ชุด#${s.id} (Grok)" · แอดใหม่ "${s.code} ชุด#${s.id} (Grok)" · งบ **${cfg.budget} บาท/วัน** · **${cfg.days} วัน** แล้วหยุดเอง และสรุปผลในห้องนี้`
+    t ? `กดอนุมัติแล้วระบบจะ: คัดลอกชุดโฆษณาจากแคม "${t.campaign_name}" (แอดของ ${s.code} ที่ใช้เงินมากสุด) เป็นแคมใหม่ "${t.campaign_name} ชุด#${s.id} (Grok)" · แอดใหม่ "${s.code} ชุด#${s.id} (Grok)" · งบเริ่ม **${cfg.budget} บาท/วัน** เข้ากลุ่ม "ทดลอง" ทันที: ไม่มียอดขายกฎหยุดเอง ขายดีกฎเพิ่มงบเอง · สรุปผลในห้องนี้เมื่อครบ ${cfg.days} วัน`
       : `⚠️ ยังไม่มีแอดที่ยิงอยู่ของ ${s.code} ให้ใช้เป็นต้นแบบ กดอนุมัติแล้วจะยังสร้างไม่ได้`,
     '🖼 ภาพใหม่ (ทำใน ChatGPT ผ่าน AI กรรมการ) + แคปชันใหม่จากห้องฝึก',
     '**แคปชัน:**', s.caption_text.slice(0, 1200),
@@ -352,7 +352,7 @@ export async function launchSet(env: StudioEnv, meta: GrokMeta, cfg: StudioAds, 
     const now = new Date(), ends = new Date(now.getTime() + cfg.days * 86_400_000).toISOString();
     await env.DB.prepare(`UPDATE grok_ads SET status = 'running', template_ad_id = ?2, campaign_id = ?3, adset_id = ?4, ad_id = ?5, budget = ?6, launched_at = ?7, ends_at = ?8, error = NULL WHERE set_id = ?1`)
       .bind(setId, t.ad_id, campaign, adset, ad, cfg.budget, now.toISOString(), ends).run();
-    return { ok: true, text: `เปิดแล้ว: แคม "${t.campaign_name} ชุด#${s.id} (Grok)" · แอด "${name}" · ${cfg.budget} บาท/วัน · ถึง ${ends.slice(0, 10)} แล้วหยุดเอง` };
+    return { ok: true, text: `เปิดแล้ว: แคม "${t.campaign_name} ชุด#${s.id} (Grok)" · แอด "${name}" · เริ่ม ${cfg.budget} บาท/วัน · เข้ากลุ่ม "ทดลอง" แล้ว กฎปรับงบเอง · สรุปผล ${ends.slice(0, 10)}` };
   } catch (err: any) {
     if (campaign) await meta.setStatus(campaign, 'PAUSED').catch(() => null);
     return fail(`${err?.message ?? err}${campaign ? ` (แคมที่สร้างค้างไว้ ${campaign} หยุดอยู่ ลบได้ใน Ads Manager)` : ''}`);
@@ -395,10 +395,10 @@ export async function stopExpired(env: StudioEnv, meta: GrokMeta | null, stats: 
       out.push({ set_id: g.set_id, code: g.code, text: `ครบ 14 วันแล้ว แต่ขายได้จนกฎย้ายขึ้นกลุ่ม "${up === 'winning' ? 'ทำเงิน' : 'ทดสอบระบบ'}" — ไม่หยุด ให้กฎปรับงบต่อ` });
       continue;
     }
-    await meta.setStatus(g.campaign_id, 'PAUSED');
+    // Benz 2026-11-12: never paused at 14 days — the experiment / testing rules keep or stop it. Only reported.
     const result = resultOf(stats?.get(g.campaign_id), real.get(g.campaign_id));
     await env.DB.prepare(`UPDATE grok_ads SET status = 'done', result = ?2 WHERE set_id = ?1`).bind(g.set_id, result ? JSON.stringify(result) : null).run();
-    out.push({ set_id: g.set_id, code: g.code, text: result ? `ครบกำหนด หยุดแล้ว: ${resultText(result)}` : 'ครบกำหนด หยุดแล้ว (อ่านตัวเลขไม่ได้)' });
+    out.push({ set_id: g.set_id, code: g.code, text: result ? `ครบ 14 วัน สรุปผล (ไม่หยุด กฎปรับงบต่อ): ${resultText(result)}` : 'ครบ 14 วัน (ไม่หยุด กฎปรับงบต่อ) อ่านตัวเลขไม่ได้' });
   }
   return out;
 }
@@ -500,11 +500,11 @@ export async function stopExternal(db: D1Database, meta: ExternalMeta, stats: Ma
       out.push({ id: g.campaign_id, name: g.name, text: `ครบ 14 วันแล้ว แต่ขายได้จนกฎย้ายขึ้นกลุ่ม "${up === 'winning' ? 'ทำเงิน' : 'ทดสอบระบบ'}" — ไม่หยุด ให้กฎปรับงบต่อ` });
       continue;
     }
-    await meta.setStatus(g.campaign_id, 'PAUSED');
+    // Never paused at 14 days (Benz 2026-11-12): only reported; the stage rules decide.
     const m = stats?.get(g.campaign_id);
     const result = m ? { spend: Math.round(m.spend), purchases: m.purchases, value: Math.round(m.purchase_value), roas: m.spend ? Math.round((m.purchase_value / m.spend) * 100) / 100 : 0 } : null;
     await db.prepare(`UPDATE grok_external SET status = 'done', result = ?2 WHERE campaign_id = ?1`).bind(g.campaign_id, result ? JSON.stringify(result) : null).run();
-    out.push({ id: g.campaign_id, name: g.name, text: result ? `ค่าแอด ${result.spend} · ซื้อ ${result.purchases} · ยอด ${result.value} · ROAS ${result.roas} (ยอดแท็ก Meta)` : 'อ่านตัวเลขไม่ได้' });
+    out.push({ id: g.campaign_id, name: g.name, text: result ? `ค่าแอด ${result.spend} · ซื้อ ${result.purchases} · ยอด ${result.value} · ROAS ${result.roas} (ยอดแท็ก Meta) — ไม่หยุด กฎปรับงบต่อ` : 'อ่านตัวเลขไม่ได้ — ไม่หยุด กฎปรับงบต่อ' });
   }
   return out;
 }

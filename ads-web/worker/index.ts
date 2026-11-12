@@ -240,7 +240,7 @@ async function studioCron(env: Env, limit = 2): Promise<void> {
     const extStats = await metaFor(env).insights('campaign', 'last_14d').catch(() => null);
     for (const n of await grokAds.stopExternal(env.DB, metaFor(env) as unknown as grokAds.ExternalMeta, extStats as any).catch((err) => { console.error('grok external stop', err); return []; })) {
       await audit(env.DB, 'ai', 'grokad.external_done', n.id, { name: n.name, text: n.text });
-      if (env.DISCORD_BOT_TOKEN) await postBot({ ...env, DISCORD_CHAT_CHANNEL_ID: env.DISCORD_STUDIO_CHANNEL_ID || env.DISCORD_CHAT_CHANNEL_ID }, { content: `🏁 แคม "${n.name}" (สร้างเองนอกระบบ) ครบ 14 วัน หยุดแล้ว: ${n.text}` }).catch(() => null);
+      if (env.DISCORD_BOT_TOKEN) await postBot({ ...env, DISCORD_CHAT_CHANNEL_ID: env.DISCORD_STUDIO_CHANNEL_ID || env.DISCORD_CHAT_CHANNEL_ID }, { content: `🏁 แคม "${n.name}" (สร้างเองนอกระบบ) ครบ 14 วัน: ${n.text}` }).catch(() => null);
     }
   }
   const meta = metaFor(env) as unknown as grokAds.GrokMeta;

@@ -28,7 +28,7 @@ function GrokAds({ rows, cfg, onRun, onSave, rejects = [], external = [] }: { ro
   return (
     <section className="card">
       <div className="row between"><h2>แอดทดสอบ (Grok)</h2><button className="ghost small" onClick={onRun}>ตรวจ/เสนอตอนนี้</button></div>
-      <p className="muted small">ระบบทำเองทุก 3 ชม.: AI ตัดสินภาพ → จับคู่ภาพ+แคปชันที่ผ่าน → เสนอในห้อง Discord studio-training พร้อมภาพ แม็กซ์กด ✅ แล้วจึงสร้างแคมใหม่ชื่อลงท้าย "(Grok)" งบ {cfg?.budget ?? 100} บาท/วัน {cfg?.days ?? 14} วัน แล้วหยุดเอง (เปิดพร้อมกันไม่เกิน {cfg?.max_active ?? 3} แคม) · ผล: ออเดอร์จริงจาก Page365 ที่จับคู่กับแคม เทียบกับยอดแท็ก Meta</p>
+      <p className="muted small">ระบบทำเองทุก 3 ชม.: AI ตัดสินภาพ → จับคู่ภาพ+แคปชันที่ผ่าน → เสนอในห้อง Discord studio-training พร้อมภาพ แม็กซ์กด ✅ แล้วจึงสร้างแคมใหม่ชื่อลงท้าย "(Grok)" งบเริ่ม {cfg?.budget ?? 50} บาท/วัน เข้ากลุ่ม "ทดลอง" ทันที กฎหยุดตัวที่ไม่ขาย และเพิ่มงบตัวที่ขายดีเอง (สรุปผลเมื่อครบ {cfg?.days ?? 14} วัน ไม่หยุด · ลงพร้อมกันได้ {cfg?.max_active ?? 9} ชุด) · ผล: ออเดอร์จริงจาก Page365 ที่จับคู่กับแคม เทียบกับยอดแท็ก Meta</p>
       {edit && <details><summary className="small">ตั้งค่า (เฉพาะเจ้าของ) — ตรวจแอดที่ยิงอยู่: {edit.review === 'on' ? 'ทำจริง' : edit.review === 'dry' ? 'แสดงอย่างเดียว' : 'ปิด'}</summary>
         <div className="row small" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>
           <label>งบชุดใหม่ บาท/วัน<input type="number" min={50} max={500} value={edit.budget} onChange={(e) => setEdit({ ...edit, budget: Number(e.target.value) })} /></label>
@@ -50,7 +50,7 @@ function GrokAds({ rows, cfg, onRun, onSave, rejects = [], external = [] }: { ro
       )}
       {external.length > 0 && <>
         <b className="small">แคม "Grok …" ที่สร้างเองใน Ads Manager — ระบบดูแลให้ ({external.filter((e) => e.status === 'running').length} ยิงอยู่)</b>
-        <p className="muted small">นับ 14 วันจากวันที่สร้างใน Meta แล้วหยุดเองและสรุปผลในห้อง studio-training · ระบบไม่แก้งบหรือแอดข้างใน</p>
+        <p className="muted small">เข้ากลุ่ม "ทดลอง" ให้กฎปรับงบ/หยุดเอง · ครบ 14 วันจากวันที่สร้างใน Meta สรุปผลในห้อง studio-training (ไม่หยุด)</p>
         <table className="small"><thead><tr><th>แคม</th><th>สถานะ</th><th>ช่วง</th><th>ผล</th></tr></thead><tbody>
           {external.map((e) => { const r = e.result ? JSON.parse(e.result) : null; const d = (x: string) => new Date(x).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' }); return (
             <tr key={e.campaign_id}><td>{e.name}</td><td>{e.status === 'running' ? '🟢 ยิงอยู่' : '🏁 ครบกำหนด'}</td><td>{d(e.created_at)} – {d(e.ends_at)}</td><td>{r ? `ค่าแอด ${r.spend} · ซื้อ ${r.purchases} · ROAS ${r.roas}` : ''}</td></tr>); })}
