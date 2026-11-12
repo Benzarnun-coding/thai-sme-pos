@@ -58,3 +58,9 @@ test('round labels: Bigseller rounds by number, round 0 is the Facebook round', 
   assert.equal(roundLabel(0), 'รอบ Facebook');
   assert.equal(roundFile(0), 'รอบFacebook');
 });
+
+test('a line keeps the tracking number of each order (browser only, shown next to the order number)', () => {
+  const it = (order: string, tracking: string): OrderItem => ({ store: 'TikTok', sku: '5012-PK-NV-30', name: '', option: '', qty: 1, order, tracking, carrier: '' });
+  const [line] = buildLines([it('A1', 'TH111'), it('A2', ''), it('A3', 'TH333')], makeLookup(CATALOG, new Map()));
+  assert.deepEqual(line.tracks, { A1: 'TH111', A3: 'TH333' });
+});

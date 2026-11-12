@@ -596,7 +596,7 @@ export function OrdersApp() {
                       <tr key={`${l.note}|${l.sku}`}>
                         <td><b>{l.label}</b></td><td>{l.size || '—'}</td><td className="num"><b>{num(l.qty)}</b></td>
                         <td className="small">{l.note.replace(/^ไม่มีที่ /, '')}</td><td className="small"><code>{l.sku}</code></td>
-                        <td className="small"><OrderNumbers orders={l.orders} stores={l.stores} /></td>
+                        <td className="small"><OrderNumbers orders={l.orders} stores={l.stores} tracks={l.tracks} /></td>
                         {canEdit && <td><button className="link small" onClick={() => { const orig = lines.find((x) => x.sku === l.sku && `ไม่มีที่ ${x.group}` === l.note); if (orig) setLineMissing(orig, 0); }}>เอาออก</button></td>}
                       </tr>
                     ))}
@@ -850,7 +850,7 @@ function GroupCard({ group: g, open, onToggle, found, missing, onMissing, onPric
                           {l.sheetNote && <div className="po-sheet-note" title="ข้อความในคอลัมน์ รหัสแทน (M) ของชีต · แสดงให้ทีมเห็นเท่านั้น ไม่พิมพ์ในใบสั่ง">หมายเหตุชีต: {l.sheetNote}</div>}
                         </>}
                       </td>
-                      <td className="small"><OrderNumbers orders={l.orders} stores={l.stores} /></td>
+                      <td className="small"><OrderNumbers orders={l.orders} stores={l.stores} tracks={l.tracks} /></td>
                       {g.kind !== 'review' && <td className="center"><MissingCell qty={l.qty} value={missing.get(lineKey(l)) ?? 0} onChange={onMissing ? (n) => onMissing(l, n) : null} /></td>}
                       {g.kind !== 'review' && <td className="num po-internal"><PriceCell line={l} onSave={onPrice && l.tab && !l.sku.startsWith('?') ? (p) => onPrice(l, p) : null} /></td>}
                       {g.kind !== 'review' && (
@@ -1308,7 +1308,7 @@ function CopyOrdersButton({ orders, label = 'คัดลอกเลขคำ�
   );
 }
 
-function OrderNumbers({ orders, stores }: { orders: string[]; stores?: Record<string, string> }) {
+function OrderNumbers({ orders, stores, tracks }: { orders: string[]; stores?: Record<string, string>; tracks?: Record<string, string> }) {
   const { toast } = useUi();
   const [all, setAll] = useState(false);
   if (!orders?.length) return <span className="muted">—</span>;
@@ -1316,7 +1316,7 @@ function OrderNumbers({ orders, stores }: { orders: string[]; stores?: Record<st
   const copyOne = async (o: string) => toast((await copyText(o)) ? `คัดลอก ${o} แล้ว` : 'คัดลอกไม่ได้', 'ok');
   return (
     <span className="po-orders">
-      {shown.map((o) => <span key={o}>{stores?.[o] && <span className="po-store">{stores[o]}</span>} <button className="po-copy" title="คลิกเพื่อคัดลอก" onClick={() => copyOne(o)}><code>{o}</code></button></span>)}
+      {shown.map((o) => <span key={o}>{stores?.[o] && <span className="po-store">{stores[o]}</span>} <button className="po-copy" title="คลิกเพื่อคัดลอก" onClick={() => copyOne(o)}><code>{o}</code></button>{tracks?.[o] && <span className="muted" title="หมายเลขแทร็คกิ้ง"> · <code>{tracks[o]}</code></span>}</span>)}
       {orders.length > 2 && <button className="link small" onClick={() => setAll(!all)}>{all ? 'ย่อ' : `+${orders.length - 2}`}</button>}
     </span>
   );

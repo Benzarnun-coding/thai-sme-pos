@@ -32,6 +32,8 @@ export interface PurchaseLine {
   orders: string[];
   /** the sales store of each order number: {"5865…": "TikTok · STM-SHOP"} */
   stores?: Record<string, string>;
+  /** the tracking number of each order number (browser only: the server keeps only the fields it lists, so it is never saved) */
+  tracks?: Record<string, string>;
   /** a note from the sheet's column M (for the team, not printed), filled by withPrices */
   sheetNote?: string;
   /** what we pay per piece (ทุน H from the sheet, or typed on the page), filled by withPrices; null = unknown */
@@ -331,12 +333,13 @@ export function buildLines(items: OrderItem[], lookup: Lookup, place?: (it: Orde
       line = { group: g.group, kind: g.kind, sku: r.sku, tab: r.tab, product: `${r.tab}|${spuOf(r.sku)}`, label: labelFor(r, g.kind, lookup), size: r.size, qty: 0, note: g.note, orders: [] };
     }
     const key = `${line.group}\u0000${line.sku}`;
-    const target = lines.get(key) ?? { ...line, orders: [], stores: {} };
+    const target = lines.get(key) ?? { ...line, orders: [], stores: {}, tracks: {} };
     target.qty += it.qty;
     const raw = cleanSku(it.sku);
     if (r && raw && skuKey(raw) !== skuKey(r.sku) && !target.merged?.includes(raw)) target.merged = [...(target.merged ?? []), raw];
     if (it.order && !target.orders.includes(it.order)) target.orders.push(it.order);
     if (it.order && (it.store || it.carrier)) target.stores![it.order] = storeLabel(it.store, it.carrier);
+    if (it.order && it.tracking) (target.tracks ??= {})[it.order] = it.tracking;
     lines.set(key, target);
   }
   return [...lines.values()];
@@ -367,11 +370,12 @@ export function remapLines(lines: PurchaseLine[], lookup: Lookup): PurchaseLine[
     }
     const key = `${line.group}\u0000${line.sku}`;
     const prev = out.get(key);
-    if (!prev) { out.set(key, { ...line, orders: [...line.orders], stores: { ...(line.stores ?? {}) } }); continue; }
+    if (!prev) { out.set(key, { ...line, orders: [...line.orders], stores: { ...(line.stores ?? {}) }, tracks: { ...(line.tracks ?? {}) } }); continue; }
     prev.qty += line.qty;
     prev.missing = (prev.missing ?? 0) + (line.missing ?? 0) || undefined;
     for (const o of line.orders) if (!prev.orders.includes(o)) prev.orders.push(o);
     Object.assign(prev.stores ??= {}, line.stores ?? {});
+    Object.assign(prev.tracks ??= {}, line.tracks ?? {});
     if (line.merged?.length) prev.merged = [...new Set([...(prev.merged ?? []), ...line.merged])];
   }
   return [...out.values()];

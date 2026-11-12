@@ -94,7 +94,7 @@ are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,4
   no translation; order/tracking numbers only drawn, never saved) or per product (the only choice for history).
   Highlighted for CN, which packs each order itself.
 - History: downloading / printing / ticking saves the round per date+round (`purchase_uploads`, `purchase_lines`:
-  SKU, qty, group, order numbers, `missing`, price; tracking numbers never saved) and `purchase_items` (order + SKU +
+  SKU, qty, group, order numbers, `missing`, price; tracking numbers never saved; the สั่งของ page shows them next to each order number from the file you just loaded, not on reopened rounds) and `purchase_items` (order + SKU +
   qty + store, for units sold). Uploading the same file again (by file name) reopens that round and fills in what's new.
 - Out of stock: tick "ของไม่มี" (all or N pieces; `PUT /api/purchase/missing`, kept across re-saves) → the round's
   "เก็บตกแทน" sheet (`missingGroup`, `MISSING_GROUP`), picked up elsewhere instead. It was called "พี่เปีย" until
