@@ -164,10 +164,12 @@ export async function autoSets(env: StudioEnv, _days: number, limit = 2): Promis
       if (!g?.pass) continue;
     }
     const p = await passedFor(env.DB, img.code);
-    if (!p.captions.length) continue;
     const used = new Set((await env.DB.prepare(`SELECT caption_id FROM creative_sets WHERE code = ?1 AND status != 'rejected'`).bind(img.code).all<{ caption_id: number }>()).results.map((r) => r.caption_id));
-    const caption = p.captions.find((c) => !used.has(c.id)) ?? p.captions[0];
-    let set = await createSet(env, { caption_id: caption.id, image_id: img.id }, 'auto');
+    // A product with no passed caption yet (Grok made a picture of a product the room never wrote for, e.g. 501/1 on
+    // 2026-11-12): the caption is written from the picture in the live playbook's style.
+    const captionId = (p.captions.find((c) => !used.has(c.id)) ?? p.captions[0])?.id ?? (await captionForPicture(env, img.code, img.id).catch(() => null));
+    if (!captionId) continue;
+    let set = await createSet(env, { caption_id: captionId, image_id: img.id }, 'auto');
     let check = set.ai_note ? JSON.parse(set.ai_note) as { match: boolean; issues: string } : null;
     // One rewrite when the check found a clash (price/promo/model on the picture): the issues go back to the writer.
     if (check && !check.match) {
