@@ -453,7 +453,7 @@ export async function withdraw(db: D1Database, setId: number, who: string): Prom
 /** "(Grok)" ads that ran, with their caption, picture and result: what Grok reads on /studio before the next round. */
 export async function grokResults(db: D1Database) {
   return (await db.prepare(
-    `SELECT g.set_id, g.code, g.status, g.launched_at, g.ends_at, g.result, g.review, g.campaign_id, s.caption_text, s.image_id, c.hook = 'real' AS old_picture
+    `SELECT g.set_id, g.code, g.status, g.launched_at, g.ends_at, g.result, g.review, g.campaign_id, s.caption_text, s.image_id, c.hook = 'real' AS old_picture, c.hook AS tested
      FROM grok_ads g JOIN creative_sets s ON s.id = g.set_id JOIN creative_candidates c ON c.id = s.image_id
      WHERE g.status IN ('running', 'done', 'graduated') ORDER BY g.launched_at DESC LIMIT 30`,
   ).all()).results;

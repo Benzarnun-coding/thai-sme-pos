@@ -226,6 +226,14 @@ Still by hand in phase 1: making the pictures, Max's ✅ per ad, closing the sal
     experiment stage (`testSlotsUsed`). One the rules moved up frees its slot; one Meta shows switched off becomes
     `stopped` (`syncStopped`, each 3-hourly run, one `listEntities` call). The brief then asks Grok for pictures again.
 
+11. **Task list on "งานวันนี้ของ Grok"** (Benz 2026-11-12: the site tells Grok what to make from real data, Grok's own
+    prompt never changes). `worker/grokTasks.ts` `planTasks`: for the free slots, ~70% exploit — a test ad with ≥ 3
+    Page365 orders and real ROAS ≥ break-even (from its stored review) is the control and the picture changes ONE
+    variable not tried for that product (`VARIABLES`: offer3, offer1, back, front, single); the rest explore — a
+    product running as ads the room has no picture for (`new`). The upload on `/studio/train` has "ภาพนี้ทดสอบอะไร"
+    (`task`, stored in the image's `hook`; `?task=` presets it); the results card shows what each ad tested.
+    Not yet: an automatic per-variable win/loss summary.
+
 Not done yet: the AI judge still decides room pairs (real ROAS only reaches it through `provenPosts`); promos
 come from Max's "สินค้า: จุดขายและโปร", never invented; chat replies stay with the admins and Business AI.
 

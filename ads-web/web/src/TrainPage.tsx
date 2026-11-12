@@ -153,6 +153,10 @@ export function TrainApp() {
     } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
   };
   const [link, setLink] = useState('');
+  // Which task of "งานวันนี้ของ Grok" the picture tests (?task=offer3 in the address presets it).
+  const [task, setTask] = useState(() => new URLSearchParams(location.search).get('task') ?? '');
+  const [taskOptions, setTaskOptions] = useState<{ key: string; label: string }[]>([]);
+  useEffect(() => { call<{ variables?: { key: string; label: string }[] }>('GET', '/api/studio/brief').then((r) => setTaskOptions([...(r.variables ?? []), { key: 'new', label: 'สินค้าใหม่' }])).catch(() => null); }, []);
   /** A picture by link (the ChatGPT image link Grok copies): fetched by the Worker, then the same upload as a file. */
   const addFromLink = async () => {
     if (!link.trim() || !code) return;
@@ -173,7 +177,7 @@ export function TrainApp() {
       for (const f of Array.from(files).slice(0, 10)) {
         const { thumb, full } = await productPictures(f);
         const fd = new FormData();
-        fd.set('code', code); fd.set('product_name', product?.name ?? ''); fd.set('style_id', String(styleId || '')); fd.set('prompt', prompt);
+        fd.set('code', code); fd.set('product_name', product?.name ?? ''); fd.set('style_id', String(styleId || '')); fd.set('prompt', prompt); fd.set('task', task);
         fd.set('thumb', thumb, 'thumb.jpg'); fd.set('full', full, 'full.jpg');
         const r = await call<{ id: number; check: ImageCheck | { error: string } | null }>('POST', '/api/studio/image', fd);
         setUploaded((u) => [r, ...u].slice(0, 20));
@@ -232,6 +236,10 @@ export function TrainApp() {
               <button className="ghost" disabled={!code || !styleId} onClick={getPrompt}>ขอ prompt สำหรับ ChatGPT</button>
             </div>
             <div className="row wrap">
+              <select value={task} onChange={(e) => setTask(e.target.value)} title="ภาพนี้ทำตามงานข้อไหนในการ์ดงานวันนี้ของ Grok">
+                <option value="">ภาพนี้ทดสอบอะไร (ตามการ์ดงานวันนี้)</option>
+                {taskOptions.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+              </select>
               <input style={{ flex: 1, minWidth: 220 }} placeholder="หรือวางลิงก์รูป (เช่น ลิงก์รูปจาก ChatGPT)" value={link} disabled={busy || !code} onChange={(e) => setLink(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addFromLink(); }} />
               <button className="ghost" disabled={busy || !code || !link.trim()} onClick={addFromLink}>เพิ่มจากลิงก์</button>
               <label className={`button ${busy || !code ? 'disabled' : ''}`}>③ อัปโหลดรูป (เลือกได้หลายรูป)<input type="file" accept="image/*" multiple hidden disabled={busy || !code} onChange={(e) => { uploadImages(e.target.files); e.target.value = ''; }} /></label>

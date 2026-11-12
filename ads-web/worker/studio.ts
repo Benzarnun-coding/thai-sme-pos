@@ -325,9 +325,11 @@ export async function addImageCandidate(db: D1Database, form: FormData, user: st
   const p = await readPicture(form);
   const styleId = Number(form.get('style_id')) || null;
   const r = await db.prepare(
-    `INSERT INTO creative_candidates (kind, code, product_name, promo, style_id, thumb, full, mime, prompt, batch, created_by, created_at)
-     VALUES ('image', ?1, ?2, '', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
-  ).bind(code, cleanText(form.get('product_name'), 200), styleId, p.thumb, p.full, p.mime, cleanText(form.get('prompt'), 4000), crypto.randomUUID(), user, now()).run();
+    `INSERT INTO creative_candidates (kind, code, product_name, promo, style_id, thumb, full, mime, prompt, batch, created_by, created_at, hook)
+     VALUES ('image', ?1, ?2, '', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+  ).bind(code, cleanText(form.get('product_name'), 200), styleId, p.thumb, p.full, p.mime, cleanText(form.get('prompt'), 4000), crypto.randomUUID(), user, now(),
+    // which task of "งานวันนี้ของ Grok" this picture tests (worker/grokTasks.ts); never 'real'
+    /^[a-z0-9]{1,12}$/.test(String(form.get('task') ?? '')) && form.get('task') !== 'real' ? String(form.get('task')) : '').run();
   return Number(r.meta.last_row_id);
 }
 

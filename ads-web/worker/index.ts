@@ -40,6 +40,7 @@ import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './
 import * as studio from './studio.ts';
 import * as trial from './playbookTrial.ts';
 import * as grokAds from './grokAds.ts';
+import { loadTaskInputs, planTasks, TASK_LABEL, VARIABLES } from './grokTasks.ts';
 import { brief } from './grokLoop.ts';
 import { aiEnabled, askAI, botErrors, botRateText, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
 import { editKb, fixedBefore, kbMessage, kbModal, rewriteKb, kbPasteText, listKb, markApplied, postBot, proposeItems, repeatsText, setKbStatus, speaker, type KbItem } from './botKb.ts';
@@ -221,7 +222,12 @@ async function loadBrief(env: Env) {
   // Products in order of what the shop spends on them now; fewest tests in hand first, so no product gets all the posts.
   const rows = products.map((p) => ({ code: p.code, name: p.name, spend: p.spend, promo: p.promo ?? '', waiting: fresh.filter((f) => lc(f.code) === lc(p.code)).length, testing: live.find((l) => lc(l.code) === lc(p.code))?.n ?? 0 }))
     .sort((x, y) => (x.waiting + x.testing) - (y.waiting + y.testing) || y.spend - x.spend);
-  return { ...b, month: goal?.month ?? null, products: rows, voice: await studio.customerVoice(env.DB).catch(() => '') };
+  // What each picture should test (worker/grokTasks.ts): the winner + one change, or a new product.
+  const be = await loadSettings(env.DB).then((st) => shopBreakeven(env.DB, st, new Date())).catch(() => null);
+  const ti = await loadTaskInputs(env.DB, be).catch(() => ({ winners: [], tried: new Map<string, Set<string>>() }));
+  const want = Math.max(0, (b as any).images_now ?? 0);
+  const tasks = planTasks({ free: want, ...ti, explore: products.map((p) => ({ code: p.code, promo: p.promo ?? '' })), promos: new Map(products.map((p) => [lc(p.code), p.promo ?? ''] as [string, string]).filter(([, v]) => v)) });
+  return { ...b, month: goal?.month ?? null, products: rows, tasks, task_labels: TASK_LABEL, variables: VARIABLES.map((v) => ({ key: v.key, label: v.label })), voice: await studio.customerVoice(env.DB).catch(() => '') };
 }
 
 /** Every 3 h: judge new images, make post sets, propose them in #studio-training, stop "(Grok)" ads past 14 days. */

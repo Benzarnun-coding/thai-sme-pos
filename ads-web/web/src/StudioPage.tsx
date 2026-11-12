@@ -150,7 +150,7 @@ function PlaybookCard({ playbook, trial, busy, onSave, onTrial, onStop, onUndo }
   );
 }
 
-interface Brief { lines: string[]; images_now: number; month: string | null; voice: string; products: { code: string; name: string; spend: number; promo: string; waiting: number; testing: number }[] }
+interface Brief { tasks?: { n: number; code: string; key: string; base_set: number | null; text: string }[]; task_labels?: Record<string, string>; lines: string[]; images_now: number; month: string | null; voice: string; products: { code: string; name: string; spend: number; promo: string; waiting: number; testing: number }[] }
 
 /** What to make today, worked back from the month's goal (worker/grokLoop.ts brief). */
 function BriefCard({ b }: { b: Brief }) {
@@ -159,7 +159,13 @@ function BriefCard({ b }: { b: Brief }) {
       <h2>งานวันนี้ของ Grok</h2>
       <p className="muted small">คิดย้อนจากเป้ากำไรของเดือน (หน้าภาพรวม: ยอดจริง Page365 − ต้นทุน − ค่าธรรมเนียม − ค่าแอด) · จำนวนแอดทดสอบจากห้องจับคู่ · สินค้าเรียงตามค่าแอด 14 วันของโพสต์ที่ยิงอยู่ ตัวที่ยังมีชุดทดสอบน้อยขึ้นก่อน</p>
       <ul className="small trial-rows">{b.lines.map((l, i) => <li key={i}>{l}</li>)}</ul>
-      {b.images_now > 0 && b.products.length > 0 && <>
+      {(b.tasks?.length ?? 0) > 0 && <>
+        <b className="small">รายการงาน — ทำตามทีละข้อ (1 ข้อ = 1 ภาพ = ทดสอบ 1 อย่าง)</b>
+        <ol className="small trial-rows">{b.tasks!.map((t) => (
+          <li key={t.n}><b>{t.code}</b> · <b>{b.task_labels?.[t.key] ?? t.key}</b> — {t.text} · <a href={`/studio/train?task=${t.key}`}>ไปทำที่ห้องฝึก</a> <span className="muted">(เลือกสินค้า {t.code} และช่อง "ภาพนี้ทดสอบอะไร" = {b.task_labels?.[t.key] ?? t.key})</span></li>))}</ol>
+        <p className="muted small">ที่มา: ตัวตั้ง = แอดทดสอบที่มีออเดอร์จริง ≥ 3 และ ROAS จริงถึงจุดคุ้มทุน (Page365) · เปลี่ยนทีละอย่างที่ยังไม่เคยลองกับสินค้านั้น · ที่เหลือเป็นสินค้าที่ยิงแอดอยู่แต่ห้องฝึกยังไม่มีภาพ</p>
+      </>}
+      {b.images_now > 0 && b.products.length > 0 && !(b.tasks?.length) && <>
         <b className="small">ทำภาพของสินค้าไหน (ขอ prompt ได้ที่ห้องฝึก)</b>
         <ul className="small trial-rows">{b.products.slice(0, Math.max(3, b.images_now)).map((p) => (
           <li key={p.code}><b>{p.code}</b> {p.name} · ค่าแอด 14 วัน {p.spend.toLocaleString('th-TH')}{p.promo ? ` · โปร ${p.promo}` : ''} · <span className="muted">ภาพรอ {p.waiting} · กำลังทดสอบ {p.testing}</span></li>))}</ul>
@@ -170,7 +176,8 @@ function BriefCard({ b }: { b: Brief }) {
 }
 
 interface GrokRes { spend: number; purchases: number; value: number; roas: number; real_orders?: number; real_value?: number; real_roas?: number }
-interface GrokResult { set_id: number; code: string; status: 'running' | 'done' | 'graduated'; launched_at: string | null; ends_at: string | null; result: string | null; review: string | null; caption_text: string; image_id: number; old_picture: number }
+const TESTED: Record<string, string> = { offer3: 'แพ็ก 3 ตัวเด่น', offer1: 'ราคา 1 ตัวเด่น', back: 'มุมหันหลัง', front: 'มุมด้านหน้า', single: 'คนเดียวเต็มตัว', new: 'สินค้าใหม่' };
+interface GrokResult { set_id: number; code: string; status: 'running' | 'done' | 'graduated'; launched_at: string | null; ends_at: string | null; result: string | null; review: string | null; caption_text: string; image_id: number; old_picture: number; tested?: string }
 
 /** "(Grok)" test ads with their real result (Meta, 14 days): what to repeat and what to drop in the next round. */
 function GrokResultsCard({ rows }: { rows: GrokResult[] }) {
@@ -184,7 +191,7 @@ function GrokResultsCard({ rows }: { rows: GrokResult[] }) {
   const Row = ({ r, line }: { r: GrokResult; line: string }) => (
     <li className="grok-row">
       <img className="mini" src={`/api/studio/picture/cand/${r.image_id}?size=thumb`} alt="" loading="lazy" />
-      <div><b>{r.code}</b> ชุด#{r.set_id} · {line}{r.old_picture ? <span className="muted"> · ภาพแอดเดิม</span> : null}
+      <div><b>{r.code}</b> ชุด#{r.set_id} · {line}{r.old_picture ? <span className="muted"> · ภาพแอดเดิม</span> : null}{!r.old_picture && r.tested && TESTED[r.tested] ? <span className="muted"> · ทดสอบ: {TESTED[r.tested]}</span> : null}
         <details><summary className="muted small">แคปชัน</summary><pre className="trial-text small">{r.caption_text}</pre></details></div>
     </li>
   );
