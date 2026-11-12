@@ -48,7 +48,7 @@ export function planTasks(i: { free: number; winners: Winner[]; tried: Map<strin
       if (out.length >= limit) break;
       if (best.has(lc(p.code)) || (used.get(lc(p.code))?.size ?? 0) > 0) continue;
       used.set(lc(p.code), new Set([NEW_KEY]));
-      out.push({ code: p.code, key: NEW_KEY, base_set: null, text: `สินค้าที่ห้องฝึกยังไม่เคยทำภาพ — ใช้รูปแบบที่ขายดี: นายแบบหันหลัง 2–3 สีเรียงกัน ราคาแพ็ก 3 ตัวเด่น${promo(p.code)}` });
+      out.push({ code: p.code, key: NEW_KEY, base_set: null, text: `สินค้าที่ห้องฝึกยังไม่เคยทำภาพ — ใช้รูปแบบที่ขายดี: นายแบบหันหลัง 2–3 สีเรียงกัน ราคาตามโปรตัวใหญ่ (ถ้าโปรมีแพ็ก 3 ตัว ให้แพ็ก 3 ตัวเด่น)${promo(p.code)}` });
     }
   };
   exploit(winners.length ? Math.ceil(i.free * 0.7) : 0);
