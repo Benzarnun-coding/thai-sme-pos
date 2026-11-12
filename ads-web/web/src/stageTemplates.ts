@@ -164,6 +164,7 @@ export const STAGE_TEMPLATES: Record<string, Rule[]> = {
       },
       "cooldown_hours": 72
     },
+    { "id": "test-timeout", "description": "งบเล็ก: 7 วันต่ำกว่าคุ้มทุน 20% → ย้ายไปดับ", "level": "campaign", "window": "last_7d", "metric": "roas", "op": "<", "value": 0.8, "value_mode": "x_breakeven", "min_spend": 700, "action": { "type": "move", "to": "retest" }, "min_days_in_stage": 3 },
     {
       "id": "test-to-winning",
       "description": "7 วัน ROAS ≥ 1.4× คุ้มทุน และ ≥ 10 ออเดอร์ → ย้ายไปทำเงิน",
@@ -280,6 +281,8 @@ export const STAGE_TEMPLATES: Record<string, Rule[]> = {
       },
       "cooldown_hours": 24
     },
+    { "id": "win-stop-no-sale-7d", "description": "งบเล็ก: ใช้เงิน ≥ 300 แล้ว 0 ออเดอร์ใน 7 วัน → หยุด", "level": "campaign", "window": "last_7d", "metric": "purchases", "op": "<=", "value": 0, "min_spend": 300, "action": { "type": "pause" }, "cooldown_hours": 72 },
+      { "id": "win-timeout", "description": "งบเล็ก: 7 วันต่ำกว่าคุ้มทุน 20% → ย้ายไปดับ", "level": "campaign", "window": "last_7d", "metric": "roas", "op": "<", "value": 0.8, "value_mode": "x_breakeven", "min_spend": 700, "action": { "type": "move", "to": "retest" }, "min_days_in_stage": 3 },
     {
       "id": "win-small",
       "description": "ตัวชนะงบเล็ก: งบ ≤ 200 · 7 วัน ROAS ≥ 1.5× คุ้มทุน · ≥ 6 ออเดอร์ · ใช้ ≥ 300 → งบ ×2 ไม่เกิน 300 (เว้น 24 ชม.) แล้วโหมดเร่งรับต่อ",

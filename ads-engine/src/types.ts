@@ -50,6 +50,8 @@ export interface Guardrails {
   max_daily_budget: number;
   /** Sum of all daily budgets in scope may never exceed this after a run */
   max_total_daily_budget: number;
+  /** ads-web: true = a pause or a move down to retest waits for a Discord button, as before 2026-11-12; unset = the rules just do it */
+  ask_before_stop?: boolean;
   /** ads-web: daily budget a new campaign (an approved copy) starts at before it climbs; unset = 50 */
   start_daily_budget?: number;
   /** ads-web: per-campaign ceiling for proven winners (winning stage, real 7-day ROAS ≥ 1.5× shop BE, ≥ 10 orders); unset = 5,000 */

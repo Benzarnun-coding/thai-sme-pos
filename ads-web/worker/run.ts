@@ -98,6 +98,9 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
 
   try {
     const [entities, state] = await Promise.all([meta.listEntities(), loadState(env.DB)]);
+    // A running campaign nobody put in a group starts in "experiment", so no ad sits outside the formula (Benz 2026-11-12).
+    const fresh = await stageUnassigned(env.DB, entities, !dryRun, now).catch(() => []);
+    if (fresh.length) report.notes.push(`${dryRun ? 'จะจัด' : 'จัด'}เข้ากลุ่มทดลองอัตโนมัติ ${fresh.length} แคมเปญที่ยังไม่มีกลุ่ม: ${fresh.map((f) => f.name).slice(0, 5).join(' · ')}${fresh.length > 5 ? ' …' : ''}`);
     const { plan, evaluated, breakevens } = await planRun(env.DB, entities, (level, window) => meta.insights(level, window), state, now, (w) => meta.dailyCampaignInsights(w));
     report.entities_evaluated = evaluated;
     report.totals.daily_budget_before = sumBudget(entities);
@@ -127,7 +130,9 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
     capChanges(plan);
     report.decisions = plan.decisions;
 
-    // With the Discord bot set up, pausing a campaign or moving it down to retest waits for a button press.
+    // Pauses and moves down to retest follow the rules without asking (Benz 2026-11-12: "มันต้องเข้าสูตรเราสิ ไม่ใช่มา
+    // ถามเอง"); guardrails.ask_before_stop = true brings the Discord question back. Copies (dup) are still offered.
+    const ask = settings.guardrails.ask_before_stop === true;
     const proposals: Proposal[] = [];
     if (!dryRun && approvalsEnabled(env)) {
       await expireOld(env, report.run_at).catch(() => null);
@@ -144,11 +149,11 @@ export async function runAutomation(env: RunEnv, meta: MetaLike, opts: { trigger
       // moves to retest go through like budget changes do. The kill switch still stops everything.
       const grokTest = (name: string) => isGrokCampaign(name);
       for (const d of plan.decisions) {
-        if (d.skipped_reason || d.action.type !== 'pause' || grokTest(d.entity.name)) continue;
+        if (!ask || d.skipped_reason || d.action.type !== 'pause' || grokTest(d.entity.name)) continue;
         d.skipped_reason = hold('pause', d.entity.id, d.entity.name, d.rule_id, d.plan, { level: d.entity.level, window: d.window, metric: d.metric, observed: d.observed, threshold: d.threshold, actual });
       }
       for (const m of report.moves) {
-        if (m.skipped_reason || m.move_to !== 'retest' || grokTest(m.entity.name)) continue;
+        if (!ask || m.skipped_reason || m.move_to !== 'retest' || grokTest(m.entity.name)) continue;
         m.skipped_reason = hold('move', m.entity.id, m.entity.name, m.rule_id, m.plan, { level: 'campaign', move_from: m.move_from, move_to: m.move_to, window: m.window, metric: m.metric, observed: m.observed, threshold: m.threshold, actual });
       }
       // A winner sitting at the per-campaign cap and still well above break-even: offer a copy (new campaign at a
@@ -409,4 +414,13 @@ function discordRunText(report: WebRunReport, dryRun: boolean, trigger = ''): st
   for (const n of report.notes) lines.push(`ℹ️ ${n}`);
   if (report.errors.length) lines.push(`⚠️ ${report.errors.slice(0, 3).join(' | ')}`);
   return lines.join('\n');
+}
+
+/** Switched-on campaigns with no group (no row, or stage mode with no stage): put in "experiment" when `apply`. */
+export async function stageUnassigned(db: D1Database, entities: Entity[], apply: boolean, now: Date): Promise<{ campaign_id: string; name: string }[]> {
+  const cs = await loadCampaignSettings(db);
+  const list = entities.filter((e) => e.level === 'campaign' && e.status === 'ACTIVE').filter((e) => { const c = cs.get(e.id); return !c || (c.mode === 'stage' && !c.stage_id); })
+    .map((e) => ({ campaign_id: e.id, name: e.name }));
+  if (apply && list.length) await applyMoves(db, list.map((l) => ({ ...l, from: null, to: 'experiment' })), now.toISOString());
+  return list;
 }
