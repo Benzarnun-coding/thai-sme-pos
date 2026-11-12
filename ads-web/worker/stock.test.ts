@@ -78,6 +78,9 @@ test('returns: parcel hash must be sha-256 hex, items positive, place known', ()
   const ok = validateReturns({ loc: 'pia', parcels: [{ hash, tail: 'xx-1234', items: [{ sku: '5012-PK-NV-30', qty: 2 }, { sku: '', qty: 1 }, { sku: '5012-PK-NV-32', qty: 0 }] }] });
   assert.equal(ok.parcels[0].tail, '1234');
   assert.deepEqual(ok.parcels[0].items.length, 1);
+  const ar = validateReturns({ loc: 'ar', parcels: [{ hash, tail: 'TH269480878873C', items: [{ sku: '3012-AR-GY-32', qty: 1 }] }] });
+  assert.equal(ar.loc, 'ar');
+  assert.equal(ar.parcels[0].tail, '873C');
   assert.throws(() => validateReturns({ loc: 'xx', parcels: [] }));
   assert.throws(() => validateReturns({ loc: 'pia', parcels: [{ hash: 'abc', items: [{ sku: '5012-PK-NV-30', qty: 1 }] }] }));
   assert.throws(() => validateReturns({ loc: 'pia', parcels: [{ hash, items: [] }] }));

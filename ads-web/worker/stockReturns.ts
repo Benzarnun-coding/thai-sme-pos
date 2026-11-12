@@ -5,6 +5,7 @@
 
 import { cleanSku } from '../web/src/catalog.ts';
 import { BadRequest } from './validate.ts';
+import { isShopLoc, shopTab } from '../web/src/stockLocs.ts';
 import { LOCS, saveMoves, validateMoves, type Loc } from './stock.ts';
 
 export interface StockReturn { id: number; loc: Loc; sku: string; qty: number; track_tail: string; status: 'pending' | 'approved' | 'rejected'; created_by: string; created_at: string; decided_by: string | null; decided_at: string | null }
@@ -31,7 +32,11 @@ export function validateReturns(input: any): { loc: Loc; parcels: { hash: string
 
 /** Adds the scanned parcels as pending returns; skips parcels already pending/approved. Returns what was added and what was a repeat. */
 export async function addReturns(db: D1Database, r: ReturnType<typeof validateReturns>, user: string): Promise<{ added: number; repeated: string[] }> {
-  const known = new Set(((await db.prepare('SELECT sku FROM stock_locs WHERE loc = ?1').bind(r.loc).all<{ sku: string }>()).results).map((x) => x.sku));
+  // a shop place (AR, BB …) keeps any SKU of its catalog tab; the 5-model places and PK have a fixed list
+  const all = [...new Set(r.parcels.flatMap((p) => p.items.map((i) => i.sku)))];
+  const known = new Set(((await (isShopLoc(r.loc)
+    ? db.prepare('SELECT sku FROM catalog WHERE tab = ?1 AND sku IN (SELECT value FROM json_each(?2))').bind(shopTab(r.loc), JSON.stringify(all))
+    : db.prepare('SELECT sku FROM stock_locs WHERE loc = ?1').bind(r.loc)).all<{ sku: string }>()).results).map((x) => x.sku));
   const bad = r.parcels.flatMap((p) => p.items.filter((i) => !known.has(i.sku)).map((i) => i.sku));
   if (bad.length) throw new BadRequest(`ไม่ใช่สินค้าในสต็อกที่นี่: ${[...new Set(bad)].join(', ')}`);
   const seen = new Set(((await db.prepare("SELECT DISTINCT track_hash FROM stock_returns WHERE status != 'rejected'").all<{ track_hash: string }>()).results).map((x) => x.track_hash));

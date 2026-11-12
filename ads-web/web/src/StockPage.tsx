@@ -182,7 +182,7 @@ export function StockApp() {
         </section>
       )}
 
-      {data && !shop && started && canEdit && <ReturnsCard data={data} loc={loc} canDecide={canOpen} onDone={load} />}
+      {data && (shop || started) && canEdit && <ReturnsCard data={data} loc={loc} canDecide={canOpen} onDone={load} />}
 
       {data && !shop && plan && <ForecastCard plan={plan} items={items} balance={balance} target={target} setTarget={setTarget} />}
 
@@ -549,7 +549,8 @@ function ReturnsCard({ data, loc, canDecide, onDone }: { data: StockData; loc: S
   const loadRows = () => api.stockReturns().then((r) => setRows(r.returns)).catch(() => {});
   useEffect(() => { loadRows(); }, []);
   const name = (sku: string) => { const i = data.items.find((x) => x.sku === sku); return i ? `${i.code} #${i.size}` : sku; };
-  const mine = (sku: string) => data.items.some((x) => x.sku === sku && x.locs.includes(loc));
+  // shops keep any SKU of their catalog tab (SKU = code-TAB-colour-size); the server checks it against the catalog
+  const mine = (sku: string) => isShopLoc(loc) ? sku.split('-')[1]?.toUpperCase() === shopTab(loc) : data.items.some((x) => x.sku === sku && x.locs.includes(loc));
 
   async function onFile(f: File) {
     try {

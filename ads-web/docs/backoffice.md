@@ -175,6 +175,8 @@ are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,4
   rows (SKU, qty, last 4 of the parcel number, hash to refuse the same parcel twice). Owner/admin presses อนุมัติ → an
   'in' move today (same as รับของเข้า, so พี่เปีย also cuts PK); ไม่อนุมัติ drops it. Scanning is open to the cost-editor role, deciding is not.
 
+- Idea #28 (Moss): the same card also on the shop tabs (AR / BB / …): scan → รออนุมัติ → approval adds an 'in' move. A shop keeps any SKU of its catalog tab, so `addReturns` checks the SKU against `catalog` there (not `stock_locs`), and the page treats a SKU as that shop's when its tab part matches (e.g. 3012-AR-GY-32 → AR).
+
 - Idea #17 (not built, waiting for answers from มอส): more places on this page for the shops' own stock — AR, BB (เจ๊ศรี,
   ส.ประสาน, NBG, แพลนเนท, KM, J.Big, ป.ไพรศาล, พี่เปีย's separate shop), BBW (นอร์ท), BT, GG, Clima (CM), CN (CYD China
   warehouse) — each cut by its order-sheet group, and returned goods going back into stock when scanned/keyed.
