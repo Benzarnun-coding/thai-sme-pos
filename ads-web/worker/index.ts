@@ -214,7 +214,7 @@ async function loadBrief(env: Env) {
   const { results: live } = await env.DB.prepare(`SELECT code, count(*) n FROM grok_ads WHERE status IN ('running', 'proposed', 'working') GROUP BY code`).all<{ code: string; n: number }>();
   const b = brief({
     needed_per_day: goal?.needed_per_day ?? null, avg_net: goal?.avg_net ?? null, mer: goal?.mer_7d ?? goal?.mer ?? null, gross_margin: goal?.gross_margin ?? null,
-    running: counts?.running ?? 0, max_active: cfg.max_active, waiting_images: fresh.length, proposed: counts?.proposed ?? 0,
+    running: await grokAds.testSlotsUsed(env.DB), max_active: cfg.max_active, waiting_images: fresh.length, proposed: counts?.proposed ?? 0,
     finished: (counts?.done ?? 0) + (counts?.graduated ?? 0), graduated: counts?.graduated ?? 0,
   });
   const lc = (x: string) => x.toLowerCase();
@@ -232,6 +232,9 @@ async function studioCron(env: Env, limit = 2): Promise<void> {
   if (sets.length) await audit(env.DB, 'ai', 'studio.autosets', 'creative_sets', sets);
   await grokAds.proposeStep(env, cfg, limit).catch((err) => console.error('grok propose', err));
   // New "(Grok)" campaigns (ours and hand-made) into the "experiment" stage: the scale up / down rules take them from here.
+  // Campaigns a rule (or a person) switched off free their test slot.
+  const stopped = await metaFor(env).listEntities().then((e) => grokAds.syncStopped(env.DB, e as any)).catch((err) => { console.error('grok stopped', err); return []; });
+  if (stopped.length) await audit(env.DB, 'ai', 'grokad.stopped', 'grok_ads', { sets: stopped });
   const staged = await grokAds.stageGrok(env.DB).catch((err) => { console.error('grok stage', err); return []; });
   if (staged.length) await audit(env.DB, 'ai', 'grokad.staged', 'campaigns', staged);
   // Hand-made "Grok …" campaigns past their 14 days (adopted at 07:30 in studioImport): paused and reported.

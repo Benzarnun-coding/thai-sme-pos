@@ -222,6 +222,10 @@ Still by hand in phase 1: making the pictures, Max's ✅ per ad, closing the sal
 อันไหนดีก็ scale") nothing is paused at 14 days at all: the day-14 step only posts the numbers; stopping is the
    experiment rules' job (no sale after 300 spend).
 
+10. **Test slots** (Benz 2026-11-12): `max_active` (default 15, was 9) counts only the room's campaigns still in the
+    experiment stage (`testSlotsUsed`). One the rules moved up frees its slot; one Meta shows switched off becomes
+    `stopped` (`syncStopped`, each 3-hourly run, one `listEntities` call). The brief then asks Grok for pictures again.
+
 Not done yet: the AI judge still decides room pairs (real ROAS only reaches it through `provenPosts`); promos
 come from Max's "สินค้า: จุดขายและโปร", never invented; chat replies stay with the admins and Business AI.
 

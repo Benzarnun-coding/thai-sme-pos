@@ -18,11 +18,11 @@ import { AI_JUDGE } from './playbookTrial.ts';
 import { applyMoves } from './db.ts';
 import { reviewAd, type ReviewMode, type Verdict } from './grokLoop.ts';
 
-export const MAX_ACTIVE = 9;
+export const MAX_ACTIVE = 15;
 
 /** review: the 3-hourly look at running ads (grokLoop.reviewAd): 'dry' shows what it would do, 'on' does it. */
 export interface StudioAds { budget: number; days: number; max_active: number; review: ReviewMode }
-const DEFAULTS: StudioAds = { budget: 50, days: 14, max_active: 9, review: 'dry' };
+const DEFAULTS: StudioAds = { budget: 50, days: 14, max_active: 15, review: 'dry' };
 
 export async function loadStudioAds(db: D1Database): Promise<StudioAds> {
   const v = await db.prepare(`SELECT value FROM settings WHERE key = 'studio_ads'`).first<{ value: string }>();
@@ -34,7 +34,7 @@ export async function saveStudioAds(db: D1Database, patch: Partial<StudioAds>): 
   const next: StudioAds = {
     budget: Math.min(500, Math.max(50, Number(patch.budget ?? cur.budget) || 100)),
     days: Math.min(30, Math.max(3, Number(patch.days ?? cur.days) || 14)),
-    max_active: Math.min(10, Math.max(1, Number(patch.max_active ?? cur.max_active) || MAX_ACTIVE)),
+    max_active: Math.min(30, Math.max(1, Number(patch.max_active ?? cur.max_active) || MAX_ACTIVE)),
     review: (['off', 'dry', 'on'] as const).includes(patch.review as ReviewMode) ? (patch.review as ReviewMode) : cur.review,
   };
   await db.prepare(`INSERT INTO settings (key, value) VALUES ('studio_ads', ?1) ON CONFLICT (key) DO UPDATE SET value = excluded.value`).bind(JSON.stringify(next)).run();
@@ -326,8 +326,8 @@ export async function launchSet(env: StudioEnv, meta: GrokMeta, cfg: StudioAds, 
     await env.DB.prepare(`UPDATE grok_ads SET status = 'failed', error = ?2 WHERE set_id = ?1`).bind(setId, err.slice(0, 500)).run();
     return { ok: false, text: err };
   };
-  const running = (await env.DB.prepare(`SELECT count(*) n FROM grok_ads WHERE status = 'running'`).first<{ n: number }>())?.n ?? 0;
-  if (running >= cfg.max_active) return fail(`มีแคม (Grok) เปิดอยู่ครบ ${cfg.max_active} แล้ว รอตัวเก่าครบ ${cfg.days} วันก่อน`);
+  const running = await testSlotsUsed(env.DB);
+  if (running >= cfg.max_active) return fail(`มีแคม (Grok) ในกลุ่มทดลองครบ ${cfg.max_active} ช่องแล้ว รอกฎหยุดตัวที่ไม่ขายหรือย้ายตัวที่ขายดีขึ้นก่อน`);
   if (budgetRoom < cfg.budget) return fail(`งบรวมจะเกินเพดานที่ตั้งไว้ (เหลือ ${Math.round(budgetRoom)} บาท) ขยายเพดานในหน้าตั้งค่าก่อน`);
   const t = await templateAd(env.DB, s.code);
   if (!t) return fail(`ยังไม่มีแอดที่ยิงอยู่ของ ${s.code} ให้ใช้เป็นต้นแบบ`);
@@ -544,4 +544,27 @@ export const PROMOTED = ['testing', 'winning'];
 async function promoted(db: D1Database, campaignId: string): Promise<string | null> {
   const r = await db.prepare(`SELECT stage_id FROM campaigns WHERE campaign_id = ?1`).bind(campaignId).first<{ stage_id: string | null }>();
   return r?.stage_id && PROMOTED.includes(r.stage_id) ? r.stage_id : null;
+}
+
+// ---- test slots (Benz 2026-11-12): only campaigns still being tried count ----
+
+/**
+ * Slots in use = the room's campaigns still in the experiment stage (or not staged yet). One the rules moved up
+ * (testing / winning / retest) or that was switched off frees its slot, so Grok is asked for new pictures again.
+ */
+export async function testSlotsUsed(db: D1Database): Promise<number> {
+  const r = await db.prepare(
+    `SELECT count(*) n FROM grok_ads g LEFT JOIN campaigns c ON c.campaign_id = g.campaign_id
+     WHERE g.status IN ('running', 'working') AND (c.stage_id IS NULL OR c.stage_id = 'experiment')`,
+  ).first<{ n: number }>();
+  return r?.n ?? 0;
+}
+
+/** The room's campaigns Meta shows as switched off (a rule or a person paused them): status 'stopped', slot freed. */
+export async function syncStopped(db: D1Database, entities: { id: string; level: string; status: string }[]): Promise<number[]> {
+  const off = new Set(entities.filter((e) => e.level === 'campaign' && e.status !== 'ACTIVE').map((e) => e.id));
+  const { results } = await db.prepare(`SELECT set_id, campaign_id FROM grok_ads WHERE status = 'running' AND campaign_id IS NOT NULL`).all<{ set_id: number; campaign_id: string }>();
+  const hit = results.filter((r) => off.has(r.campaign_id)).map((r) => r.set_id);
+  for (const id of hit) await db.prepare(`UPDATE grok_ads SET status = 'stopped' WHERE set_id = ?1 AND status = 'running'`).bind(id).run();
+  return hit;
 }

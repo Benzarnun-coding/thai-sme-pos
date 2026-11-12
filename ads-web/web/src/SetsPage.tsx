@@ -16,7 +16,7 @@ const pic = (id: number, full = false) => `/api/studio/picture/cand/${id}?v=2${f
 
 interface GrokAd { set_id: number; code: string; status: string; campaign_id: string | null; ad_id: string | null; budget: number | null; error: string | null; decided_by: string | null; announced_at: string | null; launched_at: string | null; ends_at: string | null; result: string | null }
 type GrokCfg = { budget: number; days: number; max_active: number; review: 'off' | 'dry' | 'on' };
-const GROK_STATUS: Record<string, string> = { graduated: '🎓 ผ่าน — อยู่กลุ่มทดสอบแล้ว', proposed: '⏳ รอแม็กซ์กดอนุมัติใน Discord', working: '⚙️ กำลังสร้าง', running: '🟢 กำลังยิง', done: '🏁 ครบกำหนด', failed: '❌ ลงไม่สำเร็จ', declined: '🚫 ไม่ลง', withdrawn: '↩️ ถอนแล้ว' };
+const GROK_STATUS: Record<string, string> = { graduated: '🎓 ผ่าน — อยู่กลุ่มทดสอบแล้ว', proposed: '⏳ รอแม็กซ์กดอนุมัติใน Discord', working: '⚙️ กำลังสร้าง', running: '🟢 กำลังยิง', done: '🏁 ครบกำหนด', failed: '❌ ลงไม่สำเร็จ', declined: '🚫 ไม่ลง', withdrawn: '↩️ ถอนแล้ว', stopped: '⏹ กฎหยุดแล้ว (ไม่ขาย)' };
 
 /** "(Grok)" test ads: what was proposed in #studio-training, what runs, what ended (worker/grokAds.ts). */
 type GateReject = { id: number; code: string; why: string };
@@ -33,7 +33,7 @@ function GrokAds({ rows, cfg, onRun, onSave, rejects = [], external = [] }: { ro
         <div className="row small" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>
           <label>งบชุดใหม่ บาท/วัน<input type="number" min={50} max={500} value={edit.budget} onChange={(e) => setEdit({ ...edit, budget: Number(e.target.value) })} /></label>
           <label>จำนวนวัน<input type="number" min={3} max={30} value={edit.days} onChange={(e) => setEdit({ ...edit, days: Number(e.target.value) })} /></label>
-          <label>เปิดพร้อมกันไม่เกิน<input type="number" min={1} max={10} value={edit.max_active} onChange={(e) => setEdit({ ...edit, max_active: Number(e.target.value) })} /></label>
+          <label>ช่องทดสอบ (นับเฉพาะที่ยังอยู่กลุ่มทดลอง)<input type="number" min={1} max={30} value={edit.max_active} onChange={(e) => setEdit({ ...edit, max_active: Number(e.target.value) })} /></label>
           <label>ตรวจแอดที่ยิงอยู่ทุก 3 ชม.<select value={edit.review} onChange={(e) => setEdit({ ...edit, review: e.target.value as GrokCfg['review'] })}>
             <option value="off">ปิด</option><option value="dry">แสดงอย่างเดียว (ยังไม่แตะ Meta)</option><option value="on">ทำจริง</option></select></label>
           <button className="small" onClick={() => onSave(edit)}>บันทึก</button>

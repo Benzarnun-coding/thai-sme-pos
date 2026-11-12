@@ -59,7 +59,7 @@ export function brief(i: BriefInput): Brief {
     if (extra === null) lines.push('แอดตอนนี้ยังไม่เหลือกำไรต่อบาท (MER × กำไรขั้นต้น ≤ 1) — เพิ่มงบไม่ช่วย ต้องได้โพสต์ที่ขายดีกว่าเดิม');
     else lines.push(`ที่ประสิทธิภาพจริงตอนนี้ (MER ${i.mer!.toFixed(2)} × กำไรขั้นต้น ${Math.round(i.gross_margin! * 100)}%) ต้องใช้ค่าแอดเพิ่ม ~${n(extra)}/วัน = โพสต์ที่ผ่าน ~${winners} ตัว (ตัวละ ~${n(WINNER_ABSORBS)}/วัน) = ต้องทดสอบ ~${tests} โพสต์ (${assumed ? `สมมติผ่าน 1 ใน 3 จนกว่าจะมีผลครบ ${MIN_FINISHED} ตัว` : `ผ่านจริง ${i.graduated}/${i.finished}`})`);
   }
-  lines.push(`แอดทดสอบเปิดอยู่ ${i.running}/${i.max_active} · ว่าง ${free} ช่อง · ภาพใหม่รอจับคู่ ${i.waiting_images} · รอแม็กซ์กด ${i.proposed}`);
+  lines.push(`แอดทดสอบในกลุ่มทดลอง ${i.running}/${i.max_active} · ว่าง ${free} ช่อง · ภาพใหม่รอจับคู่ ${i.waiting_images} · รอแม็กซ์กด ${i.proposed}`);
   lines.push(images > 0 ? `👉 วันนี้ทำภาพใหม่ ${images} ภาพ (1 ภาพใหม่ = 1 โพสต์ทดสอบ)` : free === 0 ? '👉 ช่องเต็ม — รอผล ไม่ต้องทำภาพเพิ่มวันนี้' : '👉 มีภาพ/ข้อเสนอรออยู่พอกับช่องที่ว่างแล้ว — ตามให้แม็กซ์กดใน Discord');
   return { gap_per_day: gap, extra_ads_per_day: extra, winners_needed: winners, tests_needed: tests, hit_rate: rate, hit_rate_assumed: assumed, free_slots: free, images_now: images, lines };
 }
