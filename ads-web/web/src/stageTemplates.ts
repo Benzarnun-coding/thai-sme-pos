@@ -70,7 +70,8 @@ export const STAGE_TEMPLATES: Record<string, Rule[]> = {
     }
   ],
   "testing": [
-    {
+    { "id": "test-small", "description": "ตัวชนะงบเล็ก: งบ ≤ 200 · 7 วัน ROAS ≥ 1.5× คุ้มทุน · ≥ 6 ออเดอร์ · ใช้ ≥ 250 → งบ ×2 ไม่เกิน 300 (เว้น 24 ชม.)", "level": "campaign", "window": "last_7d", "metric": "roas", "op": ">=", "value": 1.5, "value_mode": "x_breakeven", "min_spend": 250, "min_purchases": 6, "max_budget": 200, "action": { "type": "budget_pct", "pct": 100, "up_to": 300 }, "cooldown_hours": 24 },
+      {
       "id": "test-boost",
       "description": "โหมดเร่ง: 3 วัน ROAS ≥ 1.6× คุ้มทุน และ ≥ 5 ออเดอร์ → +20% ทุกรอบ (เว้น 11 ชม.)",
       "level": "campaign",
