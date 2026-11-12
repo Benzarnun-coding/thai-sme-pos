@@ -375,6 +375,16 @@ export class MetaClient {
       .map((c: any) => ({ id: String(c.id), name: String(c.name) }));
   }
 
+  /** Switched-on campaigns whose name starts with "Grok" or ends with "(Grok)", with Meta's created_time. */
+  async grokCampaigns(): Promise<{ id: string; name: string; created_time: string }[]> {
+    const rows = await this.getAll(`${this.accountId}/campaigns`, {
+      fields: 'id,name,effective_status,created_time',
+      filtering: JSON.stringify([{ field: 'name', operator: 'CONTAIN', value: 'Grok' }]),
+    });
+    return rows.filter((c: any) => c.effective_status === 'ACTIVE' && (/^\s*Grok\b/i.test(String(c.name)) || /\(Grok\)\s*$/.test(String(c.name))))
+      .map((c: any) => ({ id: String(c.id), name: String(c.name), created_time: String(c.created_time) }));
+  }
+
   async deleteCampaign(id: string): Promise<void> {
     await this.post(id, { status: 'DELETED' });
   }

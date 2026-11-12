@@ -230,6 +230,15 @@ async function studioCron(env: Env, limit = 2): Promise<void> {
   const sets = await grokAds.autoSets(env, cfg.days, limit).catch(async (err) => { console.error('auto sets', err); await audit(env.DB, 'ai', 'studio.autosets.error', 'creative_sets', { error: String(err?.message ?? err) }); return []; });
   if (sets.length) await audit(env.DB, 'ai', 'studio.autosets', 'creative_sets', sets);
   await grokAds.proposeStep(env, cfg, limit).catch((err) => console.error('grok propose', err));
+  // Hand-made "Grok …" campaigns past their 14 days (adopted at 07:30 in studioImport): paused and reported.
+  const extDue = (await env.DB.prepare(`SELECT count(*) n FROM grok_external WHERE status = 'running' AND ends_at <= ?1`).bind(new Date().toISOString()).first<{ n: number }>())?.n ?? 0;
+  if (extDue) {
+    const extStats = await metaFor(env).insights('campaign', 'last_14d').catch(() => null);
+    for (const n of await grokAds.stopExternal(env.DB, metaFor(env) as unknown as grokAds.ExternalMeta, extStats as any).catch((err) => { console.error('grok external stop', err); return []; })) {
+      await audit(env.DB, 'ai', 'grokad.external_done', n.id, { name: n.name, text: n.text });
+      if (env.DISCORD_BOT_TOKEN) await postBot({ ...env, DISCORD_CHAT_CHANNEL_ID: env.DISCORD_STUDIO_CHANNEL_ID || env.DISCORD_CHAT_CHANNEL_ID }, { content: `🏁 แคม "${n.name}" (สร้างเองนอกระบบ) ครบ 14 วัน หยุดแล้ว: ${n.text}` }).catch(() => null);
+    }
+  }
   const meta = metaFor(env) as unknown as grokAds.GrokMeta;
   const running = (await env.DB.prepare(`SELECT count(*) n, sum(ends_at <= ?1) due FROM grok_ads WHERE status = 'running'`).bind(new Date().toISOString()).first<{ n: number; due: number | null }>()) ?? { n: 0, due: 0 };
   if (!running.due && (!running.n || cfg.review === 'off')) return;
@@ -258,6 +267,10 @@ async function studioImport(env: Env): Promise<void> {
   const got = await metaFor(env).activeAdPosts();
   const r = { ...(await studio.importMetaPosts(env.DB, got.ads)), post_error: got.post_error };
   const pictures = await studio.fetchMissingPostPictures(env.DB).catch(() => 0);
+  // Hand-made "Grok …" campaigns: the room looks after them too (14 days, then paused and reported).
+  const gcfg = await grokAds.loadStudioAds(env.DB);
+  const adopted = await grokAds.adoptExternal(env.DB, metaFor(env) as unknown as grokAds.ExternalMeta, gcfg.days).catch((err) => { console.error('adopt grok', err); return []; });
+  if (adopted.length) await audit(env.DB, 'cron', 'grokad.adopted', 'campaigns', adopted);
   await studio.seedRealCaptions(env.DB).catch(() => 0);
   await studio.seedRealImages(env.DB).catch(() => 0);
   await audit(env.DB, 'cron', 'studio.meta_import', 'meta_posts', { ...r, pictures });
@@ -1118,6 +1131,13 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     await audit(env.DB, user, 'grokad.withdrawn', m[1], { reason: b?.reason ?? null });
     return json({ ok: true });
   }
+  // Adopt hand-made "Grok …" campaigns now instead of at 07:30 (owners/admins: outside /api/studio).
+  if (path === '/api/grok-ads/adopt' && method === 'POST') {
+    const cfg = await grokAds.loadStudioAds(env.DB);
+    const adopted = await grokAds.adoptExternal(env.DB, metaFor(env) as unknown as grokAds.ExternalMeta, cfg.days);
+    await audit(env.DB, user, 'grokad.adopted', 'campaigns', adopted);
+    return json({ adopted, all: await grokAds.listExternal(env.DB) });
+  }
   if (path === '/api/studio/sets/run' && method === 'POST') { await studioCron(env, 6); return json({ ok: true, grok_ads: await grokAds.listGrokAds(env.DB) }); }
   if (path === '/api/studio/trial/stop' && method === 'POST') { await trial.stopTrial(env.DB); await audit(env.DB, user, 'studio.trial.stop', 'playbook', {}); return json({ ok: true }); }
   if (path === '/api/studio/playbook/undo' && method === 'POST') { const id = await trial.undoPlaybook(env.DB, user); await audit(env.DB, user, 'studio.playbook.undo', String(id), {}); return json({ id }); }
@@ -1142,7 +1162,7 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (path === '/api/studio/playbook/pending' && method === 'GET') return json({ pending: await studio.pendingPlaybook(env.DB) });
   if ((m = /^\/api\/studio\/playbook\/(\d+)\/approve$/.exec(path)) && method === 'POST') { const b = await body(); await studio.approvePlaybook(env.DB, Number(m[1]), b?.text, user); await audit(env.DB, user, 'studio.playbook.approve', m[1], {}); return json({ ok: true }); }
   if (path === '/api/studio/seed-real' && method === 'POST') return json({ added: await studio.seedRealCaptions(env.DB) });
-  if (path === '/api/studio/sets' && method === 'GET') return json({ sets: await studio.listSets(env.DB), ready: await studio.readyProducts(env.DB), grok_ads: await grokAds.listGrokAds(env.DB), grok_cfg: await grokAds.loadStudioAds(env.DB), gate_rejects: await grokAds.gateRejects(env.DB) });
+  if (path === '/api/studio/sets' && method === 'GET') return json({ sets: await studio.listSets(env.DB), ready: await studio.readyProducts(env.DB), grok_ads: await grokAds.listGrokAds(env.DB), grok_external: await grokAds.listExternal(env.DB), grok_cfg: await grokAds.loadStudioAds(env.DB), gate_rejects: await grokAds.gateRejects(env.DB) });
   if (path === '/api/studio/passed' && method === 'GET') return json(await studio.passedFor(env.DB, url.searchParams.get('code') ?? ''));
   if (path === '/api/studio/sets' && method === 'POST') { const set = await studio.createSet(env, await body(), user); await audit(env.DB, user, 'studio.set', String(set.id), {}); return json({ set }); }
   if ((m = /^\/api\/studio\/sets\/(\d+)$/.exec(path)) && method === 'PUT') { const b = await body(); await studio.decideSet(env.DB, Number(m[1]), b?.status, user); await audit(env.DB, user, 'studio.set.decide', m[1], { status: b?.status }); return json({ ok: true }); }

@@ -456,3 +456,45 @@ export async function gateRejects(db: D1Database) {
   ).all<{ id: number; code: string; ai_check: string }>();
   return results.map((r) => ({ id: r.id, code: r.code, gate: gateOf(r.ai_check) })).filter((r) => r.gate && !r.gate.pass).map((r) => ({ id: r.id, code: r.code, why: r.gate!.why }));
 }
+
+// ---- "Grok …" campaigns made by hand (Benz 2026-11-12: the room looks after them too) ----
+
+export interface ExternalMeta {
+  grokCampaigns(): Promise<{ id: string; name: string; created_time: string }[]>;
+  setStatus(id: string, status: 'ACTIVE' | 'PAUSED'): Promise<void>;
+}
+
+/** Adopts running "Grok …" campaigns the room didn't create: 14 days from Meta's created_time. Returns the new ones. */
+export async function adoptExternal(db: D1Database, meta: ExternalMeta, days: number): Promise<{ id: string; name: string; ends_at: string }[]> {
+  const ours = new Set((await db.prepare(`SELECT campaign_id FROM grok_ads WHERE campaign_id IS NOT NULL`).all<{ campaign_id: string }>()).results.map((r) => r.campaign_id));
+  const known = new Set((await db.prepare(`SELECT campaign_id FROM grok_external`).all<{ campaign_id: string }>()).results.map((r) => r.campaign_id));
+  const out: { id: string; name: string; ends_at: string }[] = [];
+  for (const c of await meta.grokCampaigns()) {
+    if (ours.has(c.id) || known.has(c.id)) continue;
+    const created = new Date(c.created_time);
+    if (Number.isNaN(created.getTime())) continue;
+    const ends = new Date(created.getTime() + days * 86_400_000).toISOString();
+    await db.prepare(`INSERT INTO grok_external (campaign_id, name, status, created_at, adopted_at, ends_at) VALUES (?1, ?2, 'running', ?3, ?4, ?5) ON CONFLICT (campaign_id) DO NOTHING`)
+      .bind(c.id, c.name, created.toISOString(), new Date().toISOString(), ends).run();
+    out.push({ id: c.id, name: c.name, ends_at: ends });
+  }
+  return out;
+}
+
+/** Pauses adopted campaigns past their 14 days and stores their numbers (Meta, last 14 days). */
+export async function stopExternal(db: D1Database, meta: ExternalMeta, stats: Map<string, { spend: number; purchases: number; purchase_value: number }> | null): Promise<{ id: string; name: string; text: string }[]> {
+  const { results } = await db.prepare(`SELECT campaign_id, name FROM grok_external WHERE status = 'running' AND ends_at <= ?1`).bind(new Date().toISOString()).all<{ campaign_id: string; name: string }>();
+  const out: { id: string; name: string; text: string }[] = [];
+  for (const g of results) {
+    await meta.setStatus(g.campaign_id, 'PAUSED');
+    const m = stats?.get(g.campaign_id);
+    const result = m ? { spend: Math.round(m.spend), purchases: m.purchases, value: Math.round(m.purchase_value), roas: m.spend ? Math.round((m.purchase_value / m.spend) * 100) / 100 : 0 } : null;
+    await db.prepare(`UPDATE grok_external SET status = 'done', result = ?2 WHERE campaign_id = ?1`).bind(g.campaign_id, result ? JSON.stringify(result) : null).run();
+    out.push({ id: g.campaign_id, name: g.name, text: result ? `ค่าแอด ${result.spend} · ซื้อ ${result.purchases} · ยอด ${result.value} · ROAS ${result.roas} (ยอดแท็ก Meta)` : 'อ่านตัวเลขไม่ได้' });
+  }
+  return out;
+}
+
+export async function listExternal(db: D1Database) {
+  return (await db.prepare(`SELECT * FROM grok_external ORDER BY status = 'running' DESC, ends_at`).all()).results;
+}

@@ -206,6 +206,13 @@ pictures itself (needs an image API, not built). What phase 1 adds so the month'
 
 Still by hand in phase 1: making the pictures, Max's ✅ per ad, closing the sale in chat.
 
+8. **Hand-made "Grok …" campaigns** (Benz 2026-11-12: Max/Grok also make campaigns named "Grok : …" in Ads
+   Manager; "ดูแลด้วย"): the 07:30 run adopts every switched-on campaign whose name starts with "Grok" or ends with
+   "(Grok)" and isn't one of ours (`adoptExternal`, `grokCampaigns`, table `grok_external`, migration 0068): 14
+   days from Meta's `created_time`, then paused with its 14-day numbers posted in #studio-training (`stopExternal`
+   in the 3-hourly run). Budget and ads are never touched. Listed on `/studio/sets`; `POST /api/grok-ads/adopt`
+   adopts now.
+
 Not done yet: the AI judge still decides room pairs (real ROAS only reaches it through `provenPosts`); promos
 come from Max's "สินค้า: จุดขายและโปร", never invented; chat replies stay with the admins and Business AI.
 
