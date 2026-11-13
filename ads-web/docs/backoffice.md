@@ -151,7 +151,7 @@ are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,4
 - Page: tabs พี่เปีย / GoSell, model × size grid (≤ 5 orange, ≤ 0 red), "รับของเข้า" (received), "ปรับยอด (นับจริง)"
   (counted → only the difference is saved), 45 days of history (typed entries can be deleted). Team members add stock
   themselves; a starting balance is owner/admin only.
-- New at พี่เปีย (idea #29, migration 0070): 101/1, ST-01, 200 (sizes as asked) registered in `stock_locs` from the PK tab of the catalog; pieces are typed on the page.
+- New at พี่เปีย (idea #29, migrations 0070–0071): 101/1 ดำ and ST-01 ดำ (CM SKUs, moved from CM's stock), 200 มิดไนท์ (PK SKU) × the sizes asked, 20 each as `in` at พี่เปีย and `out` at CM (PK only once it has a starting balance); ref `idea-29`.
 - รับของเข้า at พี่เปีย (idea #16, มอส): the same SKUs are also cut from PK's stock (`out`, ref `pia-in:…`, once PK has a starting
   balance; SKUs PK doesn't keep are left alone); deleting the typed receipt deletes that cut too (`cutPkForPia`).
 - Shops (idea #25, Moss): tabs AR / BB / BBW / BT / GG / Clima(CM) / CN, one place per catalog tab (`SHOP_LOCS`,
