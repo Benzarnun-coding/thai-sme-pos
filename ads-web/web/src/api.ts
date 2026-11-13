@@ -412,6 +412,7 @@ export const api = {
   stockReturns: () => call<{ returns: StockReturnRow[] }>('GET', '/api/stock/returns'),
   addStockReturns: (loc: StockLoc, parcels: { hash: string; tail: string; items: { sku: string; qty: number }[] }[]) =>
     call<{ added: number; repeated: string[] }>('POST', '/api/stock/returns', { loc, parcels }),
+  scanStockReturn: (hash: string, tail: string) => call<{ status: 'added'; items: { sku: string; qty: number; loc: StockLoc }[] } | { status: 'repeat' | 'notfound' } | { status: 'nostock'; skus: string[] }>('POST', '/api/stock/returns/scan', { hash, tail }),
   decideStockReturn: (id: number, approve: boolean) => call<{ ok: true }>('POST', '/api/stock/returns/decide', { id, approve }),
   gosellCut: (file: string, lines: { order_no: string; sku: string; qty: number }[], dry: boolean) => call<GosellCut>('POST', '/api/stock/gosell', { file, lines, dry }),
   profit: (from: string, to: string) => call<ProfitData>('GET', `/api/profit?from=${from}&to=${to}`),

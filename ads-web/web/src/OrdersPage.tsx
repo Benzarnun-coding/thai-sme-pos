@@ -5,6 +5,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { isShopLoc, shopLocOfTab } from './stockLocs.ts';
+import { normTrack, trackHash } from './returns.ts';
 import { api, type CatalogAlias, type FoundOrder, type LedgerRow, type PurchaseUpload, type PurchaseExtra, type SavedPurchaseLine, type StockData } from './api.ts';
 import { SkuMatch } from './SkuMatch.tsx';
 import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from './catalog.ts';
@@ -290,6 +291,8 @@ export function OrdersApp() {
       const file = viewing ? viewing.upload.file : data!.file;
       // Saved from a file: also its order rows, for the units-sold page (a reopened round keeps the ones it has).
       const items = !viewing && data ? saleItems(data.items, lookup, `${date}#${round}`) : undefined;
+      // parcel number → hash + last 4 only (idea #28: returned parcels are found from here when scanned on the stock page)
+      if (items && data) await Promise.all(items.map(async (x, i) => { const t = normTrack(data.items[i].tracking); if (t) Object.assign(x, { track_hash: await trackHash(t), track_tail: t.slice(-4) }); }));
       // Facebook / typed items are kept with the round (not as sales: Facebook units come from the Page365 upload).
       const extra = !viewing && data ? [...(fb?.items ?? []), ...manual].map(toExtra) : undefined;
       const { upload } = await api.savePurchase({ date, round, file, lines: lines.map((l) => ({ ...l })), items, extra });

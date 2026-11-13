@@ -31,7 +31,7 @@ import { PRIVACY_HTML } from './privacy.ts';
 import { parseRange, salesData } from './sales.ts';
 import { listImportMaps, profitData, saveImportMap, saveMpOrders, validateMpOrders } from './mpOrders.ts';
 import { opsFacts, opsText } from './opsDigest.ts';
-import { addReturns, decideReturn, listReturns, validateReturns } from './stockReturns.ts';
+import { addReturns, decideReturn, listReturns, scanReturn, validateReturns } from './stockReturns.ts';
 import { deleteMove, gosellCut, saveMoves, stockData, syncRoundStock, validateMoves } from './stock.ts';
 import { deletePurchase, findOrders, ledger, listPurchases, orderTerms, purchaseExtra, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveAlias, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
@@ -1495,6 +1495,12 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (method === 'POST' && path === '/api/stock/returns') {
     const r = await addReturns(env.DB, validateReturns(await body()), user);
     await audit(env.DB, user, 'stock.return.scan', '', { added: r.added, repeated: r.repeated.length });
+    return json(r);
+  }
+  if (method === 'POST' && path === '/api/stock/returns/scan') {
+    const b = await body();
+    const r = await scanReturn(env.DB, String(b?.hash ?? ''), String(b?.tail ?? ''), user);
+    if (r.status === 'added') await audit(env.DB, user, 'stock.return.scan', '', { added: r.items.length });
     return json(r);
   }
   if (method === 'POST' && path === '/api/stock/returns/decide') {

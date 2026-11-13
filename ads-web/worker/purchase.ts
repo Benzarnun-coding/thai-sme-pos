@@ -22,7 +22,7 @@ export interface SavedLine {
 }
 const PRICE_SOURCES = new Set(['web', 'cost', '']);
 
-export interface SavedItem { order: string; sku: string; qty: number; store: string }
+export interface SavedItem { order: string; sku: string; qty: number; store: string; track_hash?: string; track_tail?: string }
 const MAX_ITEMS = 20_000;
 
 /** A round's item that is not from the Bigseller file: a Facebook order line (Page365) or a line typed by hand. */
@@ -81,6 +81,7 @@ export function validatePurchase(input: any): { date: string; round: number; fil
     const byKey = new Map<string, SavedItem>();
     for (const x of input.items) {
       const it: SavedItem = { order: cleanText(x?.order, 60), sku: cleanText(x?.sku, 200), qty: Math.trunc(Number(x?.qty)), store: cleanText(x?.store, 80) };
+      if (/^[0-9a-f]{64}$/.test(String(x?.track_hash ?? ''))) { it.track_hash = x.track_hash; it.track_tail = String(x?.track_tail ?? '').slice(-4).replace(/[^\w-]/g, ''); }
       if (!it.order || !it.sku || !(it.qty > 0 && it.qty < 100_000)) continue;
       const k = `${it.order}\u0000${it.sku}`;
       const prev = byKey.get(k);
@@ -122,8 +123,8 @@ export async function savePurchase(db: D1Database, p: ReturnType<typeof validate
     ...(p.items ? [
       db.prepare('DELETE FROM purchase_items WHERE upload_id = ?1').bind(id),
       ...itemChunks.map((c) => db.prepare(
-        `INSERT INTO purchase_items (upload_id, order_no, sku, qty, store)
-         SELECT ?1, value ->> '$.order', value ->> '$.sku', value ->> '$.qty', value ->> '$.store' FROM json_each(?2)`,
+        `INSERT INTO purchase_items (upload_id, order_no, sku, qty, store, track_hash, track_tail)
+         SELECT ?1, value ->> '$.order', value ->> '$.sku', value ->> '$.qty', value ->> '$.store', value ->> '$.track_hash', value ->> '$.track_tail' FROM json_each(?2)`,
       ).bind(id, JSON.stringify(c))),
     ] : []),
     db.prepare(

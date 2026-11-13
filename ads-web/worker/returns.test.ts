@@ -21,3 +21,11 @@ test('items of one parcel are summed per SKU; rows without a parcel number are s
   assert.deepEqual(m.get('TH1'), [{ sku: '5012-PK-NV-30', qty: 3 }, { sku: '5012-PK-NV-32', qty: 1 }]);
   assert.equal(m.size, 1);
 });
+
+import { locOfSku } from './stockReturns.ts';
+test('a returned SKU goes to the stock of its own tab (idea #28)', () => {
+  assert.equal(locOfSku('5012-PK-NV-30'), 'pk');
+  assert.equal(locOfSku('3012-AR-GY-32'), 'ar');
+  assert.equal(locOfSku('2001-BB-BK-30'), 'bb');
+  assert.equal(locOfSku('2001-XX-BK-30'), null);
+});

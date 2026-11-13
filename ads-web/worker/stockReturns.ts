@@ -5,7 +5,7 @@
 
 import { cleanSku } from '../web/src/catalog.ts';
 import { BadRequest } from './validate.ts';
-import { isShopLoc, shopTab } from '../web/src/stockLocs.ts';
+import { isShopLoc, shopLocOfTab, shopTab } from '../web/src/stockLocs.ts';
 import { LOCS, saveMoves, validateMoves, type Loc } from './stock.ts';
 
 export interface StockReturn { id: number; loc: Loc; sku: string; qty: number; track_tail: string; status: 'pending' | 'approved' | 'rejected'; created_by: string; created_at: string; decided_by: string | null; decided_at: string | null }
@@ -82,4 +82,53 @@ export async function decideReturn(db: D1Database, id: number, approve: boolean,
     }
   }
   return true;
+}
+
+/** Which stock keeps a SKU: PK → pk, a shop tab (AR, BB …) → that shop (SKU = code-TAB-colour-size). */
+export function locOfSku(sku: string): Loc | null {
+  const tab = sku.split('-')[1]?.toUpperCase() ?? '';
+  return tab === 'PK' ? 'pk' : shopLocOfTab(tab);
+}
+
+export type ScanResult =
+  | { status: 'added'; items: { sku: string; qty: number; loc: Loc }[] }
+  | { status: 'repeat' | 'notfound' }
+  | { status: 'nostock'; skus: string[] };
+
+/**
+ * Idea #28: a scanned parcel (hash of its number) → the SKUs of the saved order rounds (`purchase_items.track_hash`) →
+ * straight into the stock they belong to as an 'in' move (history row in `stock_returns`, status approved).
+ * The same parcel is refused while it is pending or already approved.
+ */
+export async function scanReturn(db: D1Database, hash: string, tail: string, user: string): Promise<ScanResult> {
+  if (!HASH.test(hash)) throw new BadRequest('เลขพัสดุไม่ถูกต้อง');
+  tail = tail.slice(-4).replace(/[^\w-]/g, '');
+  const found = (await db.prepare('SELECT sku, SUM(qty) AS qty FROM purchase_items WHERE track_hash = ?1 GROUP BY sku').bind(hash).all<{ sku: string; qty: number }>()).results;
+  if (!found.length) return { status: 'notfound' };
+  if (await db.prepare("SELECT 1 FROM stock_returns WHERE track_hash = ?1 AND status != 'rejected' LIMIT 1").bind(hash).first()) return { status: 'repeat' };
+  const items = found.map((f) => ({ sku: f.sku, qty: f.qty, loc: locOfSku(f.sku) }));
+  const bad = items.filter((i) => !i.loc).map((i) => i.sku);
+  if (bad.length) return { status: 'nostock', skus: bad };
+  const byLoc = new Map<Loc, { sku: string; qty: number }[]>();
+  for (const i of items) byLoc.set(i.loc!, [...(byLoc.get(i.loc!) ?? []), { sku: i.sku, qty: i.qty }]);
+  // check every place first (nothing is half-added when one SKU is not stocked there)
+  for (const [loc, its] of byLoc) await addReturnsCheck(db, loc, its);
+  const now = new Date().toISOString();
+  for (const [loc, its] of byLoc) {
+    await saveMoves(db, validateMoves({ loc, kind: 'in', date: today(), note: `พัสดุตีกลับ …${tail}`, items: its }), user);
+  }
+  await db.prepare(
+    `INSERT INTO stock_returns (loc, sku, qty, track_hash, track_tail, status, created_by, created_at, decided_by, decided_at)
+     SELECT value ->> '$.loc', value ->> '$.sku', value ->> '$.qty', ?2, ?3, 'approved', ?4, ?5, ?4, ?5 FROM json_each(?1)`,
+  ).bind(JSON.stringify(items), hash, tail, user, now).run();
+  return { status: 'added', items: items as { sku: string; qty: number; loc: Loc }[] };
+}
+
+async function addReturnsCheck(db: D1Database, loc: Loc, items: { sku: string; qty: number }[]): Promise<void> {
+  const all = items.map((i) => i.sku);
+  const known = new Set(((await (isShopLoc(loc)
+    ? db.prepare('SELECT sku FROM catalog WHERE tab = ?1 AND sku IN (SELECT value FROM json_each(?2))').bind(shopTab(loc), JSON.stringify(all))
+    : db.prepare('SELECT sku FROM stock_locs WHERE loc = ?1').bind(loc)).all<{ sku: string }>()).results).map((x) => x.sku));
+  const bad = all.filter((s) => !known.has(s));
+  if (bad.length) throw new BadRequest(`ไม่ใช่สินค้าในสต็อกที่นี่: ${bad.join(', ')}`);
 }

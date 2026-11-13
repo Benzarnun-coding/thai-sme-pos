@@ -10,7 +10,7 @@ import { compareSize, rowFromArray, type CatalogRow } from './catalog.ts';
 import { isShopLoc, shopTab, SHOP_LABEL, SHOP_LOCS } from './stockLocs.ts';
 import { num } from './fmt.ts';
 import { missingOrderColumns, orderColumns, readOrderItems, roundLabel, thaiShortDate } from './purchase.ts';
-import { byTracking, normTrack, trackHash } from './returns.ts';
+import { normTrack, trackHash } from './returns.ts';
 import { parseExport } from './gosell.ts';
 import { readFirstSheet } from './xlsx.ts';
 import { HomeLogo, SiteNav } from './SiteNav.tsx';
@@ -535,90 +535,55 @@ function GosellConfirm({ data, onDone }: { data: StockData | null; onDone: () =>
 }
 
 /**
- * Returned parcels (idea #20): load the Bigseller order file (it has the parcel numbers; read here, never sent), scan the
- * number on each parcel, and the pieces go to "รออนุมัติ". Only an owner/admin's approval puts them into the stock.
+ * Returned parcels (idea #28): scan or type the number on the parcel. The page asks the server, which finds the SKUs in the
+ * saved order rounds (สั่งของ) and puts the pieces straight into the stock they belong to (PK → PK, AR → AR, BB → BB …).
+ * Old "รออนุมัติ" rows from the file version (idea #20) can still be decided below.
  */
 function ReturnsCard({ data, loc, canDecide, onDone }: { data: StockData; loc: StockLoc; canDecide: boolean; onDone: () => void }) {
   const { toast } = useUi();
-  const [file, setFile] = useState('');
-  const [index, setIndex] = useState<Map<string, { sku: string; qty: number }[]>>(new Map());
   const [code, setCode] = useState('');
-  const [scanned, setScanned] = useState<{ track: string; items: { sku: string; qty: number }[] | null }[]>([]);
+  const [log, setLog] = useState<{ track: string; text: string; ok: boolean }[]>([]);
   const [rows, setRows] = useState<StockReturnRow[]>([]);
   const [busy, setBusy] = useState(false);
   const loadRows = () => api.stockReturns().then((r) => setRows(r.returns)).catch(() => {});
   useEffect(() => { loadRows(); }, []);
   const name = (sku: string) => { const i = data.items.find((x) => x.sku === sku); return i ? `${i.code} #${i.size}` : sku; };
-  // shops keep any SKU of their catalog tab (SKU = code-TAB-colour-size); the server checks it against the catalog
-  const mine = (sku: string) => isShopLoc(loc) ? sku.split('-')[1]?.toUpperCase() === shopTab(loc) : data.items.some((x) => x.sku === sku && x.locs.includes(loc));
 
-  async function onFile(f: File) {
-    try {
-      let headers: string[], raw: Record<string, string>[];
-      if (/\.xlsx$/i.test(f.name)) ({ headers, rows: raw } = await readFirstSheet(f));
-      else ({ headers, rows: raw } = parseExport(new Uint8Array(await f.arrayBuffer())));
-      const missing = missingOrderColumns(headers);
-      if (missing) throw new Error(`ไฟล์ไม่มีคอลัมน์ ${missing.join(', ')}`);
-      if (!orderColumns(headers).tracking) throw new Error('ไฟล์นี้ไม่มีคอลัมน์เลขพัสดุ (หมายเลขแทรคกิ้ง) · ใช้ไฟล์ Order-SKU จาก Bigseller');
-      const m = byTracking(readOrderItems(raw, headers));
-      setIndex(m); setFile(f.name);
-      toast(`อ่านเลขพัสดุได้ ${num(m.size)} พัสดุ`, 'ok');
-    } catch (e: any) { toast(e.message, 'bad'); }
-  }
-  function scan() {
-    const t = normTrack(code);
+  async function scan() {
+    const t = normTrack(code), shown = code.trim();
     setCode('');
-    if (!t || scanned.some((s) => normTrack(s.track) === t)) return;
-    setScanned((s) => [{ track: code.trim(), items: index.get(t) ?? null }, ...s]);
-  }
-  const ready = scanned.filter((s) => s.items?.length);
-  async function send() {
+    if (!t || busy) return;
     setBusy(true);
+    const add = (text: string, ok: boolean) => setLog((l) => [{ track: shown, text, ok }, ...l].slice(0, 20));
     try {
-      const parcels = await Promise.all(ready.map(async (s) => ({ hash: await trackHash(s.track), tail: normTrack(s.track).slice(-4), items: s.items! })));
-      const r = await api.addStockReturns(loc, parcels);
-      toast(`ส่งรออนุมัติ ${num(r.added)} รายการ${r.repeated.length ? ` · ซ้ำ ${r.repeated.length} พัสดุ (ข้าม)` : ''}`, 'ok');
-      setScanned([]); loadRows(); onDone();
-    } catch (e: any) { toast(e.message, 'bad'); } finally { setBusy(false); }
+      const r = await api.scanStockReturn(await trackHash(t), t.slice(-4));
+      if (r.status === 'added') { add(r.items.map((i) => `${name(i.sku)} ×${i.qty} → ${LOC_LABEL[i.loc]}`).join(', ') + ' · เข้าสต็อกแล้ว', true); toast('เข้าสต็อกแล้ว', 'ok'); onDone(); }
+      else if (r.status === 'repeat') add('พัสดุนี้ยิงเข้าสต็อกไปแล้ว (ไม่เพิ่มซ้ำ)', false);
+      else if (r.status === 'nostock') add(`ไม่มีสต็อกของสินค้านี้ในเว็บ: ${r.skus.join(', ')}`, false);
+      else add('ไม่พบเลขพัสดุนี้ในใบสั่งของที่บันทึกไว้ (ต้องบันทึกรอบสั่งของจากไฟล์ Bigseller หลังวันที่ปรับระบบนี้)', false);
+    } catch (e: any) { add(e.message, false); } finally { setBusy(false); loadRows(); }
   }
   async function decide(id: number, approve: boolean) {
     try { await api.decideStockReturn(id, approve); toast(approve ? 'เข้าสต็อกแล้ว' : 'ไม่อนุมัติ', 'ok'); loadRows(); onDone(); } catch (e: any) { toast(e.message, 'bad'); loadRows(); }
   }
   const pending = rows.filter((r) => r.status === 'pending' && r.loc === loc);
-  const done = rows.filter((r) => r.status !== 'pending' && r.loc === loc).slice(0, 10);
+  const done = rows.filter((r) => r.status === 'approved' && r.loc === loc).slice(0, 10);
   return (
     <section className="card">
-      <h2>พัสดุตีกลับ <span className="muted small">ยิงเลขหน้าซอง → รออนุมัติ → เข้าสต็อก {LOC_LABEL[loc]}</span></h2>
-      <p className="muted small">ที่มา: เลขพัสดุ → SKU จากไฟล์ Order-SKU ของ Bigseller ที่เลือกด้านล่าง (อ่านในเครื่องนี้ ไม่ส่งขึ้นเว็บ) · เก็บแค่ SKU จำนวน และท้ายเลขพัสดุ 4 ตัว</p>
-      <div className="cat-price-actions">
-        <input type="file" accept=".xlsx,.csv,.tsv,.txt" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ''; }} />
-        {file && <span className="small muted">{file} · {num(index.size)} พัสดุ</span>}
-      </div>
-      {file && (
-        <form className="cat-price-actions" onSubmit={(e) => { e.preventDefault(); scan(); }}>
-          <input autoFocus value={code} onChange={(e) => setCode(e.target.value)} placeholder="ยิงเลขพัสดุที่นี่ แล้วกด Enter" />
-          <button type="submit">เพิ่ม</button>
-        </form>
-      )}
-      {scanned.length > 0 && (
-        <>
-          <ul className="small">
-            {scanned.map((s) => (
-              <li key={s.track}>
-                {s.track} → {s.items ? s.items.map((i) => `${name(i.sku)} ×${i.qty}${mine(i.sku) ? '' : ' (ไม่อยู่ในสต็อกนี้)'}`).join(', ') : <b>ไม่พบเลขนี้ในไฟล์</b>}
-                {' '}<button className="small" onClick={() => setScanned((x) => x.filter((y) => y !== s))}>เอาออก</button>
-              </li>
-            ))}
-          </ul>
-          <div className="cat-price-actions">
-            <button className="primary" disabled={busy || !ready.length} onClick={send}>{busy ? 'กำลังส่ง…' : `ส่งรออนุมัติ ${ready.length} พัสดุ`}</button>
-            <button disabled={busy} onClick={() => setScanned([])}>ล้าง</button>
-          </div>
-        </>
+      <h2>พัสดุตีกลับ <span className="muted small">ยิงหรือพิมพ์เลขพัสดุ → เข้าสต็อกของสินค้านั้นเลย</span></h2>
+      <p className="muted small">ที่มา: เลขพัสดุ → SKU และจำนวน จากใบสั่งของที่บันทึกไว้ในหน้าสั่งของ (Bigseller) · สินค้า PK เข้า PK, AR เข้า AR, BB เข้า BB (ทุกร้าน) ฯลฯ ตาม SKU · เก็บแค่รหัสย่อของเลขพัสดุและท้าย 4 ตัว</p>
+      <form className="cat-price-actions" onSubmit={(e) => { e.preventDefault(); scan(); }}>
+        <input autoFocus value={code} onChange={(e) => setCode(e.target.value)} placeholder="ยิงเลขพัสดุที่นี่ แล้วกด Enter" />
+        <button type="submit" className="primary" disabled={busy}>เพิ่ม</button>
+      </form>
+      {log.length > 0 && (
+        <ul className="small">
+          {log.map((l, i) => <li key={i} className={l.ok ? '' : 'bad'}>{l.track} → {l.text}</li>)}
+        </ul>
       )}
       {pending.length > 0 && (
         <>
-          <h3>รออนุมัติ {pending.length} รายการ</h3>
+          <h3>รออนุมัติ (จากแบบเดิม) {pending.length} รายการ</h3>
           <ul className="small">
             {pending.map((r) => (
               <li key={r.id}>
@@ -629,7 +594,7 @@ function ReturnsCard({ data, loc, canDecide, onDone }: { data: StockData; loc: S
           </ul>
         </>
       )}
-      {done.length > 0 && <p className="small muted">ล่าสุด: {done.map((r) => `${name(r.sku)} ×${r.qty} ${r.status === 'approved' ? '✓' : '✗'}`).join(' · ')}</p>}
+      {done.length > 0 && <p className="small muted">ล่าสุดที่เข้าสต็อกนี้: {done.map((r) => `${name(r.sku)} ×${r.qty}`).join(' · ')}</p>}
     </section>
   );
 }

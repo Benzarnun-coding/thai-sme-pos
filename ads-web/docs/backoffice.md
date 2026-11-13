@@ -175,7 +175,11 @@ are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,4
   rows (SKU, qty, last 4 of the parcel number, hash to refuse the same parcel twice). Owner/admin presses อนุมัติ → an
   'in' move today (same as รับของเข้า, so พี่เปีย also cuts PK); ไม่อนุมัติ drops it. Scanning is open to the cost-editor role, deciding is not.
 
-- Idea #28 (Moss): the same card also on the shop tabs (AR / BB / …): scan → รออนุมัติ → approval adds an 'in' move. A shop keeps any SKU of its catalog tab, so `addReturns` checks the SKU against `catalog` there (not `stock_locs`), and the page treats a SKU as that shop's when its tab part matches (e.g. 3012-AR-GY-32 → AR).
+- Idea #28 (Moss, round 2): no file any more. Saving a round from a Bigseller file also keeps, per order row, the hash + last 4 of
+  its parcel number (`purchase_items.track_hash/track_tail`, migration 0069; rounds saved before need the file saved again). Scan or type a
+  number on the card (any stock tab): `POST /api/stock/returns/scan` (`scanReturn`) finds its SKUs there, picks the stock from the SKU's tab
+  part (PK → pk, AR → ar, BB → bb … `locOfSku`) and adds an 'in' move at once (`stock_returns` row `approved`, history only); the same parcel
+  is refused a second time. Old "รออนุมัติ" rows from the file version can still be decided.
 
 - Idea #17 (not built, waiting for answers from มอส): more places on this page for the shops' own stock — AR, BB (เจ๊ศรี,
   ส.ประสาน, NBG, แพลนเนท, KM, J.Big, ป.ไพรศาล, พี่เปีย's separate shop), BBW (นอร์ท), BT, GG, Clima (CM), CN (CYD China
