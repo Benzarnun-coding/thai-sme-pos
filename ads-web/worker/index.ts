@@ -230,7 +230,7 @@ async function loadBrief(env: Env) {
   return { ...b, month: goal?.month ?? null, products: rows, tasks, task_labels: TASK_LABEL, variables: VARIABLES.map((v) => ({ key: v.key, label: v.label })), voice: await studio.customerVoice(env.DB).catch(() => '') };
 }
 
-/** Every 3 h: judge new images, make post sets, propose them in #studio-training, stop "(Grok)" ads past 14 days. */
+/** Every hour (STUDIO_CRON): judge new images, make post sets, propose them in #studio-training, stop "(Grok)" ads past 14 days. */
 async function studioCron(env: Env, limit = 2): Promise<void> {
   const cfg = await grokAds.loadStudioAds(env.DB);
   await grokAds.aiJudgeImages(env, 3).catch((err) => console.error('image judge', err));
@@ -318,6 +318,8 @@ const COSTS_CRON = '30 0 * * *';
 const REMIND_CRON = '0 3 * * *';
 // Order-note sweep + webhook check every 3 hours (autoFill.ts cronSweep, Benz 15 Oct).
 const SWEEP_CRON = '15 */3 * * *';
+/** Studio (ห้องฝึก) every hour at :15: judge new images, make sets, propose in #studio-training (Benz 2026-11-13, was every 3 h with the sweep). */
+const STUDIO_CRON = '15 * * * *';
 const DASHBOARD_WINDOWS: Window[] = ['today', 'yesterday', 'last_3d', 'last_7d', 'last_14d', 'last_30d'];
 
 function metaFor(env: Env): MetaLike {
@@ -383,10 +385,11 @@ export default {
         .then(() => dailyDigest(env).catch((err) => console.error('digest', err)))));
     } else if (event.cron === SWEEP_CRON) {
       ctx.waitUntil(cronSweep(env).catch((err) => console.error('cron sweep', err)));
-      // A playbook trial nobody opened the training room for still gets its captions, one Claude call per sweep.
-      if (env.ANTHROPIC_API_KEY) ctx.waitUntil(trialCron(env).catch((err) => console.error('trial step', err)).then(() => studioCron(env, 6)).catch((err) => console.error('studio cron', err)));
       ctx.waitUntil(syncTitles(env).catch((err) => console.error('request titles', err)));
       ctx.waitUntil(checkBuilds(env).catch((err) => console.error('request builds', err)));
+    } else if (event.cron === STUDIO_CRON) {
+      // A playbook trial nobody opened the training room for still gets its captions, one Claude call per hour.
+      if (env.ANTHROPIC_API_KEY) ctx.waitUntil(trialCron(env).catch((err) => console.error('trial step', err)).then(() => studioCron(env, 6)).catch((err) => console.error('studio cron', err)));
     } else if (event.cron === REMIND_CRON) {
       ctx.waitUntil(uploadReminder(env).catch((err) => console.error('reminder', err)));
       ctx.waitUntil(kbReminder(env).catch((err) => console.error('kb reminder', err)));

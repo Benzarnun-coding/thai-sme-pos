@@ -106,13 +106,13 @@ has to beat the live playbook in the room (`worker/playbookTrial.ts`, migration 
 2. Captions: for the `TRIAL_PRODUCTS` (4) products with most ad spend (`recommendedProducts`), `PER_SIDE` (5) open AI
    captions written with the draft and 5 with the live version (`generateCaptions(..., use)`; candidates keep
    `playbook_id`, so existing live-playbook captions count). One Claude call per `trialStep`: `/studio/train` loops
-   it while the trial isn't ready, and the 3-hourly sweep does one step as backup.
+   it while the trial isn't ready, and the hourly studio cron (`15 * * * *`, Benz 2026-11-13) does one step as backup.
 3. **AI judge** (Benz 2026-11-09: no daily human judging, "ต้อง AI ทำเองเลย"): once the captions are ready each
    `trialStep` decides `JUDGE_BATCH` (5) draft-vs-live pairs in one Claude call (`aiJudgeStep`, judge
    `ai-judge`). Pairs from `trialPairs`: draft[i] × live[i] per product, then shifted, so 20 distinct pairs exist
    even with 2 products. Blind: random A/B, the judge never sees either playbook or a side label; it is anchored on
    `provenPosts` (best-ROAS running posts), the team's liked/disliked examples and the product facts (wrong
-   price/promo loses). The 3-hourly sweep runs up to 10 steps, so a trial finishes with nobody on the site. People
+   price/promo loses). The hourly studio cron runs up to 10 steps, so a trial finishes with nobody on the site. People
    may still judge on `/studio/train` (`nextPair` serves trial pairs first); every vote counts.
 4. After every caption judgement, `checkTrial`: at `TRIAL_PAIRS` (20) decided pairs (every judge's vote counts),
    draft wins ≥ `TRIAL_WIN` (55%) → `approved_by = 'ทดสอบชนะ'`, live by itself; else `trial = 'lost'`. Result in
@@ -134,7 +134,7 @@ the PDF "คู่มือสอน Grok" (sent 2026-11-09, not in git).
 Benz: the room should make the picture, write the caption, open the ad and test it itself; ad names carry "(Grok)";
 14 days; Max approves each one in Discord; 100 baht/day for the first three, 50 from the next six (Benz 2026-11-09).
 `worker/grokAds.ts`, migration 0064 (`grok_ads`), settings key `studio_ads` (defaults {budget 50, days 14,
-max_active 9}; production set to budget 100 on 2026-11-10 so a test reaches 500 spend by day 5). Runs in the 3-hourly sweep after the playbook trial
+max_active 9}; production set to budget 100 on 2026-11-10 so a test reaches 500 spend by day 5). Runs in the hourly studio cron after the playbook trial
 (`studioCron`), or "ตรวจ/เสนอตอนนี้" on `/studio/sets`.
 
 1. **Images**: Grok has ChatGPT in Max's account make them from the room's prompt ("ขอ prompt สำหรับ ChatGPT"), then
@@ -192,7 +192,7 @@ pictures itself (needs an image API, not built). What phase 1 adds so the month'
   (`WINNER_ABSORBS`) = winners → ÷ hit rate (assumed 1 in 3 until 5 tests ended, then graduated ÷ ended) = tests →
   capped by free slots, less images waiting and proposals open = images to make today, with the products to make
   them for (running spend first, fewest tests in hand first) and what customers asked in chat.
-- **Review of running ads** (`reviewAd`, `reviewRunning`, each 3-hourly sweep): real orders = Page365 orders credited
+- **Review of running ads** (`reviewAd`, `reviewRunning`, each hourly studio cron): real orders = Page365 orders credited
   to the campaign since launch (`realByCampaign`), spend = Meta 14 days. Graduate: spend ≥ 500, ≥ 3 real orders, real
   ROAS ≥ 1.5× shop break-even → testing stage (`applyMoves`; the stage rules then own the budget), row `graduated`,
   slot freed. Stop early: ≥ 5 days, ≥ 300 spend, no order in Meta or Page365 → paused, row `done`. Switch
@@ -210,11 +210,11 @@ Still by hand in phase 1: making the pictures, Max's ✅ per ad, closing the sal
    Manager; "ดูแลด้วย"): the 07:30 run adopts every switched-on campaign whose name starts with "Grok" or ends with
    "(Grok)" and isn't one of ours (`adoptExternal`, `grokCampaigns`, table `grok_external`, migration 0068): 14
    days from Meta's `created_time`, then paused with its 14-day numbers posted in #studio-training (`stopExternal`
-   in the 3-hourly run). Budget and ads are never touched. Listed on `/studio/sets`; `POST /api/grok-ads/adopt`
+   in the hourly studio run). Budget and ads are never touched. Listed on `/studio/sets`; `POST /api/grok-ads/adopt`
    adopts now.
 
 9. **Into the scale up / down rules at once** (Benz 2026-11-12: "ต้องจัดกลุ่ม automate ไม่ต้องมาถาม"): every running
-   "(Grok)" campaign without a stage (ours and adopted) goes into "experiment" / ทดลอง (`stageGrok`, each 3-hourly
+   "(Grok)" campaign without a stage (ours and adopted) goes into "experiment" / ทดลอง (`stageGrok`, each hourly
    run, after a launch and after adopting): no sale after 300 → pause; ≥ 1× BE with ≥ 3 sales after 3 days → testing,
    where ±20% budget moves run. Their pauses and moves to retest are not asked in Discord (`isGrokCampaign` in
    run.ts); the kill switch still stops everything. At 14 days a campaign the rules moved to testing / winning is
@@ -224,7 +224,7 @@ Still by hand in phase 1: making the pictures, Max's ✅ per ad, closing the sal
 
 10. **Test slots** (Benz 2026-11-12): `max_active` (default 15, was 9) counts only the room's campaigns still in the
     experiment stage (`testSlotsUsed`). One the rules moved up frees its slot; one Meta shows switched off becomes
-    `stopped` (`syncStopped`, each 3-hourly run, one `listEntities` call). The brief then asks Grok for pictures again.
+    `stopped` (`syncStopped`, each hourly run, one `listEntities` call). The brief then asks Grok for pictures again.
 
 11. **Task list on "งานวันนี้ของ Grok"** (Benz 2026-11-12: the site tells Grok what to make from real data, Grok's own
     prompt never changes). `worker/grokTasks.ts` `planTasks`: for the free slots, ~70% exploit — a test ad with ≥ 3
