@@ -95,7 +95,7 @@ are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,4
   Highlighted for CN, which packs each order itself.
 - History: downloading / printing / ticking saves the round per date+round (`purchase_uploads`, `purchase_lines`:
   SKU, qty, group, order numbers, `missing`, price; tracking numbers never saved; the สั่งของ page shows them next to each order number from the file you just loaded, not on reopened rounds) and `purchase_items` (order + SKU +
-  qty + store, for units sold). Uploading the same file again (by file name) reopens that round and fills in what's new.
+  qty + store, for units sold). Tracking next to the order number (idea #27) shows only while the Bigseller file is open in the browser; a round reopened from history has none (open question: keep the full number?). Uploading the same file again (by file name) reopens that round and fills in what's new.
 - Out of stock: tick "ของไม่มี" (all or N pieces; `PUT /api/purchase/missing`, kept across re-saves) → the round's
   "เก็บตกแทน" sheet (`missingGroup`, `MISSING_GROUP`), picked up elsewhere instead. It was called "พี่เปีย" until
   2026-10-15; that name is now the stock branch below (payments recorded under the old name were renamed).
