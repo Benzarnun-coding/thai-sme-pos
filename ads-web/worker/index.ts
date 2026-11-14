@@ -31,7 +31,7 @@ import { PRIVACY_HTML } from './privacy.ts';
 import { parseRange, salesData } from './sales.ts';
 import { listImportMaps, profitData, saveImportMap, saveMpOrders, validateMpOrders } from './mpOrders.ts';
 import { opsFacts, opsText } from './opsDigest.ts';
-import { addReturns, decideReturn, listReturns, scanReturn, validateReturns } from './stockReturns.ts';
+import { addReturns, decideReturn, listReturns, parseFacebookReturn, scanFacebookReturn, scanReturn, validateReturns } from './stockReturns.ts';
 import { deleteMove, gosellCut, saveMoves, stockData, syncRoundStock, validateMoves } from './stock.ts';
 import { deletePurchase, findOrders, ledger, listPurchases, orderTerms, purchaseExtra, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveAlias, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
@@ -1499,7 +1499,9 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
   if (method === 'POST' && path === '/api/stock/returns/scan') {
     const b = await body();
-    const r = await scanReturn(env.DB, String(b?.hash ?? ''), String(b?.tail ?? ''), user);
+    const fb = typeof b?.fb === 'string' ? parseFacebookReturn(b.fb) : null;
+    if (typeof b?.fb === 'string' && !fb) throw new BadRequest('พิมพ์เลขคำสั่งซื้อ เช่น 32594 หรือ 32594 1071-BB-CR-44');
+    const r = fb ? await scanFacebookReturn(env.DB, fb.order, fb.sku, user) : await scanReturn(env.DB, String(b?.hash ?? ''), String(b?.tail ?? ''), user);
     if (r.status === 'added') await audit(env.DB, user, 'stock.return.scan', '', { added: r.items.length });
     return json(r);
   }

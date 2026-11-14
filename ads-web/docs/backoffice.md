@@ -182,6 +182,11 @@ are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,4
   part (PK → pk, AR → ar, BB → bb … `locOfSku`) and adds an 'in' move at once (`stock_returns` row `approved`, history only); the same parcel
   is refused a second time. Old "รออนุมัติ" rows from the file version can still be decided.
 
+- Idea #30 (Moss): Facebook returns have no parcel number, so the same box also takes the Page365 order number ("32594", or
+  "32594 1071-BB-CR-44" to pick one SKU). Items come from the saved Facebook round (`purchase_items`, store
+  `Facebook · Page365`); one SKU → 'in' move at once (`scanFacebookReturn`), several and no SKU typed → asks for the SKU.
+  Repeat guard: `stock_returns.track_hash = fb:<order>:<sku>`.
+
 - Idea #17 (not built, waiting for answers from มอส): more places on this page for the shops' own stock — AR, BB (เจ๊ศรี,
   ส.ประสาน, NBG, แพลนเนท, KM, J.Big, ป.ไพรศาล, พี่เปีย's separate shop), BBW (นอร์ท), BT, GG, Clima (CM), CN (CYD China
   warehouse) — each cut by its order-sheet group, and returned goods going back into stock when scanned/keyed.

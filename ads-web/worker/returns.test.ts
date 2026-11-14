@@ -22,10 +22,17 @@ test('items of one parcel are summed per SKU; rows without a parcel number are s
   assert.equal(m.size, 1);
 });
 
-import { locOfSku } from './stockReturns.ts';
+import { locOfSku, parseFacebookReturn } from './stockReturns.ts';
 test('a returned SKU goes to the stock of its own tab (idea #28)', () => {
   assert.equal(locOfSku('5012-PK-NV-30'), 'pk');
   assert.equal(locOfSku('3012-AR-GY-32'), 'ar');
   assert.equal(locOfSku('2001-BB-BK-30'), 'bb');
   assert.equal(locOfSku('2001-XX-BK-30'), null);
+});
+
+test('Facebook return: order number with or without SKU (idea #30)', () => {
+  assert.deepEqual(parseFacebookReturn('32594'), { order: '32594', sku: '' });
+  assert.deepEqual(parseFacebookReturn(' 32594 SKU 1071-BB-CR-44 '), { order: '32594', sku: '1071-BB-CR-44' });
+  assert.deepEqual(parseFacebookReturn('32594 1071-BB-CR-44'), { order: '32594', sku: '1071-BB-CR-44' });
+  assert.equal(parseFacebookReturn('TH123456789'), null);
 });

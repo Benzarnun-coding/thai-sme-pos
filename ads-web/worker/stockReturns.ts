@@ -5,6 +5,7 @@
 
 import { cleanSku } from '../web/src/catalog.ts';
 import { BadRequest } from './validate.ts';
+import { FACEBOOK_STORE } from '../web/src/purchase.ts';
 import { isShopLoc, shopLocOfTab, shopTab } from '../web/src/stockLocs.ts';
 import { LOCS, saveMoves, validateMoves, type Loc } from './stock.ts';
 
@@ -131,4 +132,45 @@ async function addReturnsCheck(db: D1Database, loc: Loc, items: { sku: string; q
     : db.prepare('SELECT sku FROM stock_locs WHERE loc = ?1').bind(loc)).all<{ sku: string }>()).results).map((x) => x.sku));
   const bad = all.filter((s) => !known.has(s));
   if (bad.length) throw new BadRequest(`ไม่ใช่สินค้าในสต็อกที่นี่: ${bad.join(', ')}`);
+}
+
+/** "32594", "32594 1071-BB-CR-44" or "32594 SKU 1071-BB-CR-44" → Facebook order number (+ SKU when typed). Null if it is not one. */
+export function parseFacebookReturn(text: string): { order: string; sku: string } | null {
+  const m = /^\s*(\d{3,8})(?:\s+(?:sku\s*:?\s*)?(\S+))?\s*$/i.exec(text);
+  return m ? { order: m[1], sku: m[2] ? cleanSku(m[2]) : '' } : null;
+}
+
+export type FbScanResult = ScanResult | { status: 'pick'; skus: string[] };
+
+/**
+ * Idea #30: a returned Facebook order is scanned by its order number (Page365 "No.") — there is no parcel number in that file.
+ * Items come from the saved Facebook round (`purchase_items`, store Facebook · Page365). One SKU in the order, or a typed SKU →
+ * 'in' move at once; several SKUs and none typed → 'pick' (nothing added). Same order + SKU is refused a second time.
+ */
+export async function scanFacebookReturn(db: D1Database, order: string, sku: string, user: string): Promise<FbScanResult> {
+  const found = (await db.prepare('SELECT sku, SUM(qty) AS qty FROM purchase_items WHERE order_no = ?1 AND store = ?2 GROUP BY sku').bind(order, FACEBOOK_STORE).all<{ sku: string; qty: number }>()).results;
+  if (!found.length) return { status: 'notfound' };
+  let pick = found;
+  if (sku) pick = found.filter((f) => cleanSku(f.sku) === sku);
+  else if (found.length > 1) return { status: 'pick', skus: found.map((f) => f.sku) };
+  if (!pick.length) return { status: 'pick', skus: found.map((f) => f.sku) };
+  const key = (f: { sku: string }) => `fb:${order}:${f.sku}`;
+  const done = new Set(((await db.prepare("SELECT track_hash FROM stock_returns WHERE track_hash IN (SELECT value FROM json_each(?1)) AND status != 'rejected'").bind(JSON.stringify(pick.map(key))).all<{ track_hash: string }>()).results).map((x) => x.track_hash));
+  pick = pick.filter((f) => !done.has(key(f)));
+  if (!pick.length) return { status: 'repeat' };
+  const items = pick.map((f) => ({ sku: f.sku, qty: f.qty, loc: locOfSku(f.sku) }));
+  const bad = items.filter((i) => !i.loc).map((i) => i.sku);
+  if (bad.length) return { status: 'nostock', skus: bad };
+  const byLoc = new Map<Loc, { sku: string; qty: number }[]>();
+  for (const i of items) byLoc.set(i.loc!, [...(byLoc.get(i.loc!) ?? []), { sku: i.sku, qty: i.qty }]);
+  for (const [loc, its] of byLoc) await addReturnsCheck(db, loc, its);
+  const now = new Date().toISOString();
+  for (const [loc, its] of byLoc) {
+    await saveMoves(db, validateMoves({ loc, kind: 'in', date: today(), note: `ตีกลับ Facebook #${order}`, items: its }), user);
+  }
+  for (const i of items) {
+    await db.prepare("INSERT INTO stock_returns (loc, sku, qty, track_hash, track_tail, status, created_by, created_at, decided_by, decided_at) VALUES (?1, ?2, ?3, ?4, ?5, 'approved', ?6, ?7, ?6, ?7)")
+      .bind(i.loc, i.sku, i.qty, key(i), order.slice(-4), user, now).run();
+  }
+  return { status: 'added', items: items as { sku: string; qty: number; loc: Loc }[] };
 }
