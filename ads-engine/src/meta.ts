@@ -350,13 +350,19 @@ export class MetaClient {
    * removed (2026-11-09: "The targeting_optimization field has been removed"), so those are dropped here.
    */
   async createAdsetFrom(templateAdsetId: string, campaignId: string, name: string, dailyBudget: number | null): Promise<string> {
-    const t = await this.get(templateAdsetId, { fields: 'optimization_goal,billing_event,bid_strategy,bid_amount,targeting,promoted_object,destination_type' });
+    const t = await this.get(templateAdsetId, { fields: 'optimization_goal,billing_event,bid_strategy,bid_amount,targeting,promoted_object,destination_type,regional_regulated_categories,regional_regulation_identities,dsa_beneficiary,dsa_payor' });
     const targeting = { ...(t.targeting ?? {}) };
     for (const k of ['targeting_optimization', 'targeting_automation', 'targeting_relaxation_types']) delete (targeting as any)[k];
     const params: Record<string, string> = { campaign_id: campaignId, name, status: 'PAUSED', targeting: JSON.stringify(targeting) };
     for (const k of ['optimization_goal', 'billing_event', 'bid_strategy', 'destination_type']) if (t[k]) params[k] = String(t[k]);
     if (t.bid_amount) params.bid_amount = String(t.bid_amount);
     if (t.promoted_object) params.promoted_object = JSON.stringify(t.promoted_object);
+    // Thailand's advertiser ID rule (from 1 Nov 2026): an ad set reaching Thailand must name the verified payer and
+    // beneficiary, or Meta refuses it ("Advertiser is missing: Provide a verified advertiser…", subcode 3858634,
+    // 2026-11-14 ชุด#24). Ads Manager fills these on the template ad set; a built ad set has to carry them over.
+    if (Array.isArray(t.regional_regulated_categories) && t.regional_regulated_categories.length) params.regional_regulated_categories = JSON.stringify(t.regional_regulated_categories);
+    if (t.regional_regulation_identities && Object.keys(t.regional_regulation_identities).length) params.regional_regulation_identities = JSON.stringify(t.regional_regulation_identities);
+    for (const k of ['dsa_beneficiary', 'dsa_payor']) if (t[k]) params[k] = String(t[k]);
     // attribution_spec is left out: Meta refuses the template's windows for new ad sets of this objective
     // (2026-11-09: "use one of these supported windows: 1 days") and the default is what it accepts.
     if (dailyBudget !== null) params.daily_budget = String(Math.round(dailyBudget * 100));
