@@ -359,9 +359,12 @@ export class MetaClient {
     if (t.promoted_object) params.promoted_object = JSON.stringify(t.promoted_object);
     // Thailand's advertiser ID rule (from 1 Nov 2026): an ad set reaching Thailand must name the verified payer and
     // beneficiary, or Meta refuses it ("Advertiser is missing: Provide a verified advertiser…", subcode 3858634,
-    // 2026-11-14 ชุด#24). Ads Manager fills these on the template ad set; a built ad set has to carry them over.
-    if (Array.isArray(t.regional_regulated_categories) && t.regional_regulated_categories.length) params.regional_regulated_categories = JSON.stringify(t.regional_regulated_categories);
-    if (t.regional_regulation_identities && Object.keys(t.regional_regulation_identities).length) params.regional_regulation_identities = JSON.stringify(t.regional_regulation_identities);
+    // 2026-11-14 ชุด#24). Ads Manager fills these on ad sets made by hand; a built ad set has to carry them over —
+    // from the template, or, when the template predates the rule (ชุด#24's did), from the newest ad set that has them.
+    const reg = hasRegulation(t) ? t : await this.regulatedAdset();
+    if (!reg) throw new Error('ยังไม่มีชุดโฆษณาไหนในบัญชีที่ระบุผู้ลงโฆษณาที่ยืนยันตัวตนแล้ว (กฎไทยตั้งแต่ 1 พ.ย.) — สร้างหรือแก้ชุดโฆษณาสัก 1 ชุดใน Ads Manager แล้วเลือกผู้รับประโยชน์/ผู้ชำระเงิน จากนั้นกดลองใหม่');
+    params.regional_regulated_categories = JSON.stringify(reg.regional_regulated_categories);
+    params.regional_regulation_identities = JSON.stringify(reg.regional_regulation_identities);
     for (const k of ['dsa_beneficiary', 'dsa_payor']) if (t[k]) params[k] = String(t[k]);
     // attribution_spec is left out: Meta refuses the template's windows for new ad sets of this objective
     // (2026-11-09: "use one of these supported windows: 1 days") and the default is what it accepts.
@@ -369,6 +372,23 @@ export class MetaClient {
     const r = await this.post(`${this.accountId}/adsets`, params);
     if (!r.id) throw new Error('Meta ไม่ได้ส่ง id ชุดโฆษณาใหม่กลับมา');
     return String(r.id);
+  }
+
+  /** false when neither the template ad set nor any other ad set names a verified advertiser (checked before anything is created). */
+  async verifiedAdvertiser(templateAdsetId: string): Promise<boolean> {
+    const t = await this.get(templateAdsetId, { fields: 'regional_regulated_categories,regional_regulation_identities' });
+    return hasRegulation(t) || !!(await this.regulatedAdset());
+  }
+
+  /** The newest ad set in the account that names a verified payer/beneficiary (regional regulation), if any. */
+  private async regulatedAdset(): Promise<{ regional_regulated_categories: unknown[]; regional_regulation_identities: Record<string, unknown> } | null> {
+    const b = await this.get(`${this.accountId}/adsets`, {
+      fields: 'id,created_time,regional_regulated_categories,regional_regulation_identities',
+      effective_status: JSON.stringify(['ACTIVE', 'PAUSED', 'CAMPAIGN_PAUSED', 'ADSET_PAUSED', 'IN_PROCESS', 'WITH_ISSUES']),
+      limit: '200',
+    });
+    const rows = ((b.data ?? []) as any[]).filter(hasRegulation).sort((x, y) => String(y.created_time).localeCompare(String(x.created_time)));
+    return rows[0] ?? null;
   }
 
   /** Paused campaigns named "… (Grok)" with no ad set: what a half-made "(Grok)" launch leaves behind. */
@@ -463,4 +483,10 @@ function sumMessages(list?: ActionRow[]): number {
   if (!list) return 0;
   const row = list.find((a) => a.action_type === 'onsite_conversion.messaging_conversation_started_7d');
   return row ? num(row.value) : 0;
+}
+
+/** true when an ad set carries Meta's regional regulation fields (verified payer/beneficiary). */
+export function hasRegulation(a: any): boolean {
+  return Array.isArray(a?.regional_regulated_categories) && a.regional_regulated_categories.length > 0
+    && !!a.regional_regulation_identities && typeof a.regional_regulation_identities === 'object' && Object.keys(a.regional_regulation_identities).length > 0;
 }

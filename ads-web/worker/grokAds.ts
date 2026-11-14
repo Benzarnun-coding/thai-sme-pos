@@ -220,6 +220,7 @@ export interface GrokMeta {
   copyCampaignOnly(campaignId: string, suffix: string): Promise<string>;
   campaignHasBudget(campaignId: string): Promise<boolean>;
   createAdsetFrom(templateAdsetId: string, campaignId: string, name: string, dailyBudget: number | null): Promise<string>;
+  verifiedAdvertiser?(templateAdsetId: string): Promise<boolean>;
   uploadImage(base64: string): Promise<string>;
   createCreative(name: string, spec: unknown): Promise<string>;
   createAd(adsetId: string, name: string, creativeId: string, status: 'ACTIVE' | 'PAUSED'): Promise<string>;
@@ -339,6 +340,7 @@ export async function launchSet(env: StudioEnv, meta: GrokMeta, cfg: StudioAds, 
     let spec = tpl.spec;
     if (!spec) for (const id of await creativeCandidates(env.DB, s.code)) { if (id === t.ad_id) continue; spec = (await meta.adTemplate(id).catch(() => null))?.spec ?? null; if (spec) break; }
     buildSpec(spec, s.caption_text, 'check'); // refuse before anything is created
+    if (meta.verifiedAdvertiser && !(await meta.verifiedAdvertiser(tpl.adset_id))) throw new Error('ยังไม่มีชุดโฆษณาไหนในบัญชีที่ระบุผู้ลงโฆษณาที่ยืนยันตัวตนแล้ว (กฎไทยตั้งแต่ 1 พ.ย.) — สร้างหรือแก้ชุดโฆษณาสัก 1 ชุดใน Ads Manager แล้วเลือกผู้รับประโยชน์/ผู้ชำระเงิน จากนั้นกดลองใหม่');
     const img = await env.DB.prepare('SELECT full FROM creative_candidates WHERE id = ?1').bind(s.image_id).first<{ full: ArrayBuffer | number[] | null }>();
     if (!img?.full) throw new Error('ไม่พบไฟล์ภาพของชุดนี้');
     const hash = await meta.uploadImage(toBase64(img.full));
