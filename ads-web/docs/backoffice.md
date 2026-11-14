@@ -152,6 +152,7 @@ are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,4
   (counted → only the difference is saved), 45 days of history (typed entries can be deleted). Team members add stock
   themselves; a starting balance is owner/admin only.
 - New at พี่เปีย (idea #29, migrations 0070–0071): 101/1 ดำ and ST-01 ดำ (CM SKUs, moved from CM's stock), 200 มิดไนท์ (PK SKU) × the sizes asked, 20 each as `in` at พี่เปีย and `out` at CM (PK only once it has a starting balance); ref `idea-29`.
+- New at PK (idea #31, migration 0073): 301/5 ดำ (3015-PK-BL) sizes 28,30,32,34,36, no pieces (counts typed on the page).
 - รับของเข้า at พี่เปีย (idea #16, มอส): the same SKUs are also cut from PK's stock (`out`, ref `pia-in:…`, once PK has a starting
   balance; SKUs PK doesn't keep are left alone); deleting the typed receipt deletes that cut too (`cutPkForPia`).
 - Shops (idea #25, Moss): tabs AR / BB / BBW / BT / GG / Clima(CM) / CN, one place per catalog tab (`SHOP_LOCS`,
