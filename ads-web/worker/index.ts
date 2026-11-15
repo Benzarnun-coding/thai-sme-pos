@@ -4,6 +4,7 @@ import { MetaClient } from '../../ads-engine/src/meta.ts';
 import { applyDecisions, sumBudget } from '../../ads-engine/src/apply.ts';
 import type { Entity, Level, Window } from '../../ads-engine/src/types.ts';
 import { authenticate } from './auth.ts';
+import { commandRoute } from './command.ts';
 import { canWrite, roleOf, type Role } from './roles.ts';
 import { deleteUser, loadUsers, normaliseEmail, ownerEmails, parseRole, roleMap, saveUser } from './users.ts';
 import { accessStatus, syncAccess } from './access.ts';
@@ -62,6 +63,12 @@ export interface Env {
   META_API_VERSION?: string;
   ACCESS_TEAM_DOMAIN?: string;
   ACCESS_AUD?: string;
+  /** Benz Command Center (worker/command.ts): its own Access app's aud (var), Benz's email + the snapshot token's client ids (secrets) */
+  COMMAND_ACCESS_AUD?: string;
+  COMMAND_ALLOWED_EMAIL?: string;
+  COMMAND_SERVICE_CLIENT_IDS?: string;
+  /** Discord server id, for links from /command to a proposal's message (var, optional) */
+  DISCORD_GUILD_ID?: string;
   LINE_CHANNEL_ACCESS_TOKEN?: string;
   LINE_TO?: string;
   DISCORD_WEBHOOK_URL?: string;
@@ -149,6 +156,8 @@ export default {
       if (req.method === 'POST') return receiveWebhook(req, env, ctx);
       return new Response('method not allowed', { status: 405 });
     }
+    // Benz Command Center has its own Access app (different aud), so it is checked here, before the dashboard's authenticate().
+    if (url.pathname === '/api/command' || url.pathname.startsWith('/api/command/')) return commandRoute(req, env, ctx);
     if (!url.pathname.startsWith('/api/')) return new Response('Not found', { status: 404 });
 
     const user = await authenticate(req, env).catch(() => null);
