@@ -37,6 +37,8 @@ function when(iso: string | null, today: string): string {
 }
 const REFRESH_AFTER_HIDDEN = 5 * 60_000;
 
+const SESSION_EXPIRED = 'เซสชันหมดอายุ ล็อกอินใหม่: โหลดหน้านี้ใหม่';
+
 function useSummary() {
   const [data, setData] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -47,10 +49,13 @@ function useSummary() {
     try {
       const res = await fetch('/api/command/summary', { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
       const body = await res.json().catch(() => null);
+      // Access session over: Access answers with its login page (HTML, not JSON) or the Worker says 401.
+      if (res.status === 401 || res.redirected || (res.ok && !body)) throw new Error(SESSION_EXPIRED);
       if (!res.ok || !body || body.version !== 1) throw new Error(body?.error ?? `HTTP ${res.status}`);
       setData(body); setError(null); last.current = Date.now();
     } catch (e: any) {
-      setError(String(e?.message ?? e));
+      // A redirect to the cross-site Access login fails as TypeError ("Failed to fetch"); retrying never helps, reloading does.
+      setError(e instanceof TypeError ? `${SESSION_EXPIRED} (หรืออินเทอร์เน็ตหลุด)` : String(e?.message ?? e));
     } finally {
       setLoading(false);
     }
@@ -342,7 +347,7 @@ export function CommandApp() {
       </header>
       <main>
         {data?.local_dev && <p className="cc-local" role="note">ข้อมูลทดสอบในเครื่อง<span>เปิดผ่าน dev บน localhost (D1 ในเครื่อง) ไม่ใช่ข้อมูลจริงของ production</span></p>}
-        {error && !data && <div style={{ marginTop: 16 }}><ErrorBanner text={`โหลดข้อมูลไม่ได้ · เช็กอินเทอร์เน็ตแล้วกดลองใหม่ ถ้ายังไม่ได้ แปลว่าระบบหลังบ้านมีปัญหา (${error})`} onRetry={load} /></div>}
+        {error && !data && <div style={{ marginTop: 16 }}><ErrorBanner text={error.startsWith(SESSION_EXPIRED) ? error : `โหลดข้อมูลไม่ได้ · เช็กอินเทอร์เน็ตแล้วกดลองใหม่ ถ้ายังไม่ได้ ให้โหลดหน้านี้ใหม่เพื่อล็อกอินอีกครั้ง (${error})`} onRetry={load} /></div>}
         {error && data && <div style={{ marginTop: 16 }}><div className="cc-banner cc-stale" role="status"><span><b>รีเฟรชไม่สำเร็จ</b> · แสดงข้อมูลเมื่อ {when(data.generated_at, data.today)} ({error})</span></div></div>}
         {!data && !error && <Skeleton />}
         {data && <>
