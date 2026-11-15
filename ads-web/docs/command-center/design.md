@@ -1,5 +1,7 @@
 # Benz Command Center (`/command`) · design spec
 
+> Benz decided the open points on 15 Nov 2026; `spec.md` §0 wins where this file differs (order todo > business > team, no SiteNav, stale 25 min, team groups table B2, Page365 reminder only after 10:00, YTD bar vs the full-year 100M).
+
 Job of the page (1 sentence): **เบ๊นเปิดจากมือถือแล้วรู้ใน 10 วินาทีว่าวันนี้ต้องทำอะไร และแต่ละธุรกิจกับทีมเป็นอย่างไร** (read-only this round).
 
 Files: `mockup.html` (one file, no CDN/fonts; the page plus a "state อื่น" gallery underneath, the gallery is mockup-only), `mockup-390.png` (390 px render).
@@ -31,10 +33,10 @@ The mockup has no business numbers at all. Every value is a placeholder (`฿—
  ┌ Jarvis slot (disabled, "เร็วๆ นี้")            ┐
 ```
 
-- Order: **"ต้องทำ" goes first** (the only box that asks for action, and it sits in thumb reach on load), then business, then team. Marcus's brief lists business first: see open question 1.
+- Order: **"ต้องทำ" goes first**, then business, then team (Benz, 15 Nov: D2).
 - One column, `max-width: 520px`, side padding 16 px, gap between sections 22 px, between cards 10 px. Wider screens just centre the column. No breakpoints needed beyond a bigger KPI size at ≥ 600 px.
-- No team link bar (`SiteNav`) on this page. The logo goes to `/`. Note: `GoSellApp` does render `SiteNav` today, so `/command` is *not* a copy of `/gosell` in that respect (see open question 2: CLAUDE.md says every page goes in SiteNav).
-- Each box loads by itself (its own fetch and its own state). One box failing never blanks the page.
+- No team link bar (`SiteNav`) on this page (Benz, 15 Nov: Q1). The logo goes to `/`. Note: `GoSellApp` does render `SiteNav` today, so `/command` is *not* a copy of `/gosell` in that respect (see open question 2: CLAUDE.md says every page goes in SiteNav).
+- One fetch (`/api/command/summary`) feeds every box; each tile carries its own `status`, so one box failing never blanks the page.
 
 ## 2. Tokens
 
@@ -90,12 +92,12 @@ Focus: 3px yellow `outline` + 2px offset on every focusable thing (`:focus-visib
 
 | box | shows | ที่มา (microcopy) |
 |---|---|---|
-| ต้องทำ | (a) jobs with status needs-user → "ตัดสิน job: {หัวข้อ}" · "{job_id} · {project} · รอเบ๊นตั้งแต่ hh:mm" (b) open `proposals` pause/dup/cap → "อนุมัติหยุดแอด / คัดลอกแอด / เพิ่มเพดานงบ: {ชื่อ}" · "คำถามใน Discord ({type}) · เปิดค้างตั้งแต่ hh:mm · ไปที่แดชบอร์ด" (c) yesterday's Page365 file missing → red dot "ไฟล์ Page365 เมื่อวานยังไม่อัปโหลด" · "ยอดเมื่อวานและกฎแอดยังใช้ตัวเลขของ Meta อยู่ · ไปหน้าอัปโหลด" | "ที่มา: job ที่รอเบ๊น (snapshot งานทีม) · คำถามอนุมัติที่ยังเปิดใน Discord · ตารางอัปโหลด Page365" |
+| ต้องทำ | (a) jobs with status needs-user → "ตัดสิน job: {หัวข้อ}" · "{job_id} · {project} · รอเบ๊นตั้งแต่ hh:mm" (b) every open (`pending`) proposal: pause/move/dup/cap, linking to the Discord message (or `/#history`) → "อนุมัติหยุดแอด / คัดลอกแอด / เพิ่มเพดานงบ: {ชื่อ}" · "คำถามใน Discord ({type}) · เปิดค้างตั้งแต่ hh:mm · ไปที่แดชบอร์ด" (c) yesterday's Page365 file missing → red dot "ไฟล์ Page365 เมื่อวานยังไม่อัปโหลด" · "ยอดเมื่อวานและกฎแอดยังใช้ตัวเลขของ Meta อยู่ · ไปหน้าอัปโหลด" | "ที่มา: job ที่รอเบ๊น (snapshot งานทีม) · คำถามอนุมัติที่ยังเปิดใน Discord · ตารางอัปโหลด Page365" |
 | PK | ยอดขายเมื่อวาน (Page365 real, by Created At) · ยอดสะสมปีนี้ · % of 100,000,000 · "ควรถึง" = target × days passed ÷ days in year (passed = up to yesterday) · "มีไฟล์ X จาก Y วัน" | "ที่มา: ไฟล์ Page365 ที่อัปโหลดแล้ว (ยอดจริงตาม Created At) · วันที่ไม่มีไฟล์ไม่นับ · "ควรถึง" = เป้า × วันที่ผ่านไป ÷ 365" |
 | Focus Club | countdown to 1 ธ.ค. 2026 in Bangkok days ("อีก N วัน", "วันนี้", then "เปิดแล้ว") · สมาชิก = **ยังไม่เชื่อม** | "ที่มา: วันนับถอยหลังคำนวณจากวันที่วันนี้ · จำนวนสมาชิกจะมาจาก Google Sheet ที่กำลังตั้ง" |
 | ClassRoom | จำนวนนักเรียน = **ยังไม่เชื่อม** | "ที่มา: ยังไม่ได้กำหนด" |
 | benzarnun.com | latest 3 RSS items: title (2-line clamp), date "d MMM yyyy" th-TH | "ที่มา: RSS ของ benzarnun.com · เปิดในแท็บใหม่" |
-| งานทีม | counts done / failed / needs-user / sent (today, see Q4) + latest up to 5 (job_id, project, title, time, chip) · head "ข้อมูลเมื่อ hh:mm" | "ที่มา: snapshot งานทีม อัปเดตทุก 10 นาที · นับเฉพาะงานวันนี้" |
+| งานทีม | counters and rows per spec §0 table B2 + latest up to 5 (job_id, project, title, time, chip) · head "ข้อมูลเมื่อ hh:mm" | "ที่มา: snapshot งานทีม อัปเดตทุก 10 นาที · นับเฉพาะงานวันนี้" |
 
 Number formatting: `฿` + `toLocaleString('th-TH')`, no decimals; % one decimal; times `HH:mm` Bangkok 24h; YTD on 390 px may need the short form "฿xx.x ล้าน" if the full number doesn't fit (it should fit at 22px; check).
 
@@ -106,7 +108,7 @@ Number formatting: `฿` + `toLocaleString('th-TH')`, no decimals; % one decimal
 | **loading** | first fetch / refresh with no data yet | skeleton of the same height; ที่มา line already visible; `aria-busy=true` | (none) |
 | **ยังไม่เชื่อม** | the source isn't wired (no config / endpoint returns `{connected:false}`) | not-connected block or tag. **No number, no 0, no skeleton, no error colour** | "{ชื่อ} · ยังไม่เชื่อม" + why: Focus Club "จะมาจาก Google Sheet ที่กำลังตั้ง"; ClassRoom "ยังไม่มีแหล่งข้อมูล เมื่อเลือกแหล่งได้แล้วตัวเลขจะขึ้นที่นี่"; งานทีม "ยังไม่มี snapshot งานทีมส่งมาที่หน้านี้ เมื่อเชื่อมแล้วจะอัปเดตทุก 10 นาที" |
 | **ready** | data ok | as in the mockup's main part | |
-| **ข้อมูลเก่า** | team snapshot older than **30 min** (3 missed cycles); PK yesterday's file missing; RSS served from cache after a failed fetch | yellow banner on top of the (dimmed 75%) data, or for PK "ยังไม่มีไฟล์" in yellow in place of yesterday's value + "ล่าสุดที่มี: d MMM ฿…" | "ข้อมูลเก่า · ล่าสุดเมื่อ hh:mm (N นาทีก่อน) ปกติอัปเดตทุก 10 นาที" |
+| **ข้อมูลเก่า** | team snapshot older than **25 min**; PK yesterday's file missing; RSS served from cache after a failed fetch | yellow banner on top of the (dimmed 75%) data, or for PK "ยังไม่มีไฟล์" in yellow in place of yesterday's value (no "ล่าสุดที่มี" line: spec §0 m5) | "ข้อมูลเก่า · ล่าสุดเมื่อ hh:mm (N นาทีก่อน) ปกติอัปเดตทุก 10 นาที" |
 | **error** | fetch failed with no cache | red banner + ลองใหม่ (only that box) | "โหลดไม่สำเร็จ" / "ดึง RSS ไม่ได้ กล่องอื่นยังใช้ได้ตามปกติ" |
 | **error (all)** | every request failed / not logged in | one red banner at the top instead of the boxes | "โหลดข้อมูลไม่ได้ · เช็กอินเทอร์เน็ตแล้วกดลองใหม่ ถ้ายังไม่ได้ แปลว่าระบบหลังบ้านมีปัญหา" |
 | **empty** | connected, ok, nothing to show | centred line | ต้องทำ: "วันนี้ไม่มีงานค้าง" + "ไม่มี job รอตัดสิน ไม่มีคำถามอนุมัติ และไฟล์ Page365 เมื่อวานมาแล้ว"; งานทีม: "วันนี้ยังไม่มีงานทีม" + "เมื่อมีงานใหม่จะขึ้นที่นี่ภายใน 10 นาที"; RSS: "ยังไม่มีบทความ"; PK with zero files this year: "ยังไม่มีไฟล์ Page365 ปีนี้" (not ฿0) |
@@ -145,6 +147,6 @@ The "ต้องทำ" box has one more case: if a *source* of it is not conne
 
 - Mount like the other standalone pages in `web/src/main.tsx` (`/^\/command\/?$/` → `<CommandApp />`) but without `SiteNav` (unless Q2 says otherwise).
 - Wrap in `<div className="cc">` and keep the CSS scoped; don't touch `styles.css` globals.
-- Each box = own hook with `{state:'loading'|'off'|'ready'|'stale'|'error'|'empty', data, asOf}`; the API should return `connected:false` explicitly so "not connected" is never inferred from an error.
+- One hook for the summary; each tile is rendered from its `status` (`ok`/`stale`/`missing`/`not_connected`/`error`), so "not connected" is never inferred from an error.
 - Dates: compute "today", "yesterday", day-of-year and the countdown in `Asia/Bangkok`, not the phone's zone or UTC (the Worker runs in UTC).
 - Headless Edge renders at ≥ 496 px wide, so `mockup-390.png` was taken through a 390 px iframe; for QA screenshots use the same trick or DevTools device mode.
