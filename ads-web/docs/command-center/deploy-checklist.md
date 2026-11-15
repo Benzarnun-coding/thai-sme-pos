@@ -19,8 +19,11 @@
 3. [ ] **Policy `Command - snapshot`** (reusable): Action **Service Auth** (ไม่ใช่ Allow ไม่งั้นสคริปต์โดนเด้งไปหน้า login), Include → Service Token = `orca-command-snapshot`
 4. [ ] **Application `PkJeans Command`** (Self-hosted): ปลายทาง `pkjeans-ads.ads-web.workers.dev/command` และ `pkjeans-ads.ads-web.workers.dev/api/command` (ไม่ใส่ `*`), แนบ 2 policy ข้างบนเท่านั้น, login method One-time PIN อย่างเดียว, session 7 วัน **ห้ามแนบ policy "PkJeans team" หรือ account members**
 5. [ ] คัดลอก **Application Audience (AUD) tag** ของ app นี้ → ใส่ใน `wrangler.jsonc` ที่ `"COMMAND_ACCESS_AUD"` (AUD ไม่ใช่ความลับ แบบเดียวกับ `ACCESS_AUD`) แล้ว commit
-6. [ ] ตรวจว่า app bypass `/webhook` ไม่ครอบ `/command` หรือ `/api/command` และ app `/gosell` + `/assets` ยังให้เบ๊นผ่าน (หน้า `/command` โหลด JS/CSS จาก `/assets`)
-7. [ ] (ไม่บังคับ, Q4) ใส่ `"DISCORD_GUILD_ID"` ใน `wrangler.jsonc` (server id ของ Discord) เพื่อให้กดจากข้อเสนอไปที่ข้อความใน Discord ได้ ว่าง = ลิงก์ไป `/#history`
+6. [ ] ตรวจว่า app bypass `/webhook` ไม่ครอบ `/command` หรือ `/api/command`
+7. [ ] **ก่อน deploy: อีเมลเบ๊นผ่าน app `/gosell` + `/assets` ได้** หน้า `/command` โหลด JS/CSS จาก `/assets` ซึ่งเป็นอีก Access app ถ้าเบ๊นไม่อยู่ในนั้น หน้า `/command` จะขาวตอน M1
+   - เปิด app ของ `/gosell` + `/assets` → Policies: อีเมลเบ๊นต้องอยู่ใน policy "PkJeans team" หรือเบ๊นเป็น Cloudflare account member (อย่าใส่เบ๊นใน "GoSell Only")
+   - ลองจริง: incognito เปิด `https://pkjeans-ads.ads-web.workers.dev/gosell` ล็อกอินด้วยอีเมลเบ๊น ต้องเห็นหน้า GoSell ไม่ขาว ไม่ถูกปฏิเสธ
+8. [ ] (ไม่บังคับ, Q4) ใส่ `"DISCORD_GUILD_ID"` ใน `wrangler.jsonc` (server id ของ Discord) เพื่อให้กดจากข้อเสนอไปที่ข้อความใน Discord ได้ ว่าง = ลิงก์ไป `/#history`
 
 ## 3. Worker secrets (เบ๊นรันเอง พิมพ์ค่าเองตอนถูกถาม)
 
@@ -79,6 +82,17 @@ Service token (ยืนยันสมมติฐาน claim `common_name` + 
 - [ ] กล่อง benzarnun.com ไม่เป็น "โหลดไม่สำเร็จ" (ทดสอบว่า egress ของ Worker ไม่โดน bot protection ของเว็บ) ถ้าโดน ให้ดู `note` ในกล่อง
 - [ ] เปิดหน้าตอนก่อน 10:00 และหลัง 10:00 วันที่ยังไม่มีไฟล์ Page365 เมื่อวาน: ก่อน 10:00 ไม่มีรายการสีแดงในกล่องต้องทำ หลัง 10:00 มี
 
-## 8. สคริปต์ snapshot (งานแยกใน orca-pilot ยังไม่ได้ทำ)
+## 8. ถ้าพัง: rollback
+
+ใช้เมื่อ B3/M1 ไม่ผ่าน, หน้าเดิม (`/`, `/gosell`, `/webhook/*`) เสีย, หรือ CPU เกิน free plan หลัง deploy ทำตามลำดับ หยุดได้ทันทีที่ปัญหาหาย
+
+1. [ ] **ปิดหน้าทันที (ไม่ต้อง deploy)**: Zero Trust → Access → Applications → `PkJeans Command` → ถอด policy `Command - Benz only` ออก (หรือลบ app) ทุกคนจะถูก Access ปฏิเสธที่ `/command` และ `/api/command` ถ้าลบ app ทั้งตัว Worker ยังตอบ 401 เองเพราะ JWT ของ app หลักไม่ผ่าน `COMMAND_ACCESS_AUD` (มี test ใน `worker/command.test.ts` "worker entry") จึงไม่มีข้อมูลรั่ว
+2. [ ] **ปิด route ฝั่ง Worker (ไม่ต้อง deploy โค้ด; ลบ secret แล้ว Cloudflare ใช้ทันที)**: `npx wrangler secret delete COMMAND_ALLOWED_EMAIL` และ `npx wrangler secret delete COMMAND_SERVICE_CLIENT_IDS` = ทุกคน 401 (fail closed) ส่วน secret ทิ้งไว้ก็ได้ถ้าจะลองใหม่เร็วๆ ไม่มีผลกับหน้าอื่น
+3. [ ] **ย้อนโค้ด Worker** (ถ้าหน้าเดิมเสีย): `npx wrangler deployments list` หา version ก่อนหน้า แล้ว `npx wrangler rollback <version-id>` (ย้อนทั้งโค้ดและไฟล์ static ใน version นั้น แต่**ไม่**ย้อน D1 และ secret) ทางถาวร: `git revert` commit ของ Command Center บน `ads-web` → push → deploy จาก checkout สะอาดตามขั้นตอนปกติ (หรือ deploy จาก commit ก่อน merge)
+4. [ ] **migration 0055**: **ทิ้งไว้** ไม่ต้อง drop เป็นตารางใหม่ล้วน (`command_sources`) ไม่แตะตารางเดิม โค้ดเก่าไม่อ่านมัน และ wrangler จดว่า apply แล้ว ถ้า drop เองแล้ว deploy ใหม่ ตารางจะไม่ถูกสร้างคืน (migration ไม่รันซ้ำ) ถ้าจะลบจริงหลังเลิกใช้ถาวร ให้ทำเป็น migration ใหม่เลขถัดไป (`DROP TABLE IF EXISTS command_sources;`) ห้ามแก้หรือลบไฟล์ 0055 และห้าม `DROP` มือบน `--remote`
+5. [ ] **service token**: ถ้าสงสัยว่ารั่ว Access → Service Tokens → `orca-command-snapshot` → Revoke แล้วหยุดสคริปต์บนเครื่อง
+6. [ ] จด**ว่าพังที่ข้อไหน เวลาเท่าไร** ส่งให้ทีมก่อนลองใหม่
+
+## 9. สคริปต์ snapshot (งานแยกใน orca-pilot ยังไม่ได้ทำ)
 
 contract อยู่ใน `spec.md` §7: ส่งทุก 10 นาที, อ่าน frontmatter เท่านั้น, ส่ง 7 key (`job_id, project, title, status, created, updated, from`) ห้ามเนื้องาน ห้าม `reason:`, `title` ≤ 120 ตัวอักษรไม่มีขึ้นบรรทัดใหม่, ไม่ใช่ 2xx ให้ log แล้วรอรอบถัดไป ก่อนสคริปต์เสร็จ กล่องงานทีมจะขึ้น "ยังไม่เชื่อม"
