@@ -77,6 +77,8 @@ export async function commandIdentity(req: Request, env: CommandEnv): Promise<Co
   // A service token's JWT has no email: Access puts the token's Client ID in common_name and an empty sub.
   if (claims.sub === '' && claims.common_name && (claims.type === undefined || claims.type === 'app')
     && list(env.COMMAND_SERVICE_CLIENT_IDS).includes(claims.common_name.toLowerCase())) return { kind: 'service', client_id: claims.common_name };
+  // Names only, never values: lets the first real service-token test (deploy-checklist B3) show what Access sends.
+  console.warn('command auth: valid token, no allowlist match; claims present:', Object.entries(claims).filter(([, v]) => v !== undefined).map(([k, v]) => (k === 'sub' && v === '' ? 'sub(empty)' : k)).join(','));
   return null;
 }
 
