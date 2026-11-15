@@ -38,3 +38,28 @@ test('the cap grows by the step, rounded to 100', () => {
   assert.equal(nextCap(10_800, 20), 13_000);
   assert.equal(nextCap(13_000, 20), 15_600);
 });
+
+test('sales goal is the main goal: 100M a year, its % is against sales, separate from the profit goal', () => {
+  assert.equal(DEFAULT_GOAL.yearly_sales, 100_000_000);
+  assert.equal(DEFAULT_GOAL.monthly_net, 120_000); // profit goal kept (production uses settings.goal, 100,000)
+  const days = Array.from({ length: 10 }, (_, i) => day(`2026-11-${String(i + 1).padStart(2, '0')}`, 300_000, 60_000));
+  const g = goalStatus('2026-11', 30, days.map((d) => d.date), days, days.slice(-7), DEFAULT_GOAL);
+  const monthly = 100_000_000 / 12;
+  assert.ok(Math.abs(g.sales.monthly_target - monthly) < 1e-6);
+  assert.equal(g.sales.revenue, 3_000_000);
+  assert.ok(Math.abs(g.sales.pct - (3_000_000 / monthly) * 100) < 1e-9); // 36%
+  assert.ok(Math.abs(g.sales.pace - monthly / 3) < 1e-6);
+  assert.equal(g.sales.projected, 9_000_000);
+  assert.ok(Math.abs(g.sales.needed_per_day - (monthly - 3_000_000) / 20) < 1e-6);
+  // the profit % stays its own number
+  const profitPct = (g.net / g.goal.monthly_net) * 100;
+  assert.notEqual(Math.round(profitPct), Math.round(g.sales.pct));
+});
+
+test('sales goal: no uploaded days → no projection, a stored goal without yearly_sales falls back to 100M', () => {
+  const { yearly_sales: _, ...old } = DEFAULT_GOAL;
+  const g = goalStatus('2026-11', 30, ['2026-11-01'], [], [], old as typeof DEFAULT_GOAL);
+  assert.equal(g.sales.yearly_target, 100_000_000);
+  assert.equal(g.sales.projected, null);
+  assert.equal(g.sales.pct, 0);
+});

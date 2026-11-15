@@ -95,7 +95,8 @@ export function SettingsPage({ costsLoaded, campaignNames, onSaved }: { costsLoa
         <h2>เป้ากำไรและการขยายงบ</h2>
         <p className="muted small">กำไรสุทธิ = ยอดขายจริง − ทุนสินค้า − ค่าใช้จ่ายต่อออเดอร์ − ค่าแอด (ยังไม่หักค่าใช้จ่ายคงที่) · ทุกเช้าวันจันทร์ ถ้า MER จริง 7 วันถึงเกณฑ์ อูนิจะถามใน Discord ว่าจะขยายเพดานงบรวมไหม</p>
         <div className="grid2">
-          <label>เป้ากำไรสุทธิต่อเดือน (฿)<input type="number" min={0} step={1000} value={s.goal.monthly_net} onChange={(e) => setS({ ...s, goal: { ...s.goal, monthly_net: Number(e.target.value) } })} /></label>
+          <label>เป้าหลัก: ยอดขายต่อปี (฿)<input type="number" min={0} step={1000000} value={s.goal.yearly_sales} onChange={(e) => setS({ ...s, goal: { ...s.goal, yearly_sales: Number(e.target.value) } })} /></label>
+          <label>เป้ารอง: กำไรสุทธิต่อเดือน (฿)<input type="number" min={0} step={1000} value={s.goal.monthly_net} onChange={(e) => setS({ ...s, goal: { ...s.goal, monthly_net: Number(e.target.value) } })} /></label>
           <label>MER จริง 7 วันขั้นต่ำก่อนขยายเพดานงบ<input type="number" min={1} step={0.01} value={s.goal.scale_mer} onChange={(e) => setS({ ...s, goal: { ...s.goal, scale_mer: Number(e.target.value) } })} /></label>
           <label>ขยายเพดานงบครั้งละ (%)<input type="number" min={1} max={100} value={s.goal.scale_pct} onChange={(e) => setS({ ...s, goal: { ...s.goal, scale_pct: Number(e.target.value) } })} /></label>
         </div>

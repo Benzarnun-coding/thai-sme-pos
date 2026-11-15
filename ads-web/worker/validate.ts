@@ -181,6 +181,7 @@ export function validateSettings(input: any, current: Settings): Settings {
       bag: num(input.order_fees.bag, 'ค่าซองต่อออเดอร์', 0, 1000),
     },
     goal: input?.goal === undefined ? current.goal : {
+      yearly_sales: num(input.goal.yearly_sales ?? current.goal.yearly_sales, 'เป้ายอดขายต่อปี', 0, 100_000_000_000),
       monthly_net: num(input.goal.monthly_net, 'เป้ากำไรสุทธิต่อเดือน', 0, 100_000_000),
       scale_mer: num(input.goal.scale_mer, 'MER ขั้นต่ำก่อนขยายเพดานงบ', 1, 50),
       scale_pct: num(input.goal.scale_pct, 'ขยายเพดานงบครั้งละ (%)', 1, 100),

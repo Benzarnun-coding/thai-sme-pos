@@ -1,3 +1,5 @@
+// Main goal (Benz, 15 Nov 2026): sales of 100,000,000 baht a year — revenue, not profit — tracked month by month as
+// a twelfth of it. The monthly net-profit goal stays next to it as the second goal.
 // Monthly net-profit goal (Benz, 14 Oct 2026: 120,000/month after product cost, per-order fees and ads) and the
 // weekly cap check that goes with it: the shop-wide daily budget cap may grow 20% a week, only when the real
 // 7-day MER (Page365 revenue ÷ Meta spend) is at least the MER the goal needs, and only after a button press.
@@ -6,6 +8,8 @@ import { orderFees, type StoredOrder } from './p365.ts';
 import type { OrderFees } from './db.ts';
 
 export interface Goal {
+  /** Main goal: sales (revenue) per year; each month's sales target is a twelfth of it */
+  yearly_sales: number;
   /** Net profit per month (revenue − product cost − per-order fees − ads) */
   monthly_net: number;
   /** Real 7-day MER needed before the daily budget cap may grow */
@@ -13,7 +17,7 @@ export interface Goal {
   /** How much the cap grows per approved step (%) */
   scale_pct: number;
 }
-export const DEFAULT_GOAL: Goal = { monthly_net: 120_000, scale_mer: 3.86, scale_pct: 20 };
+export const DEFAULT_GOAL: Goal = { yearly_sales: 100_000_000, monthly_net: 120_000, scale_mer: 3.86, scale_pct: 20 };
 
 export interface DayNet { date: string; revenue: number; cost: number; fees: number; ads: number; net: number; orders: number; units: number; multi: number }
 
@@ -54,6 +58,37 @@ export interface GoalStatus {
   multi_share: number | null;
   multi_share_7d: number | null;
   units_per_order: number | null;
+  /** Main goal, sales (revenue) only — its % is against the sales target, never the profit one */
+  sales: SalesStatus;
+}
+
+export interface SalesStatus {
+  yearly_target: number;
+  /** yearly_target ÷ 12 */
+  monthly_target: number;
+  /** Real revenue of the uploaded days this month (same as GoalStatus.revenue) */
+  revenue: number;
+  /** revenue ÷ monthly_target × 100, not capped */
+  pct: number;
+  /** Where revenue should be by now: monthly_target × elapsed days ÷ days in month */
+  pace: number;
+  /** Revenue if the uncounted days run at the uploaded days' average */
+  projected: number | null;
+  /** Revenue per uncounted day still needed for the month's sales target */
+  needed_per_day: number;
+}
+
+export function salesStatus(yearly: number, daysInMonth: number, elapsed: number, days: DayNet[]): SalesStatus {
+  const monthly = yearly / 12;
+  const revenue = days.reduce((t, d) => t + d.revenue, 0);
+  const uncounted = daysInMonth - days.length;
+  return {
+    yearly_target: yearly, monthly_target: monthly, revenue,
+    pct: monthly ? (revenue / monthly) * 100 : 0,
+    pace: (monthly * elapsed) / daysInMonth,
+    projected: days.length ? revenue + (revenue / days.length) * uncounted : null,
+    needed_per_day: uncounted > 0 ? Math.max(0, monthly - revenue) / uncounted : 0,
+  };
 }
 
 export function goalStatus(month: string, daysInMonth: number, elapsed: string[], days: DayNet[], last7: DayNet[], goal: Goal): GoalStatus {
@@ -81,6 +116,7 @@ export function goalStatus(month: string, daysInMonth: number, elapsed: string[]
     multi_share: sum('orders') ? sum('multi') / sum('orders') : null,
     multi_share_7d: sum('orders', last7) ? sum('multi', last7) / sum('orders', last7) : null,
     units_per_order: sum('orders') ? sum('units') / sum('orders') : null,
+    sales: salesStatus(goal.yearly_sales ?? DEFAULT_GOAL.yearly_sales, daysInMonth, elapsed.length, days),
   };
 }
 

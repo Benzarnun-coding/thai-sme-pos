@@ -1709,7 +1709,7 @@ async function dailySpend(env: Env, from: string, to: string): Promise<{ date: s
   return [...spend].map(([date, s]) => ({ date, spend: Math.round(s * 100) / 100 })).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-/** Month-to-date real net vs the monthly goal, the MER the goal needs, and the last 7 days' real MER. */
+/** Month-to-date real sales vs the yearly sales goal (÷ 12), real net vs the monthly goal, the MER the goal needs, and the last 7 days' real MER. */
 async function loadGoal(env: Env): Promise<GoalStatus> {
   const yesterday = bkkDate(1);
   const { month, daysInMonth, dates } = monthDates(yesterday);
@@ -1730,8 +1730,10 @@ function goalText(g: GoalStatus): string {
   const b = (x: number) => Math.round(x).toLocaleString('th-TH');
   const pct = g.goal.monthly_net ? Math.round((g.net / g.goal.monthly_net) * 100) : 0;
   const monthTh = new Date(`${g.month}-01T00:00:00+07:00`).toLocaleDateString('th-TH', { month: 'long', timeZone: 'Asia/Bangkok' });
+  const sp = Math.round(g.sales.pct);
   return [
-    `🎯 **เป้ากำไร${monthTh} ${b(g.goal.monthly_net)}** · ได้แล้ว **${b(g.net)}** (${pct}%) จาก ${g.days.length} วันที่มีไฟล์${g.missing.length ? ` · ขาดไฟล์ ${g.missing.length} วัน` : ''}`,
+    `🏁 **เป้าหลัก ยอดขายปีละ ${b(g.sales.yearly_target)}** (เดือนละ ${b(g.sales.monthly_target)}) · ${monthTh}ได้แล้ว **${b(g.sales.revenue)}** (${sp}% ของเป้ายอดขาย) · ต้องขายวันละ **${b(g.sales.needed_per_day)}**`,
+    `🎯 **เป้ารอง กำไร${monthTh} ${b(g.goal.monthly_net)}** · ได้แล้ว **${b(g.net)}** (${pct}% ของเป้ากำไร) จาก ${g.days.length} วันที่มีไฟล์${g.missing.length ? ` · ขาดไฟล์ ${g.missing.length} วัน` : ''}`,
     g.avg_net === null ? '' : `เฉลี่ยวันละ ${b(g.avg_net)} → คาดสิ้นเดือน **${b(g.projected ?? 0)}** · ต้องได้วันละ **${b(g.needed_per_day)}** ถึงจะทัน`,
     `MER จริง 7 วัน ${g.mer_7d === null ? '– (ไฟล์ไม่ครบ)' : `**${g.mer_7d.toFixed(2)}**`} (เป้า ≥ ${g.goal.scale_mer})${g.target_revenue_per_day ? ` · ต้องขายวันละ ~${b(g.target_revenue_per_day)} ที่ MER นี้` : ''}`,
   ].filter(Boolean).join('\n');
