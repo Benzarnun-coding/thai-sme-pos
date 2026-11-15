@@ -531,3 +531,25 @@ test('todo 5 + D2: the missing Page365 line shows only from 10:00 Bangkok; every
   assert.equal(after.todo.items[0].since, '2026-11-14T17:00:00.000Z');
   assert.ok(after.todo.items.every((i: any) => typeof i.link === 'string' && i.link.length > 0));
 });
+
+// ---------- the Worker entry (review MJ1): /api/command/* must reach commandRoute before the dashboard's authenticate() ----------
+
+test('worker entry: command JWT → /api/command/summary 200; main-app JWT → Command 401; command JWT on the dashboard API → 401', async () => {
+  const worker = (await import('./index.ts')).default;
+  const s = setup(); freshRss(s, Date.now());
+  const env = s.env as unknown as Parameters<typeof worker.fetch>[1];
+  const ctx = s.ctx as unknown as ExecutionContext;
+  const res = await worker.fetch(call('/api/command/summary', { token: await jwt(userClaims()) }), env, ctx);
+  assert.equal(res.status, 200);
+  assert.equal((await res.json() as { version: number }).version, 1);
+  // The main app's token is valid for authenticate() but not for Command; the answer must be Command's own 401.
+  const main = await worker.fetch(call('/api/command/summary', { token: await jwt(userClaims({ aud: [MAIN_AUD] })) }), env, ctx);
+  assert.equal(main.status, 401);
+  assert.equal((await main.json() as { error: string }).error, 'ต้องล็อกอินผ่าน Cloudflare Access (Command)');
+  // A Command token opens nothing on the existing dashboard API.
+  for (const path of ['/api/goal', '/api/me']) {
+    const r = await worker.fetch(call(path, { token: await jwt(userClaims()) }), env, ctx);
+    assert.equal(r.status, 401, path);
+    assert.equal((await r.json() as { error: string }).error, 'ต้องล็อกอินผ่าน Cloudflare Access', path);
+  }
+});
