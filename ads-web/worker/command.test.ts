@@ -553,3 +553,27 @@ test('worker entry: command JWT → /api/command/summary 200; main-app JWT → C
     assert.equal((await r.json() as { error: string }).error, 'ต้องล็อกอินผ่าน Cloudflare Access', path);
   }
 });
+
+test('worker entry: bare /api/command (no trailing slash) is Command\'s too, like /api/command/; an expired command JWT → 401 (the page\'s "session expired")', async () => {
+  const worker = (await import('./index.ts')).default;
+  const s = setup(); freshRss(s, Date.now());
+  const env = s.env as unknown as Parameters<typeof worker.fetch>[1];
+  const ctx = s.ctx as unknown as ExecutionContext;
+  const COMMAND_401 = 'ต้องล็อกอินผ่าน Cloudflare Access (Command)';
+  for (const path of ['/api/command', '/api/command/']) {
+    // The main app's token passes authenticate(); if the path slipped past commandRoute it would not be Command's 401.
+    const main = await worker.fetch(call(path, { token: await jwt(userClaims({ aud: [MAIN_AUD] })) }), env, ctx);
+    assert.equal(main.status, 401, path);
+    assert.equal((await main.json() as { error: string }).error, COMMAND_401, path);
+    const none = await worker.fetch(call(path), env, ctx);
+    assert.equal(none.status, 401, path);
+    assert.equal((await none.json() as { error: string }).error, COMMAND_401, path);
+    // A valid Command token gets commandRoute's answer for an unknown path: its own 404.
+    const own = await worker.fetch(call(path, { token: await jwt(userClaims()) }), env, ctx);
+    assert.equal(own.status, 404, path);
+    assert.equal((await own.json() as { error: string }).error, 'not found', path);
+  }
+  const expired = await worker.fetch(call('/api/command/summary', { token: await jwt(userClaims({ exp: Math.floor(Date.now() / 1000) - 60 })) }), env, ctx);
+  assert.equal(expired.status, 401);
+  assert.equal((await expired.json() as { error: string }).error, COMMAND_401);
+});
