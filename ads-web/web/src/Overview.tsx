@@ -194,6 +194,33 @@ function GoalCard() {
         {salesGap >= 0 ? `▲ นำเป้ายอดขาย ${baht(salesGap)}` : `▼ ช้ากว่าเป้ายอดขาย ${baht(-salesGap)}`}
         <span className="muted"> · คาดสิ้นเดือน {sales.projected === null ? '–' : baht(sales.projected)} · ยอดขายจริง Page365 {g.days.length} วัน (ยอดขาย ไม่ใช่กำไร) · เป้าเดือน = เป้าปี ÷ 12 · % คิดเทียบเป้ายอดขายเท่านั้น</span>
       </p>
+      {g.ytd && (() => {
+        const y = g.ytd;
+        const yPct = Math.max(0, Math.min(100, y.pct));
+        const yPace = Math.min(100, (y.days_elapsed / y.days_in_year) * 100);
+        return (
+          <div className="sb-ytd">
+            <div className="sb-head">
+              <div>
+                <span className="sb-label">📅 ยอดขายสะสมปี {Number(y.year) + 543} (1 ม.ค.–เมื่อวาน)</span>
+                <div className="sb-score"><b>{baht(y.revenue)}</b><span> / {baht(y.target)}</span></div>
+              </div>
+              <div className="sb-missing">
+                <span className="sb-label">{y.gap >= 0 ? 'นำเป้าสะสม' : 'ขาดจากเป้าสะสม'}</span>
+                <b className={y.gap >= 0 ? 'good' : 'bad'}>{baht(Math.abs(y.gap))}</b>
+                <span className="muted small">ควรถึง {baht(y.pace)} ({num((y.days_elapsed / y.days_in_year) * 100, 1)}% ของปี) · เหลือปีนี้ต้องขายวันละ {baht(y.needed_per_day)}</span>
+              </div>
+            </div>
+            <div className="sb-track" role="progressbar" aria-valuemin={0} aria-valuemax={y.target} aria-valuenow={Math.round(y.revenue)} aria-label={`ยอดขายสะสมปี ${num(y.pct, 1)}% ของเป้าปี`}>
+              <i className="sb-fill" style={{ width: shown ? `${yPct}%` : '0%' }}><span>{num(y.pct, 1)}%</span></i>
+              <em className="sb-pace" style={{ left: `${yPace}%` }} title={`ควรถึง ${baht(y.pace)} ภายในเมื่อวาน`}><span>ควรถึง {baht(y.pace)}</span></em>
+            </div>
+            <p className="sb-status">
+              <span className="muted">ยอดขายจริง Page365 รวมทุกวันที่มีไฟล์ {y.uploaded_days} จาก {y.days_elapsed} วัน (วันที่ไม่มีไฟล์นับเป็น 0) · ถ้านับเฉพาะวันที่มีไฟล์ ควรถึง {baht(y.pace_uploaded)} · เส้น "ควรถึง" = เป้าปี × วันที่ผ่านไป ÷ {y.days_in_year}</span>
+            </p>
+          </div>
+        );
+      })()}
     </section>
     <section className={`card scoreboard ${gap >= 0 ? 'ahead' : 'behind'}`} aria-label="สกอร์บอร์ดเป้ากำไร (เป้ารอง)">
       <div className="sb-head">

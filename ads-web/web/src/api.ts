@@ -140,7 +140,9 @@ export interface GoalStatus {
   net: number; revenue: number; ads: number; avg_net: number | null; projected: number | null; needed_per_day: number;
   gross_margin: number | null; mer: number | null; target_revenue_per_day: number | null; mer_7d: number | null; mer_7d_days: number; multi_share: number | null; multi_share_7d: number | null; units_per_order: number | null;
   sales: SalesStatus;
+  ytd: YtdStatus | null;
 }
+export interface YtdStatus { year: string; from: string; to: string; target: number; revenue: number; pct: number; days_elapsed: number; days_in_year: number; pace: number; gap: number; uploaded_days: number; pace_uploaded: number; projected: number | null; needed_per_day: number }
 export interface SalesStatus { yearly_target: number; monthly_target: number; revenue: number; pct: number; pace: number; projected: number | null; needed_per_day: number }
 export interface Settings { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails; sheet_id: string; sheet_tabs: string[]; cod_share_pct: number; cod_fee: number; ads_cost_sheet_id: string; ads_cost_tab: string; cost_editors: string[]; order_fees: OrderFees; goal: Goal }
 

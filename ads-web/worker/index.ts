@@ -37,7 +37,7 @@ import { aiEnabled, askAI, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, t
 import { kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, setKbStatus, speaker } from './botKb.ts';
 import { closeCase, customerName, serviceAlerts, servicePreview } from './serviceAlert.ts';
 import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './postIdeas.ts';
-import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
+import { DEFAULT_GOAL, dayNet, goalStatus, monthDates, nextCap, ytdStatus, type DayNet, type GoalStatus } from './goal.ts';
 import { approvalsEnabled, blockedByKillSwitch, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
@@ -1715,7 +1715,7 @@ async function loadGoal(env: Env): Promise<GoalStatus> {
   const { month, daysInMonth, dates } = monthDates(yesterday);
   const last7 = Array.from({ length: 7 }, (_, i) => bkkDate(i + 1));
   const all = [...new Set([...dates, ...last7])].sort();
-  const [settings, uploads, orders] = await Promise.all([loadSettings(env.DB), loadUploads(env.DB, all), loadOrders(env.DB, all)]);
+  const [settings, uploads, orders, ytdDays] = await Promise.all([loadSettings(env.DB), loadUploads(env.DB, all), loadOrders(env.DB, all), ytdRevenue(env.DB, yesterday)]);
   // Spend per day from one Meta call over the whole span (cached; at most 31 days).
   const rows = uploads.size ? await (await metaData(env)).data.dailyAll(`range:${all[0]}:${yesterday}` as Window) : [];
   const spend = new Map<string, number>();
@@ -1723,7 +1723,16 @@ async function loadGoal(env: Env): Promise<GoalStatus> {
   const byDate = new Map<string, typeof orders>();
   for (const o of orders) byDate.set(o.date, [...(byDate.get(o.date) ?? []), o]);
   const net = (d: string): DayNet => dayNet(d, byDate.get(d) ?? [], settings.order_fees, spend.get(d) ?? 0);
-  return goalStatus(month, daysInMonth, dates, dates.filter((d) => uploads.has(d)).map(net), last7.filter((d) => uploads.has(d)).map(net), settings.goal);
+  const ytd = ytdStatus(settings.goal.yearly_sales ?? DEFAULT_GOAL.yearly_sales, yesterday, ytdDays);
+  return goalStatus(month, daysInMonth, dates, dates.filter((d) => uploads.has(d)).map(net), last7.filter((d) => uploads.has(d)).map(net), settings.goal, ytd);
+}
+
+/** Real Page365 revenue per uploaded day from 1 Jan of `to`'s year to `to`: one aggregate query, no order rows loaded. */
+async function ytdRevenue(db: D1Database, to: string): Promise<{ date: string; revenue: number }[]> {
+  const { results } = await db.prepare(
+    'SELECT u.date AS date, COALESCE(SUM(o.total), 0) AS revenue FROM p365_uploads u LEFT JOIN p365_orders o ON o.date = u.date WHERE u.date >= ? AND u.date <= ? GROUP BY u.date',
+  ).bind(`${to.slice(0, 4)}-01-01`, to).all<{ date: string; revenue: number }>();
+  return results;
 }
 
 function goalText(g: GoalStatus): string {
@@ -1733,6 +1742,7 @@ function goalText(g: GoalStatus): string {
   const sp = Math.round(g.sales.pct);
   return [
     `🏁 **เป้าหลัก ยอดขายปีละ ${b(g.sales.yearly_target)}** (เดือนละ ${b(g.sales.monthly_target)}) · ${monthTh}ได้แล้ว **${b(g.sales.revenue)}** (${sp}% ของเป้ายอดขาย) · ต้องขายวันละ **${b(g.sales.needed_per_day)}**`,
+    g.ytd ? `📅 สะสมปี ${g.ytd.year} (1 ม.ค.–เมื่อวาน) **${b(g.ytd.revenue)}** = ${(g.ytd.pct).toFixed(1)}% ของเป้าปี · ตามเวลาควรถึง ${b(g.ytd.pace)} → ${g.ytd.gap >= 0 ? `นำ ${b(g.ytd.gap)}` : `ขาด ${b(-g.ytd.gap)}`} · มีไฟล์ Page365 ${g.ytd.uploaded_days}/${g.ytd.days_elapsed} วัน` : '',
     `🎯 **เป้ารอง กำไร${monthTh} ${b(g.goal.monthly_net)}** · ได้แล้ว **${b(g.net)}** (${pct}% ของเป้ากำไร) จาก ${g.days.length} วันที่มีไฟล์${g.missing.length ? ` · ขาดไฟล์ ${g.missing.length} วัน` : ''}`,
     g.avg_net === null ? '' : `เฉลี่ยวันละ ${b(g.avg_net)} → คาดสิ้นเดือน **${b(g.projected ?? 0)}** · ต้องได้วันละ **${b(g.needed_per_day)}** ถึงจะทัน`,
     `MER จริง 7 วัน ${g.mer_7d === null ? '– (ไฟล์ไม่ครบ)' : `**${g.mer_7d.toFixed(2)}**`} (เป้า ≥ ${g.goal.scale_mer})${g.target_revenue_per_day ? ` · ต้องขายวันละ ~${b(g.target_revenue_per_day)} ที่ MER นี้` : ''}`,

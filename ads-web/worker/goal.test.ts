@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_GOAL, goalStatus, monthDates, nextCap, type DayNet } from './goal.ts';
+import { DEFAULT_GOAL, goalStatus, monthDates, nextCap, ytdStatus, type DayNet } from './goal.ts';
 
 const day = (date: string, revenue: number, ads: number): DayNet => {
   const cost = revenue * 0.516, fees = revenue * 0.125;
@@ -62,4 +62,43 @@ test('sales goal: no uploaded days → no projection, a stored goal without year
   assert.equal(g.sales.yearly_target, 100_000_000);
   assert.equal(g.sales.projected, null);
   assert.equal(g.sales.pct, 0);
+});
+
+test('YTD: revenue from 1 Jan against the yearly target, pace by share of time, missing days count as 0', () => {
+  // 2026-11-14 is day 318 of 365; 40 uploaded days at 300,000
+  const days = Array.from({ length: 40 }, (_, i) => ({ date: new Date(Date.UTC(2026, 9, 6 + i)).toISOString().slice(0, 10), revenue: 300_000 }));
+  const y = ytdStatus(100_000_000, '2026-11-14', [...days, { date: '2025-12-31', revenue: 9e9 }, { date: '2026-11-15', revenue: 9e9 }]);
+  assert.equal(y.year, '2026');
+  assert.equal(y.from, '2026-01-01');
+  assert.equal(y.days_elapsed, 318);
+  assert.equal(y.days_in_year, 365);
+  assert.equal(y.uploaded_days, 40); // last year and today are left out
+  assert.equal(y.revenue, 12_000_000);
+  assert.ok(Math.abs(y.pct - 12) < 1e-9);
+  assert.ok(Math.abs(y.pace - (100_000_000 * 318) / 365) < 1e-6);
+  assert.ok(Math.abs(y.gap - (12_000_000 - (100_000_000 * 318) / 365)) < 1e-6);
+  assert.ok(Math.abs(y.pace_uploaded - (100_000_000 * 40) / 365) < 1e-6);
+  assert.equal(y.projected, 12_000_000 + 300_000 * 325);
+  assert.ok(Math.abs(y.needed_per_day - 88_000_000 / 47) < 1e-6);
+});
+
+test('YTD: 1 Jan, leap year, nothing uploaded, target already passed', () => {
+  const jan1 = ytdStatus(100_000_000, '2028-01-01', []);
+  assert.equal(jan1.days_elapsed, 1);
+  assert.equal(jan1.days_in_year, 366);
+  assert.equal(jan1.revenue, 0);
+  assert.equal(jan1.projected, null);
+  assert.ok(Math.abs(jan1.pace - 100_000_000 / 366) < 1e-6);
+  const done = ytdStatus(1_000_000, '2026-06-30', [{ date: '2026-06-01', revenue: 1_500_000 }]);
+  assert.equal(done.needed_per_day, 0);
+  assert.ok(done.pct > 100 && done.gap > 0);
+});
+
+test('goal status carries YTD next to the month goals and leaves the profit goal alone', () => {
+  const days = Array.from({ length: 3 }, (_, i) => day(`2026-11-0${i + 1}`, 300_000, 60_000));
+  const ytd = ytdStatus(DEFAULT_GOAL.yearly_sales, '2026-11-03', days);
+  const g = goalStatus('2026-11', 30, days.map((d) => d.date), days, days, DEFAULT_GOAL, ytd);
+  assert.equal(g.ytd?.revenue, 900_000);
+  assert.equal(g.goal.monthly_net, DEFAULT_GOAL.monthly_net);
+  assert.equal(goalStatus('2026-11', 30, [], [], [], DEFAULT_GOAL).ytd, null);
 });

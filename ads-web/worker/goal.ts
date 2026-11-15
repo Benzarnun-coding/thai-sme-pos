@@ -60,6 +60,54 @@ export interface GoalStatus {
   units_per_order: number | null;
   /** Main goal, sales (revenue) only — its % is against the sales target, never the profit one */
   sales: SalesStatus;
+  /** Main goal, year to date (1 Jan → yesterday) against the full yearly sales target; null when not loaded */
+  ytd: YtdStatus | null;
+}
+
+export interface YtdStatus {
+  year: string;               // YYYY
+  from: string;               // YYYY-01-01
+  to: string;                 // last counted day (yesterday)
+  target: number;             // the yearly sales target
+  /** Real Page365 revenue of the uploaded days from 1 Jan */
+  revenue: number;
+  /** revenue ÷ target × 100, not capped */
+  pct: number;
+  days_elapsed: number;
+  days_in_year: number;
+  /** Where the year should be by now, by share of time: target × days_elapsed ÷ days_in_year */
+  pace: number;
+  /** revenue − pace (negative = behind) */
+  gap: number;
+  /** Days from 1 Jan with a Page365 file; the rest count as 0 revenue */
+  uploaded_days: number;
+  /** The same pace counted only over the uploaded days (target ÷ days_in_year × uploaded_days) */
+  pace_uploaded: number;
+  /** Year-end revenue if every day not yet counted runs at the uploaded days' average */
+  projected: number | null;
+  /** Revenue per day still needed for the rest of the year (after `to`) */
+  needed_per_day: number;
+}
+
+/** Year to date against the yearly sales target. `days` = revenue of each uploaded day between 1 Jan and `to`. */
+export function ytdStatus(yearly: number, to: string, days: { date: string; revenue: number }[]): YtdStatus {
+  const year = to.slice(0, 4), from = `${year}-01-01`;
+  const counted = days.filter((d) => d.date >= from && d.date <= to);
+  const y = Number(year);
+  const daysInYear = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0 ? 366 : 365;
+  const elapsed = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400_000) + 1;
+  const revenue = counted.reduce((t, d) => t + d.revenue, 0);
+  const pace = (yearly * elapsed) / daysInYear;
+  const left = daysInYear - elapsed;
+  return {
+    year, from, to, target: yearly, revenue,
+    pct: yearly ? (revenue / yearly) * 100 : 0,
+    days_elapsed: elapsed, days_in_year: daysInYear, pace, gap: revenue - pace,
+    uploaded_days: counted.length,
+    pace_uploaded: (yearly * counted.length) / daysInYear,
+    projected: counted.length ? revenue + (revenue / counted.length) * (daysInYear - counted.length) : null,
+    needed_per_day: left > 0 ? Math.max(0, yearly - revenue) / left : 0,
+  };
 }
 
 export interface SalesStatus {
@@ -91,7 +139,7 @@ export function salesStatus(yearly: number, daysInMonth: number, elapsed: number
   };
 }
 
-export function goalStatus(month: string, daysInMonth: number, elapsed: string[], days: DayNet[], last7: DayNet[], goal: Goal): GoalStatus {
+export function goalStatus(month: string, daysInMonth: number, elapsed: string[], days: DayNet[], last7: DayNet[], goal: Goal, ytd: YtdStatus | null = null): GoalStatus {
   const sum = (k: keyof Omit<DayNet, 'date'>, list: DayNet[] = days) => list.reduce((t, d) => t + d[k], 0);
   const net = sum('net'), revenue = sum('revenue'), ads = sum('ads');
   const counted = new Set(days.map((d) => d.date));
@@ -117,6 +165,7 @@ export function goalStatus(month: string, daysInMonth: number, elapsed: string[]
     multi_share_7d: sum('orders', last7) ? sum('multi', last7) / sum('orders', last7) : null,
     units_per_order: sum('orders') ? sum('units') / sum('orders') : null,
     sales: salesStatus(goal.yearly_sales ?? DEFAULT_GOAL.yearly_sales, daysInMonth, elapsed.length, days),
+    ytd,
   };
 }
 
