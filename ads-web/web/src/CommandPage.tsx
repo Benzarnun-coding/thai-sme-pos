@@ -2,6 +2,7 @@
 // so no other /api call works from here). Not in SiteNav (Benz, 15 Nov). Spec + design: docs/command-center/.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import './command.css';
+import { SESSION_EXPIRED, summaryError, thrownError } from './commandErrors.ts';
 
 type TileStatus = 'ok' | 'stale' | 'missing' | 'not_connected' | 'error';
 interface Tile<T> { id: string; label: string; status: TileStatus; source: string; as_of: string | null; data: T | null; link?: string; note?: string }
@@ -37,8 +38,6 @@ function when(iso: string | null, today: string): string {
 }
 const REFRESH_AFTER_HIDDEN = 5 * 60_000;
 
-const SESSION_EXPIRED = 'เซสชันหมดอายุ ล็อกอินใหม่: โหลดหน้านี้ใหม่';
-
 function useSummary() {
   const [data, setData] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -49,13 +48,11 @@ function useSummary() {
     try {
       const res = await fetch('/api/command/summary', { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
       const body = await res.json().catch(() => null);
-      // Access session over: Access answers with its login page (HTML, not JSON) or the Worker says 401.
-      if (res.status === 401 || res.redirected || (res.ok && !body)) throw new Error(SESSION_EXPIRED);
-      if (!res.ok || !body || body.version !== 1) throw new Error(body?.error ?? `HTTP ${res.status}`);
+      const failed = summaryError(res, body);
+      if (failed) throw new Error(failed);
       setData(body); setError(null); last.current = Date.now();
     } catch (e: any) {
-      // A redirect to the cross-site Access login fails as TypeError ("Failed to fetch"); retrying never helps, reloading does.
-      setError(e instanceof TypeError ? `${SESSION_EXPIRED} (หรืออินเทอร์เน็ตหลุด)` : String(e?.message ?? e));
+      setError(thrownError(e));
     } finally {
       setLoading(false);
     }
