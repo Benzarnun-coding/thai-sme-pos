@@ -39,7 +39,7 @@ import { closeCase, customerName, serviceAlerts, servicePreview } from './servic
 import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './postIdeas.ts';
 import { DEFAULT_GOAL, dayNet, goalStatus, monthDates, nextCap, ytdStatus, type DayNet, type GoalStatus } from './goal.ts';
 import { approvalsEnabled, blockedByKillSwitch, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
-import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
+import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, ytdRevenue, type UploadedOrder } from './p365.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
 import { cleanupDrafts, cleanupOn, setCleanup } from './draftCleanup.ts';
@@ -51,7 +51,7 @@ import { dayOrders, reconcile } from './orderDay.ts';
 import { adjustmentDays, seedFromSent } from './metaAdjust.ts';
 import { buildEnabled, checkBuilds, listRequests, postPicker, registerCommand, requestInteraction, syncTitles } from './featureRequests.ts';
 import { pageOf, receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
-import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
+import { BadRequest, json, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
 export interface Env {
   DB: D1Database;
@@ -1727,14 +1727,6 @@ async function loadGoal(env: Env): Promise<GoalStatus> {
   return goalStatus(month, daysInMonth, dates, dates.filter((d) => uploads.has(d)).map(net), last7.filter((d) => uploads.has(d)).map(net), settings.goal, ytd);
 }
 
-/** Real Page365 revenue per uploaded day from 1 Jan of `to`'s year to `to`: one aggregate query, no order rows loaded. */
-async function ytdRevenue(db: D1Database, to: string): Promise<{ date: string; revenue: number }[]> {
-  const { results } = await db.prepare(
-    'SELECT u.date AS date, COALESCE(SUM(o.total), 0) AS revenue FROM p365_uploads u LEFT JOIN p365_orders o ON o.date = u.date WHERE u.date >= ? AND u.date <= ? GROUP BY u.date',
-  ).bind(`${to.slice(0, 4)}-01-01`, to).all<{ date: string; revenue: number }>();
-  return results;
-}
-
 function goalText(g: GoalStatus): string {
   const b = (x: number) => Math.round(x).toLocaleString('th-TH');
   const pct = g.goal.monthly_net ? Math.round((g.net / g.goal.monthly_net) * 100) : 0;
@@ -2054,6 +2046,3 @@ async function syncIfConfigured(env: Env, actor: string): Promise<{ ok: boolean;
   }
 }
 
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
-}
