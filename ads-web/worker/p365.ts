@@ -256,6 +256,14 @@ export async function loadOrders(db: D1Database, dates: string[]): Promise<Store
   return results.map((r) => ({ ...r, items: JSON.parse(r.items || '[]') as OrderItem[] }));
 }
 
+/** Real Page365 revenue per uploaded day from 1 Jan of `to`'s year to `to`: one aggregate query, no order rows loaded. */
+export async function ytdRevenue(db: D1Database, to: string): Promise<{ date: string; revenue: number }[]> {
+  const { results } = await db.prepare(
+    'SELECT u.date AS date, COALESCE(SUM(o.total), 0) AS revenue FROM p365_uploads u LEFT JOIN p365_orders o ON o.date = u.date WHERE u.date >= ? AND u.date <= ? GROUP BY u.date',
+  ).bind(`${to.slice(0, 4)}-01-01`, to).all<{ date: string; revenue: number }>();
+  return results;
+}
+
 export async function loadUploads(db: D1Database, dates: string[]): Promise<Map<string, { orders: number; uploaded_at: string; uploaded_by: string }>> {
   if (!dates.length) return new Map();
   const { results } = await db.prepare('SELECT * FROM p365_uploads WHERE date IN (SELECT value FROM json_each(?))').bind(JSON.stringify(dates)).all<{ date: string; orders: number; uploaded_at: string; uploaded_by: string }>();

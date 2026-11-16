@@ -6,6 +6,11 @@ import type { Settings } from './db.ts';
 
 export class BadRequest extends Error {}
 
+/** Every API answer: JSON, never cached. */
+export function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+
 const LEVELS = ['campaign', 'adset'];
 const WINDOWS = ['today', 'yesterday', 'last_3d', 'last_7d', 'last_14d', 'last_30d'];
 const METRICS = ['spend', 'impressions', 'clicks', 'ctr', 'cpc', 'frequency', 'purchases', 'cpa', 'roas', 'messages', 'cost_per_message'];

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { authenticate } from './auth.ts';
+import { authenticate, verifyAccess } from './auth.ts';
 
 const TEAM = 'https://pkjeans.cloudflareaccess.com';
 const AUD = 'aud-123';
@@ -45,4 +45,13 @@ test('fails closed when Access is not configured; dev bypass only on localhost',
   assert.equal(await authenticate(req(await token(good)), {}), null);
   assert.equal(await authenticate(req(), { DEV_BYPASS_AUTH: 'true' }), null);
   assert.equal(await authenticate(new Request('http://localhost:8787/api/me'), { DEV_BYPASS_AUTH: 'true' }), 'dev@localhost');
+});
+
+test('verifyAccess checks the audience it is given; authenticate() keeps its old answers (no email → "unknown")', async () => {
+  const cmd = await token({ ...good, aud: ['command-aud'], email: undefined, common_name: 'svc.access', sub: '' });
+  assert.deepEqual(await verifyAccess(req(cmd), env, 'command-aud'), { email: undefined, common_name: 'svc.access', sub: '', type: undefined });
+  assert.equal(await verifyAccess(req(cmd), env, AUD), null);
+  assert.equal(await verifyAccess(req(cmd), env, ''), null);
+  assert.equal(await authenticate(req(cmd), env), null);
+  assert.equal(await authenticate(req(await token({ ...good, email: undefined })), env), 'unknown');
 });

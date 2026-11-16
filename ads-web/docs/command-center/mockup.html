@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Benz Command Center · mockup (ตัวอย่าง)</title>
+<style>
+/* Tokens: Benz DNA (benz-dna-mcp server/src/admin.ts CSS) + additions for this page. See design.md §2 */
+.cc{
+  --bg:#000; --card:#0a0a0a; --card-2:#111; --line:#222; --line-2:#333;
+  --text:#fff; --muted:#9a9a9a; --y:#FFD400; --r:#FF3B30; --y-bg:#141000; --r-bg:#1a0605;
+  --radius:14px; --tap:44px;
+  --font:-apple-system,"Sukhumvit Set","Noto Sans Thai",system-ui,sans-serif;
+  --mono:ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:#000}
+.cc{background:var(--bg);color:var(--text);font:16px/1.6 var(--font);min-height:100vh;-webkit-text-size-adjust:100%}
+.cc main{max-width:520px;margin:0 auto;padding:0 16px calc(32px + env(safe-area-inset-bottom))}
+.cc a{color:var(--y)}
+.cc :focus-visible{outline:3px solid var(--y);outline-offset:2px;border-radius:8px}
+
+/* header */
+.cc-top{position:sticky;top:0;z-index:5;background:rgba(0,0,0,.92);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;gap:12px}
+.cc-logo{width:44px;height:44px;border-radius:12px;background:var(--y);color:#000;font-weight:800;font-size:15px;display:grid;place-items:center;flex:none;text-decoration:none;letter-spacing:.02em}
+.cc-top h1{font-size:18px;line-height:1.3;margin:0;font-weight:800}
+.cc-top h1 b{color:var(--y)}
+.cc-top p{margin:0;color:var(--muted);font-size:13px;line-height:1.4}
+.cc-top .grow{flex:1;min-width:0}
+.btn{min-height:var(--tap);min-width:var(--tap);padding:0 14px;border-radius:12px;border:1px solid var(--line-2);background:var(--card-2);color:var(--text);font:600 14px/1 var(--font);display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;text-decoration:none}
+.btn:hover{border-color:#555}
+.btn[disabled]{color:var(--muted);cursor:default}
+.btn.y{background:var(--y);color:#000;border:0}
+
+/* section + card */
+.sec{margin-top:22px}
+.sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 0 10px}
+.sec-h h2{font-size:17px;line-height:1.4;margin:0;color:var(--y);font-weight:800}
+.sec-h .when{font-size:13px;color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin:0 0 10px}
+.card h3{font-size:15px;margin:0 0 6px;font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.src{font-size:12.5px;line-height:1.5;color:var(--muted);margin:10px 0 0;padding-top:8px;border-top:1px solid var(--line)}
+
+/* tags */
+.tag{display:inline-flex;align-items:center;font-size:12px;line-height:1;padding:5px 8px;border-radius:99px;border:1px solid var(--line-2);color:var(--muted);font-weight:600;white-space:nowrap}
+.tag.sample{border-style:dashed;border-color:var(--muted);color:var(--muted)}
+.tag.off{border-color:var(--muted);color:var(--text);background:#161616}
+.tag.stale{border-color:var(--y);color:var(--y)}
+.tag.err{border-color:var(--r);color:var(--r)}
+.tag.soon{border-color:var(--y);color:var(--y)}
+
+/* numbers */
+.kpi{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+.kpi .lab{font-size:13px;color:var(--muted);line-height:1.4}
+.kpi .val{font-size:22px;overflow-wrap:anywhere;line-height:1.25;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.kpi .sub{font-size:12.5px;color:var(--muted)}
+.ph{color:var(--muted)}
+
+/* progress vs target */
+.prog{margin-top:14px}
+.prog-row{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);gap:8px}
+.prog-row b{color:var(--text);font-variant-numeric:tabular-nums}
+.bar{position:relative;height:14px;border-radius:99px;background:#1c1c1c;margin:8px 0 22px;overflow:visible}
+.bar .fill{position:absolute;inset:0 auto 0 0;width:100%;border-radius:99px;transform-origin:left;
+  background:repeating-linear-gradient(135deg,#5a5a5a 0 6px,#3a3a3a 6px 12px)} /* hatched = ตัวอย่าง; real = solid var(--y) */
+.bar .should{position:absolute;top:-4px;bottom:-4px;width:3px;background:#fff;border-radius:2px}
+.bar .should span{position:absolute;top:22px;left:50%;transform:translateX(-50%);font-size:12px;color:var(--text);white-space:nowrap}
+
+/* not connected */
+.nc{display:flex;gap:12px;align-items:flex-start;border:1px dashed var(--line-2);border-radius:12px;padding:12px;background:#070707}
+.nc svg{flex:none;margin-top:3px}
+.nc b{display:block;font-size:15px}
+.nc p{margin:2px 0 0;font-size:13px;color:var(--muted);line-height:1.55}
+
+.count{font-size:13px;color:var(--muted)}
+.count b{display:block;color:var(--text);font-size:28px;line-height:1.2;font-weight:800;font-variant-numeric:tabular-nums}
+
+/* list rows (links) */
+.list{list-style:none;margin:0;padding:0}
+.list li+li{border-top:1px solid var(--line)}
+.row-link{display:flex;align-items:center;gap:10px;min-height:56px;padding:8px 2px;color:var(--text);text-decoration:none}
+.row-link .t{flex:1;min-width:0}
+.row-link .t b{display:block;font-weight:600;font-size:15px;line-height:1.45;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.row-link .t small{display:block;color:var(--muted);font-size:12.5px;line-height:1.5}
+.row-link .chev{flex:none;color:var(--muted)}
+.row-link:hover .t b{color:var(--y)}
+
+/* todo */
+.todo .row-link{min-height:60px}
+.dot{width:10px;height:10px;border-radius:50%;flex:none;background:var(--y)}
+.dot.r{background:var(--r)}
+.todo-count{font-size:13px;font-weight:700;color:#000;background:var(--y);border-radius:99px;padding:3px 9px;line-height:1.3}
+
+/* team stats */
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:10px}
+.stat{background:var(--card-2);border:1px solid var(--line);border-radius:10px;padding:8px 6px;text-align:center}
+.stat b{display:block;font-size:22px;line-height:1.2;font-weight:800;font-variant-numeric:tabular-nums}
+.stat span{font-size:12px;color:var(--muted);line-height:1.35;display:block}
+.stat.need{border-color:var(--y)} .stat.need b{color:var(--y)}
+.stat.fail{border-color:var(--r)} .stat.fail b{color:var(--r)}
+.jid{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.st{font-size:12px;font-weight:700;padding:3px 7px;border-radius:6px;white-space:nowrap}
+.st.done{color:#000;background:#d8d8d8}
+.st.fail{color:#000;background:var(--r)}
+.st.need{color:#000;background:var(--y)}
+.st.sent{color:var(--text);border:1px solid var(--line-2)}
+
+/* banners */
+.banner{display:flex;gap:10px;align-items:flex-start;border-radius:12px;padding:10px 12px;font-size:13.5px;line-height:1.55;margin-bottom:10px}
+.banner.stale{border:1px solid var(--y);background:var(--y-bg);color:var(--text)}
+.banner.err{border:1px solid var(--r);background:var(--r-bg)}
+.banner .btn{margin-left:auto;flex:none;min-height:40px}
+.banner b{color:var(--y)} .banner.err b{color:var(--r)}
+
+/* empty */
+.empty{text-align:center;padding:18px 8px;color:var(--muted);font-size:14px}
+.empty b{display:block;color:var(--text);font-size:16px;margin-bottom:2px}
+
+/* skeleton */
+.sk{background:#161616;border-radius:8px;position:relative;overflow:hidden}
+.sk::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.06),transparent);animation:sh 1.4s infinite}
+@keyframes sh{to{transform:translateX(100%)}}
+
+/* jarvis slot: disabled, no input element */
+.jarvis{margin-top:24px;border:1px dashed var(--line-2);border-radius:var(--radius);padding:14px;color:var(--muted);background:repeating-linear-gradient(135deg,#050505 0 10px,#0a0a0a 10px 20px)}
+.jarvis .fake{margin-top:10px;min-height:48px;border-radius:12px;border:1px solid var(--line);background:#0d0d0d;display:flex;align-items:center;padding:0 14px;font-size:14px;color:#6f6f6f;user-select:none}
+.jarvis h3{margin:0;font-size:15px;color:var(--text);display:flex;gap:8px;align-items:center}
+.jarvis p{margin:4px 0 0;font-size:13px}
+
+/* state gallery (mockup only) */
+.gallery-h{margin:40px 0 4px;padding-top:18px;border-top:2px solid var(--y);font-size:15px;color:var(--y)}
+.gallery-p{margin:0 0 12px;font-size:13px;color:var(--muted)}
+.gal-lab{font-family:var(--mono);font-size:12px;color:var(--muted);margin:16px 0 6px}
+
+@media (prefers-reduced-motion:reduce){
+  .sk::after{animation:none;display:none}
+  .bar .fill{transition:none!important}
+}
+@media (min-width:600px){ .kpi .val{font-size:28px} }
+</style>
+</head>
+<body>
+<div class="cc">
+
+<header class="cc-top">
+  <a class="cc-logo" href="/" aria-label="กลับหน้าแดชบอร์ด">BC</a>
+  <div class="grow">
+    <h1><b>Benz</b> Command Center</h1>
+    <p>อ่านอย่างเดียว · <span id="today">วันนี้</span></p>
+  </div>
+  <button class="btn" type="button" aria-label="โหลดข้อมูลใหม่">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+    รีเฟรช
+  </button>
+</header>
+
+<main>
+
+<!-- ============ 1. วันนี้เบ๊นต้องทำ ============ -->
+<section class="sec" aria-labelledby="h-todo">
+  <div class="sec-h"><h2 id="h-todo">วันนี้เบ๊นต้องทำ</h2><span class="todo-count">— เรื่อง</span></div>
+  <div class="card todo">
+    <ul class="list">
+      <li><a class="row-link" href="#">
+        <span class="dot" aria-hidden="true"></span>
+        <span class="t"><b>ตัดสิน job: [หัวข้อตัวอย่าง]</b><small><span class="jid">job-xxxx</span> · project-ตัวอย่าง · รอเบ๊นตั้งแต่ hh:mm</small></span>
+        <svg class="chev" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+      </a></li>
+      <li><a class="row-link" href="#">
+        <span class="dot" aria-hidden="true"></span>
+        <span class="t"><b>อนุมัติหยุดแอด: [ชื่อแคมเปญตัวอย่าง]</b><small>คำถามใน Discord (pause) · เปิดค้างตั้งแต่ hh:mm · ไปที่แดชบอร์ด</small></span>
+        <svg class="chev" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+      </a></li>
+      <li><a class="row-link" href="#">
+        <span class="dot r" aria-hidden="true"></span>
+        <span class="t"><b>ไฟล์ Page365 เมื่อวานยังไม่อัปโหลด</b><small>ยอดเมื่อวานและกฎแอดยังใช้ตัวเลขของ Meta อยู่ · ไปหน้าอัปโหลด</small></span>
+        <svg class="chev" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+      </a></li>
+    </ul>
+    <p class="src">ที่มา: job ที่รอเบ๊น (snapshot งานทีม) · คำถามอนุมัติที่ยังเปิดใน Discord · ตารางอัปโหลด Page365 <span class="tag sample">ตัวอย่าง</span></p>
+  </div>
+</section>
+
+<!-- ============ 2. Stat ธุรกิจ ============ -->
+<section class="sec" aria-labelledby="h-biz">
+  <div class="sec-h"><h2 id="h-biz">ธุรกิจ</h2></div>
+
+  <!-- PK -->
+  <article class="card" aria-labelledby="h-pk">
+    <h3 id="h-pk">PK Jeans <span class="tag sample">ตัวอย่าง</span></h3>
+    <div class="kpi">
+      <div><div class="lab">ยอดขายเมื่อวาน</div><div class="val ph">฿—,———</div><div class="sub">dd MMM (ตัวอย่าง)</div></div>
+      <div><div class="lab">ยอดสะสมปีนี้</div><div class="val ph">฿——,———,———</div><div class="sub">— % ของเป้า</div></div>
+    </div>
+    <div class="prog">
+      <div class="prog-row"><span>เทียบเป้า <b>฿100,000,000</b> / ปี</span><span>ถึงแล้ว <b class="ph">—%</b></span></div>
+      <div class="bar" role="img" aria-label="แถบตัวอย่าง ไม่ใช่ยอดจริง เส้นสีขาวคือยอดที่ควรถึงตามเวลาที่ผ่านไปของปี">
+        <div class="fill" style="width:40%"></div>
+        <div class="should" id="should" style="left:87%"><span>ควรถึง <b id="should-pct">—%</b></span></div>
+      </div>
+      <div class="prog-row"><span>แถบลายทาง = ตัวอย่าง</span><span>มีไฟล์ <b class="ph">—</b> จาก <b id="days-so-far">—</b> วัน</span></div>
+    </div>
+    <p class="src">ที่มา: ไฟล์ Page365 ที่อัปโหลดแล้ว (ยอดจริงตาม Created At) · วันที่ไม่มีไฟล์ไม่นับ · "ควรถึง" = เป้า × วันที่ผ่านไป ÷ 365</p>
+  </article>
+
+  <!-- Focus Club -->
+  <article class="card" aria-labelledby="h-fc">
+    <h3 id="h-fc">Focus Club</h3>
+    <div class="kpi">
+      <div class="count">อีก<b id="fc-days">—</b>วันถึงวันเปิด<br><span style="font-size:12.5px">1 ธ.ค. 2026</span></div>
+      <div>
+        <div class="lab">สมาชิก</div>
+        <div style="margin-top:6px"><span class="tag off">ยังไม่เชื่อม</span></div>
+      </div>
+    </div>
+    <p class="src">ที่มา: วันนับถอยหลังคำนวณจากวันที่วันนี้ · จำนวนสมาชิกจะมาจาก Google Sheet ที่กำลังตั้ง</p>
+  </article>
+
+  <!-- ClassRoom -->
+  <article class="card" aria-labelledby="h-cr">
+    <h3 id="h-cr">ClassRoom</h3>
+    <div class="nc">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9a9a9a" stroke-width="2" aria-hidden="true"><path d="M9 15 15 9"/><path d="M11 6.5 13 4.5a4 4 0 0 1 6.5 6.5l-2 2"/><path d="m13 17.5-2 2A4 4 0 0 1 4.5 13l2-2"/></svg>
+      <div><b>จำนวนนักเรียน · ยังไม่เชื่อม</b><p>ยังไม่มีแหล่งข้อมูล เมื่อเลือกแหล่งได้แล้วตัวเลขจะขึ้นที่นี่</p></div>
+    </div>
+    <p class="src">ที่มา: ยังไม่ได้กำหนด</p>
+  </article>
+
+  <!-- benzarnun.com -->
+  <article class="card" aria-labelledby="h-blog">
+    <h3 id="h-blog">benzarnun.com · บทความล่าสุด <span class="tag sample">ตัวอย่าง</span></h3>
+    <ul class="list">
+      <li><a class="row-link" href="#" rel="noopener"><span class="t"><b>[หัวข้อบทความตัวอย่าง 1 ซึ่งอาจยาวจนต้องขึ้นบรรทัดที่สองได้]</b><small>dd MMM yyyy</small></span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg></a></li>
+      <li><a class="row-link" href="#" rel="noopener"><span class="t"><b>[หัวข้อบทความตัวอย่าง 2]</b><small>dd MMM yyyy</small></span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg></a></li>
+      <li><a class="row-link" href="#" rel="noopener"><span class="t"><b>[หัวข้อบทความตัวอย่าง 3]</b><small>dd MMM yyyy</small></span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg></a></li>
+    </ul>
+    <p class="src">ที่มา: RSS ของ benzarnun.com · เปิดในแท็บใหม่</p>
+  </article>
+</section>
+
+<!-- ============ 3. งานทีม ============ -->
+<section class="sec" aria-labelledby="h-team">
+  <div class="sec-h"><h2 id="h-team">งานทีม</h2><span class="when">ข้อมูลเมื่อ hh:mm</span></div>
+  <div class="card">
+    <div class="stats" aria-label="จำนวนงานตามสถานะ (ตัวอย่าง)">
+      <div class="stat"><b class="ph">—</b><span>เสร็จ</span></div>
+      <div class="stat need"><b>—</b><span>รอเบ๊น</span></div>
+      <div class="stat fail"><b>—</b><span>ติด</span></div>
+      <div class="stat"><b class="ph">—</b><span>กำลังทำ</span></div>
+    </div>
+    <ul class="list">
+      <li><div class="row-link"><span class="t"><b>[หัวข้องานตัวอย่าง]</b><small><span class="jid">job-xxxx</span> · project-ตัวอย่าง · hh:mm</small></span><span class="st need">รอเบ๊น</span></div></li>
+      <li><div class="row-link"><span class="t"><b>[หัวข้องานตัวอย่าง]</b><small><span class="jid">job-xxxx</span> · project-ตัวอย่าง · hh:mm</small></span><span class="st fail">ติด</span></div></li>
+      <li><div class="row-link"><span class="t"><b>[หัวข้องานตัวอย่าง]</b><small><span class="jid">job-xxxx</span> · project-ตัวอย่าง · hh:mm</small></span><span class="st sent">กำลังทำ</span></div></li>
+      <li><div class="row-link"><span class="t"><b>[หัวข้องานตัวอย่าง]</b><small><span class="jid">job-xxxx</span> · project-ตัวอย่าง · hh:mm</small></span><span class="st done">เสร็จ</span></div></li>
+    </ul>
+    <p class="src">ที่มา: snapshot งานทีม อัปเดตทุก 10 นาที · นับเฉพาะงานวันนี้ <span class="tag sample">ตัวอย่าง</span></p>
+  </div>
+</section>
+
+<!-- ============ Jarvis slot (disabled) ============ -->
+<section class="jarvis" aria-label="ช่องสั่งงาน Jarvis ยังไม่เปิดใช้" aria-disabled="true">
+  <h3>Jarvis <span class="tag soon">เร็วๆ นี้</span></h3>
+  <p>ยังสั่งงานจากหน้านี้ไม่ได้ ตอนนี้หน้านี้อ่านอย่างเดียว</p>
+  <div class="fake" aria-hidden="true">ยังไม่เปิดใช้</div>
+</section>
+
+<!-- ======================================================
+     STATE GALLERY (mockup only, not part of the real page)
+     ====================================================== -->
+<h2 class="gallery-h">state อื่นของแต่ละกล่อง (เฉพาะ mockup)</h2>
+<p class="gallery-p">ด้านล่างนี้ไม่ได้อยู่บนหน้าจริง ใช้ดูว่าแต่ละกล่องหน้าตาเป็นอย่างไรในแต่ละ state</p>
+
+<div class="gal-lab">loading · ทุกกล่อง (skeleton ขนาดเท่าของจริง กัน layout กระโดด)</div>
+<div class="card" aria-busy="true" aria-label="กำลังโหลด">
+  <div class="sk" style="height:18px;width:40%"></div>
+  <div class="kpi" style="margin-top:12px">
+    <div><div class="sk" style="height:12px;width:70%"></div><div class="sk" style="height:28px;width:90%;margin-top:6px"></div></div>
+    <div><div class="sk" style="height:12px;width:70%"></div><div class="sk" style="height:28px;width:90%;margin-top:6px"></div></div>
+  </div>
+  <div class="sk" style="height:14px;margin-top:18px;border-radius:99px"></div>
+  <p class="src">ที่มา: ไฟล์ Page365 ที่อัปโหลดแล้ว</p>
+</div>
+
+<div class="gal-lab">ยังไม่เชื่อม · งานทีม (ก่อน snapshot พร้อม)</div>
+<div class="card">
+  <div class="nc">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9a9a9a" stroke-width="2" aria-hidden="true"><path d="M9 15 15 9"/><path d="M11 6.5 13 4.5a4 4 0 0 1 6.5 6.5l-2 2"/><path d="m13 17.5-2 2A4 4 0 0 1 4.5 13l2-2"/></svg>
+    <div><b>งานทีม · ยังไม่เชื่อม</b><p>ยังไม่มี snapshot งานทีมส่งมาที่หน้านี้ เมื่อเชื่อมแล้วจะอัปเดตทุก 10 นาที</p></div>
+  </div>
+  <p class="src">ที่มา: snapshot งานทีม (ยังไม่เปิด)</p>
+</div>
+
+<div class="gal-lab">ข้อมูลเก่า · งานทีม (snapshot เกิน 30 นาที)</div>
+<div class="card">
+  <div class="banner stale" role="status">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFD400" stroke-width="2" aria-hidden="true" style="flex:none;margin-top:2px"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+    <span><b>ข้อมูลเก่า</b> · ล่าสุดเมื่อ hh:mm (— นาทีก่อน) ปกติอัปเดตทุก 10 นาที</span>
+  </div>
+  <div class="stats" style="opacity:.75">
+    <div class="stat"><b class="ph">—</b><span>เสร็จ</span></div>
+    <div class="stat need"><b>—</b><span>รอเบ๊น</span></div>
+    <div class="stat fail"><b>—</b><span>ติด</span></div>
+    <div class="stat"><b class="ph">—</b><span>กำลังทำ</span></div>
+  </div>
+  <p class="src">ที่มา: snapshot งานทีม อัปเดตทุก 10 นาที <span class="tag stale">ข้อมูลเก่า</span></p>
+</div>
+
+<div class="gal-lab">ข้อมูลเก่า · PK (ไฟล์เมื่อวานยังไม่มา)</div>
+<div class="card">
+  <h3>PK Jeans <span class="tag sample">ตัวอย่าง</span></h3>
+  <div class="kpi">
+    <div><div class="lab">ยอดขายเมื่อวาน</div><div class="val" style="font-size:16px;line-height:1.5;color:var(--y)">ยังไม่มีไฟล์</div><div class="sub">ล่าสุดที่มี: dd MMM <span class="ph">฿—,———</span></div></div>
+    <div><div class="lab">ยอดสะสมปีนี้</div><div class="val ph">฿——,———,———</div><div class="sub">ไม่รวมวันที่ไม่มีไฟล์</div></div>
+  </div>
+  <p class="src">ที่มา: ไฟล์ Page365 ที่อัปโหลดแล้ว · มีไฟล์ — จาก — วัน</p>
+</div>
+
+<div class="gal-lab">error · benzarnun.com (ดึง RSS ไม่ได้)</div>
+<div class="card">
+  <h3>benzarnun.com · บทความล่าสุด</h3>
+  <div class="banner err" role="alert">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF3B30" stroke-width="2" aria-hidden="true" style="flex:none;margin-top:2px"><circle cx="12" cy="12" r="9"/><path d="M12 7v6"/><path d="M12 16.5v.5"/></svg>
+    <span><b>โหลดไม่สำเร็จ</b><br>ดึง RSS ไม่ได้ กล่องอื่นยังใช้ได้ตามปกติ</span>
+    <button class="btn" type="button">ลองใหม่</button>
+  </div>
+  <p class="src">ที่มา: RSS ของ benzarnun.com</p>
+</div>
+
+<div class="gal-lab">empty · วันนี้เบ๊นต้องทำ</div>
+<div class="card">
+  <div class="empty"><b>วันนี้ไม่มีงานค้าง</b>ไม่มี job รอตัดสิน ไม่มีคำถามอนุมัติ และไฟล์ Page365 เมื่อวานมาแล้ว</div>
+  <p class="src">ที่มา: job ที่รอเบ๊น · คำถามอนุมัติใน Discord · ตารางอัปโหลด Page365</p>
+</div>
+
+<div class="gal-lab">empty · งานทีม (เชื่อมแล้ว แต่วันนี้ยังไม่มีงาน)</div>
+<div class="card">
+  <div class="empty"><b>วันนี้ยังไม่มีงานทีม</b>เมื่อมีงานใหม่จะขึ้นที่นี่ภายใน 10 นาที</div>
+  <p class="src">ที่มา: snapshot งานทีม อัปเดตทุก 10 นาที · ข้อมูลเมื่อ hh:mm</p>
+</div>
+
+<div class="gal-lab">error · ทั้งหน้า (API ล่มทั้งหมด)</div>
+<div class="banner err" role="alert">
+  <span><b>โหลดข้อมูลไม่ได้</b><br>เช็กอินเทอร์เน็ตแล้วกดลองใหม่ ถ้ายังไม่ได้ แปลว่าระบบหลังบ้านมีปัญหา</span>
+  <button class="btn" type="button">ลองใหม่</button>
+</div>
+
+</main>
+</div>
+<script>
+// Only real, date-derived values (no business data): today's date, days to Focus Club opening, share of the year elapsed.
+(function(){
+  var tz='Asia/Bangkok';
+  var now=new Date();
+  var ymd=new Intl.DateTimeFormat('en-CA',{timeZone:tz}).format(now).split('-').map(Number);
+  var today=Date.UTC(ymd[0],ymd[1]-1,ymd[2]);
+  document.getElementById('today').textContent=new Intl.DateTimeFormat('th-TH',{timeZone:tz,weekday:'short',day:'numeric',month:'short'}).format(now);
+  var open=Date.UTC(2026,11,1);
+  var d=Math.round((open-today)/864e5);
+  document.getElementById('fc-days').textContent=d>0?d:(d===0?'วันนี้':'เปิดแล้ว');
+  var start=Date.UTC(ymd[0],0,1), end=Date.UTC(ymd[0]+1,0,1);
+  var daysSoFar=Math.round((today-start)/864e5); // up to yesterday
+  var pct=daysSoFar/((end-start)/864e5)*100;
+  document.getElementById('should').style.left=pct.toFixed(1)+'%';
+  document.getElementById('should-pct').textContent=pct.toFixed(1)+'%';
+  document.getElementById('days-so-far').textContent=daysSoFar;
+})();
+</script>
+</body>
+</html>

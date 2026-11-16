@@ -1,6 +1,7 @@
 // Cloudflare Worker: API + scheduled rule runs + the React dashboard (static assets).
 // Secrets (set with `npx wrangler secret put NAME`, never in this file):
-//   META_ACCESS_TOKEN, META_APP_SECRET + META_WEBHOOK_VERIFY_TOKEN (Messenger webhook), LINE_CHANNEL_ACCESS_TOKEN (optional), LINE_TO (optional)
+//   META_ACCESS_TOKEN, META_APP_SECRET + META_WEBHOOK_VERIFY_TOKEN (Messenger webhook), LINE_CHANNEL_ACCESS_TOKEN (optional), LINE_TO (optional),
+//   COMMAND_ALLOWED_EMAIL + COMMAND_SERVICE_CLIENT_IDS (Benz Command Center, see docs/command-center/deploy-checklist.md)
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "pkjeans-ads",
@@ -66,7 +67,12 @@
     "CF_ACCESS_POLICY_ID": "c21b794b-dd95-4d8f-86df-ad7347a24fe5",
     // Cloudflare Access (Worker → Access tab → Application values). Empty = every /api call is refused.
     "ACCESS_TEAM_DOMAIN": "https://broad-cell-d05a.cloudflareaccess.com",
-    "ACCESS_AUD": "468421c1e47c4a4bde081a9e8b6dfe02f22dfa4305edd0faf64a16f08cc48a0a"
+    "ACCESS_AUD": "468421c1e47c4a4bde081a9e8b6dfe02f22dfa4305edd0faf64a16f08cc48a0a",
+    // Benz Command Center (/command): AUD tag of the "PkJeans Command" Access app; empty = /api/command refuses everyone.
+    // Benz's email and the snapshot token's client id are secrets: COMMAND_ALLOWED_EMAIL, COMMAND_SERVICE_CLIENT_IDS.
+    "COMMAND_ACCESS_AUD": "",
+    // Discord server id for links from /command to a proposal's message; empty = links go to /#history.
+    "DISCORD_GUILD_ID": ""
   },
   "observability": { "enabled": true }
 }

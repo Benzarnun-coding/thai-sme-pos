@@ -4,6 +4,7 @@ import { MetaClient } from '../../ads-engine/src/meta.ts';
 import { applyDecisions, sumBudget } from '../../ads-engine/src/apply.ts';
 import type { Entity, Level, Window } from '../../ads-engine/src/types.ts';
 import { authenticate } from './auth.ts';
+import { commandRoute } from './command.ts';
 import { canWrite, roleOf, type Role } from './roles.ts';
 import { deleteUser, loadUsers, normaliseEmail, ownerEmails, parseRole, roleMap, saveUser } from './users.ts';
 import { accessStatus, syncAccess } from './access.ts';
@@ -39,7 +40,7 @@ import { closeCase, customerName, serviceAlerts, servicePreview } from './servic
 import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './postIdeas.ts';
 import { DEFAULT_GOAL, dayNet, goalStatus, monthDates, nextCap, ytdStatus, type DayNet, type GoalStatus } from './goal.ts';
 import { approvalsEnabled, blockedByKillSwitch, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
-import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
+import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, ytdRevenue, type UploadedOrder } from './p365.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
 import { cleanupDrafts, cleanupOn, setCleanup } from './draftCleanup.ts';
@@ -51,7 +52,7 @@ import { dayOrders, reconcile } from './orderDay.ts';
 import { adjustmentDays, seedFromSent } from './metaAdjust.ts';
 import { buildEnabled, checkBuilds, listRequests, postPicker, registerCommand, requestInteraction, syncTitles } from './featureRequests.ts';
 import { pageOf, receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
-import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
+import { BadRequest, json, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
 export interface Env {
   DB: D1Database;
@@ -62,6 +63,12 @@ export interface Env {
   META_API_VERSION?: string;
   ACCESS_TEAM_DOMAIN?: string;
   ACCESS_AUD?: string;
+  /** Benz Command Center (worker/command.ts): its own Access app's aud (var), Benz's email + the snapshot token's client ids (secrets) */
+  COMMAND_ACCESS_AUD?: string;
+  COMMAND_ALLOWED_EMAIL?: string;
+  COMMAND_SERVICE_CLIENT_IDS?: string;
+  /** Discord server id, for links from /command to a proposal's message (var, optional) */
+  DISCORD_GUILD_ID?: string;
   LINE_CHANNEL_ACCESS_TOKEN?: string;
   LINE_TO?: string;
   DISCORD_WEBHOOK_URL?: string;
@@ -149,6 +156,8 @@ export default {
       if (req.method === 'POST') return receiveWebhook(req, env, ctx);
       return new Response('method not allowed', { status: 405 });
     }
+    // Benz Command Center has its own Access app (different aud), so it is checked here, before the dashboard's authenticate().
+    if (url.pathname === '/api/command' || url.pathname.startsWith('/api/command/')) return commandRoute(req, env, ctx);
     if (!url.pathname.startsWith('/api/')) return new Response('Not found', { status: 404 });
 
     const user = await authenticate(req, env).catch(() => null);
@@ -1727,14 +1736,6 @@ async function loadGoal(env: Env): Promise<GoalStatus> {
   return goalStatus(month, daysInMonth, dates, dates.filter((d) => uploads.has(d)).map(net), last7.filter((d) => uploads.has(d)).map(net), settings.goal, ytd);
 }
 
-/** Real Page365 revenue per uploaded day from 1 Jan of `to`'s year to `to`: one aggregate query, no order rows loaded. */
-async function ytdRevenue(db: D1Database, to: string): Promise<{ date: string; revenue: number }[]> {
-  const { results } = await db.prepare(
-    'SELECT u.date AS date, COALESCE(SUM(o.total), 0) AS revenue FROM p365_uploads u LEFT JOIN p365_orders o ON o.date = u.date WHERE u.date >= ? AND u.date <= ? GROUP BY u.date',
-  ).bind(`${to.slice(0, 4)}-01-01`, to).all<{ date: string; revenue: number }>();
-  return results;
-}
-
 function goalText(g: GoalStatus): string {
   const b = (x: number) => Math.round(x).toLocaleString('th-TH');
   const pct = g.goal.monthly_net ? Math.round((g.net / g.goal.monthly_net) * 100) : 0;
@@ -2054,6 +2055,3 @@ async function syncIfConfigured(env: Env, actor: string): Promise<{ ok: boolean;
   }
 }
 
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
-}
