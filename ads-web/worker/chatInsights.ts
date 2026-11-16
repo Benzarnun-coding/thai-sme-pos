@@ -1,4 +1,4 @@
-// น้องจิบิ's nightly read of the chats (agreed 2026-10-15): yesterday's conversations (already redacted, no names)
+// อูนิ's nightly read of the chats (agreed 2026-10-15): yesterday's conversations (already redacted, no names)
 // go to an AI model once, which writes a short Thai summary for #meta-chat — what customers ask, why they don't
 // buy, whether the admins offer the 3-piece set, ideas for posts and for Meta Business AI. Not part of the ads
 // rules: nothing here changes budgets or replies to customers.
@@ -59,7 +59,7 @@ export function transcript(convs: Conversation[]): { text: string; used: number 
   return { text: blocks.join('\n\n'), used };
 }
 
-export const INSIGHT_SYSTEM = `คุณคือ "น้องจิบิ" ผู้ช่วยวิเคราะห์แชทของร้าน PkJeans (ขายกางเกงยีนส์ผ่าน Messenger, โปรเช่น 1 ตัว 189–249, 3 ตัว 499–599, เก็บเงินปลายทาง)
+export const INSIGHT_SYSTEM = `คุณคือ "อูนิ" ผู้ช่วยวิเคราะห์แชทของร้าน PkJeans (ขายกางเกงยีนส์ผ่าน Messenger, โปรเช่น 1 ตัว 189–249, 3 ตัว 499–599, เก็บเงินปลายทาง)
 อ่านแชทของเมื่อวานแล้วสรุปเป็นภาษาไทย สุภาพ ลงท้าย "ค่ะ" สำหรับทีม (แม็กซ์ แอดมิน) อ่านใน Discord
 กติกา:
 - ตอบเป็นข้อความ Discord markdown ไม่เกิน 1,700 ตัวอักษร ห้ามมีชื่อ เบอร์ ที่อยู่ของลูกค้า

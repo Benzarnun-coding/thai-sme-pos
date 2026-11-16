@@ -23,7 +23,7 @@ interface SoldProduct { key: string; tab: string; spu: string; label: string; qt
 export function TodoApp() {
   useEffect(() => { document.title = 'งานค้าง'; }, []);
   const { toast } = useUi();
-  const { meta, setMeta, rows, loading, canEdit, supplierMap, priceMap, labelMap, aliasMap, imageMap } = useCatalog();
+  const { meta, setMeta, rows, loading, canEdit, supplierMap, priceMap, labelMap, aliasMap, aliasForce, imageMap } = useCatalog();
   const [days, setDays] = useState(14);
   const [data, setData] = useState<SalesData | null>(null);
 
@@ -34,7 +34,7 @@ export function TodoApp() {
   }, [days]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const allRows = useMemo<CatalogRow[]>(() => [...rows, ...(meta?.web ?? []).map((w) => webToRow(w, 0))], [rows, meta?.web]);
-  const lookup = useMemo(() => makeLookup(allRows, supplierMap, priceMap, labelMap, aliasMap), [allRows, supplierMap, priceMap, labelMap, aliasMap]);
+  const lookup = useMemo(() => makeLookup(allRows, supplierMap, priceMap, labelMap, aliasMap, aliasForce), [allRows, supplierMap, priceMap, labelMap, aliasMap, aliasForce]);
   const sales = useMemo(() => (data ? saleRows(data) : []), [data]);
 
   // What sold, per product (known SKUs) and per unknown SKU.

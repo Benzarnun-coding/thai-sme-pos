@@ -194,7 +194,7 @@ export function chatDayText(d: ChatDay, title: string, nameOf: (id: string | nul
   const p90 = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[Math.floor(xs.length * 0.9)] : null);
   const mins = (x: number | null) => (x === null ? '–' : x < 1 ? '<1 นาที' : x < 60 ? `${Math.round(x)} นาที` : `${(x / 60).toFixed(1)} ชม.`);
   const lines = [
-    `💬 **${title}** — น้องจิบิสรุปแชทค่ะ`,
+    `💬 **${title}** — อูนิสรุปแชทค่ะ`,
     `ลูกค้า ${d.threads} คน · ข้อความลูกค้า ${d.customer} · เพจตอบ ${d.page} · ส่งที่อยู่ ${d.addresses} ครั้ง (ประมาณคนที่ตกลงซื้อ)`,
     `⏱ ตอบครั้งแรกเฉลี่ย (มัธยฐาน) **${mins(med(d.replies))}** · ช้าสุด 10% ${mins(p90(d.replies))} · ${d.unanswered ? `⚠️ ยังไม่มีคนตอบ **${d.unanswered} คน**` : '✅ ตอบครบทุกคน'}`,
     `ตามช่วงเวลา: ${d.bands.filter((b) => b.replies.length || b.unanswered).map((b) => `${b.band} น. ${mins(med(b.replies))}${b.unanswered ? ` (ไม่ได้ตอบ ${b.unanswered})` : ''}`).join(' · ') || '–'}`,

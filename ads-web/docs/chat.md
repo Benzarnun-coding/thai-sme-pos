@@ -71,3 +71,27 @@ Meta has no API for Business AI's settings, so a person pastes the answers in.
   - no discounts
   - no product facts that aren't in the shop's info
   - clear shipping (transfer free / COD +50)
+
+## service ลูกค้า (`worker/serviceAlert.ts`, migration 0051, Benz 2026-10-20)
+
+After answer-bank fix #13: a customer said they got a zip instead of buttons and asked for a refund. The bot quoted a refund policy on its own and the customer got angrier.
+
+- Every customer message the webhook stores is checked by `serviceReason`:
+  - refund (คืนเงิน, เงินคืน, โอนคืน)
+  - not as pictured (ไม่ตรงปก, ไม่ตรงกับรูป)
+  - wrong item (ส่งผิด, ผิดแบบ/สี/ไซส์, "สั่ง… แต่ได้…")
+  - return / exchange (คืน/เปลี่ยนสินค้า, ส่งคืน, เคลม)
+  - complaint (ร้องเรียน, ไม่พอใจ, ชำรุด, เก็บเงินซ้ำ …)
+  - a leg length / hem width question with a number word ("ขายาวกี่นิ้ว", "ปลายขากว้างเท่าไหร่"; fix #14, the bot made up "ยาว 16 นิ้วทุกไซส์")
+  - a waist that may not be made: 27 and under or 41 and over after เอว/ไซส์/size (fix #15). 29/31/33/35 were in at first; the 21 Oct dry run (170 cases in 7 days) showed they are ordered all day, so they were dropped.
+  - Worry or a condition before buying (กลัว, ถ้า/หาก, อย่า, ไม่รับ, เคยสั่ง …) is not a complaint; a length question with ราคา is a price question. After this the same 7 days give ~55 cases (~8 a day).
+  - "…ไหม" right after = a question before buying, so it is skipped.
+- A match opens a case (one open case per customer) and the bot posts it at once to Discord "service ลูกค้า":
+  - the customer's Facebook name, read live from Meta and never stored, so Fear can search the inbox. Meta refuses the profile lookup (`/{psid}?fields=name`) for most customers, so the name comes from the page's conversation with them (`conversations?user_id=…&fields=participants`) — Benz 2026-10-20, the first test had no name.
+  - the time and the redacted text
+  - a tag for `DISCORD_SERVICE_IDS` (Fear)
+  - a **✅ จัดการจบแล้ว** button (`svcdone`; Fear + approvers), which closes the case and adds who closed it and when.
+  - The next complaint from that customer after closing opens a new case.
+- Switch: the secret `DISCORD_SERVICE_WEBHOOK_URL` (the channel's webhook). The bot posts in that webhook's channel so the button works. The bot must be able to see and send there; if it can't, the webhook posts without a button.
+- Dry run: `GET /api/service/preview?days=7` lists what would have been posted from the stored chats.
+- Test: `POST /api/service/test` posts one "[ทดสอบระบบ]" case through the real path (psid `TEST-…`, never sent to Meta), with the name of the latest real customer in the chat log so the name lookup is tested too.

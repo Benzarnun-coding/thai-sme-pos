@@ -30,7 +30,7 @@ interface Loaded { file: string; headers: string[]; rows: Record<string, string>
 export function ProfitApp() {
   useEffect(() => { document.title = 'กำไร'; }, []);
   const { toast } = useUi();
-  const { meta, rows, loading, canEdit, supplierMap, priceMap, sellMap, labelMap, aliasMap } = useCatalog();
+  const { meta, rows, loading, canEdit, supplierMap, priceMap, sellMap, labelMap, aliasMap, aliasForce } = useCatalog();
   const [preset, setPreset] = useState<number | null>(7);
   const [to, setTo] = useState(minus(todayBkk(), 1));
   const [from, setFrom] = useState(minus(todayBkk(), 7));
@@ -48,7 +48,7 @@ export function ProfitApp() {
 
   const pick = (days: number) => { setPreset(days); setTo(minus(todayBkk(), 1)); setFrom(minus(todayBkk(), days)); };
   const allRows = useMemo<CatalogRow[]>(() => [...rows, ...(meta?.web ?? []).map((w) => webToRow(w, 0))], [rows, meta?.web]);
-  const lookup = useMemo(() => makeLookup(allRows, supplierMap, priceMap, labelMap, aliasMap), [allRows, supplierMap, priceMap, labelMap, aliasMap]);
+  const lookup = useMemo(() => makeLookup(allRows, supplierMap, priceMap, labelMap, aliasMap, aliasForce), [allRows, supplierMap, priceMap, labelMap, aliasMap, aliasForce]);
   const result = useMemo(() => (data && !loading ? profit(data, lookup, sellMap) : null), [data, lookup, sellMap, loading]);
   const products = useMemo(() => {
     const list = [...(result?.products ?? [])];

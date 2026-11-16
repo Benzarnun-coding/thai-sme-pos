@@ -4,10 +4,13 @@
 // name, the bill number and the reasons, for a person. The bill stays a draft: an admin still opens it in
 // Page365 and presses "ส่งบิล". Switch: meta_capi key auto_fill (on/off), on the settings page.
 
+import { DISCORD_PERSONA } from '../../ads-engine/src/notify.ts';
 import { postToDeciders, type DiscordEnv } from './discord.ts';
 import { looksLikeNote, markFill, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
 import { sendNotePurchase } from './notePurchases.ts';
-import { applyFill, call, findDraft, P365Error, planFill, type FillEnv, type P365Order } from './p365fill.ts';
+import { cleanupDrafts, cleanupOn, deleteDraft } from './draftCleanup.ts';
+import { accuracyPost, auditStep } from './fillAudit.ts';
+import { applyFill, call, CANCEL_HINT, findDraft, P365Error, planFill, type FillEnv, type P365Order } from './p365fill.ts';
 
 export interface AutoEnv extends FillEnv, DiscordEnv { DB: D1Database; /** #ออเดอร์มีปัญหา (Benz 15 Oct); falls back to the ads channel via the bot */ DISCORD_ORDER_WEBHOOK_URL?: string; /** who answers for problem bills (เนย, Benz 15 Oct); empty = the deciders */ DISCORD_ORDER_OWNER_IDS?: string }
 
@@ -59,7 +62,7 @@ const bkk = (iso: string) => new Date(Date.parse(iso) + 7 * 3_600_000).toISOStri
  * (the morning round, an admin) is taken as this note's, and a second note within 2 hours of one already filled
  * is a correction, left for a person.
  */
-export async function ensureDraft(env: AutoEnv, note: StoredNote): Promise<{ draft: P365Order | null; billed?: P365Order; why?: string }> {
+export async function ensureDraft(env: AutoEnv, note: StoredNote): Promise<{ draft: P365Order | null; billed?: P365Order; why?: string; replaced?: number }> {
   const t = Date.parse(note.at);
   const who = await customerFor(env, note.psid);
   let draft: P365Order | null = null;
@@ -80,6 +83,15 @@ export async function ensureDraft(env: AutoEnv, note: StoredNote): Promise<{ dra
   if (draft?.items.length) {
     const other = await otherNoteOn(env.DB, draft.no, note.mid);
     if (other && Math.abs(Date.parse(other.at) - t) <= SAME_ORDER_MS) {
+      // A corrected summary replaces the earlier one (Benz 20 Oct): the draft the earlier note filled is deleted
+      // and a new one opened for this note — only while it is still a draft, and only with cleanup switched on.
+      if (draft.stage === 'draft' && who && (await cleanupOn(env.DB))) {
+        await deleteDraft(env, draft);
+        await env.DB.prepare('UPDATE order_notes SET filled_at = NULL, fill_error = ? WHERE mid = ?').bind(`ต้องให้คนดู: ลบร่างแล้ว (แทนด้วยสรุปตอน ${bkk(note.at)} น.)`, other.mid).run();
+        const fresh = await openDraft(env, who.customer_id);
+        if (!fresh) return { draft: null, why: `ลบร่าง #${draft.no} (สรุปเดิม) แล้ว แต่เปิดร่างใหม่ไม่ได้ — เปิดร่างเองในแชท` };
+        return { draft: fresh, replaced: draft.no };
+      }
       return { draft, why: `สรุปซ้ำ: ร่าง #${draft.no} ใส่ไปแล้วจากสรุปตอน ${bkk(other.at)} น. — ถ้าเป็นการแก้ ให้แก้ในร่างเอง` };
     }
     // Filled from an older order note: this is a new order and gets its own draft. Items a person put in: theirs.
@@ -148,6 +160,8 @@ export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force
       const r = await applyFill(env, note, { plan, address: plan.address, allowWarnings: true });
       await markFill(env.DB, note.mid, { by: 'auto', order_no: r.order.no, error: null });
       if (plan.warnings.length) await tell(env, note, r.order, name, plan.warnings, true);
+      // Remembered for the draft cleanup: a possibly cancelled order left unsent for 7 days is deleted.
+      if (plan.warnings.includes(CANCEL_HINT)) await env.DB.prepare("INSERT OR REPLACE INTO meta_capi (key, value) VALUES (?, ?)").bind(`cancel_hint:${r.order.no}`, note.at).run().catch(() => null);
       return { status: 'filled', order_no: r.order.no, reasons: plan.warnings };
     }
     const why = plan.problems.length ? plan.problems : ['ไม่เจอร่างบิล'];
@@ -236,12 +250,12 @@ export async function tell(env: AutoEnv, note: StoredNote, draft: P365Order | nu
 }
 
 /** The problem channel (#ออเดอร์มีปัญหา), tagging the person in charge; the ads channel via the bot if not set. */
-async function postOrderChannel(env: AutoEnv, body: (mention: string) => string): Promise<void> {
+export async function postOrderChannel(env: AutoEnv, body: (mention: string) => string): Promise<void> {
   if (env.DISCORD_ORDER_WEBHOOK_URL) {
     const ids = (env.DISCORD_ORDER_OWNER_IDS || env.DISCORD_DECIDER_IDS || '').split(',').map((x) => x.trim()).filter(Boolean);
     const r = await fetch(env.DISCORD_ORDER_WEBHOOK_URL, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'น้องจิบิ', content: body(ids.map((id) => `<@${id}>`).join(' ')), allowed_mentions: { users: ids } }),
+      body: JSON.stringify({ ...DISCORD_PERSONA, content: body(ids.map((id) => `<@${id}>`).join(' ')), allowed_mentions: { users: ids } }),
     });
     if (r.ok) return;
     console.error('order webhook', r.status);
@@ -257,6 +271,12 @@ async function postOrderChannel(env: AutoEnv, body: (mention: string) => string)
 export async function cronSweep(env: AutoEnv): Promise<void> {
   if (!(await autoFillOn(env.DB))) return;
   await sweepNotes(env, { force: true }).catch((err) => console.error('sweep', err));
+  if (await cleanupOn(env.DB)) await cleanupDrafts(env, { apply: true }).catch((err) => console.error('cleanup', err));
+  // 09:15 Bangkok: yesterday's accuracy to the problem channel (fillAudit.ts), after one more audit step.
+  if ((new Date().getUTCHours() + 7) % 24 === 9) {
+    await auditStep(env, { force: true }).catch((err) => console.error('audit', err));
+    await accuracyPost(env).catch((err) => console.error('accuracy post', err));
+  }
   const hour = (new Date().getUTCHours() + 7) % 24;
   const last = await env.DB.prepare('SELECT max(at) AS at FROM chat_messages').first<{ at: string | null }>().catch(() => null);
   if (hour >= 10 && hour < 23 && last?.at && Date.now() - Date.parse(last.at) > 3 * 3_600_000) {

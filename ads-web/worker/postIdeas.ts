@@ -1,4 +1,4 @@
-// น้องจิบิ's post ideas for Max (Benz, 14 Oct 2026): which products deserve a new ad post, which promo to put on
+// อูนิ's post ideas for Max (Benz, 14 Oct 2026): which products deserve a new ad post, which promo to put on
 // it, and which products not to make more posts for yet. Worked out from real Page365 orders (pieces per product
 // family, promo mix, organic demand) and the last 7 days of ad spend per campaign — no AI, same numbers every time.
 
@@ -153,13 +153,13 @@ export function postIdeas(stats: FamilyStats[], breakeven: number, days: number)
 
 export function postIdeasText(ideas: PostIdea[], mention: string, days: number): string {
   const who = mention ? `คุณ ${mention}` : 'ทีม';
-  if (!ideas.length) return `💡 น้องจิบิสรุปไอเดียโพสต์ให้${who}ค่ะ — สัปดาห์นี้ยังไม่มีสินค้าไหนเด่นพอจะแนะนำให้ทำโพสต์เพิ่มนะคะ`;
+  if (!ideas.length) return `💡 อูนิสรุปไอเดียโพสต์ให้${who}ค่ะ — สัปดาห์นี้ยังไม่มีสินค้าไหนเด่นพอจะแนะนำให้ทำโพสต์เพิ่มนะคะ`;
   const sec = (k: PostIdea['kind'], title: string) => {
     const list = ideas.filter((i) => i.kind === k);
     return list.length ? ['', title, ...list.map((i) => i.text)] : [];
   };
   return [
-    `💡 น้องจิบิสรุปไอเดียโพสต์ใหม่ให้${who}ค่ะ 🙏 (จากออเดอร์จริง Page365 ${days} วัน + ค่าแอด 7 วัน)`,
+    `💡 อูนิสรุปไอเดียโพสต์ใหม่ให้${who}ค่ะ 🙏 (จากออเดอร์จริง Page365 ${days} วัน + ค่าแอด 7 วัน)`,
     ...sec('scale', '**ทำโพสต์เพิ่ม — ตัวที่ทำกำไรอยู่แล้ว**'),
     ...sec('untapped', '**ลองเปิดแอด — ขายได้แต่ยังไม่มีแอดของตัวเอง**'),
     ...sec('hold', '**ยังไม่ต้องทำเพิ่ม**'),

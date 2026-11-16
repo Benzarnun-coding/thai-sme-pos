@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyFill, billName, chatTotal, planFill, sizeLines, validAddress } from './p365fill.ts';
+import { applyFill, askedSizeNotMade, billName, chatTotal, cleanStreet, pickColour, pickProduct, planFill, sizeLines, validAddress } from './p365fill.ts';
 
 // A fake Page365 with the shapes its web app sees (read 15 Oct 2026): one draft for customer "u1".
 function fakePage365() {
@@ -145,4 +145,37 @@ test('a repeat customer: the earlier order\'s total is not this order\'s price',
   assert.equal(chatTotal(msgs, '2026-10-15T09:09:53Z'), null, 'no "ยอด" since the last order: nothing to compare');
   assert.equal(chatTotal([...msgs.slice(0, 2), { own: true, message: 'ยอดรวม 199 บาท', created_at: '2026-10-15T09:06:00Z' }, msgs[3]], '2026-10-15T09:09:53Z'), 199);
   assert.equal(chatTotal([{ own: true, message: 'ยอดรวม 398', created_at: '2026-10-12T01:00:00Z' }], '2026-10-15T09:09:53Z'), null, 'older than 2 days');
+});
+
+test('the product a code means: same code, other separators, the only colour — never a different model', () => {
+  const ps = ['C20-4 กางเกงคาร์โก้', '20-4 ขาสั้นชิโน่', '204/1 ยีนส์ยืด', '205/1 ยีนส์ยืด', 'SK-004 สแล็ค', '009-1 ขาสั้น', '009-2 ขาสั้น', '1009 ขาสั้น', '200 ยีนส์', '2002 ยีนส์'].map((name) => ({ name }));
+  const pick = (c: string) => pickProduct(ps, c)?.name.split(' ')[0];
+  assert.equal(pick('009/1'), '009-1');
+  assert.equal(pick('SK004'), 'SK-004');
+  assert.equal(pick('204'), '204/1', 'not 20-4');
+  assert.equal(pick('205'), '205/1');
+  assert.equal(pick('200'), '200');
+  assert.equal(pick('009'), undefined, 'two colours: not guessed');
+});
+
+test('name and phone are taken out of the house-number line', () => {
+  assert.equal(cleanStreet('สมชาย ใจดี 0812345678 99/9 ม.9', ['PK-1234 สมชาย ใจดี'], '0812345678'), '99/9 ม.9');
+  assert.equal(cleanStreet('ชื่อ สมชาย เบอร์ 081-234-5678 บ้านเลขที่ 12 ซ.3', ['สมชาย'], ''), 'บ้านเลขที่ 12 ซ.3');
+  assert.equal(cleanStreet('99/9 ม.9 ถ.สุขุมวิท', ['สมหญิง'], '0899999999'), '99/9 ม.9 ถ.สุขุมวิท');
+});
+
+test('a colour name picks the colour product; team names that differ from Page365 are aliased', () => {
+  const ps = ['980-33 กางเกงผ้ายืด Sports เหลือง', '980-32 กางเกงผ้ายืด Sports แดง', '980-31 กางเกงผ้ายืด Sports น้ำเงิน', '980-29 กางเกงผ้ายืด Sports เทา', '9801 อื่น'].map((name) => ({ name }));
+  const pick = (c: string) => pickColour(ps, '980', c)?.name.split(' ')[0];
+  assert.equal(pick('ดำกรม'), '980-31', 'team name for น้ำเงิน');
+  assert.equal(pick('เทา'), '980-29');
+  assert.equal(pick('แดง'), '980-32');
+  assert.equal(pick('ชมพู'), undefined);
+});
+
+test('a size the customer asked for that is not made does not stop the bill', () => {
+  const made = new Set(['28', '30', '32', '34', '36', '38']);
+  assert.equal(askedSizeNotMade('โน้ต 34 แต่ลูกค้าขอ 33', ['34'], made), true);
+  assert.equal(askedSizeNotMade('โน้ต 30 แต่ลูกค้าขอ 32', ['30'], made), false, '32 is made: a real mismatch');
+  assert.equal(askedSizeNotMade('ลูกค้าแจ้งเอว 33 (ร้านแนะนำ 34)', ['34'], made), true);
 });

@@ -8,6 +8,7 @@
   "compatibility_date": "2026-09-01",
   "assets": {
     "directory": "./dist",
+    "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*", "/webhook/*"]
   },
@@ -45,8 +46,19 @@
     "CHAT_BOT_APP_IDS": "",
     // Who pastes approved answers into Business AI each Monday (Fear); empty = tag the deciders.
     "DISCORD_KB_UPDATER_IDS": "1179672160122458124",
+    // Discord "service ลูกค้า": complaints / refunds / wrong items tag these people (Fear); the webhook URL is the secret DISCORD_SERVICE_WEBHOOK_URL.
+    "DISCORD_SERVICE_IDS": "1179672160122458124",
     // #meta-chat: bot posts about chats and the answer bank (fixes with buttons, Fear's Monday reminder).
     "DISCORD_CHAT_CHANNEL_ID": "1560180109045014528",
+    // /ไอเดีย feature requests (worker/featureRequests.ts): the forum channel id; empty = off. Deciders (ให้ทำ/ผ่าน) = Benz.
+    "DISCORD_REQUEST_CHANNEL_ID": "1562012646394298389",
+    "DISCORD_REQUEST_DECIDER_IDS": "869116667945439323",
+    // /ไอเดีย may be typed only in #เสนอพัฒนาระบบ (Benz 2026-10-20); empty = any channel.
+    "DISCORD_REQUEST_COMMAND_CHANNEL_ID": "1562014820729880646",
+    // ให้ทำ fires this Claude Code routine (claude.ai/code/routines, API trigger; token = secret IDEA_ROUTINE_TOKEN).
+    // Empty = nobody builds automatically. It opens a PR on claude/idea-<id> in GITHUB_REPO; Benz merges + deploys.
+    "IDEA_ROUTINE_ID": "trig_01NdKdodWjSGfsAR2EuMtUJ5",
+    "GITHUB_REPO": "Benzarnun-coding/thai-sme-pos",
     // Owners: always allowed to manage users on the ผู้ใช้ page (comma separated).
     "OWNER_EMAILS": "arnun.tre@benzarnun.com,ps.maxpollawat@gmail.com",
     // Cloudflare Access sync: account + the reusable policy "PkJeans team" (token is the secret CF_API_TOKEN).

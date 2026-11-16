@@ -60,7 +60,9 @@ export function useCatalog() {
   const labelMap = useMemo(() => new Map((labels ?? []).map((l) => [l.key, l.label])), [labels]);
   const aliases = meta?.aliases;
   const aliasMap = useMemo(() => new Map((aliases ?? []).map((a) => [a.alias, a.sku])), [aliases]);
+  /** Aliases that replace a SKU even when the catalog has it */
+  const aliasForce = useMemo(() => new Set((aliases ?? []).filter((a) => a.force).map((a) => a.alias)), [aliases]);
   const canEdit = role === 'owner' || role === 'admin' || role === 'costs';
 
-  return { meta, setMeta, rows, setRows, loading, error, load, role, canEdit, imageMap, supplierMap, priceMap, sellMap, labelMap, aliasMap };
+  return { meta, setMeta, rows, setRows, loading, error, load, role, canEdit, imageMap, supplierMap, priceMap, sellMap, labelMap, aliasMap, aliasForce };
 }

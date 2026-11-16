@@ -31,26 +31,32 @@ import { opsFacts, opsText } from './opsDigest.ts';
 import { deleteMove, gosellCut, saveMoves, stockData, syncRoundStock, validateMoves } from './stock.ts';
 import { deletePurchase, findOrders, ledger, listPurchases, orderTerms, purchaseExtra, purchaseLines, savePayments, savePurchase, setMissing, validateMissing, validatePayments, validatePurchase } from './purchase.ts';
 import { applySync, catalogMeta, catalogRows, catalogSheetId, createWebSkus, deleteImage, deleteWebSku, discoverTabs, imageKey, imageResponse, parseSheetId, proxyImage, saveCatalogSheetId, saveAlias, saveImageLink, saveLabels, savePrices, saveSuppliers, saveUploadedImage, sheetCsv, updateWebSku, validateSync } from './catalog.ts';
-import { pushDiscord } from '../../ads-engine/src/notify.ts';
+import { DISCORD_PERSONA, pushDiscord } from '../../ads-engine/src/notify.ts';
 import { chatDay, chatDayText, chatSummary, purgeChats, reRedactChats } from './chatLog.ts';
 import { aiEnabled, askAI, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
 import { kbMessage, kbPasteText, listKb, markApplied, postBot, proposeItems, setKbStatus, speaker } from './botKb.ts';
+import { closeCase, customerName, serviceAlerts, servicePreview } from './serviceAlert.ts';
 import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './postIdeas.ts';
-import { dayNet, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
+import { DEFAULT_GOAL, dayNet, goalStatus, monthDates, nextCap, ytdStatus, type DayNet, type GoalStatus } from './goal.ts';
 import { approvalsEnabled, blockedByKillSwitch, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
 import { actualByCampaign, loadOrders, loadUploads, normaliseOrders, orderFees, recreditDates, saveOrders, type UploadedOrder } from './p365.ts';
 import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCatalog } from './orderNotes.ts';
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
+import { cleanupDrafts, cleanupOn, setCleanup } from './draftCleanup.ts';
+import { accuracy, auditStep } from './fillAudit.ts';
 import { autoFillNote, autoFillOn, cronSweep, customerFor, loadMisses, setAutoFill, sweepNotes, tell, tellMiss } from './autoFill.ts';
 import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './metaPurchases.ts';
 import { captureSource, planNotePurchases } from './notePurchases.ts';
 import { dayOrders, reconcile } from './orderDay.ts';
 import { adjustmentDays, seedFromSent } from './metaAdjust.ts';
+import { buildEnabled, checkBuilds, listRequests, postPicker, registerCommand, requestInteraction, syncTitles } from './featureRequests.ts';
 import { pageOf, receiveWebhook, referralSummary, setupWebhook, verifyChallenge, webhookStatus } from './webhook.ts';
 import { BadRequest, validateWebCost, validateCampaignSetting, validateSection, validateSettings, validateStage } from './validate.ts';
 
 export interface Env {
   DB: D1Database;
+  /** The built dashboard (dist); /webhook/uni.jpg serves the bot's picture from it */
+  ASSETS?: Fetcher;
   META_ACCESS_TOKEN?: string;
   META_AD_ACCOUNT_ID: string;
   META_API_VERSION?: string;
@@ -77,11 +83,22 @@ export interface Env {
   DISCORD_KB_UPDATER_IDS?: string;
   /** #meta-chat: the bot posts everything about chats and the answer bank here (needs View + Send there) */
   DISCORD_CHAT_CHANNEL_ID?: string;
+  /** Discord "service ลูกค้า" (secret webhook URL, the switch) and who answers there (Fear) — worker/serviceAlert.ts */
+  DISCORD_SERVICE_WEBHOOK_URL?: string;
+  DISCORD_SERVICE_IDS?: string;
   CHAT_AI_MODEL?: string;
   /** Discord user IDs allowed to press the buttons (comma separated); empty = anyone in the channel */
   DISCORD_APPROVER_IDS?: string;
   /** Discord user IDs who upload Page365 (เคน from 2026-10-16, was มอส); tagged at 10:00 if the file is missing, may press the upload buttons */
   DISCORD_UPLOADER_IDS?: string;
+  /** Feature requests (/ไอเดีย, worker/featureRequests.ts): forum channel (empty = off) and who decides (Benz) */
+  DISCORD_APP_ID?: string;
+  DISCORD_REQUEST_CHANNEL_ID?: string;
+  DISCORD_REQUEST_DECIDER_IDS?: string;
+  DISCORD_REQUEST_COMMAND_CHANNEL_ID?: string;
+  IDEA_ROUTINE_ID?: string;
+  IDEA_ROUTINE_TOKEN?: string;
+  GITHUB_REPO?: string;
   /** Page365 login the Worker uses to fill drafts (secret; see worker/p365fill.ts) and the shop's page id */
   P365_COOKIE?: string;
   P365_PAGE_ID?: string;
@@ -121,8 +138,12 @@ export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     // Meta's webhook comes from outside Cloudflare Access (bypassed for /webhook/* there); it is signed instead.
+    // น้องอูนิ's picture: Discord fetches it for every webhook post, so it sits on the path Access lets through.
+    if (url.pathname === '/webhook/uni.jpg' && env.ASSETS) return env.ASSETS.fetch(new Request(new URL('/uni.jpg', url)));
     if (url.pathname === '/webhook/privacy') return new Response(PRIVACY_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     if (url.pathname === '/webhook/discord' && req.method === 'POST') return discordInteraction(req, env, ctx);
+    // The idea routine pings this when it's done (no auth: it only re-reads GitHub, same as the 3-hourly sweep).
+    if (url.pathname === '/webhook/idea-check' && req.method === 'POST') return json({ found: await checkBuilds(env).catch(() => 0) });
     if (url.pathname === '/webhook/meta') {
       if (req.method === 'GET') return verifyChallenge(url, env);
       if (req.method === 'POST') return receiveWebhook(req, env, ctx);
@@ -165,6 +186,8 @@ export default {
         .then(() => dailyDigest(env).catch((err) => console.error('digest', err)))));
     } else if (event.cron === SWEEP_CRON) {
       ctx.waitUntil(cronSweep(env).catch((err) => console.error('cron sweep', err)));
+      ctx.waitUntil(syncTitles(env).catch((err) => console.error('request titles', err)));
+      ctx.waitUntil(checkBuilds(env).catch((err) => console.error('request builds', err)));
     } else if (event.cron === REMIND_CRON) {
       ctx.waitUntil(uploadReminder(env).catch((err) => console.error('reminder', err)));
       ctx.waitUntil(kbReminder(env).catch((err) => console.error('kb reminder', err)));
@@ -179,12 +202,12 @@ export default {
         return;
       }
       // Monday 08:00 Bangkok: after the run, ask whether the shop-wide daily cap may grow (goal.ts).
-      // Monday and Thursday 08:00: น้องจิบิ's new-post ideas for Max (postIdeas.ts).
+      // Monday and Thursday 08:00: อูนิ's new-post ideas for Max (postIdeas.ts).
       const day = new Date(Date.now() + 7 * 3_600_000).getUTCDay(), morning = new Date().getUTCHours() < 6;
       ctx.waitUntil(runAutomation(env, meta, { trigger: 'schedule' })
         .then(() => (morning && day === 1 ? scaleCheck(env).catch((err) => console.error('scale', err)) : null))
         .then(() => (morning && (day === 1 || day === 4) ? sendPostIdeas(env).catch((err) => console.error('ideas', err)) : null))
-        // Monday and Thursday: น้องจิบิ's fixes for Meta's Business AI, each with approve / reject buttons (botKb.ts).
+        // Monday and Thursday: อูนิ's fixes for Meta's Business AI, each with approve / reject buttons (botKb.ts).
         .then(() => (morning && (day === 1 || day === 4) && aiEnabled(env) ? kbRound(env, 'fix').catch((err) => console.error('kb', err)) : null))
         // 20:00: how today is doing against the goal's daily pace.
         .then(() => (!morning ? eveningPace(env).catch((err) => console.error('pace', err)) : null)));
@@ -490,6 +513,18 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     await audit(env.DB, user, 'p365.auto_fill', on ? 'on' : 'off', {});
     return json({ on });
   }
+  // Accuracy of the order-note flow (fillAudit.ts): per day + recent edited bills; a step by hand for backfilling.
+  if (path === '/api/order-notes/accuracy' && method === 'GET') return json(await accuracy(env.DB, Math.min(Number(url.searchParams.get('days') ?? 7) || 7, 30)));
+  if (path === '/api/order-notes/audit-run' && method === 'POST') return json({ written: await auditStep(env, { force: true, limit: 15 }) });
+  // Deleting drafts nobody will send (draftCleanup.ts): GET = switch + what it would do now (nothing deleted).
+  if (path === '/api/order-notes/cleanup' && method === 'GET') return json({ on: await cleanupOn(env.DB), preview: await cleanupDrafts(env, { apply: false, limit: 20 }) });
+  if (path === '/api/order-notes/cleanup' && method === 'PUT') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const on = (await body())?.on === true;
+    await setCleanup(env.DB, on);
+    await audit(env.DB, user, 'p365.draft_cleanup', on ? 'on' : 'off', {});
+    return json({ on });
+  }
   // A sample "needs a person" message into the order-problems channel, so the team sees what it looks like.
   if (path === '/api/order-notes/test-discord' && method === 'POST') {
     if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
@@ -593,6 +628,15 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     return json(r);
   }
 
+  // The bot account itself (questions with buttons): picture via its own profile, name via its nickname in the server.
+  if (path === '/api/discord/persona' && method === 'POST') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    if (!env.DISCORD_BOT_TOKEN || !env.DISCORD_CHANNEL_ID || !env.ASSETS) throw new BadRequest('ยังตั้งค่าบอท Discord ไม่ครบ');
+    const r = await setBotPersona(env);
+    await audit(env.DB, user, 'discord.persona', 'discord', r);
+    if (!r.avatar && !r.nick) throw new BadRequest(`Discord ไม่ยอม: ${r.error ?? '?'}`);
+    return json(r);
+  }
   if (path === '/api/discord/test' && method === 'POST') {
     if (!approvalsEnabled(env)) throw new BadRequest('ยังตั้งค่าบอท Discord ไม่ครบ (DISCORD_BOT_TOKEN / DISCORD_APP_PUBLIC_KEY / DISCORD_CHANNEL_ID)');
     if (url.searchParams.get('kind') === 'upload') {
@@ -726,6 +770,24 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const page = pg ? { page: pg.name, page_id: pg.id, ...(await fetch(`https://graph.facebook.com/${v}/${pg.id}/dataset?access_token=${encodeURIComponent(pg.token)}`).then((r) => r.json() as Promise<Record<string, unknown>>).catch((e) => ({ error: String(e) }))) } : null;
     return json({ page, byAccount, owned, businesses });
   }
+  // ---- website feature requests from Discord (/ไอเดีย) ----
+  if (path === '/api/requests' && method === 'GET') {
+    // Opening the page also looks for Claude's PRs, so Benz hears about one without waiting for the 3-hourly sweep.
+    await checkBuilds(env).catch((err) => console.error('request builds', err));
+    return json({ items: await listRequests(env.DB), on: !!(env.DISCORD_REQUEST_CHANNEL_ID && env.DISCORD_BOT_TOKEN), build: buildEnabled(env) });
+  }
+  if (path === '/api/requests/picker' && method === 'POST') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const r = await postPicker(env);
+    await audit(env.DB, user, 'requests.picker', 'discord', r);
+    return json(r);
+  }
+  if (path === '/api/requests/register' && method === 'POST') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const r = await registerCommand(env);
+    await audit(env.DB, user, 'requests.register', 'discord', r);
+    return json(r);
+  }
   // ---- answer bank for Meta's Business AI ----
   if (path === '/api/botkb' && method === 'GET') { const items = await listKb(env.DB); return json({ items, paste: kbPasteText(items.filter((x) => x.status === 'approved')) }); }
   if (path === '/api/botkb/remind-test' && method === 'POST') return json({ discord: await kbReminder(env, true) });
@@ -743,6 +805,17 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
   if (path === '/api/chats/insights' && method === 'POST') return json(await sendChatInsights(env, url.searchParams.get('scope') === 'today' ? 'today' : 'yesterday'));
   if (path === '/api/chats/report' && method === 'POST') return json(await sendChatReport(env, url.searchParams.get('scope') === 'yesterday' ? 'yesterday' : 'today'));
+  // One test case through the real path (bot post + "จัดการจบแล้ว" button); its psid starts with TEST so it never blocks a customer.
+  if (path === '/api/service/test' && method === 'POST') {
+    if (!env.DISCORD_SERVICE_WEBHOOK_URL) throw new BadRequest('ยังไม่ได้ตั้ง DISCORD_SERVICE_WEBHOOK_URL');
+    const at = new Date().toISOString();
+    // The name is looked up for the latest real customer, so the test shows a name the way a real case would.
+    const last = await env.DB.prepare('SELECT psid FROM chat_messages WHERE from_page = 0 ORDER BY at DESC LIMIT 1').first<{ psid: string }>();
+    const posted = await serviceAlerts(env as any, [{ mid: `TEST-${at}`, psid: `TEST-${at}`, at, from_page: 0, text: '[ทดสอบระบบ] ส่งของผิดสีค่ะ', attachments: null, sender_app: null }],
+      async () => (last ? customerName(env as any, last.psid) : null));
+    return json({ posted });
+  }
+  if (path === '/api/service/preview' && method === 'GET') return json({ on: !!env.DISCORD_SERVICE_WEBHOOK_URL, cases: await servicePreview(env.DB, Math.min(30, Math.max(1, Number(url.searchParams.get('days') ?? 7)))) });
   if (path === '/api/chats/summary' && method === 'GET') return json(await chatSummary(env.DB, Math.min(30, Math.max(1, Number(url.searchParams.get('days') ?? 7)))));
   if (path === '/api/webhook/setup' && method === 'POST') {
     const r = await setupWebhook(env, `${url.origin}/webhook/meta`).catch((err) => { throw new BadRequest(err.message); });
@@ -1490,7 +1563,26 @@ function finite<T extends object | undefined>(m: T): T {
 }
 
 /** 07:30 Discord note: yesterday's real numbers (Page365) when the file is in; the reminder waits until 10:00. */
-/** น้องจิบิ's chat report to #meta-chat: yesterday (07:30) or today so far (button). */
+/** Gives the Discord bot น้องอูนิ's picture (its profile) and name (nickname in the server of DISCORD_CHANNEL_ID). */
+async function setBotPersona(env: Env): Promise<{ avatar: boolean; nick: boolean; error?: string }> {
+  const api = (path: string, init?: RequestInit) => fetch(`https://discord.com/api/v10${path}`, { ...init, headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' } });
+  const img = new Uint8Array(await (await env.ASSETS!.fetch(new Request('https://assets.local/uni.jpg'))).arrayBuffer());
+  let bin = '';
+  for (const b of img) bin += String.fromCharCode(b);
+  const errors: string[] = [];
+  const a = await api('/users/@me', { method: 'PATCH', body: JSON.stringify({ avatar: `data:image/jpeg;base64,${btoa(bin)}` }) });
+  if (!a.ok) errors.push(`รูป ${a.status} ${(await a.text()).slice(0, 200)}`);
+  const ch: any = await api(`/channels/${env.DISCORD_CHANNEL_ID}`).then((r) => r.json()).catch(() => ({}));
+  let nick = false;
+  if (ch.guild_id) {
+    const n = await api(`/guilds/${ch.guild_id}/members/@me`, { method: 'PATCH', body: JSON.stringify({ nick: DISCORD_PERSONA.username }) });
+    nick = n.ok;
+    if (!n.ok) errors.push(`ชื่อ ${n.status} ${(await n.text()).slice(0, 200)}`);
+  } else errors.push('หาเซิร์ฟเวอร์ของห้องไม่เจอ');
+  return { avatar: a.ok, nick, ...(errors.length ? { error: errors.join(' · ') } : {}) };
+}
+
+/** อูนิ's chat report to #meta-chat: yesterday (07:30) or today so far (button). */
 async function sendChatReport(env: Env, scope: 'yesterday' | 'today'): Promise<{ sent: boolean; threads: number }> {
   if (!env.DISCORD_CHAT_WEBHOOK_URL) throw new BadRequest('ยังไม่ได้ตั้ง DISCORD_CHAT_WEBHOOK_URL');
   const day = scope === 'yesterday' ? bkkDate(1) : bkkDate(0);
@@ -1540,9 +1632,9 @@ async function kbRound(env: Env, mode: 'fix' | 'faq'): Promise<{ proposed: numbe
   if (approvalsEnabled(env)) {
     const mention = idList(env.DISCORD_DECIDER_IDS).map((id) => `<@${id}>`).join(' ');
     if (mode === 'faq') {
-      await postBot(env, { content: `📚 น้องจิบิทำ **คลังคำตอบบอทชุดแรก ${r.items.length} ข้อ** จากแชทจริงแล้วค่ะ ${mention ? `คุณ ${mention} ` : ''}รบกวนตรวจและกดอนุมัติที่หน้า https://pkjeans-ads.ads-web.workers.dev/botkb นะคะ 🙏` }, true);
+      await postBot(env, { content: `📚 อูนิทำ **คลังคำตอบบอทชุดแรก ${r.items.length} ข้อ** จากแชทจริงแล้วค่ะ ${mention ? `คุณ ${mention} ` : ''}รบกวนตรวจและกดอนุมัติที่หน้า https://pkjeans-ads.ads-web.workers.dev/botkb นะคะ 🙏` }, true);
     } else if (r.items.length) {
-      await postBot(env, { content: `🛠 น้องจิบิตรวจคำตอบบอท Meta AI (${list.length} แชทตั้งแต่รอบก่อน) เจอ **${r.items.length} เรื่องที่ควรแก้** ค่ะ ${mention ? `คุณ ${mention} ` : ''}กดทีละข้อได้เลยนะคะ 🙏` }, true);
+      await postBot(env, { content: `🛠 อูนิตรวจคำตอบบอท Meta AI (${list.length} แชทตั้งแต่รอบก่อน) เจอ **${r.items.length} เรื่องที่ควรแก้** ค่ะ ${mention ? `คุณ ${mention} ` : ''}กดทีละข้อได้เลยนะคะ 🙏` }, true);
       for (const it of r.items) {
         const id = await postBot(env, kbMessage(it, ''));
         if (id) await env.DB.prepare('UPDATE bot_kb SET message_id = ? WHERE id = ?').bind(id, it.id).run();
@@ -1564,14 +1656,14 @@ async function kbReminder(env: Env, test = false): Promise<string | void> {
     method: 'POST',
     headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      content: `${test ? '🧪 **ข้อความทดสอบ** (หน้าตาการเตือนทุกวันจันทร์ 10:00)\n' : ''}📌 ${day === 2 ? 'น้องจิบิเตือนอีกรอบค่ะ' : 'ถึงรอบอัปเดตบอทแล้วค่ะ'} คุณ ${mention || 'ทีม'} 🙏 มี **คำตอบที่แม็กซ์อนุมัติแล้ว ${n} ข้อ** รอใส่ในบอท Business AI\n1) เปิด https://pkjeans-ads.ads-web.workers.dev/botkb แล้วกด "คัดลอกทั้งหมด"\n2) Meta Business Suite → Business AI → วางในส่วนคำถาม-คำตอบ / คำแนะนำ\n3) กดปุ่ม **ใส่บอทแล้ว** ด้านล่าง น้องจะจดวันที่ไว้วัดผลค่ะ`,
+      content: `${test ? '🧪 **ข้อความทดสอบ** (หน้าตาการเตือนทุกวันจันทร์ 10:00)\n' : ''}📌 ${day === 2 ? 'อูนิเตือนอีกรอบค่ะ' : 'ถึงรอบอัปเดตบอทแล้วค่ะ'} คุณ ${mention || 'ทีม'} 🙏 มี **คำตอบที่แม็กซ์อนุมัติแล้ว ${n} ข้อ** รอใส่ในบอท Business AI\n1) เปิด https://pkjeans-ads.ads-web.workers.dev/botkb แล้วกด "คัดลอกทั้งหมด"\n2) Meta Business Suite → Business AI → วางในส่วนคำถาม-คำตอบ / คำแนะนำ\n3) กดปุ่ม **ใส่บอทแล้ว** ด้านล่าง น้องจะจดวันที่ไว้วัดผลค่ะ`,
       components: [{ type: 1, components: [{ type: 2, style: 3, label: '✅ ใส่บอทแล้ว', custom_id: 'kbapplied:all' }] }],
       allowed_mentions: { users: ids },
     }),
   }).then(async (res) => { if (res.ok) return 'ok'; const t = await res.text(); console.error('kb reminder', res.status, t); return `${res.status} ${t.slice(0, 200)}`; });
 }
 
-/** น้องจิบิ's AI read of a day's chats → #meta-chat. One model call per day; tokens are logged in audit. */
+/** อูนิ's AI read of a day's chats → #meta-chat. One model call per day; tokens are logged in audit. */
 async function sendChatInsights(env: Env, scope: 'yesterday' | 'today'): Promise<{ sent: boolean; customers: number; read: number; input_tokens: number; output_tokens: number }> {
   if (!aiEnabled(env)) throw new BadRequest('ยังไม่ได้ตั้ง ANTHROPIC_API_KEY');
   if (!env.DISCORD_CHAT_WEBHOOK_URL) throw new BadRequest('ยังไม่ได้ตั้ง DISCORD_CHAT_WEBHOOK_URL');
@@ -1583,7 +1675,7 @@ async function sendChatInsights(env: Env, scope: 'yesterday' | 'today'): Promise
   if (!list.length) return { sent: false, customers: 0, read: 0, input_tokens: 0, output_tokens: 0 };
   const t = transcript(list);
   const ai = await askAI(env, INSIGHT_SYSTEM, insightPrompt(thai, t, list.length));
-  const head = `🧠 **น้องจิบิอ่านแชท ${scope === 'yesterday' ? thai : `วันนี้ ${thai} (ถึงตอนนี้)`}** · ${list.length} คน${t.used < list.length ? ` (อ่าน ${t.used})` : ''}\n`;
+  const head = `🧠 **อูนิอ่านแชท ${scope === 'yesterday' ? thai : `วันนี้ ${thai} (ถึงตอนนี้)`}** · ${list.length} คน${t.used < list.length ? ` (อ่าน ${t.used})` : ''}\n`;
   const sent = await pushDiscord(head + ai.text + citeKey(ai.text, list.slice(0, t.used)), env.DISCORD_CHAT_WEBHOOK_URL).catch(() => false);
   await audit(env.DB, 'ai', 'chat.insights', day, { model: ai.model, input_tokens: ai.input_tokens, output_tokens: ai.output_tokens, customers: list.length, read: t.used, sent: !!sent, text: ai.text.slice(0, 4000) }).catch(() => null);
   return { sent: !!sent, customers: list.length, read: t.used, input_tokens: ai.input_tokens, output_tokens: ai.output_tokens };
@@ -1617,13 +1709,13 @@ async function dailySpend(env: Env, from: string, to: string): Promise<{ date: s
   return [...spend].map(([date, s]) => ({ date, spend: Math.round(s * 100) / 100 })).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-/** Month-to-date real net vs the monthly goal, the MER the goal needs, and the last 7 days' real MER. */
+/** Month-to-date real sales vs the yearly sales goal (÷ 12), real net vs the monthly goal, the MER the goal needs, and the last 7 days' real MER. */
 async function loadGoal(env: Env): Promise<GoalStatus> {
   const yesterday = bkkDate(1);
   const { month, daysInMonth, dates } = monthDates(yesterday);
   const last7 = Array.from({ length: 7 }, (_, i) => bkkDate(i + 1));
   const all = [...new Set([...dates, ...last7])].sort();
-  const [settings, uploads, orders] = await Promise.all([loadSettings(env.DB), loadUploads(env.DB, all), loadOrders(env.DB, all)]);
+  const [settings, uploads, orders, ytdDays] = await Promise.all([loadSettings(env.DB), loadUploads(env.DB, all), loadOrders(env.DB, all), ytdRevenue(env.DB, yesterday)]);
   // Spend per day from one Meta call over the whole span (cached; at most 31 days).
   const rows = uploads.size ? await (await metaData(env)).data.dailyAll(`range:${all[0]}:${yesterday}` as Window) : [];
   const spend = new Map<string, number>();
@@ -1631,15 +1723,27 @@ async function loadGoal(env: Env): Promise<GoalStatus> {
   const byDate = new Map<string, typeof orders>();
   for (const o of orders) byDate.set(o.date, [...(byDate.get(o.date) ?? []), o]);
   const net = (d: string): DayNet => dayNet(d, byDate.get(d) ?? [], settings.order_fees, spend.get(d) ?? 0);
-  return goalStatus(month, daysInMonth, dates, dates.filter((d) => uploads.has(d)).map(net), last7.filter((d) => uploads.has(d)).map(net), settings.goal);
+  const ytd = ytdStatus(settings.goal.yearly_sales ?? DEFAULT_GOAL.yearly_sales, yesterday, ytdDays);
+  return goalStatus(month, daysInMonth, dates, dates.filter((d) => uploads.has(d)).map(net), last7.filter((d) => uploads.has(d)).map(net), settings.goal, ytd);
+}
+
+/** Real Page365 revenue per uploaded day from 1 Jan of `to`'s year to `to`: one aggregate query, no order rows loaded. */
+async function ytdRevenue(db: D1Database, to: string): Promise<{ date: string; revenue: number }[]> {
+  const { results } = await db.prepare(
+    'SELECT u.date AS date, COALESCE(SUM(o.total), 0) AS revenue FROM p365_uploads u LEFT JOIN p365_orders o ON o.date = u.date WHERE u.date >= ? AND u.date <= ? GROUP BY u.date',
+  ).bind(`${to.slice(0, 4)}-01-01`, to).all<{ date: string; revenue: number }>();
+  return results;
 }
 
 function goalText(g: GoalStatus): string {
   const b = (x: number) => Math.round(x).toLocaleString('th-TH');
   const pct = g.goal.monthly_net ? Math.round((g.net / g.goal.monthly_net) * 100) : 0;
   const monthTh = new Date(`${g.month}-01T00:00:00+07:00`).toLocaleDateString('th-TH', { month: 'long', timeZone: 'Asia/Bangkok' });
+  const sp = Math.round(g.sales.pct);
   return [
-    `🎯 **เป้ากำไร${monthTh} ${b(g.goal.monthly_net)}** · ได้แล้ว **${b(g.net)}** (${pct}%) จาก ${g.days.length} วันที่มีไฟล์${g.missing.length ? ` · ขาดไฟล์ ${g.missing.length} วัน` : ''}`,
+    `🏁 **เป้าหลัก ยอดขายปีละ ${b(g.sales.yearly_target)}** (เดือนละ ${b(g.sales.monthly_target)}) · ${monthTh}ได้แล้ว **${b(g.sales.revenue)}** (${sp}% ของเป้ายอดขาย) · ต้องขายวันละ **${b(g.sales.needed_per_day)}**`,
+    g.ytd ? `📅 สะสมปี ${g.ytd.year} (1 ม.ค.–เมื่อวาน) **${b(g.ytd.revenue)}** = ${(g.ytd.pct).toFixed(1)}% ของเป้าปี · ตามเวลาควรถึง ${b(g.ytd.pace)} → ${g.ytd.gap >= 0 ? `นำ ${b(g.ytd.gap)}` : `ขาด ${b(-g.ytd.gap)}`} · มีไฟล์ Page365 ${g.ytd.uploaded_days}/${g.ytd.days_elapsed} วัน` : '',
+    `🎯 **เป้ารอง กำไร${monthTh} ${b(g.goal.monthly_net)}** · ได้แล้ว **${b(g.net)}** (${pct}% ของเป้ากำไร) จาก ${g.days.length} วันที่มีไฟล์${g.missing.length ? ` · ขาดไฟล์ ${g.missing.length} วัน` : ''}`,
     g.avg_net === null ? '' : `เฉลี่ยวันละ ${b(g.avg_net)} → คาดสิ้นเดือน **${b(g.projected ?? 0)}** · ต้องได้วันละ **${b(g.needed_per_day)}** ถึงจะทัน`,
     `MER จริง 7 วัน ${g.mer_7d === null ? '– (ไฟล์ไม่ครบ)' : `**${g.mer_7d.toFixed(2)}**`} (เป้า ≥ ${g.goal.scale_mer})${g.target_revenue_per_day ? ` · ต้องขายวันละ ~${b(g.target_revenue_per_day)} ที่ MER นี้` : ''}`,
   ].filter(Boolean).join('\n');
@@ -1741,19 +1845,20 @@ async function salesDigest(env: Env, date: string, remindIfMissing = false): Pro
   const n = (f: (o: typeof orders[number]) => number) => orders.reduce((t, o) => t + f(o), 0);
   const revenue = n((o) => o.total), cost = n((o) => o.cost ?? 0), fees = n((o) => orderFees(o, settings.order_fees));
   const organic = orders.filter((o) => o.match === 'none');
+  // Spend for that day. Meta (development tier) sometimes refuses a call; the message used to drop the ad cost
+  // silently then, so the net looked missing. Now: yesterday direct, else the cached 30-day series, else say so.
   let ads: number | null = null;
-  try {
-    // Spend for that day: yesterday is cheap; older days come from the cached 30-day series.
-    const rows = date === bkkDate(1) ? await metaFor(env).dailyCampaignInsights('yesterday') : await (await metaData(env)).data.dailyAll('last_30d');
-    const day = rows.filter((d) => d.date === date);
-    ads = day.length ? day.reduce((t, d) => t + d.spend, 0) : null;
-  } catch { ads = null; }
+  let adsError = '';
+  const spendOf = (rows: { date: string; spend: number }[]) => { const day = rows.filter((d) => d.date === date); return day.length ? day.reduce((t, d) => t + d.spend, 0) : null; };
+  if (date === bkkDate(1)) ads = await metaFor(env).dailyCampaignInsights('yesterday').then(spendOf).catch((err) => { adsError = String(err?.message ?? err); return null; });
+  if (ads === null) ads = await metaData(env).then((m) => m.data.dailyAll('last_30d')).then(spendOf).catch((err) => { adsError = String(err?.message ?? err); return null; });
   const b = (x: number) => Math.round(x).toLocaleString('th-TH');
   const gross = revenue - cost - fees;
   const lines = [
     `📊 **ของจริง ${thai}** (Page365 ${orders.length} ออเดอร์)`,
     `ยอดขาย ${b(revenue)} · ทุนสินค้า ${b(cost)} (${revenue ? Math.round((cost / revenue) * 100) : 0}%) · ค่าใช้จ่ายต่อออเดอร์ ${b(fees)}`,
     `กำไรขั้นต้น **${b(gross)}**${ads === null ? '' : ` · ค่าแอด ${b(ads)} (${revenue ? Math.round((ads / revenue) * 100) : 0}% ของยอด) · กำไรสุทธิ **${b(gross - ads)}** · MER ${ads ? (revenue / ads).toFixed(2) : '–'}`}`,
+    ...(ads === null ? [`⚠️ ยังไม่หักค่าแอด — ดึงค่าแอดของวันนี้จาก Meta ไม่ได้${adsError ? ` (${adsError.slice(0, 120)})` : ' (Meta ยังไม่มีตัวเลขวันนั้น)'} · ดูกำไรสุทธิที่หน้ายอดขายรายวันแทนค่ะ`] : []),
     `ไม่ใช่แอด ${organic.length} ออเดอร์ ${b(n((o) => (o.match === 'none' ? o.total : 0)))} (${orders.length ? Math.round((organic.length / orders.length) * 100) : 0}%) · จับคู่แอดได้ ${orders.length - organic.length}/${orders.length}`,
   ];
   await pushDiscord(lines.join('\n'), env.DISCORD_WEBHOOK_URL);
@@ -1826,9 +1931,12 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
   if (!env.DISCORD_APP_PUBLIC_KEY || !(await verifyDiscord(req, body, env.DISCORD_APP_PUBLIC_KEY))) return new Response('bad signature', { status: 401 });
   const i = JSON.parse(body);
   if (i.type === 1) return json({ type: 1 });
+  const fr = await requestInteraction(i, env, ctx);
+  if (fr) return fr;
   if (i.type !== 3) return json({ type: 4, data: { content: 'ยังไม่รองรับคำสั่งนี้', flags: 64 } });
   // The bot works in one channel only: a press from anywhere else is refused (only the presser sees the reply).
-  if (env.DISCORD_CHANNEL_ID && i.channel_id !== env.DISCORD_CHANNEL_ID && i.channel_id !== env.DISCORD_CHAT_CHANNEL_ID) return json({ type: 4, data: { content: 'บอทนี้ใช้ได้เฉพาะห้องรายงานแอด', flags: 64 } });
+  const svc = String(i.data?.custom_id ?? '').startsWith('svcdone:');
+  if (env.DISCORD_CHANNEL_ID && !svc && i.channel_id !== env.DISCORD_CHANNEL_ID && i.channel_id !== env.DISCORD_CHAT_CHANNEL_ID) return json({ type: 4, data: { content: 'บอทนี้ใช้ได้เฉพาะห้องรายงานแอด', flags: 64 } });
   const who = i.member?.user?.global_name || i.member?.user?.username || i.user?.username || 'ไม่ทราบชื่อ';
   // Only the listed people may decide (empty list = anyone in the channel); the refusal shows the presser their ID.
   const userId = String(i.member?.user?.id ?? i.user?.id ?? '');
@@ -1840,6 +1948,17 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
     const n = await markApplied(env.DB);
     await audit(env.DB, `discord:${who}`, 'botkb.applied', 'bot_kb', { n });
     return json({ type: 7, data: { content: `✅ **ใส่บอทแล้วค่ะ** ${n} ข้อ — ${who} อัปเดต ${new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'short', timeZone: 'Asia/Bangkok' })} ขอบคุณค่ะ 🙏 น้องจะเทียบให้ว่าหลังแก้บอทตอบผิดน้อยลงไหมนะคะ`, components: [] } });
+  }
+  if (verb0 === 'svcdone') {
+    // service ลูกค้า: Fear (or Benz/Max) closes the case; it must be a case posted in this channel.
+    const allowed = [...approvers, ...idList(env.DISCORD_SERVICE_IDS)];
+    if (allowed.length && !allowed.includes(userId)) return json({ type: 4, data: { content: `ปุ่มนี้สำหรับคนตอบลูกค้าค่ะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
+    const row = await env.DB.prepare('SELECT channel_id FROM service_cases WHERE id = ?').bind(Number(arg0)).first<{ channel_id: string | null }>();
+    if (!row || row.channel_id !== i.channel_id) return json({ type: 4, data: { content: 'ไม่พบเคสนี้ในห้องนี้ค่ะ', flags: 64 } });
+    const done = await closeCase(env.DB, Number(arg0), `discord:${who}`);
+    const when = new Date().toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' });
+    const before = String(i.message?.content ?? '').split('\n').filter((l: string) => !l.includes('จัดการจบแล้ว')).join('\n');
+    return json({ type: 7, data: { content: `${before}\n${done ? `✅ **จัดการจบแล้ว** — ${who} · ${when}` : '✅ เคสนี้ปิดไปแล้วค่ะ'}`.slice(0, 2000), components: [] } });
   }
   if (verb0 === 'kbok' || verb0 === 'kbno') {
     if (approvers.length && !approvers.includes(userId)) return json({ type: 4, data: { content: `ขอโทษค่ะ ปุ่มนี้ให้กดได้เฉพาะคุณเบ้นกับคุณแม็กซ์นะคะ 🙏 (Discord ID ของคุณ: ${userId})`, flags: 64 } });
@@ -1889,7 +2008,7 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
     }
     if ((p.kind as string) === 'test') {
       await mark(verb === 'approve' ? 'approved' : 'rejected');
-      return reply(`✅ **น้องจิบิได้รับแล้วค่ะ** — ${who} กด "${verb === 'approve' ? 'อนุมัติ' : verb === 'reject' ? 'ไม่' : 'ย้ายไปทดสอบ'}" · บอทพร้อมใช้งาน (ข้อความนี้เป็นการทดสอบ ไม่ได้แตะแอดจริง)`);
+      return reply(`✅ **อูนิได้รับแล้วค่ะ** — ${who} กด "${verb === 'approve' ? 'อนุมัติ' : verb === 'reject' ? 'ไม่' : 'ย้ายไปทดสอบ'}" · บอทพร้อมใช้งาน (ข้อความนี้เป็นการทดสอบ ไม่ได้แตะแอดจริง)`);
     }
     if (verb === 'approve' && p.kind === 'pause') {
       await metaFor(env).setStatus(p.entity_id, 'PAUSED');

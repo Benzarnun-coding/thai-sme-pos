@@ -145,7 +145,8 @@ function useCountUp(target: number, ms = 1200): number {
 }
 
 /**
- * Scoreboard: month-to-date real net (Page365 days) against the monthly goal — how much is still missing, a running
+ * Scoreboards: first the main goal, month-to-date real sales against the yearly sales goal ÷ 12 (its % is sales vs
+ * sales target only); then the second goal, month-to-date real net (Page365 days) against the monthly goal — how much is still missing, a running
  * bar with a marker where the month should be by now, and the pace needed. Loaded on its own so the overview isn't slowed.
  */
 function GoalCard() {
@@ -154,7 +155,8 @@ function GoalCard() {
   const [shown, setShown] = useState(false);
   useEffect(() => { api.goal().then((x) => { setG(x); requestAnimationFrame(() => setShown(true)); }).catch((e) => setErr(e.message)); }, []);
   const net = useCountUp(g?.net ?? 0);
-  if (err) return <p className="muted small">เป้ากำไร: {err}</p>;
+  const sold = useCountUp(g?.sales.revenue ?? 0);
+  if (err) return <p className="muted small">เป้ายอดขาย/กำไร: {err}</p>;
   if (!g) return <section className="card scoreboard"><div className="skeleton" style={{ height: 120 }} /></section>;
   const goal = g.goal.monthly_net;
   const pct = goal ? Math.max(0, Math.min(100, (g.net / goal) * 100)) : 0;
@@ -166,11 +168,64 @@ function GoalCard() {
   const onTrack = g.projected !== null && g.projected >= goal;
   const perDayGoal = goal / g.days_in_month;
   const daysLeft = g.days_in_month - g.elapsed.length;
+  const sales = g.sales;
+  const salesPct = Math.max(0, Math.min(100, sales.pct));
+  const salesGap = sales.revenue - sales.pace;
+  const salesMissing = Math.max(0, sales.monthly_target - sales.revenue);
   return (
-    <section className={`card scoreboard ${gap >= 0 ? 'ahead' : 'behind'}`} aria-label="สกอร์บอร์ดเป้ากำไร">
+    <>
+    <section className={`card scoreboard ${salesGap >= 0 ? 'ahead' : 'behind'}`} aria-label="สกอร์บอร์ดเป้ายอดขาย (เป้าหลัก)">
       <div className="sb-head">
         <div>
-          <span className="sb-label">🎯 เป้ากำไรสุทธิ {monthTh}</span>
+          <span className="sb-label">🏁 เป้าหลัก: ยอดขาย {baht(sales.yearly_target)}/ปี · {monthTh} {baht(sales.monthly_target)}</span>
+          <div className="sb-score"><b>{baht(sold)}</b><span> / {baht(sales.monthly_target)}</span></div>
+        </div>
+        <div className="sb-missing">
+          <span className="sb-label">{salesMissing > 0 ? 'ยอดขายขาดอีก' : 'ถึงเป้ายอดขายแล้ว 🎉'}</span>
+          <b>{salesMissing > 0 ? baht(salesMissing) : baht(sales.revenue - sales.monthly_target)}</b>
+          <span className="muted small">{daysLeft > 0 ? `เหลือ ${daysLeft} วัน · ต้องขายวันละ ${baht(sales.needed_per_day)}` : 'จบเดือนแล้ว'}</span>
+        </div>
+      </div>
+      <div className="sb-track" role="progressbar" aria-valuemin={0} aria-valuemax={sales.monthly_target} aria-valuenow={Math.round(sales.revenue)} aria-label={`ยอดขายได้ ${num(sales.pct)}% ของเป้ายอดขาย`}>
+        <i className="sb-fill" style={{ width: shown ? `${salesPct}%` : '0%' }}><span>{num(sales.pct)}%</span></i>
+        <em className="sb-pace" style={{ left: `${pacePct}%` }} title={`ควรขายถึง ${baht(sales.pace)} ภายในวันนี้`}><span>ควรถึง {baht(sales.pace)}</span></em>
+      </div>
+      <p className={`sb-status ${salesGap >= 0 ? 'good' : 'bad'}`}>
+        {salesGap >= 0 ? `▲ นำเป้ายอดขาย ${baht(salesGap)}` : `▼ ช้ากว่าเป้ายอดขาย ${baht(-salesGap)}`}
+        <span className="muted"> · คาดสิ้นเดือน {sales.projected === null ? '–' : baht(sales.projected)} · ยอดขายจริง Page365 {g.days.length} วัน (ยอดขาย ไม่ใช่กำไร) · เป้าเดือน = เป้าปี ÷ 12 · % คิดเทียบเป้ายอดขายเท่านั้น</span>
+      </p>
+      {g.ytd && (() => {
+        const y = g.ytd;
+        const yPct = Math.max(0, Math.min(100, y.pct));
+        const yPace = Math.min(100, (y.days_elapsed / y.days_in_year) * 100);
+        return (
+          <div className="sb-ytd">
+            <div className="sb-head">
+              <div>
+                <span className="sb-label">📅 ยอดขายสะสมปี {Number(y.year) + 543} (1 ม.ค.–เมื่อวาน)</span>
+                <div className="sb-score"><b>{baht(y.revenue)}</b><span> / {baht(y.target)}</span></div>
+              </div>
+              <div className="sb-missing">
+                <span className="sb-label">{y.gap >= 0 ? 'นำเป้าสะสม' : 'ขาดจากเป้าสะสม'}</span>
+                <b className={y.gap >= 0 ? 'good' : 'bad'}>{baht(Math.abs(y.gap))}</b>
+                <span className="muted small">ควรถึง {baht(y.pace)} ({num((y.days_elapsed / y.days_in_year) * 100, 1)}% ของปี) · เหลือปีนี้ต้องขายวันละ {baht(y.needed_per_day)}</span>
+              </div>
+            </div>
+            <div className="sb-track" role="progressbar" aria-valuemin={0} aria-valuemax={y.target} aria-valuenow={Math.round(y.revenue)} aria-label={`ยอดขายสะสมปี ${num(y.pct, 1)}% ของเป้าปี`}>
+              <i className="sb-fill" style={{ width: shown ? `${yPct}%` : '0%' }}><span>{num(y.pct, 1)}%</span></i>
+              <em className="sb-pace" style={{ left: `${yPace}%` }} title={`ควรถึง ${baht(y.pace)} ภายในเมื่อวาน`}><span>ควรถึง {baht(y.pace)}</span></em>
+            </div>
+            <p className="sb-status">
+              <span className="muted">ยอดขายจริง Page365 รวมทุกวันที่มีไฟล์ {y.uploaded_days} จาก {y.days_elapsed} วัน (วันที่ไม่มีไฟล์นับเป็น 0) · ถ้านับเฉพาะวันที่มีไฟล์ ควรถึง {baht(y.pace_uploaded)} · เส้น "ควรถึง" = เป้าปี × วันที่ผ่านไป ÷ {y.days_in_year}</span>
+            </p>
+          </div>
+        );
+      })()}
+    </section>
+    <section className={`card scoreboard ${gap >= 0 ? 'ahead' : 'behind'}`} aria-label="สกอร์บอร์ดเป้ากำไร (เป้ารอง)">
+      <div className="sb-head">
+        <div>
+          <span className="sb-label">🎯 เป้ารอง: กำไรสุทธิ {monthTh}</span>
           <div className="sb-score"><b>{baht(net)}</b><span> / {baht(goal)}</span></div>
         </div>
         <div className="sb-missing">
@@ -180,7 +235,7 @@ function GoalCard() {
         </div>
       </div>
 
-      <div className="sb-track" role="progressbar" aria-valuemin={0} aria-valuemax={goal} aria-valuenow={Math.round(g.net)} aria-label={`ได้ ${num(pct)}% ของเป้า`}>
+      <div className="sb-track" role="progressbar" aria-valuemin={0} aria-valuemax={goal} aria-valuenow={Math.round(g.net)} aria-label={`กำไรได้ ${num(pct)}% ของเป้ากำไร`}>
         <i className="sb-fill" style={{ width: shown ? `${pct}%` : '0%' }}><span>{num(pct)}%</span></i>
         <em className="sb-pace" style={{ left: `${pacePct}%` }} title={`ควรถึง ${baht(paceNet)} ภายในวันนี้`}><span>ควรถึง {baht(paceNet)}</span></em>
       </div>
@@ -197,6 +252,7 @@ function GoalCard() {
         <div><span className="muted small">ยอดขายที่ต้องได้/วัน</span><b>{g.target_revenue_per_day ? baht(g.target_revenue_per_day) : '–'}</b><span className="muted small">กำไรก่อนแอด {g.gross_margin === null ? '–' : `${num(g.gross_margin * 100, 1)}%`} · ที่ MER {g.goal.scale_mer}</span></div>
       </div>
     </section>
+    </>
   );
 }
 

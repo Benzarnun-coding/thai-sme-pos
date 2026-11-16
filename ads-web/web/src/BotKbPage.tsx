@@ -1,4 +1,4 @@
-// /botkb — "คลังคำตอบบอท": answers for Meta's Business AI. น้องจิบิ proposes them from the chats (Mon/Thu, and a
+// /botkb — "คลังคำตอบบอท": answers for Meta's Business AI. อูนิ proposes them from the chats (Mon/Thu, and a
 // first bank from all chats); Benz/Max approve here or in Discord; Fear copies the approved ones into Business Suite
 // on Monday and presses "ใส่บอทแล้ว". Meta has no API for the bot's settings, so pasting stays a person's job.
 
@@ -47,7 +47,7 @@ export function BotKbApp() {
       <SiteNav current="/botkb" />
       <header className="kb-head">
         <div className="row"><HomeLogo text="AI" /><h1>คลังคำตอบบอท Business AI</h1></div>
-        <p className="muted small">น้องจิบิเสนอจากแชทจริง (จันทร์/พฤหัส) · เบ้น/แม็กซ์อนุมัติ · เฟียร์คัดลอกไปใส่ Meta Business Suite → Business AI ทุกวันจันทร์ แล้วกด "ใส่บอทแล้ว"</p>
+        <p className="muted small">อูนิเสนอจากแชทจริง (จันทร์/พฤหัส) · เบ้น/แม็กซ์อนุมัติ · เฟียร์คัดลอกไปใส่ Meta Business Suite → Business AI ทุกวันจันทร์ แล้วกด "ใส่บอทแล้ว"</p>
       </header>
 
       <div className="segmented" role="tablist">
@@ -73,7 +73,7 @@ export function BotKbApp() {
       )}
 
       {items === null ? <div className="skeleton" style={{ height: 200 }} /> : shown.length === 0 ? (
-        <p className="muted">{tab === 'approved' ? 'ไม่มีข้อที่รอใส่บอทค่ะ' : tab === 'proposed' ? 'ไม่มีข้อที่รอตรวจ — น้องจิบิจะเสนอรอบถัดไปวันจันทร์/พฤหัส 08:00' : 'ยังไม่มี'}</p>
+        <p className="muted">{tab === 'approved' ? 'ไม่มีข้อที่รอใส่บอทค่ะ' : tab === 'proposed' ? 'ไม่มีข้อที่รอตรวจ — อูนิจะเสนอรอบถัดไปวันจันทร์/พฤหัส 08:00' : 'ยังไม่มี'}</p>
       ) : (
         <div className="kb-list">
           {shown.map((it) => (

@@ -133,13 +133,17 @@ export interface Overview {
 }
 
 export interface OrderFees { cod_pct: number; loss_pct: number; ship: number; vat_pct: number; vat_base: 'total' | 'goods' | 'after_ship'; bag: number }
-export interface Goal { monthly_net: number; scale_mer: number; scale_pct: number }
+export interface Goal { yearly_sales: number; monthly_net: number; scale_mer: number; scale_pct: number }
 export interface GoalDay { date: string; revenue: number; cost: number; fees: number; ads: number; net: number; orders: number; units: number; multi: number }
 export interface GoalStatus {
   month: string; goal: Goal; days_in_month: number; elapsed: string[]; days: GoalDay[]; missing: string[];
   net: number; revenue: number; ads: number; avg_net: number | null; projected: number | null; needed_per_day: number;
   gross_margin: number | null; mer: number | null; target_revenue_per_day: number | null; mer_7d: number | null; mer_7d_days: number; multi_share: number | null; multi_share_7d: number | null; units_per_order: number | null;
+  sales: SalesStatus;
+  ytd: YtdStatus | null;
 }
+export interface YtdStatus { year: string; from: string; to: string; target: number; revenue: number; pct: number; days_elapsed: number; days_in_year: number; pace: number; gap: number; uploaded_days: number; pace_uploaded: number; projected: number | null; needed_per_day: number }
+export interface SalesStatus { yearly_target: number; monthly_target: number; revenue: number; pct: number; pace: number; projected: number | null; needed_per_day: number }
 export interface Settings { dry_run: boolean; kill_switch: boolean; guardrails: Guardrails; sheet_id: string; sheet_tabs: string[]; cod_share_pct: number; cod_fee: number; ads_cost_sheet_id: string; ads_cost_tab: string; cost_editors: string[]; order_fees: OrderFees; goal: Goal }
 
 export interface CostRow { tab: string; code: string; name: string; sku_count: number; avg_cost: number; min_cost: number; max_cost: number; avg_price: number }
@@ -308,7 +312,7 @@ export interface CatalogTab { tab: string; gid: string; sort: number; skus: numb
 export interface CatalogImage { key: string; tab: string; spu: string; url: string | null; uploaded: boolean; bytes: number; updated_by: string; updated_at: string }
 export interface CatalogSupplier { key: string; tab: string; spu: string; shop: string; updated_by: string; updated_at: string }
 export interface CatalogPrice { key: string; tab: string; spu: string; price: number; updated_by: string; updated_at: string }
-export interface CatalogAlias { alias: string; sku: string; created_by: string; created_at: string }
+export interface CatalogAlias { alias: string; sku: string; force?: boolean; created_by: string; created_at: string }
 export interface CatalogLabel { key: string; tab: string; spu: string; label: string; updated_by: string; updated_at: string }
 export interface CatalogMeta { version: string; tabs: CatalogTab[]; web: WebSku[]; images: CatalogImage[]; suppliers: CatalogSupplier[]; prices: CatalogPrice[]; sell_prices: CatalogPrice[]; labels: CatalogLabel[]; aliases: CatalogAlias[]; sheet_configured: boolean }
 /** /catalog/profit: Page365 orders (with the shop's per-order fee), marketplace money, order-sheet items, Meta spend. */
@@ -324,8 +328,8 @@ export interface ProfitData {
 }
 export interface ImportMap { signature: string; map: MoneyMap; platform: Platform | 'auto'; updated_by: string; updated_at: string }
 /** /catalog/stock: our own stock at พี่เปีย's BB branch ('pia') and in GoSell's warehouse ('gosell'). */
-export type StockLoc = 'pia' | 'gosell';
-export interface StockItem { sku: string; code: string; size: string; sort: number }
+export type StockLoc = 'pia' | 'gosell' | 'pk';
+export interface StockItem { sku: string; code: string; size: string; sort: number; locs: StockLoc[] }
 export interface StockMove { id: number; loc: StockLoc; sku: string; qty: number; kind: 'open' | 'in' | 'out' | 'adjust'; ref: string; date: string; note: string; created_by: string; created_at: string }
 export interface StockData {
   items: StockItem[];
@@ -333,6 +337,7 @@ export interface StockData {
   start: Partial<Record<StockLoc, string>>;
   moves: StockMove[];
   cut: { loc: StockLoc; order_no: string; sku: string; ref: string }[];
+  links: { loc: StockLoc; sku: string; stock_sku: string }[];
 }
 export interface GosellCut { cut: { sku: string; qty: number }[]; orders: number; already: number; other: number }
 /** A round's item that is not from the Bigseller file: a Facebook order line (Page365) or a line typed by hand. */
@@ -371,7 +376,7 @@ export const api = {
   },
   linkCatalogImage: (tab: string, spu: string, url: string) => call<{ image: CatalogImage }>('POST', '/api/catalog/image', { tab, spu, url }),
   deleteCatalogImage: (tab: string, spu: string) => call<{ ok: true }>('DELETE', `/api/catalog/image?tab=${encodeURIComponent(tab)}&spu=${encodeURIComponent(spu)}`),
-  setAlias: (alias: string, sku: string) => call<{ alias: CatalogAlias | null }>('PUT', '/api/catalog/alias', { alias, sku }),
+  setAlias: (alias: string, sku: string, force = false) => call<{ alias: CatalogAlias | null }>('PUT', '/api/catalog/alias', { alias, sku, force }),
   setLabels: (items: { tab: string; spu: string; label: string }[]) => call<{ labels: CatalogLabel[] }>('PUT', '/api/catalog/label', { items }),
   setPrices: (items: { tab: string; spu: string; price: number | null }[]) => call<{ prices: CatalogPrice[] }>('PUT', '/api/catalog/price', { items }),
   setSellPrices: (items: { tab: string; spu: string; price: number | null }[]) => call<{ prices: CatalogPrice[] }>('PUT', '/api/catalog/sell-price', { items }),
@@ -452,6 +457,7 @@ export const api = {
   sendPostIdeas: () => call<{ sent: boolean; ideas: number }>('POST', '/api/post-ideas/send'),
   goal: () => call<GoalStatus>('GET', '/api/goal'),
   goalScaleCheck: () => call<{ asked: boolean; reason: string }>('POST', '/api/goal/scale-check'),
+  discordPersona: () => call<{ avatar: boolean; nick: boolean; error?: string }>('POST', '/api/discord/persona'),
   discordTest: (kind?: 'upload') => call<{ ok: true }>('POST', `/api/discord/test${kind ? `?kind=${kind}` : ''}`),
   setupWebhook: () => call<{ app: unknown; page: unknown }>('POST', '/api/webhook/setup'),
   adReferrals: (q: { date?: string; window?: Window }) => call<{ dates: string[]; rows: ReferralSummary[] }>('GET', `/api/ad-referrals?${q.date ? `date=${q.date}` : `window=${q.window ?? 'last_7d'}`}`),

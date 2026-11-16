@@ -42,7 +42,9 @@ export function OrderNotesPage() {
       </div>
       <DaySales date={date} refresh={tick} />
       <SessionBanner />
+      <Accuracy refresh={tick} />
       <AutoSwitch />
+      <CleanupSwitch />
       <NoteMisses refresh={tick} />
       <OrderNotesList date={date} dayLabel={date === todayBkk() ? 'วันนี้' : thaiDay(date)} refresh={tick} live={date === todayBkk()} />
     </>
@@ -173,6 +175,71 @@ function AutoSwitch() {
         <b>ใส่บิลอัตโนมัติ: {on ? 'เปิด' : 'ปิด'}</b> — {on ? 'แอดมินพิมพ์สรุปแล้ว ระบบเปิดร่าง + ใส่สินค้า/ที่อยู่เองทันที ใบที่ติดปัญหาแจ้งใน Discord (ชื่อลูกค้า + เลขบิล) · บิลยังเป็นร่าง แอดมินกด "ส่งบิล" เอง' : 'ต้องกดปุ่ม "ใส่ใน Page365" / "ใส่ทุกใบที่ผ่าน" เอง'}
       </span>
       <button className="ghost small" onClick={flip}>{on ? 'ปิด' : 'เปิดอัตโนมัติ'}</button>
+    </div>
+  );
+}
+
+interface AccDay { date: string; notes: number; bills: number; checked: number; ok: number; edited: number; stopped: number; stopped_kept: number; deleted: number; open: number; misses: number; edits: Record<string, number>; reasons: Record<string, { n: number; kept: number }>; address: Record<string, number> }
+const EDIT_TH: Record<string, string> = { size: 'ไซส์', items: 'รุ่น', qty: 'จำนวน', total: 'ยอด', payment: 'โอน/ปลายทาง', 'n/a': 'เทียบไม่ได้' };
+
+/** How the bills behind the notes ended up in Page365 (worker/fillAudit.ts), per day. */
+function Accuracy({ refresh }: { refresh: number }) {
+  const [d, setD] = useState<{ days: AccDay[]; edited: { no: number; date: string; edits: string[] }[] } | null>(null);
+  useEffect(() => { fetch('/api/order-notes/accuracy?days=7').then((r) => r.json()).then(setD).catch(() => {}); }, [refresh]);
+  if (!d || !d.days.some((x) => x.checked)) return null;
+  const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : '–');
+  const reasons: Record<string, { n: number; kept: number }> = {};
+  for (const x of d.days) for (const [k, v] of Object.entries(x.reasons)) { reasons[k] = reasons[k] ?? { n: 0, kept: 0 }; reasons[k].n += v.n; reasons[k].kept += v.kept; }
+  return (
+    <details className="card" style={{ marginBottom: 12 }} open>
+      <summary><strong>ความแม่นยำใส่บิล (7 วัน)</strong> <span className="muted small">เทียบบิลจริงใน Page365 หลังส่งแล้ว กับบรรทัดสรุปของแอดมิน · ตรวจบิลที่อายุเกิน 20 ชม. ทีละไม่กี่ใบ</span></summary>
+      <table className="table small">
+        <thead><tr><th>วัน</th><th>สรุป</th><th>ตรวจแล้ว</th><th>ระบบใส่ ไม่ต้องแก้</th><th>แอดมินแก้</th><th>ระบบหยุด (ไม่จำเป็น)</th><th>อ่านไม่ออก</th><th>ถูกลบ</th></tr></thead>
+        <tbody>
+          {d.days.map((x) => (
+            <tr key={x.date}>
+              <td>{thaiDay(x.date)}</td><td>{x.notes}</td><td>{x.checked}{x.open ? <span className="muted"> (+{x.open} ยังไม่ส่ง)</span> : null}</td>
+              <td className="good">{x.ok} <span className="muted">{pct(x.ok, x.ok + x.edited)}</span></td>
+              <td>{x.edited ? `${x.edited} (${Object.entries(x.edits).map(([k, v]) => `${EDIT_TH[k] ?? k} ${v}`).join(', ')})` : 0}</td>
+              <td>{x.stopped} {x.stopped ? <span className="muted">({x.stopped_kept})</span> : null}</td>
+              <td>{x.misses}</td><td>{x.deleted}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {Object.keys(reasons).length > 0 && (
+        <p className="small"><b>ระบบหยุดเพราะ:</b> {Object.entries(reasons).sort((a, b) => b[1].n - a[1].n).map(([k, v]) => `${k} ${v.n}${v.kept ? ` (ไม่จำเป็น ${v.kept})` : ''}`).join(' · ')}</p>
+      )}
+      {d.edited.length > 0 && <p className="small muted">บิลที่แอดมินแก้: {d.edited.map((e) => `#${e.no} ${e.edits.map((k) => EDIT_TH[k] ?? k).join('+')}`).join(' · ')}</p>}
+    </details>
+  );
+}
+
+/** Deleting drafts nobody will send (worker/draftCleanup.ts): off until Benz switches it on, with a preview. */
+function CleanupSwitch() {
+  const { toast } = useUi();
+  const [st, setSt] = useState<{ on: boolean; preview: { no: number; reason: string; action: string }[] } | null>(null);
+  const [open, setOpen] = useState(false);
+  const load = () => fetch('/api/order-notes/cleanup').then((r) => r.json()).then(setSt).catch(() => {});
+  useEffect(() => { load(); }, []);
+  async function flip() {
+    const r = await fetch('/api/order-notes/cleanup', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: !st?.on }) });
+    const j = await r.json();
+    if (!r.ok) { toast(j.error ?? 'เปลี่ยนไม่ได้', 'bad'); return; }
+    toast(j.on ? 'เปิดลบร่างอัตโนมัติแล้ว' : 'ปิดลบร่างอัตโนมัติแล้ว', 'ok'); load();
+  }
+  if (!st) return null;
+  const label = { delete: 'จะลบ', warn: 'จะเตือน (อีก 2 วันลบ)', keep: 'ยังไม่ถึงเวลา' } as Record<string, string>;
+  return (
+    <div className={`banner ${st.on ? 'info' : ''}`}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
+        <span><b>ลบร่างที่ไม่มีใครส่ง: {st.on ? 'เปิด' : 'ปิด'}</b> — ไม่ได้ส่งภายใน 7 วัน (เตือนวันที่ 5) ถ้าลูกค้าอาจยกเลิก / ไม่มีเบอร์หรือรหัสไปรษณีย์ / ร่างว่าง · สรุปแก้ภายใน 2 ชม. แทนร่างเดิม — เฉพาะร่าง ไม่แตะบิลที่ส่งแล้ว</span>
+        <span style={{ display: 'flex', gap: 6 }}>
+          <button className="ghost small" onClick={() => setOpen(!open)}>ดูรายการ ({st.preview.length})</button>
+          <button className="ghost small" onClick={flip}>{st.on ? 'ปิด' : 'เปิด'}</button>
+        </span>
+      </div>
+      {open && (st.preview.length ? <ul className="small">{st.preview.map((p) => <li key={p.no}>#{p.no} — {p.reason} · <b>{label[p.action] ?? p.action}</b></li>)}</ul> : <p className="small muted">ตอนนี้ไม่มีร่างที่เข้าเงื่อนไข</p>)}
     </div>
   );
 }
