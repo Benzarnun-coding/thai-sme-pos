@@ -60,7 +60,7 @@ Direction: e-commerce system for Thai SMEs. The React app in `src/` is an early 
 
 - Zero-dependency Node 24 TypeScript. `cd ads-engine && npm run run` = dry run, `npm run apply` = change budgets for real, `npm test` = rule logic tests.
 - Talks to the Meta Marketing API directly with a System User token in `ads-engine/.env` (gitignored). No LLM in the daily loop — keep it that way.
-- Rules are data in `ads-engine/rules.json`. Guardrails there cap budget moves; `KILL_SWITCH=true` in `.env` stops everything.
+- Rules are data in `ads-engine/rules.json` (the manual engine's own old set, ROAS ≥ 4 on ≥ 1,000 — NOT what runs daily: the live rules are the stage rules in D1, template in `ads-web/web/src/stageTemplates.ts`; Max's Grok answered from this file by mistake on 2026-11-17). Guardrails there cap budget moves; `KILL_SWITCH=true` in `.env` stops everything.
 - `.github/workflows/ads-engine.yml` runs it manually (schedule moved to ads-web).
 
 Division of labour: ads-engine runs the if/then rules; Claude (via the `meta-ads` MCP) is for ad-hoc questions, reading `ads-engine/logs/`, and proposing edits to `rules.json`. Any change that can start spend (ENABLED status, budget increases) needs explicit approval from Benz.
