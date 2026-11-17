@@ -3,7 +3,7 @@
 ตัวคุม Meta Ads ด้วยกฎ ต่อ Marketing API ตรง ไม่ผ่านคนกลาง ไม่ใช้ LLM รันคำสั่งเดียว
 
 ```
-fetch (campaigns, ad sets, insights) → evaluate rules.json → apply (ถ้าไม่ใช่ dry run) → logs/*.json → LINE (ถ้าตั้งไว้)
+fetch (campaigns, ad sets, insights) → evaluate rules.manual-old.json → apply (ถ้าไม่ใช่ dry run) → logs/*.json → LINE (ถ้าตั้งไว้)
 ```
 
 ไม่มี dependency ใช้ Node 22.6 ขึ้นไป (เครื่องนี้ Node 24)
@@ -20,7 +20,7 @@ fetch (campaigns, ad sets, insights) → evaluate rules.json → apply (ถ้�
 cp ads-engine/.env.example ads-engine/.env
 ```
 
-3. แก้ `rules.json` ให้ตรงกับตัวเลขของร้าน ค่าเริ่มต้นเป็นแค่ตัวอย่าง
+3. แก้ `rules.manual-old.json` ให้ตรงกับตัวเลขของร้าน ค่าเริ่มต้นเป็นแค่ตัวอย่าง
 
 ## รัน
 
@@ -58,7 +58,7 @@ crontab -e
 
 ## รูปแบบกฎ
 
-หนึ่งกฎ = หนึ่ง object ใน `rules.json` เรียงตามความสำคัญ กฎแรกที่ตรงจะได้ทำ กฎถัดไปบน entity เดียวกันจะถูกข้าม
+หนึ่งกฎ = หนึ่ง object ใน `rules.manual-old.json` เรียงตามความสำคัญ กฎแรกที่ตรงจะได้ทำ กฎถัดไปบน entity เดียวกันจะถูกข้าม
 
 | field | ค่า |
 |---|---|

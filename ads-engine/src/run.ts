@@ -13,7 +13,7 @@ import { formatReport, pushLine } from './notify.ts';
 import type { Decision, RulesFile, RunReport, State } from './types.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const RULES_PATH = process.env.RULES_FILE ?? join(ROOT, 'rules.json');
+const RULES_PATH = process.env.RULES_FILE ?? join(ROOT, 'rules.manual-old.json');
 const STATE_PATH = join(ROOT, 'state.json');
 const LOG_DIR = join(ROOT, 'logs');
 

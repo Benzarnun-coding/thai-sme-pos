@@ -1,4 +1,4 @@
-# Manual runs of ads-engine (rules.json). The daily schedule now lives in ads-web (Cloudflare cron);
+# Manual runs of ads-engine (rules.manual-old.json — the old manual rule set, not the live stage rules). The daily schedule now lives in ads-web (Cloudflare cron);
 # don't re-enable `schedule:` here while ads-web is live, or two engines will act on the same campaigns.
 # Secrets to add in GitHub → Settings → Secrets and variables → Actions:
 #   META_ACCESS_TOKEN, META_AD_ACCOUNT_ID, (optional) LINE_CHANNEL_ACCESS_TOKEN, LINE_TO
