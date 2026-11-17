@@ -221,6 +221,7 @@ export interface GrokMeta {
   campaignHasBudget(campaignId: string): Promise<boolean>;
   createAdsetFrom(templateAdsetId: string, campaignId: string, name: string, dailyBudget: number | null): Promise<string>;
   verifiedAdvertiser?(templateAdsetId: string): Promise<boolean>;
+  campaignAlive?(campaignId: string): Promise<boolean>;
   uploadImage(base64: string): Promise<string>;
   createCreative(name: string, spec: unknown): Promise<string>;
   createAd(adsetId: string, name: string, creativeId: string, status: 'ACTIVE' | 'PAUSED'): Promise<string>;
@@ -319,8 +320,12 @@ export async function proposeStep(env: ProposeEnv, cfg: StudioAds, limit = 2): P
 
 export interface LaunchResult { ok: boolean; text: string }
 
-/** Builds the "(Grok)" campaign for one set after Max's approval (≈ 8 Meta calls). Half-made objects stay PAUSED. */
-export async function launchSet(env: StudioEnv, meta: GrokMeta, cfg: StudioAds, setId: number, budgetRoom: number): Promise<LaunchResult> {
+/**
+ * Builds the "(Grok)" campaign for one set after Max's approval (≈ 8 Meta calls). Half-made objects stay PAUSED, and
+ * a campaign made before the failure is kept on the row so the next press finishes it instead of making another.
+ * `budgetRoom` may be a function: a Meta error while reading the budgets is then reported as itself, not as "0 left".
+ */
+export async function launchSet(env: StudioEnv, meta: GrokMeta, cfg: StudioAds, setId: number, budgetRoom: number | (() => Promise<number>)): Promise<LaunchResult> {
   const s = await env.DB.prepare(`SELECT id, code, caption_text, image_id FROM creative_sets WHERE id = ?1`).bind(setId).first<{ id: number; code: string; caption_text: string; image_id: number }>();
   if (!s) return { ok: false, text: 'ไม่พบชุดโพสต์นี้' };
   const fail = async (err: string): Promise<LaunchResult> => {
@@ -329,11 +334,16 @@ export async function launchSet(env: StudioEnv, meta: GrokMeta, cfg: StudioAds, 
   };
   const running = await testSlotsUsed(env.DB);
   if (running >= cfg.max_active) return fail(`มีแคม (Grok) ในกลุ่มทดลองครบ ${cfg.max_active} ช่องแล้ว รอกฎหยุดตัวที่ไม่ขายหรือย้ายตัวที่ขายดีขึ้นก่อน`);
-  if (budgetRoom < cfg.budget) return fail(`งบรวมจะเกินเพดานที่ตั้งไว้ (เหลือ ${Math.round(budgetRoom)} บาท) ขยายเพดานในหน้าตั้งค่าก่อน`);
+  let room: number;
+  try { room = typeof budgetRoom === 'function' ? await budgetRoom() : budgetRoom; }
+  catch (err: any) { return fail(`อ่านงบรวมจาก Meta ไม่ได้ ยังไม่ได้สร้างอะไร รอสัก 15 นาทีแล้วกดลองใหม่ครั้งเดียว — ${err?.message ?? err}`); }
+  if (room < cfg.budget) return fail(`งบรวมจะเกินเพดานที่ตั้งไว้ (เหลือ ${Math.round(room)} บาท) ขยายเพดานในหน้าตั้งค่าก่อน`);
   const t = await templateAd(env.DB, s.code);
   if (!t) return fail(`ยังไม่มีแอดที่ยิงอยู่ของ ${s.code} ให้ใช้เป็นต้นแบบ`);
   const name = `${s.code} ชุด#${s.id} (Grok)`;
-  let campaign: string | null = null;
+  // A campaign an earlier failed press already made (kept on the row below): finish that one.
+  const left = (await env.DB.prepare(`SELECT campaign_id FROM grok_ads WHERE set_id = ?1 AND status != 'running'`).bind(setId).first<{ campaign_id: string | null }>())?.campaign_id ?? null;
+  let campaign: string | null = null, made: string | null = null; // made: an ad set exists in it, so it is not reused
   try {
     const tpl = await meta.adTemplate(t.ad_id); // the product's ad set (audience, optimisation) comes from here
     // The creative template: this ad if it has a spec, else the next running ad that has one.
@@ -344,11 +354,13 @@ export async function launchSet(env: StudioEnv, meta: GrokMeta, cfg: StudioAds, 
     const img = await env.DB.prepare('SELECT full FROM creative_candidates WHERE id = ?1').bind(s.image_id).first<{ full: ArrayBuffer | number[] | null }>();
     if (!img?.full) throw new Error('ไม่พบไฟล์ภาพของชุดนี้');
     const hash = await meta.uploadImage(toBase64(img.full));
-    campaign = await meta.copyCampaignOnly(tpl.campaign_id, ` ชุด#${s.id} (Grok)`); // one campaign per post, still ending "(Grok)"
+    if (left && (!meta.campaignAlive || await meta.campaignAlive(left))) campaign = left;
+    else campaign = await meta.copyCampaignOnly(tpl.campaign_id, ` ชุด#${s.id} (Grok)`); // one campaign per post, still ending "(Grok)"
     // CBO: the campaign carries the 100; ABO: the new ad set does.
     const cbo = await meta.campaignHasBudget(campaign);
     if (cbo) await meta.setDailyBudget(campaign, cfg.budget);
     const adset = await meta.createAdsetFrom(tpl.adset_id, campaign, name, cbo ? null : cfg.budget);
+    made = adset;
     const creative = await meta.createCreative(name, buildSpec(spec, s.caption_text, hash));
     const ad = await meta.createAd(adset, name, creative, 'ACTIVE');
     await meta.setStatus(adset, 'ACTIVE');
@@ -358,8 +370,11 @@ export async function launchSet(env: StudioEnv, meta: GrokMeta, cfg: StudioAds, 
       .bind(setId, t.ad_id, campaign, adset, ad, cfg.budget, now.toISOString(), ends).run();
     return { ok: true, text: `เปิดแล้ว: แคม "${t.campaign_name} ชุด#${s.id} (Grok)" · แอด "${name}" · เริ่ม ${cfg.budget} บาท/วัน · เข้ากลุ่ม "ทดลอง" แล้ว กฎปรับงบเอง · สรุปผล ${ends.slice(0, 10)}` };
   } catch (err: any) {
-    if (campaign) await meta.setStatus(campaign, 'PAUSED').catch(() => null);
-    return fail(`${err?.message ?? err}${campaign ? ` (แคมที่สร้างค้างไว้ ${campaign} หยุดอยู่ ลบได้ใน Ads Manager)` : ''}`);
+    if (campaign) {
+      await meta.setStatus(campaign, 'PAUSED').catch(() => null);
+      await env.DB.prepare(`UPDATE grok_ads SET campaign_id = ?2 WHERE set_id = ?1`).bind(setId, made ? null : campaign).run();
+    }
+    return fail(`${err?.message ?? err}${!campaign ? '' : made ? ` (แคมที่สร้างค้างไว้ ${campaign} หยุดอยู่ ลบได้ใน Ads Manager)` : ` (แคมที่สร้างค้างไว้ ${campaign} หยุดอยู่ กดลองใหม่จะสร้างต่อในแคมนี้ ไม่สร้างแคมใหม่ซ้ำ)`}`);
   }
 }
 

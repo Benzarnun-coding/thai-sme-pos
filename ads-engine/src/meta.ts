@@ -45,6 +45,8 @@ const WINDOW_TO_PRESET: Record<Window, string> = {
   last_30d: 'last_30d',
 };
 
+type RegulatedAdset = { regional_regulated_categories: unknown[]; regional_regulation_identities: Record<string, unknown> };
+
 export class MetaClient {
   private token: string;
   private accountId: string;
@@ -338,6 +340,12 @@ export class MetaClient {
     return String(c.copied_campaign_id);
   }
 
+  /** false when the campaign was deleted or archived (a half-made "(Grok)" campaign someone removed in Ads Manager). */
+  async campaignAlive(campaignId: string): Promise<boolean> {
+    const c = await this.get(campaignId, { fields: 'effective_status' });
+    return !['DELETED', 'ARCHIVED'].includes(String(c.effective_status ?? ''));
+  }
+
   /** true when the campaign carries the budget (CBO). */
   async campaignHasBudget(campaignId: string): Promise<boolean> {
     const c = await this.get(campaignId, { fields: 'daily_budget,lifetime_budget' });
@@ -380,8 +388,19 @@ export class MetaClient {
     return hasRegulation(t) || !!(await this.regulatedAdset());
   }
 
-  /** The newest ad set in the account that names a verified payer/beneficiary (regional regulation), if any. */
-  private async regulatedAdset(): Promise<{ regional_regulated_categories: unknown[]; regional_regulation_identities: Record<string, unknown> } | null> {
+  /**
+   * The newest ad set in the account that names a verified payer/beneficiary (regional regulation), if any.
+   * Asked once per client: the check before a launch and the ad set built after it used to list the account's ad
+   * sets twice, and the second listing hit Meta's account call limit after the campaign existed (2026-11-17,
+   * subcode 2446079), leaving an empty paused campaign.
+   */
+  private regulated?: Promise<RegulatedAdset | null>;
+  private regulatedAdset(): Promise<RegulatedAdset | null> {
+    this.regulated ??= this.fetchRegulatedAdset().catch((err) => { this.regulated = undefined; throw err; });
+    return this.regulated;
+  }
+
+  private async fetchRegulatedAdset(): Promise<RegulatedAdset | null> {
     const b = await this.get(`${this.accountId}/adsets`, {
       fields: 'id,created_time,regional_regulated_categories,regional_regulation_identities',
       effective_status: JSON.stringify(['ACTIVE', 'PAUSED', 'CAMPAIGN_PAUSED', 'ADSET_PAUSED', 'IN_PROCESS', 'WITH_ISSUES']),

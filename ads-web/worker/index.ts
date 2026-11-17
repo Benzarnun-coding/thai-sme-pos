@@ -194,7 +194,7 @@ async function grokAdPress(i: any, env: Env, ctx: ExecutionContext, who: string,
       return;
     }
     const cfg = await grokAds.loadStudioAds(env.DB);
-    const r = await grokAds.launchSet(env, metaFor(env) as unknown as grokAds.GrokMeta, cfg, Number(setId), await budgetRoom(env).catch(() => 0))
+    const r = await grokAds.launchSet(env, metaFor(env) as unknown as grokAds.GrokMeta, cfg, Number(setId), () => budgetRoom(env))
       .catch((err: any) => ({ ok: false, text: String(err?.message ?? err) }));
     await audit(env.DB, `discord:${who}`, r.ok ? 'grokad.launched' : 'grokad.failed', setId, { text: r.text });
     if (r.ok) await grokAds.stageGrok(env.DB).catch(() => []);
