@@ -137,6 +137,7 @@ are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,4
 
 - Products: `stock_items`; which place keeps which: `stock_locs` (migration 0050). พี่เปีย and GoSell = 501/1, 501/2,
   501/3, 701/1, 701/2 × sizes 28–36; PK = every size of our 39 codes in the PK tab (200 … 009/2, Ni8/Ni9, D01/D02).
+  Idea #33 (0074): D01, D02, 009/1, 009/2 added at พี่เปีย, 20 per size.
   `stock_links`: 601/1–3 sold at พี่เปีย are cut from 501/1–3 of the same size. Balance = Σ `stock_moves.qty`
   (open / in / out / adjust):
   - PK (`pk`, our PK warehouse, 2026-10-19): cut by the order sheets' "PK" sheet, like พี่เปีย, including the round's
