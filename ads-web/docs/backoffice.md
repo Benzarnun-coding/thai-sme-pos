@@ -156,6 +156,7 @@ are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,4
 - New at PK (idea #31, migration 0073): 301/5 ดำ (3015-PK-BL) sizes 28,30,32,34,36, no pieces (counts typed on the page).
 - รับของเข้า at พี่เปีย (idea #16, มอส): the same SKUs are also cut from PK's stock (`out`, ref `pia-in:…`, once PK has a starting
   balance; SKUs PK doesn't keep are left alone); deleting the typed receipt deletes that cut too (`cutPkForPia`).
+- Shops ปรับยอด (idea #34, Moss): the count form is a grid like PK (model + colour down, sizes across, a box per cell; pieces already counted show as the placeholder); search still adds SKUs. รับของเข้า keeps the list.
 - Shops (idea #25, Moss): tabs AR / BB / BBW / BT / GG / Clima(CM) / CN, one place per catalog tab (`SHOP_LOCS`,
   `web/src/stockLocs.ts`), BB = every BB supplier as one. Any SKU of the tab; no starting balance — "รับของเข้า" /
   "ปรับยอด" search the catalog tab and save moves. A saved round cuts a shop for its rows (`purchase_lines.tab`) that are

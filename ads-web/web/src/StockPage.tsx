@@ -294,6 +294,22 @@ function ShopForm({ mode, loc, rows, balance, onCancel, onSaved }: {
     return catalog.filter((r) => !picked.includes(r.sku) && words.every((w) => `${r.sku} ${r.code} ${r.name} ${r.color} ${r.size}`.toLowerCase().includes(w))).slice(0, 12);
   }, [q, catalog, picked]);
   const label = (sku: string) => { const r = bySku.get(sku), s = rows.find((x) => x.sku === sku); const c = r ?? s; return c ? [c.code, c.color, c.size && `#${c.size}`].filter(Boolean).join(' ') || sku : sku; };
+  // adjust: like PK — one line per model (+ colour), sizes across the top, a box in each cell
+  const grid = useMemo(() => {
+    const lines = new Map<string, { label: string; bySize: Map<string, string> }>();
+    const sizeSet = new Set<string>();
+    for (const sku of picked) {
+      const c = bySku.get(sku) ?? rows.find((x) => x.sku === sku);
+      const label = (c && ([c.code, c.color].filter(Boolean).join(' · ') || c.name)) || sku;
+      const size = c?.size || '';
+      const l = lines.get(label) ?? { label, bySize: new Map() };
+      l.bySize.set(size, sku);
+      lines.set(label, l);
+      sizeSet.add(size);
+    }
+    const sizes = [...sizeSet].sort((a, b) => (a === '' ? 1 : b === '' ? -1 : compareSize(a, b)));
+    return { sizes, lines: [...lines.values()].sort((a, b) => a.label.localeCompare(b.label, 'en', { numeric: true })) };
+  }, [picked, bySku, rows]);
   const changes = picked.map((sku) => {
     const v = (vals.get(sku) ?? '').trim();
     if (v === '') return null;
@@ -325,15 +341,37 @@ function ShopForm({ mode, loc, rows, balance, onCancel, onSaved }: {
           ))}
         </ul>
       )}
-      {picked.length > 0 && (
+      {picked.length > 0 && mode === 'adjust' && (
+        <div className="table-wrap">
+          <table className="stock-grid">
+            <thead><tr><th>รหัส</th>{grid.sizes.map((z) => <th key={z}>{z ? `#${z}` : '—'}</th>)}</tr></thead>
+            <tbody>
+              {grid.lines.map((l) => (
+                <tr key={l.label}>
+                  <td><b>{l.label}</b></td>
+                  {grid.sizes.map((z) => {
+                    const sku = l.bySize.get(z);
+                    return (
+                      <td key={z} title={sku}>
+                        {sku ? <input inputMode="numeric" aria-label={`${l.label} #${z}`} value={vals.get(sku) ?? ''} placeholder={String(balance.get(sku) ?? 0)}
+                          onChange={(e) => setVals((x) => new Map(x).set(sku, e.target.value.replace(/[^\d-]/g, '')))} /> : '—'}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {picked.length > 0 && mode === 'in' && (
         <table className="data-table">
-          <thead><tr><th>SKU</th><th>สินค้า</th>{mode === 'adjust' && <th className="num">ในระบบ</th>}<th className="num">{mode === 'in' ? 'เข้า' : 'นับได้'}</th><th /></tr></thead>
+          <thead><tr><th>SKU</th><th>สินค้า</th><th className="num">เข้า</th><th /></tr></thead>
           <tbody>
             {picked.map((sku) => (
               <tr key={sku}>
                 <td><code>{sku}</code></td>
                 <td>{label(sku)}</td>
-                {mode === 'adjust' && <td className="num muted">{num(balance.get(sku) ?? 0)}</td>}
                 <td className="num"><input inputMode="numeric" aria-label={sku} style={{ width: 80 }} value={vals.get(sku) ?? ''}
                   onChange={(e) => setVals((x) => new Map(x).set(sku, e.target.value.replace(/[^\d-]/g, '')))} /></td>
                 <td><button className="link small" onClick={() => setPicked((p) => p.filter((x) => x !== sku))}>เอาออก</button></td>
