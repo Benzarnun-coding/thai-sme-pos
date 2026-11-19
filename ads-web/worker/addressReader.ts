@@ -30,7 +30,9 @@ export interface ChatMessage { own?: boolean; auto?: boolean; message?: string |
 const SYSTEM = `You read a Thai online shop's Messenger chat and pull out the shipping address the customer gave for their order.
 The customer may type it or send a photo of it. The first photo in a chat is usually the ad they clicked — ignore photos of clothes.
 If the customer gave more than one address, use the latest one and say so in "doubt". Copy names and place names exactly as written;
-fix only obvious typing errors in place names. Never invent a postcode or phone number — leave it empty if it isn't there.
+fix only obvious typing errors in place names. Never translate or transliterate a name: an English name stays in English.
+"street" stops before ตำบล/แขวง: the subdistrict, district, province and postcode go only in their own fields, never also in "street".
+Never invent a postcode or phone number — leave it empty if it isn't there.
 A missing postcode is fine (it is looked up from the subdistrict afterwards): don't mention it in "doubt".
 If the customer later corrected part of it (a name, a house number), use the correction — that is settled, not a doubt.
 If the customer never typed a recipient name, leave "name" empty (the Facebook name is used) — that is normal, not a doubt.
@@ -86,6 +88,7 @@ export function cleanAddress(a: ReadAddress): ReadAddress & { problems: string[]
   // Postcode/district/province filled or checked from the subdistrict (customers often leave the postcode out).
   const { parts, doubt } = a.found ? completeAddress(a) : { parts: a, doubt: null };
   a = { ...a, ...parts };
+  if (a.found) a = { ...a, street: trimStreet(a.street, a) };
   const postal = a.postal_code.replace(/\D/g, '');
   if (!a.found) problems.push('ไม่เจอที่อยู่ในแชท');
   else {
@@ -99,6 +102,34 @@ export function cleanAddress(a: ReadAddress): ReadAddress & { problems: string[]
     if (a.doubt.trim()) problems.push(`ที่อยู่ไม่แน่ใจ: ${a.doubt.trim()}`);
   }
   return { ...a, phone, postal_code: postal, problems };
+}
+
+const PLACE_PREFIX = '(?:ตำบล|ต\\.|แขวง|อำเภอ|อ\\.|เขต|จังหวัด|จ\\.)';
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * The house-number part only (19 Nov, from the team: the house-number box got the whole address, so the bill showed it
+ * twice — once in the box, once from the ตำบล/อำเภอ/จังหวัด fields). Cuts from the first ต./อ./จ. (or ตำบล/แขวง/อำเภอ/เขต/
+ * จังหวัด) once those fields are filled, then any trailing postcode or repeated subdistrict/district/province name.
+ */
+export function trimStreet(street: string, a: Pick<ReadAddress, 'subdistrict' | 'district' | 'province'>): string {
+  const orig = (street ?? '').replace(/\s+/g, ' ').trim();
+  let s = orig;
+  if (a.subdistrict.trim() && a.district.trim() && a.province.trim()) {
+    const m = s.match(new RegExp(`(?:^|[\\s,])${PLACE_PREFIX}\\s*[\\u0E00-\\u0E7F]`));
+    if (m && m.index! > 0) s = s.slice(0, m.index);
+  }
+  const bkk = /กรุงเทพ/.test(a.province);
+  const names = [a.subdistrict, a.district, a.province].map((n) => n.trim()).filter(Boolean).map(escapeRe);
+  if (bkk) names.push('กรุงเทพมหานคร', 'กรุงเทพฯ?', 'กทม\\.?');
+  for (let changed = true; changed;) {
+    const before = s;
+    s = s.replace(/[\s,]*\d{5}$/, '');
+    for (const n of names) s = s.replace(new RegExp(`[\\s,]+${PLACE_PREFIX}?\\s*${n}$`), '');
+    s = s.replace(/[\s,]+$/, '');
+    changed = s !== before;
+  }
+  return s.trim() || orig;
 }
 
 /** One line the way the team writes it: "99/9 ม.9 ต.พรุดินนา อ.คลองท่อม จ.กระบี่ 81120" (แขวง/เขต for Bangkok). */
