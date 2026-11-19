@@ -72,6 +72,8 @@ function normaliseNote(text: string | null | undefined): string {
     // 14 Nov "KZ072 ไซร์M 2", 6 Nov "501//1 36": a misspelt ไซส์, a doubled slash.
     .replace(/ไซร์|ไซต์/g, 'ไซส์')
     .replace(/\/{2,}/g, '/')
+    // 19 Nov "KZ-072 sz XL": a space between the size word and the size.
+    .replace(new RegExp(`(^|\\s)(sz|size|ไซส์|ไซซ์|เอว)\\.?[ \\t]+(?=${SIZE_SRC}(?:\\s|$))`, 'gim'), '$1$2')
     .trim();
 }
 

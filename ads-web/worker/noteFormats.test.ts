@@ -59,6 +59,7 @@ export const NOTE_FORMATS: [string, string][] = [
   ["• NI9-1 สีดำ ไซส์ 34 x1\n• NI9-2 สีกรม ไซส์ 34 x1\n• NI9-3 สีน้ำตาล ไซส์ 34 x1\n• NI9-4 สีเขียวขี้ม้า ไซส์ 34 x1\n• NI9-5 สีเทา ไซส์ 34 x1\ncod 927", "NI9-1 34, NI9-2 34, NI9-3 34, NI9-4 34, NI9-5 34 | cod 927"],
   ["KZ072 ไซร์M 2\ncod 749", "KZ072 M ×2 | cod 749"], // ไซร์
   ["cod249\n501//1  36", "501/1 36 | cod 249"], // doubled slash
+  ["KZ-072 sz XL\ncod 419", "KZ-072 XL | cod 419"], // 19 Nov #33783: a space between "sz" and the size
 ];
 
 /** Shop messages that must never become notes (customer details, chat). */
