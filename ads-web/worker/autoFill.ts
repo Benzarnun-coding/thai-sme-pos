@@ -13,9 +13,10 @@ import { sendNotePurchase } from './notePurchases.ts';
 import { cleanupDrafts, cleanupOn, deleteDraft } from './draftCleanup.ts';
 import { accuracyPost, auditStep } from './fillAudit.ts';
 import { applyCorrection, billItems, change, correctionOn, decide, noteItems, SAME_ORDER_MS, stageTh } from './noteCorrection.ts';
+import { billCase, forwardCase, type CaseForwardEnv } from './caseForward.ts';
 import { applyFill, call, CANCEL_HINT, draftHoldsNote, findDraft, P365Error, planFill, type FillEnv, type P365Order } from './p365fill.ts';
 
-export interface AutoEnv extends FillEnv, DiscordEnv { DB: D1Database; /** #ออเดอร์มีปัญหา (Benz 15 Oct); falls back to the ads channel via the bot */ DISCORD_ORDER_WEBHOOK_URL?: string; /** who answers for problem bills (เนย, Benz 15 Oct); empty = the deciders */ DISCORD_ORDER_OWNER_IDS?: string }
+export interface AutoEnv extends FillEnv, DiscordEnv, CaseForwardEnv { DB: D1Database; /** #ออเดอร์มีปัญหา (Benz 15 Oct); falls back to the ads channel via the bot */ DISCORD_ORDER_WEBHOOK_URL?: string; /** who answers for problem bills (เนย, Benz 15 Oct); empty = the deciders */ DISCORD_ORDER_OWNER_IDS?: string }
 
 const PAGE = (env: FillEnv) => env.P365_PAGE_ID ?? '115748303500549';
 export const orderLink = (env: FillEnv, id: number) => `https://app.page365.net/${PAGE(env)}/orders/${id}`;
@@ -324,6 +325,8 @@ export async function tell(env: AutoEnv, note: StoredNote, draft: P365Order | nu
     ...reasons.slice(0, 6).map((r) => `• ${r}`),
   ].join('\n').slice(0, 2000);
   await postOrderChannel(env, body);
+  // The same case to Max's bot (caseForward.ts; off unless switched on). Shop-wide alarms (no note, no bill) stay in Discord.
+  if (note.mid || draft) await forwardCase(env, billCase({ billNo: draft?.no ?? null, name, noteText: note.text, reasons, filled }));
 }
 
 /** The problem channel (#ออเดอร์มีปัญหา), tagging the person in charge; the ads channel via the bot if not set. */

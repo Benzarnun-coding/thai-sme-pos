@@ -46,6 +46,7 @@ export function OrderNotesPage() {
       <AutoSwitch />
       <CleanupSwitch />
       <CorrectionSwitch />
+      <CaseForwardSwitch />
       <NoteMisses refresh={tick} />
       <OrderNotesList date={date} dayLabel={date === todayBkk() ? 'วันนี้' : thaiDay(date)} refresh={tick} live={date === todayBkk()} />
     </>
@@ -301,6 +302,38 @@ function CorrectionSwitch() {
           </li>
         ))}</ul>
       ) : <p className="small muted">ไม่มีสรุปซ้ำของลูกค้าเดิมใน 10 วัน</p>)}
+    </div>
+  );
+}
+
+/** Bill cases also sent to Max's bot อูนิ (worker/caseForward.ts): off until Benz switches it on; shows one sample of what leaves. */
+function CaseForwardSwitch() {
+  const { toast } = useUi();
+  const [st, setSt] = useState<{ on: boolean; ready: boolean; last: { at: string; bill_no: number | null; result: string; http: number | null } | null; sample: unknown } | null>(null);
+  const [show, setShow] = useState(false);
+  useEffect(() => { fetch('/api/order-notes/case-forward').then((r) => r.json()).then((j) => { if (!j.error) setSt(j); }).catch(() => {}); }, []);
+  async function flip() {
+    if (!st) return;
+    const r = await fetch('/api/order-notes/case-forward', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: !st.on }) });
+    const j = await r.json();
+    if (!r.ok) { toast(j.error ?? 'เปลี่ยนไม่ได้', 'bad'); return; }
+    setSt({ ...st, on: j.on }); toast(j.on ? 'เปิดส่งเคสบิลให้อูนิแล้ว' : 'ปิดส่งเคสบิลให้อูนิแล้ว', 'ok');
+  }
+  if (!st) return null;
+  const RESULT_TH: Record<string, string> = { sent: 'ส่งถึง', failed: 'ส่งไม่สำเร็จ', not_set: 'ยังไม่ได้ใส่ URL/key' };
+  return (
+    <div className={`banner ${st.on ? 'info' : ''}`}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
+        <span>
+          <b>ส่งเคสบิลให้อูนิ (บอทของ Max): {st.on ? 'เปิด' : 'ปิด'}</b> — เคสที่โพสต์ลงห้องออเดอร์มีปัญหา ส่งเป็น JSON ไป webhook ของอูนิด้วย มีชื่อ Facebook ลูกค้าและเลขบิล · URL/key: {st.ready ? 'ใส่แล้ว' : 'ยังไม่ได้ใส่ (ยังไม่ส่งแม้เปิด)'}
+          {st.last && <span className="muted"> · ล่าสุด {bkkTime(st.last.at)} บิล {st.last.bill_no ? `#${st.last.bill_no}` : '-'}: {RESULT_TH[st.last.result] ?? st.last.result}{st.last.http ? ` (${st.last.http})` : ''}</span>}
+        </span>
+        <span style={{ display: 'flex', gap: 6 }}>
+          <button className="ghost small" onClick={() => setShow(!show)}>{show ? 'ซ่อนตัวอย่าง' : 'ดูตัวอย่างที่จะส่ง'}</button>
+          <button className="ghost small" onClick={flip}>{st.on ? 'ปิด' : 'เปิด'}</button>
+        </span>
+      </div>
+      {show && <pre className="small" style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(st.sample, null, 2)}</pre>}
     </div>
   );
 }

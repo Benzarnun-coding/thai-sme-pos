@@ -58,6 +58,7 @@ import { catalogFor, checkNotes, loadNote, loadNotes, markFill, noteDays, withCa
 import { applyFill, findDraft, planFill, sessionStatus, P365Error } from './p365fill.ts';
 import { cleanupDrafts, cleanupOn, setCleanup } from './draftCleanup.ts';
 import { correctionOn, previewCorrections, setCorrection } from './noteCorrection.ts';
+import { caseForwardStatus, setCaseForward } from './caseForward.ts';
 import { accuracy, auditStep } from './fillAudit.ts';
 import { autoFillNote, autoFillOn, cronSweep, customerFor, loadMisses, setAutoFill, sweepNotes, tell, tellMiss } from './autoFill.ts';
 import { loadCapi, recentPurchases, saveCapi, sendOne, syncPurchases } from './metaPurchases.ts';
@@ -125,6 +126,9 @@ export interface Env {
   P365_COOKIE?: string;
   P365_PAGE_ID?: string;
   DISCORD_ORDER_WEBHOOK_URL?: string;
+  /** Bill cases also go to Max's bot อูนิ (worker/caseForward.ts; both secrets + the switch on the Log tab) */
+  UNI_CASE_WEBHOOK_URL?: string;
+  UNI_CASE_WEBHOOK_KEY?: string;
   /** model that reads shipping addresses out of the chat (worker/addressReader.ts; key: ANTHROPIC_API_KEY below) */
   ADDRESS_MODEL?: string;
   ADDRESS_MODEL_HARD?: string;
@@ -762,6 +766,15 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
     const on = (await body())?.on === true;
     await setCorrection(env.DB, on);
     await audit(env.DB, user, 'p365.note_correction', on ? 'on' : 'off', {});
+    return json({ on });
+  }
+  // Bill cases also sent to Max's bot (caseForward.ts): GET = switch, whether the secrets are in, last result, a sample; PUT = the switch, owner only.
+  if (path === '/api/order-notes/case-forward' && method === 'GET') return json(await caseForwardStatus(env));
+  if (path === '/api/order-notes/case-forward' && method === 'PUT') {
+    if (role !== 'owner') throw new BadRequest('เฉพาะเจ้าของเท่านั้น');
+    const on = (await body())?.on === true;
+    await setCaseForward(env.DB, on);
+    await audit(env.DB, user, 'p365.case_forward', on ? 'on' : 'off', {});
     return json({ on });
   }
   // A sample "needs a person" message into the order-problems channel, so the team sees what it looks like.
