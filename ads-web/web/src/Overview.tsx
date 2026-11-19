@@ -322,6 +322,14 @@ function StageSection({ stage, all, campaigns, data, preview, ideas, onReload, o
         </div>
       )}
 
+      {list.some(isEstimate) && (
+        <p className="muted small" role="note" style={{ padding: '0 16px' }}>
+          ≈ กำไรในตารางเป็นตัวเลขประมาณ (ออเดอร์ที่ติ๊กใน Meta × ทุนสินค้าที่ผูกไว้) เพราะ
+          {data.actual ? `ไฟล์ Page365 ของช่วงนี้มี ${data.actual.covered}/${data.actual.dates} วัน` : 'ไฟล์ Page365 ของช่วงนี้ยังไม่ครบทุกวัน'}
+          {' '}· เลือกช่วงที่มีไฟล์ครบทุกวันเพื่อดูกำไรจริง
+        </p>
+      )}
+
       <div className="table" role="table" aria-label="แคมเปญ">
         {list.length > 0 && (
           <div className="tr th" role="row">
@@ -390,6 +398,9 @@ function StageSection({ stage, all, campaigns, data, preview, ideas, onReload, o
 }
 
 /** One summary row under the table, like Ads Manager: totals of the campaigns listed (after search). */
+/** A profit worked out from Meta's tagged orders and the linked product cost, not from Page365 orders. */
+const isEstimate = (c: CampaignView) => c.profit !== null && c.profit_source !== 'page365';
+
 function TotalsRow({ list, filtered }: { list: CampaignView[]; filtered: boolean }) {
   const t = list.reduce(
     (a, c) => ({
@@ -417,7 +428,7 @@ function TotalsRow({ list, filtered }: { list: CampaignView[]; filtered: boolean
       <span className="num" data-label="ออเดอร์" title={t.clicks ? `CVR ${num((t.purchases / t.clicks) * 100, 2)}%` : undefined}>{num(t.purchases)}</span>
       <span className="num" data-label="ค่าแอด/ออเดอร์">{t.purchases ? baht(t.spend / t.purchases) : '–'}</span>
       <span className="num strong" data-label="ROAS">{t.spend ? num(t.value / t.spend, 2) : '–'}</span>
-      <span className={`num ${withProfit.length ? profitTone(low, high) : ''}`} data-label="กำไร" title={!withProfit.length ? 'ยังไม่ผูกต้นทุน' : withProfit.every((c) => c.profit_source === 'page365') ? 'ของจริง Page365 (ไม่รวมออเดอร์ที่ไม่ทราบแอด)' : `ประมาณจาก Meta ${bahtRange(low, high)}`}>{withProfit.length ? baht(low) : '–'}</span>
+      <span className={`num ${withProfit.length ? profitTone(low, high) : ''}`} data-label="กำไร" title={!withProfit.length ? 'ยังไม่ผูกต้นทุน' : withProfit.every((c) => c.profit_source === 'page365') ? 'ของจริง Page365 (ไม่รวมออเดอร์ที่ไม่ทราบแอด)' : `ประมาณจาก Meta ${bahtRange(low, high)}`}>{withProfit.length ? `${withProfit.some(isEstimate) ? '≈ ' : ''}${baht(low)}` : '–'}</span>
       <span className="num" data-label="งบ/วัน" title="งบรวมต่อวันของแคมเปญที่เปิดอยู่">{baht(t.budget)}</span>
     </div>
   );
@@ -465,7 +476,7 @@ function CampaignRow({ c, data, selected, onSelect, next, idea, onOpen, onStatus
           ? `ของจริง Page365: ${num(c.actual_orders ?? 0)} ออเดอร์ ${baht(c.actual_revenue ?? 0)} (Meta นับ ${num(m?.purchases)}) · ${num(c.units_low)} ตัว`
           : c.profit === null ? 'ยังไม่ผูกต้นทุน' : `ประมาณจาก Meta ${bahtRange(c.profit, c.profit_high)} · ${num(c.units_low) === num(c.units_high) ? num(c.units_low) : `${num(c.units_low)}–${num(c.units_high)}`} ตัว`}
       >
-        {c.profit === null ? '–' : baht(c.profit)}{profitTone(c.profit, c.profit_high) === 'warn' && <sup>?</sup>}
+        {c.profit === null ? '–' : `${isEstimate(c) ? '≈ ' : ''}${baht(c.profit)}`}{profitTone(c.profit, c.profit_high) === 'warn' && <sup>?</sup>}
       </span>
       <span className="num" data-label="งบ/วัน">{c.daily_budget === null ? <span className="muted small">ที่ ad set</span> : baht(c.daily_budget)}</span>
     </div>
