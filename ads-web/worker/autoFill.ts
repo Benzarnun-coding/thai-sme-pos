@@ -5,6 +5,7 @@
 // Page365 and presses "ส่งบิล". Switch: meta_capi key auto_fill (on/off), on the settings page.
 
 import { askTambon } from './tambonAsk.ts';
+import { audit } from './db.ts';
 import { DISCORD_PERSONA } from '../../ads-engine/src/notify.ts';
 import { postToDeciders, type DiscordEnv } from './discord.ts';
 import { looksLikeNote, markFill, parseOrderNote, saveNotes, type StoredNote } from './orderNotes.ts';
@@ -12,7 +13,7 @@ import { sendNotePurchase } from './notePurchases.ts';
 import { cleanupDrafts, cleanupOn, deleteDraft } from './draftCleanup.ts';
 import { accuracyPost, auditStep } from './fillAudit.ts';
 import { applyCorrection, billItems, change, correctionOn, decide, noteItems, SAME_ORDER_MS, stageTh } from './noteCorrection.ts';
-import { applyFill, call, CANCEL_HINT, findDraft, P365Error, planFill, type FillEnv, type P365Order } from './p365fill.ts';
+import { applyFill, call, CANCEL_HINT, draftHoldsNote, findDraft, P365Error, planFill, type FillEnv, type P365Order } from './p365fill.ts';
 
 export interface AutoEnv extends FillEnv, DiscordEnv { DB: D1Database; /** #ออเดอร์มีปัญหา (Benz 15 Oct); falls back to the ads channel via the bot */ DISCORD_ORDER_WEBHOOK_URL?: string; /** who answers for problem bills (เนย, Benz 15 Oct); empty = the deciders */ DISCORD_ORDER_OWNER_IDS?: string }
 
@@ -207,6 +208,11 @@ export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force
       await tell(env, note, draft, name, [got.why]);
       return { status: 'needs_person', order_no: draft.no, reasons: [got.why] };
     }
+    // An admin already put exactly this note into the draft by hand: nothing to add, nobody to ask.
+    if (draft.items.length && draftHoldsNote(note.text, draft)) {
+      await markFill(env.DB, note.mid, { by: 'auto', order_no: draft.no, error: null });
+      return { status: 'filled', order_no: draft.no, reasons: [`ร่าง #${draft.no} มีสินค้าตรงกับสรุปอยู่แล้ว`] };
+    }
     const tries = triesOf(note.fill_error) + 1;
     await markFill(env.DB, note.mid, { by: 'auto', order_no: draft.no, error: `${OPENED} (${tries})` });
 
@@ -218,6 +224,8 @@ export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force
       const r = await applyFill(env, note, { plan, address: plan.address, allowWarnings: true });
       await markFill(env.DB, note.mid, { by: 'auto', order_no: r.order.no, error: null });
       if (plan.warnings.length) await tell(env, note, r.order, name, plan.warnings, true);
+      // Counted, so the share of bills a person is asked to check can be measured (the Discord post leaves no row).
+      if (plan.warnings.length) await audit(env.DB, 'อัตโนมัติ', 'fill.check', String(r.order.no), { warnings: plan.warnings.map((w) => w.slice(0, 80)) }).catch(() => null);
       // No ตำบล on the bill: the customer is asked in the chat (dry run until Benz switches it on; tambonAsk.ts).
       await askTambon(env as any, r.order, note.psid).catch((err) => console.error('tambon ask', err));
       // Remembered for the draft cleanup: a possibly cancelled order left unsent for 7 days is deleted.

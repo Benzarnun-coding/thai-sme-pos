@@ -21,6 +21,7 @@ export const AddressSchema = z.object({
   doubt: z.string().describe('anything unclear or conflicting (two addresses, unreadable digits), in Thai; \'\' if none'),
   cancelled: z.boolean().describe('true only if the customer cancelled this order in the chat after agreeing to it and did not order again afterwards'),
   size_mismatch: z.string().describe("if the shop's order note has a size different from the one the customer last asked for, say which (in Thai, e.g. 'โน้ต 30 แต่ลูกค้าขอ 32'); '' if they match or the customer never said"),
+  customer_sizes: z.array(z.string()).describe("the size of every piece the customer last asked for in this order, one entry per piece, as written in the shop's sizes (e.g. ['32'], or ['28','28','29'] for two of 28 and one of 29, or ['XL']); [] if the customer never said a size"),
 });
 export type ReadAddress = z.infer<typeof AddressSchema>;
 
@@ -34,7 +35,10 @@ A missing postcode is fine (it is looked up from the subdistrict afterwards): do
 If the customer later corrected part of it (a name, a house number), use the correction — that is settled, not a doubt.
 If the customer never typed a recipient name, leave "name" empty (the Facebook name is used) — that is normal, not a doubt.
 You are also given the shop's order note (codes, waist size, payment and total). Only check two things against the chat:
-whether the customer cancelled after agreeing (and didn't reorder), and whether the note's size is the one the customer asked for last.`;
+whether the customer cancelled after agreeing (and didn't reorder), and whether the note's size is the one the customer asked for last.
+"size_mismatch" is only for a real difference. When the note's sizes are the ones the customer settled on — also after changing
+their mind, or after the shop suggested a size and the customer agreed — leave it '' and write nothing about it. Sizes the customer
+mentioned earlier and then changed don't count; "customer_sizes" holds only what they settled on last.`;
 
 /** The chat as Claude sees it: the last 40 messages as text, plus the customer's last 3 photos after the first message. */
 export function chatInput(messages: ChatMessage[], orderNote = ''): Anthropic.ContentBlockParam[] {
@@ -145,7 +149,7 @@ export async function readAddress(apiKey: string, messages: ChatMessage[], model
   });
   const usage = addressUsage(model, res.usage, input.filter((b) => b.type === 'image').length);
   if (res.stop_reason === 'refusal' || !res.parsed_output) {
-    return { ...cleanAddress({ found: false, name: '', phone: '', street: '', subdistrict: '', district: '', province: '', postal_code: '', from_image: false, doubt: 'อ่านที่อยู่ไม่สำเร็จ', cancelled: false, size_mismatch: '' }), usage };
+    return { ...cleanAddress({ found: false, name: '', phone: '', street: '', subdistrict: '', district: '', province: '', postal_code: '', from_image: false, doubt: 'อ่านที่อยู่ไม่สำเร็จ', cancelled: false, size_mismatch: '', customer_sizes: [] }), usage };
   }
   return { ...cleanAddress(res.parsed_output), usage };
 }
@@ -161,7 +165,9 @@ export async function readAddressTiered(apiKey: string, messages: ChatMessage[],
   const strong = opts.strong || DEFAULT_ADDRESS_MODEL;
   const content = await chatInputInline(messages, opts.orderNote ?? '');
   const first = await readAddress(apiKey, messages, cheap, opts.workspaceId, opts.orderNote, content).catch(() => null);
-  if (first && first.found && !first.from_image) return { ...first, usages: [first.usage], escalated: false };
+  // A size mismatch from the cheap model is read again by the strong one (2–16 Nov: 132 bills stopped on it, 121
+  // of them ended exactly as the note said) — the strong one's answer is the one used.
+  if (first && first.found && !first.from_image && !first.size_mismatch.trim()) return { ...first, usages: [first.usage], escalated: false };
   if (cheap === strong && first) return { ...first, usages: [first.usage], escalated: false };
   const second = await readAddress(apiKey, messages, strong, opts.workspaceId, opts.orderNote, content);
   return { ...second, usages: first ? [first.usage, second.usage] : [second.usage], escalated: true };

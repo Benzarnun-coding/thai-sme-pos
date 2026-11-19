@@ -321,13 +321,14 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   // Address: Page365's own when complete, else the one read from the chat (typed or a photo).
   let address: PlanAddress | null = draft ? draftAddress(draft) : null;
   if (draft && opts.readAddress !== false && env.ANTHROPIC_API_KEY) {
-    const read = await readAddressTiered(env.ANTHROPIC_API_KEY, chat, { cheap: env.ADDRESS_MODEL, strong: env.ADDRESS_MODEL_HARD, workspaceId: env.ANTHROPIC_WORKSPACE_ID, orderNote: note.text }).catch((err) => ({ problems: [`อ่านที่อยู่ไม่สำเร็จ: ${err?.message ?? err}`] } as { problems: string[]; cancelled?: boolean; size_mismatch?: string; usages?: AddressUsage[] } & Partial<PlanAddress>));
+    const read = await readAddressTiered(env.ANTHROPIC_API_KEY, chat, { cheap: env.ADDRESS_MODEL, strong: env.ADDRESS_MODEL_HARD, workspaceId: env.ANTHROPIC_WORKSPACE_ID, orderNote: note.text }).catch((err) => ({ problems: [`อ่านที่อยู่ไม่สำเร็จ: ${err?.message ?? err}`] } as { problems: string[]; cancelled?: boolean; size_mismatch?: string; customer_sizes?: string[]; usages?: AddressUsage[] } & Partial<PlanAddress>));
     // Tokens and price of every read (the $20/month workspace cap ran out on 23 Oct with no record of where it went).
     if (env.DB) for (const u of read.usages ?? []) await audit(env.DB, 'ai', 'address.read', String(draft.no), u).catch(() => null);
     // A warning, not a stop (Benz 20 Oct): the reader called 5 orders cancelled 15–19 Oct and all 5 were sent.
     if (read.cancelled) warnings.push(CANCEL_HINT);
     // A size the customer asked for that isn't made (29/31/33…): the admin's nearest made size is right (Benz 20 Oct).
-    if (read.size_mismatch?.trim() && !askedSizeNotMade(read.size_mismatch, lines.map((l) => l.size), made)) problems.push(`ไซส์ไม่ตรงกับที่ลูกค้าขอ: ${read.size_mismatch.trim()}`);
+    // …and only a real difference stops it: the reader's own "ตรงกับที่ลูกค้าขอ" used to (33 bills, 2–16 Nov).
+    if (sizeStop(read.size_mismatch ?? '', read.customer_sizes, lines.flatMap((l) => Array(l.qty).fill(l.size)), made)) problems.push(`ไซส์ไม่ตรงกับที่ลูกค้าขอ: ${(read.size_mismatch ?? '').trim()}`);
     if (!address) {
       if (read.problems.length) warnings.push(...read.problems.map((p) => `ที่อยู่: ${p}`));
       // A doubt alone (a name, a house number) doesn't keep the address off the bill: whatever is complete
@@ -446,6 +447,48 @@ export function cleanStreet(street: string, names: string[], phone: string): str
 }
 
 export const CANCEL_HINT = 'AI อ่านว่าลูกค้าอาจขอยกเลิกในแชท — เช็กก่อนส่งบิลว่ายังเอาไหม';
+
+/**
+ * A draft that already holds exactly what the note says — same models, sizes and quantities, same total (an admin
+ * filled it by hand before the system got to it; 16 bills stopped as "มีสินค้าอยู่แล้ว" 2–16 Nov, none changed after).
+ * Only notes that can be compared line by line: every line read, with a size, no colour names.
+ */
+export function draftHoldsNote(text: string, draft: Pick<P365Order, 'items' | 'total'>): boolean {
+  const p = parseOrderNote(text);
+  if (!p || p.unknown.length || !p.items.length || !draft.items.length || p.items.some((i) => i.colour || !i.size)) return false;
+  if (p.total == null || Math.abs(Number(draft.total) - p.total) > 0.5) return false;
+  const bare = (prefix: string) => prefix.toUpperCase().replace(/^[A-Z](?=\d)/, '');
+  const want = new Map<string, number>();
+  for (const i of p.items) { const k = `${bare(i.prefix)}-${i.size === 'F' ? 'FE' : i.size}`; want.set(k, (want.get(k) ?? 0) + i.qty); }
+  const got = new Map<string, number>();
+  for (const i of draft.items) {
+    const parts = (i.variant?.code ?? '').toUpperCase().split('-');
+    if (parts.length < 3) return false;
+    const k = `${bare(parts[0])}-${parts[parts.length - 1]}`;
+    got.set(k, (got.get(k) ?? 0) + i.quantity);
+  }
+  return want.size === got.size && [...want].every(([k, n]) => got.get(k) === n);
+}
+
+/**
+ * Whether the reader's size remark stops the bill. With the sizes the customer settled on (`customer_sizes`, one per
+ * piece): only when they differ from the note's — sizes the model isn't made in (29/31/33…) left out, since the
+ * admin's nearest made size is right; the same sizes in other numbers of pieces is a quantity, which the total
+ * already settles. Without them (an older answer): the remark stops it unless it only says the sizes match.
+ */
+export function sizeStop(mismatch: string, customerSizes: string[] | undefined, noteSizes: string[], made: Set<string>): boolean {
+  if (!mismatch.trim()) return false;
+  const norm = (z: string) => z.toUpperCase().replace(/^(?:SZ|SIZE|W|เอว|ไซส์|ไซซ์|ไซร์)\.?\s*/i, '').replace(/^XXL$/, '2XL').trim();
+  const note = new Set(noteSizes.map(norm).filter(Boolean));
+  if (customerSizes?.length && note.size) {
+    const asked = new Set(customerSizes.map(norm).filter((z) => z && (!made.size || made.has(z) || note.has(z))));
+    if (!asked.size) return false;
+    return [...asked].some((z) => !note.has(z)) || [...note].some((z) => !asked.has(z));
+  }
+  if (customerSizes && !customerSizes.length) return false;
+  if (/ตรงกับ|ตรงกัน/.test(mismatch) && !/แต่|ไม่ตรง|ไม่ใช่|ควรเป็น|แทน|ส่วน/.test(mismatch)) return false;
+  return !askedSizeNotMade(mismatch, noteSizes, made);
+}
 
 /** "โน้ต 34 แต่ลูกค้าขอ 33" where the model has no 33: the sizes the customer named that the note doesn't have, none made. */
 export function askedSizeNotMade(mismatch: string, noteSizes: string[], made: Set<string>): boolean {

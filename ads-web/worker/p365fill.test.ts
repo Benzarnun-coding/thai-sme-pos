@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { addRounds, applyFill, askedSizeNotMade, billName, chatTotal, cleanStreet, pickColour, pickProduct, planFill, sizeLines, validAddress } from './p365fill.ts';
+import { addRounds, applyFill, askedSizeNotMade, draftHoldsNote, sizeStop, billName, chatTotal, cleanStreet, pickColour, pickProduct, planFill, sizeLines, validAddress } from './p365fill.ts';
 
 // A fake Page365 with the shapes its web app sees (read 15 Oct 2026): one draft for customer "u1".
 function fakePage365() {
@@ -204,4 +204,34 @@ test('apply: two sizes of one model both go in (#30797 got one item and no addre
   assert.deepEqual(order.items.map((i: any) => i.variant.code).sort(), ['5011-PK-MD-30', '5011-PK-MD-34']);
   assert.equal(r.order.total, 448);
   assert.equal(calls.filter((c) => c === 'POST order_items.json').length, 2);
+});
+
+test('the size check stops a bill only on a real difference (2–16 Nov: 121 of 132 stops were not needed)', () => {
+  const made = new Set(['28', '30', '32', '34', '36', '38']);
+  // The reader's own "it matches" — with or without the sizes it settled on.
+  assert.equal(sizeStop('โน้ตร้านระบุไซส์ 32 ตรงกับที่ลูกค้าขอล่าสุด', ['32'], ['32'], made), false);
+  assert.equal(sizeStop('โน้ตระบุไซส์ 34 ตรงกับที่ลูกค้าแจ้งล่าสุด', undefined, ['34'], made), false);
+  assert.equal(sizeStop('ลูกค้าเลือกไซส์ 28 ตรงกับโน้ตร้าน แต่ในแชทก่อนหน้าระบุไซส์ 36 ก่อนเปลี่ยนเป็น 28', ['28', '28'], ['28', '28'], made), false, 'changed their mind earlier');
+  assert.equal(sizeStop('', ['30'], ['32'], made), false, 'no remark, no stop');
+  assert.equal(sizeStop('โน้ต 32 แต่ลูกค้าไม่ได้บอกไซส์', [], ['32'], made), false, 'the customer never said');
+  // Real differences.
+  assert.equal(sizeStop('โน้ตร้านระบุไซส์ 36 แต่ลูกค้าขอไซส์ 34', ['34', '34', '34'], ['36', '36', '36'], made), true);
+  assert.equal(sizeStop('โน้ตระบุ sz28 แต่ลูกค้าสั่งไซส์ 28 จำนวน 2 ตัว และไซส์ 29 จำนวน 1 ตัว', ['28', '28', '30'], ['28', '28', '28'], made), true, 'one piece in another size');
+  assert.equal(sizeStop('โน้ต 2XL แต่ลูกค้าขอ XL', ['XL'], ['2XL'], new Set(['M', 'L', 'XL', '2XL'])), true);
+  assert.equal(sizeStop('โน้ต 34 แต่ลูกค้าขอ 32', undefined, ['34'], made), true, 'older answer without the list');
+  // A size that isn't made: the admin's nearest size is right.
+  assert.equal(sizeStop('โน้ต 34 แต่ลูกค้าขอ 33', ['33'], ['34'], made), false);
+  assert.equal(sizeStop('เอว32 ตรงกัน', ['เอว 32'], ['32'], made), false, 'written with a prefix');
+});
+
+test('a draft an admin already filled exactly as the note says is not sent to a person', () => {
+  const item = (code: string, quantity = 1) => ({ id: 1, name: '', note: null, price: 199, quantity, variant: { id: 1, code, product_id: 1 } });
+  const draft = { total: 649, items: [item('5011-PK-MD-32'), item('5012-PK-DB-32'), item('5013-PK-BK-32')] };
+  assert.equal(draftHoldsNote('501/1/2/3 32\ncod 649', draft), true);
+  assert.equal(draftHoldsNote('501/1/2/3 34\ncod 649', draft), false, 'another size');
+  assert.equal(draftHoldsNote('501/1/2/3 32\ncod 549', draft), false, 'another total');
+  assert.equal(draftHoldsNote('501/1/2 32\ncod 649', draft), false, 'fewer items');
+  assert.equal(draftHoldsNote('cod199\nE200 34', { total: 199, items: [item('200-PK-MD-34')] }), true, 'stray letter');
+  assert.equal(draftHoldsNote('501/1 32 2\ncod 448', { total: 448, items: [item('5011-PK-MD-32', 2)] }), true);
+  assert.equal(draftHoldsNote('501/1 32\ncod 249', { total: 249, items: [] }), false, 'an empty draft is filled as usual');
 });

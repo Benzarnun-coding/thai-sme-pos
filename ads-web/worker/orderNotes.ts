@@ -32,6 +32,25 @@ const COLOUR_ONLY = new RegExp(`^(${COLOUR})\\s*(\\d{1,2})?\\s*(?:ตัว|ช�
 // "980-32" alone: a code whose model has one size.
 const CODE_ONLY = new RegExp(`^(${CODE_SRC})(?:\\s*[,/ ]\\s*(${CODE_SRC}))*$`, 'i');
 const FREE = /^(?:f|fe|free|freesize)$/i;
+const SIZE_SRC = '(?:2[4-9]|[34]\\d|50|xs|s|m|l|xl|xxl|[2-5]xl)';
+// "รวม6", "รวม 6ตัว": the admin's own count of pieces — checked against the lines, never an item.
+const SUM_LINE = /^รวม\s*(\d{1,3})\s*(?:ตัว|ชิ้น)?$/;
+// "28/2", "เอว32 4ตัว" under a line that is only a code ("301/1"): that code in this size, this many (2 + 6 Nov).
+const SIZE_QTY = new RegExp(`^(?:sz|size|w|เอว|ไซส์|ไซซ์)?\\.?\\s*(${SIZE_SRC})\\s*(?:[/x*]\\s*|\\s+)(\\d{1,2})\\s*(?:ตัว|ชิ้น)?$`, 'i');
+// "• 712/2 สีมิดไนท์ ไซส์ 32 - 1 ตัว", "• NI9-1 สีดำ ไซส์ 34 x1" (2–3 Nov): the code says which colour, the word is dropped.
+const BULLET_LINE = new RegExp(`^[-•*·]\\s*(${CODE_SRC})\\s+สี[\\u0E00-\\u0E7F]{2,15}\\s+(?:sz|size|เอว|ไซส์|ไซซ์)\\.?\\s*(${SIZE_SRC})\\s*(?:[-x×]\\s*)?(\\d{1,2})?\\s*(?:ตัว|ชิ้น)?$`, 'i');
+
+/**
+ * "501/1 29,31" · "801/2 28,30,34,36" · "L68-2 30 31 32 34 36": one model in several sizes, one piece each (6–16 Nov).
+ * With commas two sizes are enough; with spaces only three or more ("501/1 32 30" could be thirty pieces).
+ */
+function parseMultiSize(line: string): NoteItem[] | null {
+  const m = line.match(/^(\S+)\s+(.+)$/);
+  if (!m || !CODE.test(m[1]) || SIZE.test(m[1])) return null;
+  const sizes = m[2].split(/[\s,]+/).filter(Boolean);
+  if (!sizes.every((z) => SIZE.test(z)) || sizes.length < (/,/.test(m[2]) ? 2 : 3)) return null;
+  return expandCode(m[1]).flatMap((code) => sizes.map((z) => ({ code, prefix: skuPrefix(code), size: sizeOf(z), qty: 1 })));
+}
 const sizeOf = (raw: string | undefined) => { const s = (raw ?? '').replace(SIZE_WORD, '').toUpperCase(); return FREE.test(s) ? 'F' : s; };
 
 /** One message → its items, or null when it is not an order note (no payment + total, or other text in it). */
@@ -50,6 +69,9 @@ function normaliseNote(text: string | null | undefined): string {
     .replace(/หผ(?=\s*\d)/g, 'sz')
     .replace(/(^|[\s,])ท(?=i9)/gi, '$1n')
     .replace(/(\d)\s*ตัส/g, '$1ตัว')
+    // 14 Nov "KZ072 ไซร์M 2", 6 Nov "501//1 36": a misspelt ไซส์, a doubled slash.
+    .replace(/ไซร์|ไซต์/g, 'ไซส์')
+    .replace(/\/{2,}/g, '/')
     .trim();
 }
 
@@ -73,8 +95,25 @@ export function parseOrderNote(text: string | null | undefined): ParsedNote | nu
   const listSize = sizeLine ? sizeLine[1].toUpperCase() : null;
   // The last line with one code, so colour-only lines below it ("C01 L" / "ดำแดง1" / "ดำเทา1") can take its place.
   let above: { at: number; code: string; size: string; used: boolean } | null = null;
+  // A line that is only one code ("301/1"), for the "size/quantity" lines that may follow it.
+  let bare: { at: number; code: string; used: boolean } | null = null;
+  let sum: number | null = null;
   for (const line of lines) {
     if (SIZE_ONLY.test(line)) continue;
+    const total = line.match(SUM_LINE);
+    if (total) { sum = Number(total[1]); continue; }
+    const sq = bare && line.match(SIZE_QTY);
+    if (sq && bare) {
+      if (!bare.used) { items.splice(bare.at, 1); bare.used = true; }
+      items.push({ code: bare.code, prefix: skuPrefix(bare.code), size: sizeOf(sq[1]), qty: Number(sq[2]) });
+      continue;
+    }
+    const bl = line.match(BULLET_LINE);
+    if (bl) {
+      items.push(...expandCode(bl[1]).map((code) => ({ code, prefix: skuPrefix(code), size: sizeOf(bl[2]), qty: bl[3] ? Number(bl[3]) : 1 })));
+      bare = null; above = null;
+      continue;
+    }
     const cc = line.match(CODE_COLOUR);
     if (cc) {
       const code = expandCode(cc[1])[0];
@@ -91,7 +130,13 @@ export function parseOrderNote(text: string | null | undefined): ParsedNote | nu
     if (CODE_ONLY.test(line)) {
       const codes = line.split(/\s*[, ]\s*|\s+\/\s+/).filter(Boolean);
       // Every word a code: no size ("2XL", "34"), no quantity, nothing postcode-long among them.
-      if (codes.every((c) => CODE.test(c) && !SIZE.test(c) && !/^\d{1,2}$/.test(c) && !/\d{5,}/.test(c))) { for (const c of codes) for (const code of expandCode(c)) items.push({ code, prefix: skuPrefix(code), size: '', qty: 1 }); above = null; continue; }
+      if (codes.every((c) => CODE.test(c) && !SIZE.test(c) && !/^\d{1,2}$/.test(c) && !/\d{5,}/.test(c))) {
+        const all = codes.flatMap((c) => expandCode(c));
+        bare = all.length === 1 ? { at: items.length, code: all[0], used: false } : null;
+        for (const code of all) items.push({ code, prefix: skuPrefix(code), size: '', qty: 1 });
+        above = null;
+        continue;
+      }
     }
     const li = line.match(LIST_LINE);
     if (li) {
@@ -105,7 +150,8 @@ export function parseOrderNote(text: string | null | undefined): ParsedNote | nu
     // A quantity may be written "2ตัว", "2 ชิ้น" or "x2" (15 Oct).
     const plain = line.replace(/(?:^|\s)x\s*(\d{1,2})(?=\s|$)/gi, ' $1').replace(/(\d{1,2})\s*(?:ตัว|ชิ้น|ตว)(?=\s|$)/g, '$1').trim();
     if (plain.length > 60 || /[฀-๿]/.test(plain.replace(/เอว|ไซส์|ไซซ์/g, ''))) return null;
-    const parsed = parseLine(plain);
+    const parsed = parseLine(plain) ?? parseMultiSize(plain);
+    bare = null;
     if (parsed) {
       above = parsed.length === 1 ? { at: items.length, code: parsed[0].code, size: parsed[0].size, used: false } : null;
       items.push(...parsed);
@@ -116,6 +162,8 @@ export function parseOrderNote(text: string | null | undefined): ParsedNote | nu
     if (/\d{5,}|@/.test(line) || !line.split(/\s+/).every((w) => /\d/.test(w) || w.length <= 4)) return null;
     unknown.push(line);
   }
+  // The admin's own count ("รวม6ตัว") that isn't what the lines add up to: a line was misread or mistyped.
+  if (sum != null && items.length && sum !== items.reduce((n, i) => n + i.qty, 0)) unknown.push(`รวม ${sum} ตัว แต่อ่านได้ ${items.reduce((n, i) => n + i.qty, 0)}`);
   // A note whose item lines can't be read is still kept (shown as unread), so misses are visible.
   return { items, payment: /cod|ปลายทาง/i.test(pay[1]) ? 'cod' : 'transfer', total: Number(pay[2]), unknown };
 }
@@ -133,6 +181,9 @@ export function looksLikeNote(text: string | null | undefined): boolean {
   const rest = t.replace(new RegExp(pay.source, 'gi'), ' ');
   // Customer details are never posted: a phone/postcode, an e-mail, address words, a name after คุณ.
   if (/\d{5,}|@|บ้านเลขที่|หมู่|ม\.\s*\d|ตำบล|ต\.|อำเภอ|อ\.|จังหวัด|จ\.|ถนน|ถ\.|ซอย|ซ\.|แขวง|เขต|คุณ/.test(rest)) return false;
+  // Sentences to the customer (the bot's or an admin's "ยอดรวม 448 บาท … ค่ะ", a payment menu) are not notes: 5 of
+  // the 13 misses of 2–16 Nov were these.
+  if (/ค่ะ|คะ|ครับ|ไหม|ชำระ|ส่งฟรี/.test(t)) return false;
   return /(?:^|[\s,(])(?:[a-z]{0,4}\d{1,3}(?:[/-][a-z0-9]+)+|[a-z]{1,4}\d{1,3}|\d{3})(?=$|[\s,)])/im.test(rest);
 }
 
