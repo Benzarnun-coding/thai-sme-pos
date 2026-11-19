@@ -5,7 +5,7 @@ import { sqliteD1 } from './sqliteD1.ts';
 
 const db = () => sqliteD1('CREATE TABLE meta_capi (key TEXT PRIMARY KEY, value TEXT)');
 const sample = () => billCase({ billNo: 33605, name: 'สมชาย', noteText: '501/1 31\ncod  249', reasons: ['ไม่มีไซส์ 31'], filled: false, at: '2026-11-19T03:00:00.000Z' });
-const SECRETS = { UNI_CASE_WEBHOOK_URL: 'https://example.test/hook', UNI_CASE_WEBHOOK_KEY: 'k' };
+const SECRETS = { UNI_CASE_WEBHOOK_URL: 'https://example.test/hook', UNI_CASE_WEBHOOK_KEY: 'Bearer k' };
 
 test('a bill case carries what the Discord message says', () => {
   assert.deepEqual(sample(), {
@@ -43,7 +43,7 @@ test('switched on with both secrets: one JSON POST with the key in a header; the
   assert.equal(r, 'sent');
   assert.equal(seen.length, 1);
   assert.equal(seen[0].url, SECRETS.UNI_CASE_WEBHOOK_URL);
-  assert.equal(seen[0].init.headers['X-Sender-Key'], 'k');
+  assert.equal(seen[0].init.headers.Authorization, 'Bearer k');
   assert.deepEqual(JSON.parse(seen[0].init.body), sample());
   const st = await caseForwardStatus({ DB: d1, ...SECRETS });
   assert.equal(st.on, true);

@@ -11,7 +11,7 @@ export interface CaseForwardEnv {
   DB: D1Database;
   /** where อูนิ takes bill cases (secret, https) */
   UNI_CASE_WEBHOOK_URL?: string;
-  /** sent as the X-Sender-Key header (secret) */
+  /** sent as-is as the Authorization header: the whole value of the "ส่วนหัว Authorization" box in Max's webhook panel (secret) */
   UNI_CASE_WEBHOOK_KEY?: string;
 }
 
@@ -66,7 +66,7 @@ export async function forwardCase(env: CaseForwardEnv, c: BillCase, fetcher: typ
     else {
       const r = await fetcher(env.UNI_CASE_WEBHOOK_URL!, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Sender-Key': env.UNI_CASE_WEBHOOK_KEY! },
+        headers: { 'Content-Type': 'application/json', Authorization: env.UNI_CASE_WEBHOOK_KEY!.trim() },
         body: JSON.stringify(c),
         signal: AbortSignal.timeout(5000),
       });
