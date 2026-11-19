@@ -13,6 +13,7 @@ import { addressLine, readAddressTiered, type AddressUsage, type ChatMessage } f
 import { audit } from './db.ts';
 import { completeAddress } from './thaiAddress.ts';
 import { parseOrderNote, type NoteItem } from './orderNotes.ts';
+import { loadSubstitutes, subKey } from './substitutes.ts';
 
 export interface P365Env { P365_COOKIE?: string; P365_PAGE_ID?: string }
 
@@ -199,7 +200,8 @@ export function billName(no: number, firstSku: string | null, name: string, code
 // ---- the plan ----
 
 export interface PlanAddress { name: string; phone: string; street: string; subdistrict: string; district: string; province: string; postal_code: string; from_image: boolean; source: 'page365' | 'chat' }
-export interface PlanLine { code: string; size: string; qty: number; product_id: number | null; variant_id: number | null; sku: string | null; price: number | null; available: number | null }
+/** `code` is what goes on the bill; `sold_as` the model the note wrote when a ตัวแทน replaced it (substitutes.ts). */
+export interface PlanLine { code: string; sold_as?: string | null; size: string; qty: number; product_id: number | null; variant_id: number | null; sku: string | null; price: number | null; available: number | null }
 export interface FillPlan {
   order: { id: number; no: number; stage: string } | null;
   lines: PlanLine[];
@@ -248,7 +250,7 @@ export function draftAddress(d: P365Order): PlanAddress | null {
  * the note's total goes into the bill's discount, the way the team writes promos (3 × 199 + 50 − 98 = 549). The
  * note's total must match what the chat agreed. The address comes from Page365 if complete, else from the chat.
  */
-export async function planFill(env: FillEnv, note: { psid: string; at: string; text: string }, opts: { readAddress?: boolean; draft?: P365Order | null } = {}): Promise<FillPlan> {
+export async function planFill(env: FillEnv, note: { psid: string; at: string; text: string }, opts: { readAddress?: boolean; draft?: P365Order | null; substitutes?: Map<string, string> } = {}): Promise<FillPlan> {
   const parsed = parseOrderNote(note.text);
   const problems: string[] = [];
   const warnings: string[] = [];
@@ -264,7 +266,21 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   let missingSize = false;
   const notes: string[] = [];
   const made = new Set<string>();
-  for (const it of parsed.items) {
+  // ตัวแทน set on the website: a sold-out model goes on the bill as another one (a missing table = none set).
+  const subs = opts.substitutes ?? (env.DB ? await loadSubstitutes(env.DB).catch(() => new Map<string, string>()) : new Map<string, string>());
+  for (const note0 of parsed.items) {
+    let it = note0;
+    // The model the customer bought sets the price; its ตัวแทน is what ships (SKU, stock, bill name) — Benz 19 Nov.
+    let soldAs: string | null = null;
+    let soldPrice: number | null = null;
+    const sub = it.colour ? undefined : subs.get(subKey(it.code));
+    if (sub) {
+      const orig = await findVariant(env, it, cache).catch(() => null);
+      soldPrice = orig?.variant?.price ?? null;
+      soldAs = it.code;
+      it = { ...it, code: sub, prefix: sub.replace(/[/-]/g, '') };
+      notes.push(soldPrice != null ? `${soldAs} ใช้ตัวแทน ${sub} (ราคาตาม ${soldAs})` : `${soldAs} ใช้ตัวแทน ${sub} · ไม่พบราคา ${soldAs} ไซส์ ${note0.size || '-'} ใน Page365 ใช้ราคาของ ${sub}`);
+    }
     // "E200" when Page365's model is "200": a stray letter before a numeric code — tried without it, and said so.
     let found = await findVariant(env, it, cache);
     const bare = it.code.replace(/^[A-Z](?=\d+(?:[/-]\d+)*$)/i, '');
@@ -273,12 +289,12 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
       if (found) notes.push(`อ่าน ${it.code} เป็น ${bare}`);
     }
     const hit = found?.variant ? { productId: found.productId, variant: found.variant } : null;
-    const what = `${it.code}${it.colour ? ` สี${it.colour}` : ''}`;
-    if (!found) problems.push(it.colour ? `ไม่พบ ${what} ใน Page365 (ชื่อสีไม่ตรงกับในร้าน — บอกเบนซ์ให้เพิ่มชื่อสีนี้)` : `ไม่พบรุ่น ${it.code} ใน Page365`);
+    const what = `${it.code}${it.colour ? ` สี${it.colour}` : ''}${soldAs ? ` (ตัวแทนของ ${soldAs})` : ''}`;
+    if (!found) problems.push(it.colour ? `ไม่พบ ${what} ใน Page365 (ชื่อสีไม่ตรงกับในร้าน — บอกเบนซ์ให้เพิ่มชื่อสีนี้)` : `ไม่พบรุ่น ${what} ใน Page365`);
     else if (!hit) { problems.push(it.size ? `${what} ไม่มีไซส์ ${it.size} — รุ่นนี้มี ${found.sizes.join(', ')} · ต้องถามลูกค้าใหม่` : `${what} ไม่ได้ระบุไซส์ — รุ่นนี้มี ${found.sizes.join(', ')}`); missingSize = true; }
     else if (hit.variant.stockable !== false && hit.variant.available < it.qty) problems.push(`${hit.variant.code ?? it.code} เหลือ ${hit.variant.available} ตัว ไม่พอ ${it.qty}`);
     if (found) for (const z of found.sizes) made.add(z);
-    lines.push({ code: it.code, size: it.size, qty: it.qty, product_id: hit?.productId ?? null, variant_id: hit?.variant.id ?? null, sku: hit?.variant.code ?? null, price: hit?.variant.price ?? null, available: hit?.variant.available ?? null });
+    lines.push({ code: it.code, ...(soldAs ? { sold_as: soldAs } : {}), size: it.size, qty: it.qty, product_id: hit?.productId ?? null, variant_id: hit?.variant.id ?? null, sku: hit?.variant.code ?? null, price: hit ? soldPrice ?? hit.variant.price : null, available: hit?.variant.available ?? null });
   }
   // A size that isn't made: show what the customer actually wrote about size, so the admin can ask them again.
   const said = missingSize ? sizeLines(chat) : [];
@@ -453,13 +469,13 @@ export const CANCEL_HINT = 'AI อ่านว่าลูกค้าอาจ�
  * filled it by hand before the system got to it; 16 bills stopped as "มีสินค้าอยู่แล้ว" 2–16 Nov, none changed after).
  * Only notes that can be compared line by line: every line read, with a size, no colour names.
  */
-export function draftHoldsNote(text: string, draft: Pick<P365Order, 'items' | 'total'>): boolean {
+export function draftHoldsNote(text: string, draft: Pick<P365Order, 'items' | 'total'>, subs: Map<string, string> = new Map()): boolean {
   const p = parseOrderNote(text);
   if (!p || p.unknown.length || !p.items.length || !draft.items.length || p.items.some((i) => i.colour || !i.size)) return false;
   if (p.total == null || Math.abs(Number(draft.total) - p.total) > 0.5) return false;
   const bare = (prefix: string) => prefix.toUpperCase().replace(/^[A-Z](?=\d)/, '');
   const want = new Map<string, number>();
-  for (const i of p.items) { const k = `${bare(i.prefix)}-${i.size === 'F' ? 'FE' : i.size}`; want.set(k, (want.get(k) ?? 0) + i.qty); }
+  for (const i of p.items) { const sub = subs.get(subKey(i.code)); const k = `${bare(sub ? sub.replace(/[/-]/g, '') : i.prefix)}-${i.size === 'F' ? 'FE' : i.size}`; want.set(k, (want.get(k) ?? 0) + i.qty); }
   const got = new Map<string, number>();
   for (const i of draft.items) {
     const parts = (i.variant?.code ?? '').toUpperCase().split('-');

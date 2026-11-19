@@ -379,7 +379,7 @@ function FillModal({ note, onClose, onDone }: { note: NoteCheck; onClose: () => 
             <tbody>
               {plan.lines.map((l, i) => (
                 <tr key={i}>
-                  <td>{l.sku ?? <span className="bad">{l.code} ไซส์ {l.size} — ไม่พบ</span>}</td>
+                  <td>{l.sku ?? <span className="bad">{l.code} ไซส์ {l.size} — ไม่พบ</span>}{l.sold_as && <span className="muted"> · ตัวแทนของ {l.sold_as}</span>}</td>
                   <td className="num">{l.price != null ? baht(l.price) : '–'}</td>
                   <td className="num">{l.qty}</td>
                   <td className="num">{l.available != null ? num(l.available) : '–'}</td>

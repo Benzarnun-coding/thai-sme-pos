@@ -15,6 +15,7 @@ import { accuracyPost, auditStep } from './fillAudit.ts';
 import { applyCorrection, billItems, change, correctionOn, decide, noteItems, SAME_ORDER_MS, stageTh } from './noteCorrection.ts';
 import { billCase, forwardCase, type CaseForwardEnv } from './caseForward.ts';
 import { applyFill, call, CANCEL_HINT, draftHoldsNote, findDraft, P365Error, planFill, type FillEnv, type P365Order } from './p365fill.ts';
+import { loadSubstitutes } from './substitutes.ts';
 
 export interface AutoEnv extends FillEnv, DiscordEnv, CaseForwardEnv { DB: D1Database; /** #ออเดอร์มีปัญหา (Benz 15 Oct); falls back to the ads channel via the bot */ DISCORD_ORDER_WEBHOOK_URL?: string; /** who answers for problem bills (เนย, Benz 15 Oct); empty = the deciders */ DISCORD_ORDER_OWNER_IDS?: string }
 
@@ -210,7 +211,7 @@ export async function autoFillNote(env: AutoEnv, note: StoredNote, opts: { force
       return { status: 'needs_person', order_no: draft.no, reasons: [got.why] };
     }
     // An admin already put exactly this note into the draft by hand: nothing to add, nobody to ask.
-    if (draft.items.length && draftHoldsNote(note.text, draft)) {
+    if (draft.items.length && draftHoldsNote(note.text, draft, await loadSubstitutes(env.DB).catch(() => new Map<string, string>()))) {
       await markFill(env.DB, note.mid, { by: 'auto', order_no: draft.no, error: null });
       return { status: 'filled', order_no: draft.no, reasons: [`ร่าง #${draft.no} มีสินค้าตรงกับสรุปอยู่แล้ว`] };
     }

@@ -9,6 +9,7 @@ const PAGES = [
   ['/catalog/profit', 'กำไร'],
   ['/catalog/stock', 'สต็อก'],
   ['/catalog/todo', 'งานค้าง'],
+  ['/substitutes', 'ตัวแทน'],
   ['/gosell', 'GoSell'],
   ['/botkb', 'คลังคำตอบบอท'],
   ['/requests', 'ไอเดียเว็บ'],

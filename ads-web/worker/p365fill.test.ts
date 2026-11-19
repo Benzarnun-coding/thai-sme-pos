@@ -235,3 +235,41 @@ test('a draft an admin already filled exactly as the note says is not sent to a 
   assert.equal(draftHoldsNote('501/1 32 2\ncod 448', { total: 448, items: [item('5011-PK-MD-32', 2)] }), true);
   assert.equal(draftHoldsNote('501/1 32\ncod 249', { total: 249, items: [] }), false, 'an empty draft is filled as usual');
 });
+
+test('ตัวแทน: note says 801/1, bill gets 501/1 at 801/1\'s price, named by 501/1 (GS-)', async () => {
+  const { calls } = fakePage365();
+  // 801/1 is sold out but still listed in Page365 at its own price.
+  const pg: any = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init: any = {}) => {
+    const u = new URL(url);
+    if (u.pathname.endsWith('/products.json') && /^801[/-]1$/.test(u.searchParams.get('search') ?? '')) return new Response(JSON.stringify({ products: [{ id: 8, name: '801/1 ยีนส์ขาตรง' }] }));
+    if (u.pathname.endsWith('/products/8.json')) return new Response(JSON.stringify({ id: 8, variants: [{ id: 81, name: 'ไซส์ 30', code: '8011-PK-BL-30', price: 259, available: 0 }, { id: 82, name: 'ไซส์ 34', code: '8011-PK-BL-34', price: 259, available: 0 }] }));
+    return pg(url, init);
+  }) as typeof fetch;
+  const substitutes = new Map([['801/1', '501/1']]);
+  const plan = await planFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '801-1 34\ncod 299' }, { readAddress: false, substitutes });
+  assert.deepEqual(plan.problems, []);
+  assert.equal(plan.lines[0].sku, '5011-PK-MD-34', 'the substitute ships');
+  assert.equal(plan.lines[0].sold_as, '801-1');
+  assert.equal(plan.lines[0].price, 259, 'price of the model the customer bought');
+  assert.equal(plan.discount, 259 + 50 - 299);
+  assert.match(plan.bill_name ?? '', /^GS-9400 /, 'bill name follows what ships (501/1 → GoSell)');
+  assert.ok(plan.notes?.some((n) => n.includes('ตัวแทน 501/1')));
+  assert.ok(calls.some((c) => c.includes('products.json')));
+
+  // Not in Page365 any more: the substitute's own price, said so.
+  const plan2 = await planFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '777/1 30\ncod 249' }, { readAddress: false, substitutes: new Map([['777/1', '501/1']]) });
+  assert.equal(plan2.lines[0].price, 199);
+  assert.ok(plan2.notes?.some((n) => n.includes('ไม่พบราคา 777/1')));
+
+  // No substitute set: 801/1 itself (out of stock → stopped as before).
+  const plain = await planFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '801/1 30\ncod 299' }, { readAddress: false, substitutes: new Map() });
+  assert.equal(plain.lines[0].sku, '8011-PK-BL-30');
+  assert.ok(plain.problems.some((p) => p.includes('ไม่พอ')));
+});
+
+test('ตัวแทน: an admin-filled draft with the substitute counts as holding the note', () => {
+  const draft = { total: 299, items: [{ id: 1, name: '501/1', note: null, price: 259, quantity: 1, variant: { id: 11, code: '5011-PK-MD-30', product_id: 1 } }] };
+  assert.equal(draftHoldsNote('801/1 30\ncod 299', draft), false);
+  assert.equal(draftHoldsNote('801/1 30\ncod 299', draft, new Map([['801/1', '501/1']])), true);
+});

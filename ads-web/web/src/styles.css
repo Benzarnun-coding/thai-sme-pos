@@ -1104,3 +1104,14 @@ tr:hover .po-label-btn { opacity: 1; }
 .product-picker .picker-list li:hover, .product-picker .picker-list li.on { background: var(--surface-2); }
 .product-picker .picker-list li.head { cursor: default; font-size: 12px; color: var(--muted); padding-top: 8px; }
 .product-picker .picker-list li.head:hover { background: none; }
+
+/* /substitutes ตัวแทน */
+.sub-form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.sub-form label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.sub-form input { width: 120px; }
+.sub-form .sub-note input { width: 200px; }
+.sub-arrow { padding-bottom: 8px; color: var(--muted); }
+.sub-table { width: 100%; border-collapse: collapse; }
+.sub-table th, .sub-table td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+.sub-table th { font-size: 12px; color: var(--muted); font-weight: 500; }
+@media (max-width: 560px) { .sub-form input, .sub-form .sub-note input { width: 100%; } .sub-form label { flex: 1 1 100%; } .sub-arrow { display: none; } }

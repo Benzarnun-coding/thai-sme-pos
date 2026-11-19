@@ -1,5 +1,6 @@
 // Worker entry: JSON API for the dashboard + cron triggers. Static files in dist/ are served by Cloudflare before this runs.
 
+import { deleteSubstitute, listSubstitutes, saveSubstitute, subKey } from './substitutes.ts';
 import { MetaClient } from '../../ads-engine/src/meta.ts';
 import { applyDecisions, sumBudget } from '../../ads-engine/src/apply.ts';
 import type { Entity, Level, Window } from '../../ads-engine/src/types.ts';
@@ -710,6 +711,22 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   }
   // Admins' order notes in the chat vs what Page365 holds (phase 0 of filling Page365 orders automatically).
   // Phase 1: put a note's items into the customer's Page365 draft (a person presses the button; the draft stays a draft).
+  // ตัวแทน (/substitutes): a sold-out model filled into Page365 bills as another one (worker/substitutes.ts).
+  if (path === '/api/substitutes' && method === 'GET') return json({ items: await listSubstitutes(env.DB) });
+  if (path === '/api/substitutes' && method === 'POST') {
+    const input = await body();
+    try {
+      const r = await saveSubstitute(env.DB, user, input?.code, input?.sub, input?.note);
+      await audit(env.DB, user, 'substitute.set', r.code, r);
+      return json({ ok: true, ...r });
+    } catch (err: any) { throw new BadRequest(err?.message ?? String(err)); }
+  }
+  if (path === '/api/substitutes' && method === 'DELETE') {
+    const code = url.searchParams.get('code') ?? '';
+    if (!(await deleteSubstitute(env.DB, code))) throw new BadRequest('ไม่พบตัวแทนนี้');
+    await audit(env.DB, user, 'substitute.delete', subKey(code), {});
+    return json({ ok: true });
+  }
   if (path === '/api/p365/session' && method === 'GET') return json(await sessionStatus(env));
   if (path === '/api/order-notes/plan' && method === 'GET') {
     const note = await loadNote(env.DB, url.searchParams.get('mid') ?? '');
