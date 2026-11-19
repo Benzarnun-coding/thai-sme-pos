@@ -309,7 +309,7 @@ function CorrectionSwitch() {
 /** Bill cases also sent to Max's bot อูนิ (worker/caseForward.ts): off until Benz switches it on; shows one sample of what leaves. */
 function CaseForwardSwitch() {
   const { toast } = useUi();
-  const [st, setSt] = useState<{ on: boolean; ready: boolean; last: { at: string; bill_no: number | null; result: string; http: number | null } | null; sample: unknown } | null>(null);
+  const [st, setSt] = useState<{ on: boolean; ready: boolean; url_ok?: boolean; key_ok?: boolean; last: { at: string; bill_no: number | null; result: string; http: number | null } | null; sample: unknown } | null>(null);
   const [show, setShow] = useState(false);
   useEffect(() => { fetch('/api/order-notes/case-forward').then((r) => r.json()).then((j) => { if (!j.error) setSt(j); }).catch(() => {}); }, []);
   async function flip() {
@@ -325,7 +325,7 @@ function CaseForwardSwitch() {
     <div className={`banner ${st.on ? 'info' : ''}`}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
         <span>
-          <b>ส่งเคสบิลให้อูนิ (บอทของ Max): {st.on ? 'เปิด' : 'ปิด'}</b> — เคสที่โพสต์ลงห้องออเดอร์มีปัญหา ส่งเป็น JSON ไป webhook ของอูนิด้วย มีชื่อ Facebook ลูกค้าและเลขบิล · URL/key: {st.ready ? 'ใส่แล้ว' : 'ยังไม่ได้ใส่ (ยังไม่ส่งแม้เปิด)'}
+          <b>ส่งเคสบิลให้อูนิ (บอทของ Max): {st.on ? 'เปิด' : 'ปิด'}</b> — เคสที่โพสต์ลงห้องออเดอร์มีปัญหา ส่งเป็น JSON ไป webhook ของอูนิด้วย มีชื่อ Facebook ลูกค้าและเลขบิล · URL/key: {st.ready ? 'ใส่แล้ว' : `ยังไม่พร้อม (ยังไม่ส่งแม้เปิด) — URL ${st.url_ok ? 'ใช้ได้' : 'ไม่มี หรือไม่ได้ขึ้นต้น https://'} · key ${st.key_ok ? 'มีแล้ว' : 'ไม่มี'}`}
           {st.last && <span className="muted"> · ล่าสุด {bkkTime(st.last.at)} บิล {st.last.bill_no ? `#${st.last.bill_no}` : '-'}: {RESULT_TH[st.last.result] ?? st.last.result}{st.last.http ? ` (${st.last.http})` : ''}</span>}
         </span>
         <span style={{ display: 'flex', gap: 6 }}>

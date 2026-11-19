@@ -48,6 +48,10 @@ test('switched on with both secrets: one JSON POST with the key in a header; the
   const st = await caseForwardStatus({ DB: d1, ...SECRETS });
   assert.equal(st.on, true);
   assert.equal(st.ready, true);
+  const padded = await caseForwardStatus({ DB: d1, UNI_CASE_WEBHOOK_URL: ' https://example.test/hook\n', UNI_CASE_WEBHOOK_KEY: 'Bearer k' });
+  assert.deepEqual([padded.url_ok, padded.key_ok, padded.ready], [true, true, true]);
+  const bad = await caseForwardStatus({ DB: d1, UNI_CASE_WEBHOOK_URL: 'example.test/hook', UNI_CASE_WEBHOOK_KEY: 'Bearer k' });
+  assert.deepEqual([bad.url_ok, bad.key_ok, bad.ready], [false, true, false]);
   assert.equal(st.last?.result, 'sent');
   assert.equal(st.last?.bill_no, 33605);
   assert.ok(!JSON.stringify(st.last).includes('สมชาย'));

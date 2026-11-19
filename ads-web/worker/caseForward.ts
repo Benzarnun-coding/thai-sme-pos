@@ -54,7 +54,11 @@ export async function setCaseForward(db: D1Database, on: boolean): Promise<void>
 export type ForwardResult = 'off' | 'not_set' | 'sent' | 'failed';
 export interface ForwardLast { at: string; bill_no: number | null; result: ForwardResult; http: number | null }
 
-const ready = (env: CaseForwardEnv) => /^https:\/\//.test(env.UNI_CASE_WEBHOOK_URL ?? '') && !!env.UNI_CASE_WEBHOOK_KEY;
+// Pasted secrets often carry a space or a line break: trimmed before the check and before sending.
+const urlOf = (env: CaseForwardEnv) => (env.UNI_CASE_WEBHOOK_URL ?? '').trim();
+const urlOk = (env: CaseForwardEnv) => /^https:\/\/\S+$/.test(urlOf(env));
+const keyOk = (env: CaseForwardEnv) => !!(env.UNI_CASE_WEBHOOK_KEY ?? '').trim();
+const ready = (env: CaseForwardEnv) => urlOk(env) && keyOk(env);
 
 /** One POST per case, 5 s at most, no retry. Never throws: a webhook that is down must not stop the bill flow. */
 export async function forwardCase(env: CaseForwardEnv, c: BillCase, fetcher: typeof fetch = fetch): Promise<ForwardResult> {
@@ -64,7 +68,7 @@ export async function forwardCase(env: CaseForwardEnv, c: BillCase, fetcher: typ
     if (!(await caseForwardOn(env.DB))) return 'off';
     if (!ready(env)) result = 'not_set';
     else {
-      const r = await fetcher(env.UNI_CASE_WEBHOOK_URL!, {
+      const r = await fetcher(urlOf(env), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: env.UNI_CASE_WEBHOOK_KEY!.trim() },
         body: JSON.stringify(c),
@@ -83,13 +87,15 @@ export async function forwardCase(env: CaseForwardEnv, c: BillCase, fetcher: typ
 }
 
 /** For the switch on the Log tab: is it on, are both secrets in, what happened last, and what one case looks like. */
-export async function caseForwardStatus(env: CaseForwardEnv): Promise<{ on: boolean; ready: boolean; last: ForwardLast | null; sample: BillCase }> {
+export async function caseForwardStatus(env: CaseForwardEnv): Promise<{ on: boolean; ready: boolean; url_ok: boolean; key_ok: boolean; last: ForwardLast | null; sample: BillCase }> {
   const row = await env.DB.prepare("SELECT value FROM meta_capi WHERE key = 'case_forward_last'").first<{ value: string }>().catch(() => null);
   let last: ForwardLast | null = null;
   try { last = row ? JSON.parse(row.value) : null; } catch { last = null; }
   return {
     on: await caseForwardOn(env.DB),
     ready: ready(env),
+    url_ok: urlOk(env),
+    key_ok: keyOk(env),
     last,
     sample: billCase({ billNo: 33605, name: 'ตัวอย่าง (ไม่ใช่ลูกค้าจริง)', noteText: '501/1 31\ncod 249', reasons: ['501/1 ไม่มีไซส์ 31 — รุ่นนี้มี 28, 29, 30, 32, 34, 36 · ต้องถามลูกค้าใหม่'], filled: false }),
   };
