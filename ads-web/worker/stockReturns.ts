@@ -5,7 +5,6 @@
 
 import { cleanSku } from '../web/src/catalog.ts';
 import { BadRequest } from './validate.ts';
-import { FACEBOOK_STORE } from '../web/src/purchase.ts';
 import { isShopLoc, shopLocOfTab, shopTab } from '../web/src/stockLocs.ts';
 import { LOCS, saveMoves, validateMoves, type Loc } from './stock.ts';
 
@@ -140,6 +139,21 @@ export function parseFacebookReturn(text: string): { order: string; sku: string 
   return m ? { order: m[1], sku: m[2] ? cleanSku(m[2]) : '' } : null;
 }
 
+/** SKU + qty of a Facebook order from the saved rounds' `extra` JSON (newest round first); the newest round that has the order wins. */
+export function facebookOrderItems(extras: string[], order: string): { sku: string; qty: number }[] {
+  for (const raw of extras) {
+    let list: any[] = [];
+    try { list = JSON.parse(raw || '[]'); } catch { /* ignore */ }
+    const by = new Map<string, number>();
+    for (const x of list) {
+      if (x?.source !== 'facebook' || String(x?.order ?? '').trim() !== order || !x?.sku) continue;
+      by.set(x.sku, (by.get(x.sku) ?? 0) + (Number(x.qty) || 0));
+    }
+    if (by.size) return [...by].map(([sku, qty]) => ({ sku, qty }));
+  }
+  return [];
+}
+
 export type FbScanResult = ScanResult | { status: 'pick'; skus: string[] };
 
 /**
@@ -148,7 +162,9 @@ export type FbScanResult = ScanResult | { status: 'pick'; skus: string[] };
  * 'in' move at once; several SKUs and none typed → 'pick' (nothing added). Same order + SKU is refused a second time.
  */
 export async function scanFacebookReturn(db: D1Database, order: string, sku: string, user: string): Promise<FbScanResult> {
-  const found = (await db.prepare('SELECT sku, SUM(qty) AS qty FROM purchase_items WHERE order_no = ?1 AND store = ?2 GROUP BY sku').bind(order, FACEBOOK_STORE).all<{ sku: string; qty: number }>()).results;
+  // Facebook lines are kept in the round's `extra` JSON (migration 0049), not in purchase_items.
+  const rounds = (await db.prepare("SELECT extra FROM purchase_uploads WHERE extra LIKE '%' || ?1 || '%' ORDER BY date DESC, round DESC").bind(order).all<{ extra: string }>()).results;
+  const found = facebookOrderItems(rounds.map((r) => r.extra), order);
   if (!found.length) return { status: 'notfound' };
   let pick = found;
   if (sku) pick = found.filter((f) => cleanSku(f.sku) === sku);

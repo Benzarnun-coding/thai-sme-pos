@@ -22,7 +22,7 @@ test('items of one parcel are summed per SKU; rows without a parcel number are s
   assert.equal(m.size, 1);
 });
 
-import { locOfSku, parseFacebookReturn } from './stockReturns.ts';
+import { facebookOrderItems, locOfSku, parseFacebookReturn } from './stockReturns.ts';
 test('a returned SKU goes to the stock of its own tab (idea #28)', () => {
   assert.equal(locOfSku('5012-PK-NV-30'), 'pk');
   assert.equal(locOfSku('3012-AR-GY-32'), 'ar');
@@ -35,4 +35,13 @@ test('Facebook return: order number with or without SKU (idea #30)', () => {
   assert.deepEqual(parseFacebookReturn(' 32594 SKU 1071-BB-CR-44 '), { order: '32594', sku: '1071-BB-CR-44' });
   assert.deepEqual(parseFacebookReturn('32594 1071-BB-CR-44'), { order: '32594', sku: '1071-BB-CR-44' });
   assert.equal(parseFacebookReturn('TH123456789'), null);
+});
+
+test('Facebook return finds the order in the rounds\' extra items, newest round first (idea #35)', () => {
+  const x = (order: string, sku: string, qty: number, source = 'facebook') => ({ source, order, sku, name: '', option: '', qty });
+  const newest = JSON.stringify([x('32965', '2003-J.BIG-MN-31', 1), x('32965', '2003-PK-BK-31', 1), x('1', 'A', 1)]);
+  const older = JSON.stringify([x('32965', '2003-PK-MN-31', 2)]);
+  assert.deepEqual(facebookOrderItems([newest, older], '32965'), [{ sku: '2003-J.BIG-MN-31', qty: 1 }, { sku: '2003-PK-BK-31', qty: 1 }]);
+  assert.deepEqual(facebookOrderItems(['[]', older], '32965'), [{ sku: '2003-PK-MN-31', qty: 2 }]);
+  assert.deepEqual(facebookOrderItems([JSON.stringify([x('32965', 'S', 1, 'manual')]), 'bad json'], '32965'), []);
 });

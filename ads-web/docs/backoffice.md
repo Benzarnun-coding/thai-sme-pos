@@ -186,7 +186,7 @@ are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,4
   is refused a second time. Old "รออนุมัติ" rows from the file version can still be decided.
 
 - Idea #30 (Moss): Facebook returns have no parcel number, so the same box also takes the Page365 order number ("32594", or
-  "32594 1071-BB-CR-44" to pick one SKU). Items come from the saved Facebook round (`purchase_items`, store
+  "32594 1071-BB-CR-44" to pick one SKU). Items come from the saved Facebook lines of the rounds (`purchase_uploads.extra`, newest round with the order; not `purchase_items`) (store
   `Facebook · Page365`); one SKU → 'in' move at once (`scanFacebookReturn`), several and no SKU typed → asks for the SKU.
   Repeat guard: `stock_returns.track_hash = fb:<order>:<sku>`.
 
