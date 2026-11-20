@@ -116,7 +116,7 @@ export async function rewriteBill(env: FillEnv, note: { psid: string; at: string
     plan.lines.forEach((l, k) => { if (!keep[k]) { const j = fresh.findIndex((x) => x.variant?.product_id === l.product_id); keep[k] = fresh.splice(j >= 0 ? j : 0, 1)[0]; } });
   }
   const items = plan.lines.map((l, k) => ({ id: keep[k]!.id, name: keep[k]!.name, note: keep[k]!.note, price: l.price ?? 0, quantity: l.qty, product_id: l.variant_id }));
-  const name = billName(bill.no, plan.lines[0]?.sku ?? null, now.customer_name ?? '', plan.lines.map((l) => l.code), plan.lines.map((l) => l.sku));
+  const name = billName(bill.no, plan.lines[0]?.sku ?? null, now.customer_name ?? '');
   await call(env, `orders/${bill.id}.json`, { method: 'PUT', body: { order: { stage: now.stage, ...(plan.shipping_id ? { shipping_id: plan.shipping_id, shipping_option: plan.shipping_option } : {}), shipping_cost: plan.shipping, discount: plan.discount, customer_name: name }, order_items: items } });
   return { plan, order: await checkBack(env, plan, bill.id) };
 }
