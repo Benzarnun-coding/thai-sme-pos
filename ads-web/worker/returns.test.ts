@@ -22,7 +22,7 @@ test('items of one parcel are summed per SKU; rows without a parcel number are s
   assert.equal(m.size, 1);
 });
 
-import { facebookOrderItems, locOfSku, parseFacebookReturn } from './stockReturns.ts';
+import { facebookLineItems, facebookOrderItems, locOfSku, parseFacebookReturn } from './stockReturns.ts';
 test('a returned SKU goes to the stock of its own tab (idea #28)', () => {
   assert.equal(locOfSku('5012-PK-NV-30'), 'pk');
   assert.equal(locOfSku('3012-AR-GY-32'), 'ar');
@@ -44,4 +44,11 @@ test('Facebook return finds the order in the rounds\' extra items, newest round 
   assert.deepEqual(facebookOrderItems([newest, older], '32965'), [{ sku: '2003-J.BIG-MN-31', qty: 1 }, { sku: '2003-PK-BK-31', qty: 1 }]);
   assert.deepEqual(facebookOrderItems(['[]', older], '32965'), [{ sku: '2003-PK-MN-31', qty: 2 }]);
   assert.deepEqual(facebookOrderItems([JSON.stringify([x('32965', 'S', 1, 'manual')]), 'bad json'], '32965'), []);
+});
+
+test('Facebook return falls back to the sheet lines of older rounds (idea #35)', () => {
+  const r = (u: string, sku: string, qty: number, orders: string[], store: string | null) => ({ upload_id: u, sku, qty, orders: JSON.stringify(orders), store });
+  const rows = [r('b', '2003-PK-BK-31', 1, ['32965'], 'Facebook · Page365'), r('b', '2003-J.BIG-MN-31', 3, ['32965', '1'], 'Facebook · Page365'), r('a', '2003-PK-BK-31', 2, ['32965'], 'Facebook · Page365'), r('b', 'X', 1, ['32965'], 'TikTok')];
+  assert.deepEqual(facebookLineItems(rows), [{ sku: '2003-PK-BK-31', qty: 1 }, { sku: '2003-J.BIG-MN-31', qty: 1 }]);
+  assert.deepEqual(facebookLineItems([]), []);
 });

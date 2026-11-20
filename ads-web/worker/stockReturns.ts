@@ -154,6 +154,23 @@ export function facebookOrderItems(extras: string[], order: string): { sku: stri
   return [];
 }
 
+/**
+ * Rounds saved before the Facebook lines were kept in `extra` only have the order in their sheet lines (`purchase_lines.orders`).
+ * Newest round first; the newest round holding the order wins. A line with only this order gives its qty; a line shared by
+ * several orders does not say how many pieces were this order's, so it counts 1 (the person can type the SKU to add more by hand).
+ */
+export function facebookLineItems(rows: { upload_id: string; sku: string; qty: number; orders: string; store: string | null }[]): { sku: string; qty: number }[] {
+  const fb = rows.filter((r) => String(r.store ?? '').startsWith('Facebook'));
+  if (!fb.length) return [];
+  const by = new Map<string, number>();
+  for (const r of fb.filter((x) => x.upload_id === fb[0].upload_id)) {
+    let n = 1;
+    try { if (JSON.parse(r.orders || '[]').length === 1) n = Number(r.qty) || 1; } catch { /* ignore */ }
+    by.set(r.sku, (by.get(r.sku) ?? 0) + n);
+  }
+  return [...by].map(([sku, qty]) => ({ sku, qty }));
+}
+
 export type FbScanResult = ScanResult | { status: 'pick'; skus: string[] };
 
 /**
@@ -164,7 +181,11 @@ export type FbScanResult = ScanResult | { status: 'pick'; skus: string[] };
 export async function scanFacebookReturn(db: D1Database, order: string, sku: string, user: string): Promise<FbScanResult> {
   // Facebook lines are kept in the round's `extra` JSON (migration 0049), not in purchase_items.
   const rounds = (await db.prepare("SELECT extra FROM purchase_uploads WHERE extra LIKE '%' || ?1 || '%' ORDER BY date DESC, round DESC").bind(order).all<{ extra: string }>()).results;
-  const found = facebookOrderItems(rounds.map((r) => r.extra), order);
+  let found = facebookOrderItems(rounds.map((r) => r.extra), order);
+  if (!found.length) found = facebookLineItems((await db.prepare(
+    `SELECT u.id AS upload_id, l.sku, l.qty, l.orders, json_extract(l.stores, '$."' || ?1 || '"') AS store
+     FROM purchase_lines l JOIN purchase_uploads u ON u.id = l.upload_id, json_each(l.orders) j
+     WHERE j.value = ?1 AND l.sku != '' ORDER BY u.date DESC, u.round DESC`).bind(order).all<{ upload_id: string; sku: string; qty: number; orders: string; store: string | null }>()).results);
   if (!found.length) return { status: 'notfound' };
   let pick = found;
   if (sku) pick = found.filter((f) => cleanSku(f.sku) === sku);
