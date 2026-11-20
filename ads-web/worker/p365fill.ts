@@ -178,21 +178,9 @@ export function chatTotal(messages: ChatMessage[], until?: string): number | nul
 }
 
 /** "PK-9349 สมชาย ใจดี": the warehouse of the first item, the order number's last 4 digits, the recipient (team convention). */
-/** 501/1, 501/2, 501/3 ship through GoSell: their bills are named "GS-1234 …" so the team can pick them out (Benz 15 Oct). */
-export const GOSELL_CODES = /^501\/[123]$/;
-
-/** GoSell SKUs that are sold out there: a bill with one of them goes the normal way, "PK-1234 …" (Mos, idea #9, 22 Oct). Take the SKU out when GoSell has it again. */
-export const GOSELL_OUT_OF_STOCK = ['5013-PK-BL-31', '5012-PK-NV-34', '5011-PK-MD-30'];
-/** GoSell doesn't stock waist 38–44 of 501/1–3 either: those bills are normal "PK-" too (Mos, idea #18). */
-export function isGoSellLine(l: { code: string; sku: string | null }): boolean {
-  if (!GOSELL_CODES.test(l.code)) return false;
-  if (l.sku && GOSELL_OUT_OF_STOCK.includes(l.sku)) return false;
-  return !(Number(l.sku?.split('-').pop()) >= 38);
-}
-
-export function billName(no: number, firstSku: string | null, name: string, codes: string[] = [], skus: (string | null)[] = []): string {
-  const goSell = codes.length > 0 && codes.every((c, i) => isGoSellLine({ code: c, sku: skus[i] ?? null }));
-  const wh = goSell ? 'GS' : (firstSku ?? '').split('-')[1]?.toUpperCase() ?? '';
+/** GoSell is no longer used (Moss, idea #36, 2026-11-20): every bill, 501/1–3 too, gets the warehouse prefix ("PK-1234 …"). */
+export function billName(no: number, firstSku: string | null, name: string): string {
+  const wh = (firstSku ?? '').split('-')[1]?.toUpperCase() ?? '';
   const prefix = wh ? `${wh === 'CN' ? 'C' : wh}-${String(no).slice(-4)} ` : '';
   return `${prefix}${name.replace(/^[A-Z]{1,3}-\d{4}\s+/, '').trim()}`;
 }
@@ -354,10 +342,8 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
   } else if (draft && !address) {
     warnings.push(opts.readAddress === false ? 'ยังไม่ได้อ่านที่อยู่จากแชท' : 'ร่างยังไม่มีที่อยู่ครบ และยังไม่ได้ตั้ง ANTHROPIC_API_KEY ให้ระบบอ่านที่อยู่จากแชท — แอดมินกรอกเอง');
   }
-  // GoSell models mixed with others in one bill: still one bill, but someone decides how it ships.
-  if (lines.some(isGoSellLine) && !lines.every(isGoSellLine)) warnings.push('บิลนี้มี 501/1–3 (ส่ง GoSell) ปนกับรุ่นอื่น — ตั้งชื่อเป็นคลังปกติ ช่วยดูว่าต้องแยกบิลไหม');
   // No recipient name in the chat: the customer's Facebook name (Page365's customer name) is used (Benz 15 Oct).
-  const bill_name = draft ? billName(draft.no, lines[0]?.sku ?? null, address?.name || draft.customer_name || '', lines.map((l) => l.code), lines.map((l) => l.sku)) : null;
+  const bill_name = draft ? billName(draft.no, lines[0]?.sku ?? null, address?.name || draft.customer_name || '') : null;
   return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, shipping_id, shipping_option, subtotal, shipping, discount: Math.max(0, discount), total, chat_total, bill_name, address, problems, warnings, said, notes };
 }
 
@@ -416,7 +402,7 @@ export async function applyFill(env: FillEnv, note: { psid: string; at: string; 
     return { id: it.id, name: it.name, note: it.note, price: l.price ?? 0, quantity: l.qty, product_id: l.variant_id };
   });
   const a = plan.address ? { ...plan.address, street: cleanStreet(plan.address.street, [plan.address.name, added.customer_name ?? ''], plan.address.phone) } : null;
-  const name = billName(plan.order.no, plan.lines[0]?.sku ?? null, a?.name || added.customer_name || '', plan.lines.map((l) => l.code), plan.lines.map((l) => l.sku));
+  const name = billName(plan.order.no, plan.lines[0]?.sku ?? null, a?.name || added.customer_name || '');
   const customer = a ? {
     customer_name: name,
     customer_phone: a.phone,

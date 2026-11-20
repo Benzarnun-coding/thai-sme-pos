@@ -45,7 +45,6 @@ const env = { P365_COOKIE: 'session=x' };
 
 test('plan: finds the customer\'s draft, prices from Page365, the promo gap as discount', async () => {
   fakePage365();
-  assert.equal(billName(21234, '5013-PK-BL-31', 'อาทิตย์', ['501/3'], ['5013-PK-BL-31']), 'PK-1234 อาทิตย์', '501/3 waist 31 is out at GoSell: PK bill');
   const plan = await planFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/1/2 30\ncod 448' });
   assert.equal(plan.order?.no, 29400);
   assert.deepEqual(plan.lines.map((l) => [l.sku, l.price, l.qty]), [['5011-PK-MD-30', 199, 1], ['5012-PK-NV-30', 199, 1]]);
@@ -95,19 +94,14 @@ test('the bill name and the address the team writes; a missing address is a warn
   assert.equal(billName(29349, 'D01-PK-NV-32', 'สมชาย ใจดี'), 'PK-9349 สมชาย ใจดี');
   assert.equal(billName(29287, 'KZ071-CN-KH-XL', 'สุธน'), 'C-9287 สุธน');
   assert.equal(billName(29296, 'NI93-PK-BR-32', 'PK-9296 สุพัตรา'), 'PK-9296 สุพัตรา', 'no double prefix');
-  assert.equal(billName(21234, '5011-PK-MD-30', 'อาทิตย์ วรรณสุทธิ์', ['501/1', '501/3']), 'GS-1234 อาทิตย์ วรรณสุทธิ์', '501/1–3 go through GoSell');
-  assert.equal(billName(21234, '5011-PK-MD-30', 'ก', ['501/1'], ['5011-PK-MD-30']), 'PK-1234 ก', 'sold out at GoSell');
-  assert.equal(billName(21234, '5012-PK-MD-40', 'ก', ['501/2'], ['5012-PK-MD-40']), 'PK-1234 ก', 'waist 38–44: not in GoSell');
-  assert.equal(billName(21234, '5012-PK-MD-34', 'ก', ['501/2'], ['5012-PK-MD-34']), 'GS-1234 ก', 'other waists stay GoSell');
-  assert.equal(billName(21234, '5011-PK-MD-30', 'อาทิตย์', ['501/1', 'NI9-3']), 'PK-1234 อาทิตย์', 'mixed: warehouse as usual');
-  assert.equal(billName(21234, '5012-PK-NV-34', 'อาทิตย์', ['501/2'], ['5012-PK-NV-34']), 'PK-1234 อาทิตย์', 'sold out at GoSell (501/2 waist 34, idea #14): normal PK- bill');
+  assert.equal(billName(21234, '5011-PK-MD-30', 'อาทิตย์ วรรณสุทธิ์'), 'PK-1234 อาทิตย์ วรรณสุทธิ์', '501/1–3 are PK- too (GoSell dropped, idea #36)');
   const plan = await planFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/1 30\ncod 249' });
   assert.deepEqual(plan.problems, []);
   assert.match(plan.warnings.join(' '), /ANTHROPIC_API_KEY/);
   await assert.rejects(applyFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/1 30\ncod 249' }), /ANTHROPIC_API_KEY/, '"fill all" skips it');
   const address = { name: 'สุพัตรา รัตนคช', phone: '085-814-1351', street: '22/6 ม.1', subdistrict: 'พรุดินนา', district: 'คลองท่อม', province: 'กระบี่', postal_code: '81120' };
   await applyFill(env, { psid: 'u1', at: '2026-10-15T05:01:00.000Z', text: '501/1 30\ncod 249' }, { address });
-  assert.equal(order.customer_name, 'PK-9400 สุพัตรา รัตนคช', '501/1 waist 30 is sold out at GoSell');
+  assert.equal(order.customer_name, 'PK-9400 สุพัตรา รัตนคช');
   assert.equal(order.customer_address, '22/6 ม.1 ต.พรุดินนา อ.คลองท่อม จ.กระบี่ 81120');
   assert.equal(order.customer_phone, '0858141351');
   assert.equal(validAddress({ ...address, postal_code: '8112' }), null);
@@ -236,7 +230,7 @@ test('a draft an admin already filled exactly as the note says is not sent to a 
   assert.equal(draftHoldsNote('501/1 32\ncod 249', { total: 249, items: [] }), false, 'an empty draft is filled as usual');
 });
 
-test('ตัวแทน: note says 801/1, bill gets 501/1 at 801/1\'s price, named by 501/1 (GS-)', async () => {
+test('ตัวแทน: note says 801/1, bill gets 501/1 at 801/1\'s price, named PK-', async () => {
   const { calls } = fakePage365();
   // 801/1 is sold out but still listed in Page365 at its own price.
   const pg: any = globalThis.fetch;
@@ -253,7 +247,7 @@ test('ตัวแทน: note says 801/1, bill gets 501/1 at 801/1\'s price, na
   assert.equal(plan.lines[0].sold_as, '801-1');
   assert.equal(plan.lines[0].price, 259, 'price of the model the customer bought');
   assert.equal(plan.discount, 259 + 50 - 299);
-  assert.match(plan.bill_name ?? '', /^GS-9400 /, 'bill name follows what ships (501/1 → GoSell)');
+  assert.match(plan.bill_name ?? '', /^PK-9400 /, 'bill name: warehouse prefix, never GS-');
   assert.ok(plan.notes?.some((n) => n.includes('ตัวแทน 501/1')));
   assert.ok(calls.some((c) => c.includes('products.json')));
 
