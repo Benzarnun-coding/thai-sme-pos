@@ -2,7 +2,7 @@
 // settings (stage, product, rules), budget, ad sets and its history.
 
 import { useEffect, useState } from 'react';
-import { api, MODE_LABEL, sectionName, WEB_TAB, type CampaignStats, type SalesRow, type CostRow, WINDOW_LABEL, type CampaignHistory, type CampaignView, type DailyRow, type EntityView, type Idea, type Overview, type Preview, type Window } from './api.ts';
+import { api, MODE_LABEL, sectionName, WEB_TAB, type CampaignStats, type SalesRow, type AdPost, type CostRow, WINDOW_LABEL, type CampaignHistory, type CampaignView, type DailyRow, type EntityView, type Idea, type Overview, type Preview, type Window } from './api.ts';
 import { ideaActionLabel, stageLabel, useCampaignActions } from './actions.tsx';
 import { DailyChart } from './Chart.tsx';
 import { formulaLines, methodLabel } from './salesFormula.ts';
@@ -78,6 +78,8 @@ export function CampaignDrawer({ c, data, window, preview, ideas, onClose, onRel
       <div className="drawer-body">
         <StatsTable c={c} />
         <CostWorking c={c} />
+
+        <PostsPanel id={c.id} />
 
         <CostPanel c={c} data={data} onEditSection={onEditSection} onReload={onReload} />
 
@@ -236,6 +238,36 @@ export function guessCode(name: string): string {
  * Linked product → its costs (web costs edit inline; sheet costs are edited in the sheet) + "แก้สินค้า/โปร".
  * No product yet → one small form that creates the cost, the product and pins this campaign to it.
  */
+/** The Facebook post(s) this campaign's ads use, so a cost or price can be typed knowing which product it is. */
+function PostsPanel({ id }: { id: string }) {
+  const [posts, setPosts] = useState<AdPost[] | null>(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    let live = true;
+    setPosts(null); setErr('');
+    api.posts(id).then((r) => live && setPosts(r.posts)).catch((e) => live && setErr(e.message));
+    return () => { live = false; };
+  }, [id]);
+  return (
+    <section className="panel">
+      <h3>โพสต์ที่ใช้ยิงแอด</h3>
+      {err ? <p className="muted small">{err}</p> : !posts ? <p className="muted small">กำลังโหลด…</p> : posts.length === 0 ? <p className="muted small">ไม่พบโฆษณาในแคมเปญนี้</p> : (
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          {posts.map((p) => (
+            <div key={p.ad_id} style={{ width: 140 }} className={p.active ? '' : 'muted'}>
+              {p.image ? <img src={p.image} alt={p.name} loading="lazy" style={{ width: 140, height: 140, objectFit: 'cover', borderRadius: 8 }} /> : <div className="chart-empty" style={{ width: 140, height: 140 }} />}
+              <p className="small clip-wrap">{p.name}{p.active ? '' : ' (หยุด)'}</p>
+              {p.text && <p className="small muted clip-wrap">{p.text}</p>}
+              {p.link && <a className="small" href={p.link} target="_blank" rel="noreferrer">เปิดโพสต์บน Facebook</a>}
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="muted small">ที่มา: โฆษณาในแคมเปญนี้จาก Meta (รูป/โพสต์ของแต่ละโฆษณา, อัปเดตทุก 6 ชม.)</p>
+    </section>
+  );
+}
+
 function CostPanel({ c, data, onEditSection, onReload }: {
   c: CampaignView; data: Overview; onEditSection: (id: string) => void; onReload: () => void;
 }) {

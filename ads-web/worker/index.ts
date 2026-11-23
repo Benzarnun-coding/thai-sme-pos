@@ -1,6 +1,7 @@
 // Worker entry: JSON API for the dashboard + cron triggers. Static files in dist/ are served by Cloudflare before this runs.
 
 import { deleteSubstitute, listSubstitutes, saveSubstitute, subKey } from './substitutes.ts';
+import { campaignPosts } from './adCreatives.ts';
 import { MetaClient } from '../../ads-engine/src/meta.ts';
 import { applyDecisions, sumBudget } from '../../ads-engine/src/apply.ts';
 import type { Entity, Level, Window } from '../../ads-engine/src/types.ts';
@@ -1390,6 +1391,10 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
       throw new BadRequest(err instanceof MetaCacheError ? err.message : friendlyMetaError(err));
     });
     return json({ days });
+  }
+  if (method === 'GET' && (m = path.match(/^\/api\/campaigns\/(\d+)\/posts$/))) {
+    const posts = await campaignPosts(env.DB, env, m[1]).catch((err) => { throw new BadRequest(friendlyMetaError(err)); });
+    return json({ posts });
   }
   if (method === 'GET' && (m = path.match(/^\/api\/campaigns\/(\d+)\/history$/))) {
     const adsets = await metaData(env).then(({ data }) => data.entities.filter((e) => e.level === 'adset' && e.campaign_id === m![1]).map((e) => e.id)).catch(() => []);

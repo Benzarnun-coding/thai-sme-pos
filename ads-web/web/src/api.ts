@@ -214,6 +214,8 @@ export interface Preview { dry_run: boolean; kill_switch: boolean; items: Previe
 
 export interface DailyRow { date: string; spend: number; impressions: number; clicks: number; purchases: number; purchase_value: number }
 
+export interface AdPost { ad_id: string; name: string; active: boolean; image: string | null; text: string | null; link: string | null }
+
 export interface CampaignHistory {
   audit: AuditRow[];
   runs: { run_id: number; run_at: string; trigger: string; dry_run: boolean; plan: string; skipped_reason: string | null; applied: boolean; error: string | null }[];
@@ -459,6 +461,7 @@ export const api = {
   ideas: () => call<{ ideas: Idea[]; costs_loaded: boolean; meta_fetched_at: string; meta_warning: string | null }>('GET', '/api/ideas'),
   preview: () => call<Preview>('GET', '/api/preview'),
   daily: (id: string, window: Window) => call<{ days: DailyRow[] }>('GET', `/api/campaigns/${id}/daily?window=${window}`),
+  posts: (id: string) => call<{ posts: AdPost[] }>('GET', `/api/campaigns/${id}/posts`),
   stats: (id: string) => call<CampaignStats>('GET', `/api/campaigns/${id}/stats`),
   actualSales: () => call<ActualSales[]>('GET', '/api/actual-sales'),
   saveActualSales: (date: string, v: { orders: number | null; pieces: number | null; revenue: number | null }) => call<{ ok: true }>('PUT', `/api/actual-sales/${date}`, v),
