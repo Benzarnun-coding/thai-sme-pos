@@ -2,6 +2,7 @@
 // so no other /api call works from here). Not in SiteNav (Benz, 15 Nov). Spec + design: docs/command-center/.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import './command.css';
+import { AgentsEntry } from './AgentsShell.tsx';
 import { SESSION_EXPIRED, summaryError, thrownError } from './commandErrors.ts';
 
 type TileStatus = 'ok' | 'stale' | 'missing' | 'not_connected' | 'error';
@@ -318,7 +319,12 @@ function Skeleton() {
   );
 }
 
+/** /command is the dashboard; /command?view=agents is the team's positions (own chunk, own fetch). One route, so main.tsx is untouched. */
 export function CommandApp() {
+  return new URLSearchParams(location.search).get('view') === 'agents' ? <AgentsEntry /> : <CommandHome />;
+}
+
+function CommandHome() {
   const { data, error, loading, load } = useSummary();
   useEffect(() => {
     document.title = 'Benz Command Center';
@@ -352,6 +358,18 @@ export function CommandApp() {
           <BusinessSection s={data} onRetry={load} />
           <TeamSection s={data} onRetry={load} />
         </>}
+        <section className="cc-sec" aria-label="ทีม Agent">
+          <div className="cc-card">
+            <ul className="cc-list">
+              <li>
+                <a className="cc-row-link" href="/command?view=agents">
+                  <span className="cc-t"><b>ทีม Agent</b><small>ดูทุกตำแหน่ง ตำแหน่งที่ว่าง และข้อเสนอที่รอเบ๊นอนุมัติ</small></span>
+                  <Chev />
+                </a>
+              </li>
+            </ul>
+          </div>
+        </section>
         <section className="cc-jarvis" aria-label="ช่องสั่งงาน Jarvis ยังไม่เปิดใช้" aria-disabled="true">
           <h3>Jarvis <span className="cc-tag cc-soon">เร็วๆ นี้</span></h3>
           <p>ยังสั่งงานจากหน้านี้ไม่ได้ ตอนนี้หน้านี้อ่านอย่างเดียว</p>

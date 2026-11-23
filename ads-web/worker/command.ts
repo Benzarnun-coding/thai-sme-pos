@@ -5,6 +5,7 @@
 // a tile with no source returns data = null, never 0.
 
 import { devBypass, verifyAccess, type AuthEnv } from './auth.ts';
+import { assembleAgents, type SourceRow as AgentsRow } from './agentsStore.ts';
 import { bkkDate } from './conversionStore.ts';
 import { loadSettings } from './db.ts';
 import { DEFAULT_GOAL, ytdStatus } from './goal.ts';
@@ -85,6 +86,7 @@ export async function commandIdentity(req: Request, env: CommandEnv): Promise<Co
 const ROUTES: Record<string, { method: string; who: CommandIdentity['kind'][] }> = {
   '/api/command/summary': { method: 'GET', who: ['user', 'dev'] },
   '/api/command/jobs': { method: 'POST', who: ['service', 'dev'] },
+  '/api/command/agents': { method: 'GET', who: ['user', 'dev'] },
 };
 
 /** Everything under /api/command. Order: identity (401) → exact path (404) → method (405) → Origin (403) → who (403). */
@@ -102,12 +104,34 @@ export async function commandRoute(req: Request, env: CommandEnv, ctx: Pick<Exec
     }
     if (!r.who.includes(who.kind)) return json({ error: 'ตัวตนนี้ใช้ endpoint นี้ไม่ได้' }, 403);
     if (url.pathname === '/api/command/jobs') return await receiveJobs(req, env, opts.now ?? Date.now());
+    if (url.pathname === '/api/command/agents') {
+      const res = json(await agentsTile(env));
+      res.headers.set('Cache-Control', 'private, no-store'); // the positions are private: no shared cache may keep them
+      return res;
+    }
     return json(await buildSummary(env, ctx, who, opts));
   } catch (err: any) {
     if (err instanceof BadRequest) return json({ error: err.message }, 400);
     console.error('command', err);
     return json({ error: err?.message ?? String(err) }, 500);
   }
+}
+
+// ---------- agents (GET /api/command/agents) ----------
+
+const AGENTS_SOURCE = 'ทีม Agent: ไฟล์ตำแหน่งที่ทีมบันทึกเอง โหลดเข้า D1 ด้วยสคริปต์ ไม่ได้ดึงสด';
+
+/** The team's positions, put back together from the `agents` rows of command_sources (worker/agentsStore.ts).
+ *  No rows → data null and status 'missing' (never an empty list that reads as "0 positions"); rows that do not
+ *  add up → data null and status 'error'. */
+export async function agentsTile(env: CommandEnv): Promise<{ version: 1 } & Tile<unknown>> {
+  const { results } = await env.DB.prepare("SELECT source, updated_at, data FROM command_sources WHERE source = 'agents' OR source LIKE 'agents:%'").all<AgentsRow>();
+  const base = { version: 1 as const, id: 'agents', label: 'ทีม Agent', source: AGENTS_SOURCE };
+  const a = assembleAgents(results);
+  if (a.ok) return { ...base, status: 'ok', as_of: a.as_of, data: a.data };
+  if (a.missing) return { ...base, status: 'missing', as_of: null, data: null, note: 'ยังไม่ได้โหลดข้อมูลตำแหน่งเข้าระบบ' };
+  console.error('command agents', a.reason);
+  return { ...base, status: 'error', as_of: null, data: null, note: `ข้อมูลตำแหน่งในระบบไม่ครบ (${a.reason})` };
 }
 
 // ---------- snapshot (POST /api/command/jobs) ----------
