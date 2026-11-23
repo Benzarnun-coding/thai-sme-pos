@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { sqliteD1 } from './sqliteD1.ts';
+import { makeAgents } from './agentsFixture.ts';
+import { buildSql, splitAgents } from './agentsStore.ts';
 import { authenticate } from './auth.ts';
 import { commandRoute, countdown, digestJobs, parseRss, fetchFeed, blogUrl, teamFromDigest, validateSnapshot, type CommandEnv, type JobMeta } from './command.ts';
 
@@ -576,4 +578,87 @@ test('worker entry: bare /api/command (no trailing slash) is Command\'s too, lik
   const expired = await worker.fetch(call('/api/command/summary', { token: await jwt(userClaims({ exp: Math.floor(Date.now() / 1000) - 60 })) }), env, ctx);
   assert.equal(expired.status, 401);
   assert.equal((await expired.json() as { error: string }).error, COMMAND_401);
+});
+
+// ---------- GET /api/command/agents ----------
+
+/** Load made-up positions the way the script's SQL does, over several rows (a small part size forces more than one). */
+function loadAgentsRows(s: ReturnType<typeof setup>, d = makeAgents({ n: 30, pad: 800 }), rev = 'rev-1', maxPart = 12_000) {
+  const split = splitAgents(d, rev, maxPart);
+  for (const stmt of buildSql(split, '2026-11-23T01:00:00.000Z')) s.raw.exec(stmt);
+  return { d, split };
+}
+const agents = async (s: ReturnType<typeof setup>, token?: string) => commandRoute(call('/api/command/agents', { token }), s.env, s.ctx);
+
+test('agents: no JWT, bad signature, wrong aud, expired, team email → 401 and no data in the body', async () => {
+  const s = setup(); loadAgentsRows(s);
+  const [h, , sig] = (await jwt(userClaims())).split('.');
+  const forged = `${h}.${b64url(JSON.stringify(userClaims({ email: 'attacker@example.com' })))}.${sig}`;
+  for (const token of [undefined, forged, await jwt(userClaims({ aud: [MAIN_AUD] })), await jwt(userClaims({ exp: Math.floor(Date.now() / 1000) - 1 })), await jwt(userClaims({ email: 'team@example.com' }))]) {
+    const res = await agents(s, token);
+    assert.equal(res.status, 401);
+    assert.doesNotMatch(await res.text(), /ตัวอย่าง/);
+  }
+  assert.equal((await agents({ ...s, env: { ...s.env, COMMAND_ACCESS_AUD: '' } }, await jwt(userClaims()))).status, 401);
+});
+
+test('agents: a service identity gets 403; a wrong method gets 405; POST is not a way in', async () => {
+  const s = setup(); loadAgentsRows(s);
+  const res = await agents(s, await jwt(svcClaims()));
+  assert.equal(res.status, 403);
+  assert.doesNotMatch(await res.text(), /ตัวอย่าง/);
+  assert.equal((await commandRoute(call('/api/command/agents', { method: 'POST', token: await jwt(userClaims()), body: {} }), s.env, s.ctx)).status, 405);
+  assert.equal((await commandRoute(call('/api/command/agents', { method: 'POST', token: await jwt(svcClaims()), body: {} }), s.env, s.ctx)).status, 405);
+});
+
+test('agents: the allowlisted user gets 200, private no-store, and the rows put back together exactly', async () => {
+  const s = setup();
+  const { d, split } = loadAgentsRows(s);
+  assert.ok(split.parts.length >= 3, 'the fixture should need several rows');
+  const res = await agents(s, await jwt(userClaims()));
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('Cache-Control'), 'private, no-store');
+  const body = await res.json() as any;
+  assert.equal(body.version, 1);
+  assert.equal(body.status, 'ok');
+  assert.equal(body.as_of, '2026-11-23T01:00:00.000Z');
+  assert.deepEqual(body.data, d);
+  assert.equal(body.data.positions.length, 30);
+});
+
+test('agents: nothing loaded → 200 with data null and status missing, never an empty list or a 0', async () => {
+  const s = setup();
+  const res = await agents(s, await jwt(userClaims()));
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('Cache-Control'), 'private, no-store');
+  const body = await res.json() as any;
+  assert.equal(body.data, null);
+  assert.equal(body.status, 'missing');
+  assert.equal(body.as_of, null);
+  assert.match(body.note, /ยังไม่ได้โหลด/);
+});
+
+test('agents: an unfinished load (a part gone, or parts of another load) → status error with data null, not a partial list', async () => {
+  const s = setup(); loadAgentsRows(s);
+  s.raw.exec("DELETE FROM command_sources WHERE source = 'agents:002'");
+  let body = await (await agents(s, await jwt(userClaims()))).json() as any;
+  assert.deepEqual([body.status, body.data], ['error', null]);
+  const t = setup(); loadAgentsRows(t, makeAgents({ n: 30, pad: 800 }), 'rev-1');
+  const other = splitAgents(makeAgents({ n: 30, pad: 800 }), 'rev-2', 12_000);
+  t.raw.prepare("UPDATE command_sources SET data = ? WHERE source = 'agents:001'").run(other.parts[0].data);
+  body = await (await agents(t, await jwt(userClaims()))).json() as any;
+  assert.deepEqual([body.status, body.data], ['error', null]);
+});
+
+test('agents: loading again replaces the old set and drops old parts; the summary and its sources are not touched', async () => {
+  const s = setup(); freshRss(s);
+  loadAgentsRows(s, makeAgents({ n: 40, pad: 800 }), 'rev-1');
+  const second = makeAgents({ n: 10 });
+  loadAgentsRows(s, second, 'rev-2');
+  const body = await (await agents(s, await jwt(userClaims()))).json() as any;
+  assert.equal(body.data.positions.length, 10);
+  assert.equal((s.raw.prepare("SELECT COUNT(*) AS n FROM command_sources WHERE source LIKE 'agents%'").get() as { n: number }).n, 2);
+  const sum = await (await commandRoute(call('/api/command/summary', { token: await jwt(userClaims()) }), s.env, s.ctx, { now: NOW })).json() as any;
+  assert.equal(sum.version, 1);
+  assert.equal(JSON.stringify(sum).includes('ตัวอย่าง'), false);
 });
