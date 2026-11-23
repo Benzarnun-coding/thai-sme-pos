@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>ทีม Agent · Benz Command Center · mockup (ตัวอย่าง)</title>
+<style>
+/* Tokens + base: copied from web/src/command.css (same values, same names). New classes for this page start with .cc-ag-
+   and are listed in agents-design.md §3. In the app every selector sits under .cc (see command.css). */
+.cc{
+  --bg:#000; --card:#0a0a0a; --card-2:#111; --line:#222; --line-2:#333;
+  --text:#fff; --muted:#9a9a9a; --y:#FFD400; --r:#FF3B30; --y-bg:#141000; --r-bg:#1a0605;
+  --radius:14px; --tap:44px;
+  --font:-apple-system,"Sukhumvit Set","Noto Sans Thai",system-ui,sans-serif;
+  --mono:ui-monospace,Menlo,monospace;
+  background:var(--bg);color:var(--text);font:16px/1.6 var(--font);min-height:100vh;-webkit-text-size-adjust:100%;
+}
+html,body{margin:0;background:#000}
+.cc *,.cc *::before,.cc *::after{box-sizing:border-box}
+.cc main{max-width:520px;margin:0 auto;padding:0 16px calc(32px + env(safe-area-inset-bottom))}
+.cc a{color:var(--y)}
+.cc :focus-visible{outline:3px solid var(--y);outline-offset:2px;border-radius:8px}
+.cc h1,.cc h2,.cc h3,.cc p,.cc ul,.cc dl,.cc dd{margin:0}
+
+/* reused from command.css as-is */
+.cc .cc-top{position:sticky;top:0;z-index:5;background:rgba(0,0,0,.92);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;gap:12px}
+.cc .cc-logo{width:44px;height:44px;border-radius:12px;background:var(--y);color:#000;font-weight:800;font-size:15px;display:grid;place-items:center;flex:none;text-decoration:none;letter-spacing:.02em}
+.cc .cc-top h1{font-size:18px;line-height:1.3;font-weight:800;color:var(--text)}
+.cc .cc-top h1 b{color:var(--y)}
+.cc .cc-top p{color:var(--muted);font-size:13px;line-height:1.4}
+.cc .cc-grow{flex:1;min-width:0}
+.cc .cc-btn{min-height:var(--tap);min-width:var(--tap);padding:0 14px;border-radius:12px;border:1px solid var(--line-2);background:var(--card-2);color:var(--text);font:600 14px/1 var(--font);display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;text-decoration:none}
+.cc .cc-btn:hover{border-color:#555}
+.cc .cc-sec{margin-top:22px}
+.cc .cc-sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 0 10px}
+.cc .cc-sec-h h2{font-size:17px;line-height:1.4;color:var(--y);font-weight:800}
+.cc .cc-sec-h .cc-when{font-size:13px;color:var(--muted)}
+.cc .cc-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin:0 0 10px}
+.cc .cc-card h3{font-size:15px;margin:0 0 6px;font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--text)}
+.cc .cc-src{font-size:12.5px;line-height:1.5;color:var(--muted);margin:10px 0 0;padding-top:8px;border-top:1px solid var(--line)}
+.cc .cc-tag{display:inline-flex;align-items:center;font-size:12px;line-height:1;padding:5px 8px;border-radius:99px;border:1px solid var(--line-2);color:var(--muted);font-weight:600;white-space:nowrap}
+.cc .cc-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:8px}
+.cc .cc-stat{background:var(--card-2);border:1px solid var(--line);border-radius:10px;padding:8px 6px;text-align:center}
+.cc .cc-stat b{display:block;font-size:22px;line-height:1.2;font-weight:800;font-variant-numeric:tabular-nums}
+.cc .cc-stat span{font-size:12px;color:var(--muted);line-height:1.35;display:block}
+.cc .cc-stat.cc-need{border-color:var(--y)} .cc .cc-stat.cc-need b{color:var(--y)}
+.cc .cc-small{font-size:12.5px;color:var(--muted);line-height:1.5;margin:0 0 6px}
+.cc .cc-jid{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.cc .cc-st{font-size:12px;font-weight:700;padding:3px 7px;border-radius:6px;white-space:nowrap;flex:none;line-height:1.4}
+.cc .cc-st.cc-done{color:#000;background:#d8d8d8}
+.cc .cc-st.cc-need{color:#000;background:var(--y)}
+.cc .cc-st.cc-sent{color:var(--text);border:1px solid var(--line-2)}
+.cc .cc-list{list-style:none;padding:0;margin:0}
+.cc .cc-list li+li{border-top:1px solid var(--line)}
+.cc .cc-chev{flex:none;color:var(--muted)}
+.cc .cc-empty{text-align:center;padding:18px 8px;color:var(--muted);font-size:14px}
+.cc .cc-empty b{display:block;color:var(--text);font-size:16px;margin-bottom:2px}
+.cc .cc-banner{display:flex;gap:10px;align-items:flex-start;border-radius:12px;padding:10px 12px;font-size:13.5px;line-height:1.55;margin-bottom:10px}
+.cc .cc-banner.cc-err{border:1px solid var(--r);background:var(--r-bg);color:var(--text)}
+.cc .cc-banner .cc-btn{margin-left:auto;flex:none;min-height:40px}
+.cc .cc-banner.cc-err b{color:var(--r)}
+.cc .cc-sk{background:#161616;border-radius:8px;position:relative;overflow:hidden}
+.cc .cc-sk::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.06),transparent);animation:cc-sh 1.4s infinite}
+@keyframes cc-sh{to{transform:translateX(100%)}}
+
+/* ---------- NEW for /command?view=agents (agents-design.md §3) ---------- */
+.cc .cc-ag-back{min-width:var(--tap);padding:0 10px 0 6px}
+/* department table */
+.cc .cc-ag-depts{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+.cc .cc-ag-depts th{font-size:12px;color:var(--muted);font-weight:600;text-align:right;padding:0 4px 6px;line-height:1.4}
+.cc .cc-ag-depts th:first-child{text-align:left}
+.cc .cc-ag-depts td{border-top:1px solid var(--line);padding:0}
+.cc .cc-ag-dept-btn{all:unset;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,1fr) 44px 44px 64px;align-items:center;gap:4px;width:100%;min-height:var(--tap);padding:4px;cursor:pointer;border-radius:8px}
+.cc .cc-ag-dept-btn:hover .cc-ag-dn{color:var(--y)}
+.cc .cc-ag-dept-btn:focus-visible{outline:3px solid var(--y);outline-offset:-1px}
+.cc .cc-ag-dept-btn[aria-pressed="true"]{background:var(--y-bg)}
+.cc .cc-ag-dept-btn[aria-pressed="true"] .cc-ag-dn{color:var(--y)}
+.cc .cc-ag-dn{font-weight:600;line-height:1.45;overflow-wrap:anywhere}
+.cc .cc-ag-num{text-align:right}
+.cc .cc-ag-num.cc-ag-gap{color:var(--y);font-weight:700}
+.cc .cc-ag-mini{height:6px;border-radius:99px;background:#1c1c1c;overflow:hidden}
+.cc .cc-ag-mini i{display:block;height:100%;background:#d8d8d8}
+.cc .cc-ag-depts thead .cc-ag-grid{display:grid;grid-template-columns:minmax(0,1fr) 44px 44px 64px;gap:4px;padding:0 4px}
+.cc .cc-ag-depts thead .cc-ag-grid span{text-align:right}
+.cc .cc-ag-depts thead .cc-ag-grid span:first-child{text-align:left}
+/* toolbar */
+.cc .cc-ag-tools{display:grid;gap:10px}
+.cc .cc-ag-field{display:grid;gap:4px}
+.cc .cc-ag-field>span{font-size:13px;color:var(--muted);line-height:1.4}
+.cc .cc-ag-search{position:relative}
+.cc .cc-ag-search input,.cc .cc-ag-field select{width:100%;min-height:48px;border-radius:12px;border:1px solid var(--line-2);background:var(--card-2);color:var(--text);font:16px/1.5 var(--font);padding:0 14px}
+.cc .cc-ag-search input{padding-right:52px}
+.cc .cc-ag-search input::placeholder{color:#8a8a8a}
+.cc .cc-ag-search input::-webkit-search-cancel-button{display:none}
+.cc .cc-ag-clear{position:absolute;right:2px;top:2px;width:44px;height:44px;border:0;background:none;color:var(--muted);cursor:pointer;border-radius:10px;display:grid;place-items:center}
+.cc .cc-ag-clear:hover{color:var(--text)}
+.cc .cc-ag-field select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 20px) 21px,calc(100% - 14px) 21px;background-size:6px 6px;background-repeat:no-repeat;padding-right:40px}
+.cc .cc-ag-seg{display:flex;flex-wrap:wrap;gap:6px;border:0;padding:0;margin:0}
+.cc .cc-ag-seg legend{font-size:13px;color:var(--muted);line-height:1.4;padding:0;margin-bottom:4px}
+.cc .cc-ag-chip{min-height:var(--tap);padding:0 12px;border-radius:99px;border:1px solid var(--line-2);background:var(--card-2);color:var(--text);font:600 14px/1 var(--font);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.cc .cc-ag-chip small{font-size:12px;color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums}
+.cc .cc-ag-chip[aria-pressed="true"]{background:var(--y);border-color:var(--y);color:#000}
+.cc .cc-ag-chip[aria-pressed="true"] small{color:#000}
+.cc .cc-ag-result{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:var(--tap);font-size:13.5px;color:var(--muted);margin-top:6px}
+.cc .cc-ag-result b{color:var(--text);font-variant-numeric:tabular-nums}
+.cc .cc-ag-link{background:none;border:0;color:var(--y);font:600 14px/1 var(--font);min-height:var(--tap);padding:0 4px;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+/* list grouped by department */
+.cc .cc-ag-group{content-visibility:auto;contain-intrinsic-size:auto 900px}
+.cc .cc-ag-gh{position:sticky;top:65px;z-index:2;background:var(--bg);display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:10px 0 6px;margin-top:8px}
+.cc .cc-ag-gh h3{font-size:15px;font-weight:800;color:var(--text);line-height:1.4}
+.cc .cc-ag-gh span{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.cc .cc-ag-row{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:10px;width:100%;min-height:64px;padding:10px 2px;cursor:pointer;color:var(--text)}
+.cc .cc-ag-row:focus-visible{outline:3px solid var(--y);outline-offset:2px;border-radius:8px}
+.cc .cc-ag-row:hover .cc-ag-title{color:var(--y)}
+.cc .cc-ag-t{flex:1;min-width:0;display:grid;gap:2px}
+.cc .cc-ag-title{font-weight:600;font-size:15px;line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
+.cc .cc-ag-who{font-size:13px;line-height:1.5;color:var(--muted);overflow-wrap:anywhere}
+.cc .cc-ag-who b{color:var(--text);font-weight:600}
+.cc .cc-ag-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px}
+.cc .cc-ag-side{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:none}
+.cc .cc-ag-row.cc-ag-vacant .cc-ag-title{color:#cfcfcf}
+/* status chips (words always, colour second) */
+.cc .cc-st.cc-ag-pk{color:var(--text);border:1px solid #d8d8d8}
+.cc .cc-st.cc-ag-paused{color:var(--muted);border:1px solid var(--line-2)}
+.cc .cc-st.cc-ag-vac{color:var(--muted);border:1px dashed #6a6a6a}
+/* source label: square corners so it never reads as a status pill */
+.cc .cc-ag-srcl{display:inline-flex;align-items:center;gap:4px;font-size:12px;line-height:1.3;padding:3px 7px;border-radius:4px;background:#1a1a1a;border:1px solid #555;color:var(--text);font-weight:600;white-space:nowrap}
+.cc .cc-ag-srcl::before{content:"";width:6px;height:6px;background:#d8d8d8;flex:none}
+/* proposal label: solid yellow, black text = "waits for Benz", same meaning as รอเบ๊น */
+.cc .cc-ag-prop{display:inline-flex;align-items:center;font-size:12px;line-height:1.3;padding:3px 7px;border-radius:4px;background:var(--y);color:#000;font-weight:800;white-space:nowrap}
+.cc .cc-ag-prop.cc-ag-ok{background:none;color:var(--text);border:1px solid #d8d8d8;font-weight:700}
+.cc .cc-ag-cov{font-size:12px;color:var(--muted);line-height:1.3;padding:3px 0;white-space:nowrap}
+.cc .cc-ag-top{display:block;text-align:center;margin-top:12px}
+/* detail dialog */
+.cc-ag-dlg{padding:0;border:0;margin:0;max-width:none;max-height:none;width:100%;height:100%;background:var(--bg);color:var(--text)}
+.cc-ag-dlg::backdrop{background:rgba(0,0,0,.7)}
+@media (min-width:600px){ .cc-ag-dlg{width:520px;height:min(92vh,900px);margin:auto;border:1px solid var(--line-2);border-radius:var(--radius)} }
+.cc-ag-dlg .cc-ag-dlg-in{height:100%;overflow-y:auto;overscroll-behavior:contain}
+.cc-ag-dlg .cc-ag-dlg-h{position:sticky;top:0;z-index:2;background:rgba(0,0,0,.94);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;padding:10px 16px}
+.cc-ag-dlg .cc-ag-dlg-h h2{font-size:17px;line-height:1.4;font-weight:800;overflow-wrap:anywhere}
+.cc-ag-dlg .cc-ag-dlg-b{padding:14px 16px calc(32px + env(safe-area-inset-bottom))}
+.cc .cc-ag-dl{display:grid;gap:0}
+.cc .cc-ag-dl>div{display:grid;grid-template-columns:112px minmax(0,1fr);gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.cc .cc-ag-dl>div:first-child{border-top:0;padding-top:0}
+.cc .cc-ag-dl dt{font-size:13px;color:var(--muted);line-height:1.5}
+.cc .cc-ag-dl dd{font-size:15px;line-height:1.6;overflow-wrap:anywhere}
+.cc .cc-ag-dl dd ul{padding-left:18px;margin:0}
+.cc .cc-ag-none{color:var(--muted)}
+.cc .cc-ag-pills{display:flex;flex-wrap:wrap;gap:6px}
+.cc .cc-ag-propbox{border:1px solid var(--y);border-left-width:4px;border-radius:12px;padding:14px;margin-top:14px;background:#070600}
+.cc .cc-ag-propbox h3{font-size:15px;font-weight:800;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
+.cc .cc-ag-propbox .cc-ag-warn{font-size:13px;color:var(--text);line-height:1.55;margin-bottom:12px}
+.cc .cc-ag-scope{list-style:none;padding:0;margin:0;display:grid;gap:4px}
+.cc .cc-ag-scope li{display:flex;gap:8px;align-items:baseline}
+.cc .cc-ag-scope li::before{content:"";width:8px;height:8px;border:2px solid var(--y);flex:none;transform:translateY(-1px)}
+@media (prefers-reduced-motion:reduce){ .cc .cc-sk::after{animation:none;display:none} }
+@media (min-width:600px){ .cc .cc-ag-dl>div{grid-template-columns:140px minmax(0,1fr)} }
+
+/* ---------- mockup only (not in production) ---------- */
+.mk-sample{display:inline-flex;font-size:11.5px;line-height:1;padding:4px 7px;border-radius:99px;border:1px dashed var(--muted);color:var(--muted);font-weight:600;white-space:nowrap}
+.mk-bar{max-width:520px;margin:0 auto;padding:12px 16px;color:#9a9a9a;font:13px/1.55 -apple-system,"Noto Sans Thai",sans-serif;border-bottom:1px dashed #333}
+.mk-bar label{display:inline-flex;align-items:center;gap:6px;margin-right:12px;min-height:44px}
+.mk-gallery{max-width:520px;margin:30px auto 0;padding:0 16px 60px}
+.mk-gallery h2{color:#9a9a9a !important;font-size:14px !important}
+</style>
+</head>
+<body>
+<div class="mk-bar" aria-label="แผงควบคุม mockup">
+  mockup เท่านั้น: ข้อมูลทุกแถวเป็นตัวอย่างที่สร้างขึ้น ไม่ใช่รายชื่อจริง ·
+  <label><input type="radio" name="mkn" value="300" checked> 300 แถว</label>
+  <label><input type="radio" name="mkn" value="40"> 40 แถว</label>
+  <label><input type="radio" name="mkn" value="0"> ไม่มีข้อมูล</label>
+  <label><input type="radio" name="mkn" value="err"> โหลดไม่ได้</label>
+</div>
+
+<div class="cc">
+  <header class="cc-top">
+    <a class="cc-btn cc-ag-back" href="/command" aria-label="กลับไป Command Center">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+    </a>
+    <div class="cc-grow">
+      <h1><b>ทีม</b> Agent</h1>
+      <p>อ่านอย่างเดียว · <span id="hdrDate">อัปเดตข้อมูล d MMM yyyy</span></p>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- 1. summary -->
+    <section class="cc-sec" aria-labelledby="sumH">
+      <div class="cc-sec-h"><h2 id="sumH">ภาพรวม</h2><span class="cc-when" id="sumTotal"></span></div>
+      <div class="cc-card" id="sumCard"></div>
+    </section>
+
+    <!-- 2. list -->
+    <section class="cc-sec" aria-labelledby="listH" id="list">
+      <div class="cc-sec-h"><h2 id="listH">ตำแหน่งทั้งหมด</h2></div>
+      <div class="cc-ag-tools" role="search">
+        <div class="cc-ag-field">
+          <span id="qLab">ค้นหา</span>
+          <div class="cc-ag-search">
+            <input id="q" type="search" aria-labelledby="qLab" placeholder="ชื่อตำแหน่ง, agent, ทีม หรือธุรกิจ" autocomplete="off" enterkeyhint="search">
+            <button class="cc-ag-clear" id="qClear" type="button" aria-label="ล้างคำค้น" hidden>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
+          </div>
+        </div>
+        <label class="cc-ag-field"><span>แผนก</span>
+          <select id="dept"></select>
+        </label>
+        <fieldset class="cc-ag-seg" id="stSeg"><legend>สถานะ</legend></fieldset>
+      </div>
+      <div class="cc-ag-result"><span id="resCount" role="status" aria-live="polite"></span><button class="cc-ag-link" id="resReset" type="button" hidden>ล้างตัวกรอง</button></div>
+      <div id="groups"></div>
+      <a class="cc-ag-link cc-ag-top" href="#main" id="toTop">กลับขึ้นด้านบน</a>
+      <p class="cc-src">ที่มา: ข้อมูลตำแหน่งที่ทีมบันทึกเองและโหลดเข้าระบบ (ไม่ได้ดึงสด) · ตำแหน่งจาก SkillTree 7 แผนก และตำแหน่งนอก SkillTree ติดป้ายแหล่งที่มา · "ข้อเสนอ" คือสเปกที่ทีมร่าง ยังไม่ใช่ agent จริงจนกว่าเบ๊นอนุมัติ</p>
+    </section>
+  </main>
+
+  <dialog class="cc-ag-dlg" id="dlg" aria-labelledby="dlgH">
+    <div class="cc-ag-dlg-in">
+      <div class="cc-ag-dlg-h">
+        <button class="cc-btn" id="dlgClose" type="button">ปิด</button>
+        <div class="cc-grow"><h2 id="dlgH"></h2><p class="cc-small" id="dlgSub" style="margin:0"></p></div>
+      </div>
+      <div class="cc-ag-dlg-b" id="dlgBody"></div>
+    </div>
+  </dialog>
+</div>
+
+<!-- state gallery (mockup only) -->
+<div class="cc mk-gallery" aria-label="state อื่น (mockup เท่านั้น)">
+  <div class="cc-sec-h"><h2>state อื่น (mockup เท่านั้น)</h2></div>
+  <p class="cc-small">ค้นหาไม่เจอ</p>
+  <div class="cc-card"><div class="cc-empty"><b>ไม่พบตำแหน่งที่ตรงกับ "บัญชีภาษี"</b>ลองคำอื่น หรือค้นด้วยชื่อทีมหรือธุรกิจ<br><button class="cc-ag-link" type="button">ล้างคำค้น</button></div></div>
+  <p class="cc-small">ตัวกรองแล้วว่าง</p>
+  <div class="cc-card"><div class="cc-empty"><b>แผนก Customer ไม่มีตำแหน่งที่ "พัก"</b>ลองเลือกสถานะอื่น<br><button class="cc-ag-link" type="button">ล้างตัวกรอง</button></div></div>
+  <p class="cc-small">กำลังโหลด (เฉพาะตอนแยกไฟล์ JSON แบบ lazy)</p>
+  <div class="cc-card" aria-busy="true"><div class="cc-sk" style="height:56px;margin-bottom:8px"></div><div class="cc-sk" style="height:132px"></div></div>
+  <p class="cc-small">ตำแหน่งว่างที่ยังไม่มีสเปก (ในหน้ารายละเอียด)</p>
+  <div class="cc-card"><div class="cc-empty"><b>ยังไม่มีสเปกข้อเสนอ</b>ตำแหน่งนี้ว่าง และทีมยังไม่ได้ร่างว่าจะให้ agent ทำอะไร</div></div>
+</div>
+
+<script>
+/* Mockup data: generated, not real. Titles/agents/teams are [ตัวอย่าง] placeholders. */
+const DEPTS=['Sales','Deals','Marketing','Operations','Intelligence','Customer','Back Office'];
+const STATUS={active:'ใช้งาน',['pk-auto']:'PK-auto',paused:'พัก',vacant:'ว่าง'};
+const ST_ORDER=['active','pk-auto','paused','vacant'];
+const SCOPE_TH={'draft-only':'ทำได้แค่ร่าง ไม่ส่งออกเอง','no-customer':'ไม่ส่งอะไรถึงลูกค้า','no-payment':'ไม่จ่ายเงิน ไม่สั่งซื้อ'};
+const BIZ=['PK Jeans','Focus Club','ClassRoom','benzarnun.com'];
+function gen(n){
+  const out=[];const pick=(a,i)=>a[i%a.length];
+  for(let i=0;i<n;i++){
+    const outside=i%23===22;
+    const dept=outside?'PK JEANS':pick(DEPTS,Math.floor(i*7/n*1.0)+0);
+    const st=outside?'pk-auto':pick(['active','vacant','active','paused','vacant','active','vacant'],i*3+1);
+    const num=String(i+1).padStart(3,'0');
+    const row={id:(outside?'pk-':'st-')+num,department:dept,title:'[ตำแหน่งตัวอย่าง '+num+']'+(i%9===0?' ชื่อยาวสำหรับทดสอบการตัดบรรทัดภาษาไทย':''),
+      source:outside?'PK JEANS':'SkillTree',agent:st==='vacant'?null:'[agent-'+num+']',team:st==='vacant'?null:pick(['[ทีม A]','[ทีม B]','[ทีม C]'],i),
+      status:st,coverage:st==='vacant'?null:(i%4===0?'partial':'full'),businesses:[pick(BIZ,i)].concat(i%5===0?[pick(BIZ,i+1)]:[]),
+      evidence:st==='vacant'?null:'[หลักฐานตัวอย่าง: ไฟล์หรือ job ที่แสดงว่าตำแหน่งนี้ทำงานอยู่]',proposal:null};
+    if(st==='vacant'&&i%6!==4){row.proposal={label:'ข้อเสนอ',approved:i%17===0,name:'[ชื่อ agent ที่เสนอ '+num+']',duty:'[หน้าที่ตัวอย่าง 1 ประโยค]',
+      inputs:['[input ตัวอย่าง 1]','[input ตัวอย่าง 2]'],outputs:['[output ตัวอย่าง]'],scope:['draft-only','no-customer','no-payment'],team:pick(['[ทีม A]','[ทีม B]'],i),priority:(i*7)%40+1};}
+    out.push(row);
+  }
+  return out;
+}
+const deptOrder=d=>{const k=DEPTS.indexOf(d);return k<0?100:k;};
+const filled=r=>r.status!=='vacant';
+const norm=s=>(s||'').toString().toLocaleLowerCase('th').normalize('NFC').replace(/\s+/g,' ').trim();
+const hay=r=>norm([r.id,r.title,r.agent,r.team,r.department,r.source,(r.businesses||[]).join(' '),r.proposal&&r.proposal.name,r.proposal&&r.proposal.duty].join(' '));
+function sortRows(a,b,stFilter){
+  const d=deptOrder(a.department)-deptOrder(b.department)||a.department.localeCompare(b.department,'th');if(d)return d;
+  if(stFilter==='vacant'){const pa=a.proposal?a.proposal.priority:1e9,pb=b.proposal?b.proposal.priority:1e9;if(pa!==pb)return pa-pb;}
+  const s=ST_ORDER.indexOf(a.status)-ST_ORDER.indexOf(b.status);if(s)return s;
+  if(a.status==='vacant'){const pa=a.proposal?a.proposal.priority:1e9,pb=b.proposal?b.proposal.priority:1e9;if(pa!==pb)return pa-pb;}
+  return a.title.localeCompare(b.title,'th');
+}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const stChip=s=>'<span class="cc-st '+({active:'cc-done','pk-auto':'cc-ag-pk',paused:'cc-ag-paused',vacant:'cc-ag-vac'}[s])+'">'+STATUS[s]+'</span>';
+const propTag=p=>p?(p.approved?'<span class="cc-ag-prop cc-ag-ok">เบ๊นอนุมัติแล้ว</span>':'<span class="cc-ag-prop">ข้อเสนอ · รอเบ๊นอนุมัติ</span>'):'';
+const srcTag=r=>r.source&&r.source!=='SkillTree'?'<span class="cc-ag-srcl">นอก SkillTree · '+esc(r.source)+'</span>':'';
+const covTxt=c=>c==='full'?'ครอบคลุมเต็ม':c==='partial'?'ครอบคลุมบางส่วน':'';
+
+let DATA=[],state={q:'',dept:'',st:''},lastFocus=null;
+
+function renderSummary(){
+  const el=document.getElementById('sumCard');
+  if(!DATA.length){el.innerHTML='<div class="cc-empty"><b>ยังไม่มีรายการตำแหน่ง</b>เมื่อทีมโหลดข้อมูลตำแหน่งเข้าระบบแล้ว จะขึ้นที่นี่</div><p class="cc-src">ที่มา: ข้อมูลตำแหน่งที่โหลดเข้าระบบ</p>';document.getElementById('sumTotal').textContent='';return;}
+  const c={active:0,'pk-auto':0,paused:0,vacant:0};DATA.forEach(r=>c[r.status]++);
+  const pend=DATA.filter(r=>r.proposal&&!r.proposal.approved).length;
+  document.getElementById('sumTotal').textContent=DATA.length+' ตำแหน่ง';
+  const depts=[...new Set(DATA.map(r=>r.department))].sort((a,b)=>deptOrder(a)-deptOrder(b)||a.localeCompare(b,'th'));
+  let rows='';
+  depts.forEach(d=>{const rs=DATA.filter(r=>r.department===d),f=rs.filter(filled).length,v=rs.length-f;
+    rows+='<tr><td colspan="4"><button type="button" class="cc-ag-dept-btn" data-dept="'+esc(d)+'" aria-pressed="'+(state.dept===d)+'" aria-label="'+esc(d)+' มี '+f+' ว่าง '+v+' จาก '+rs.length+' ตำแหน่ง กดเพื่อกรอง">'+
+    '<span class="cc-ag-dn">'+esc(d)+'</span><span class="cc-ag-num">'+f+'</span><span class="cc-ag-num'+(v?' cc-ag-gap':'')+'">'+v+'</span>'+
+    '<span class="cc-ag-mini" aria-hidden="true"><i style="width:'+(rs.length?f/rs.length*100:0)+'%"></i></span></button></td></tr>';});
+  el.innerHTML='<div class="cc-stats">'+
+    '<div class="cc-stat"><b>'+c.active+'</b><span>ใช้งาน</span></div>'+
+    '<div class="cc-stat"><b>'+c['pk-auto']+'</b><span>PK-auto</span></div>'+
+    '<div class="cc-stat"><b>'+c.paused+'</b><span>พัก</span></div>'+
+    '<div class="cc-stat cc-need"><b>'+c.vacant+'</b><span>ว่าง</span></div></div>'+
+    '<p class="cc-small">มีคนทำ '+(DATA.length-c.vacant)+' จาก '+DATA.length+' ตำแหน่ง · ข้อเสนอรอเบ๊นอนุมัติ <b style="color:var(--y)">'+pend+'</b> · เป้าปีหน้า 300 ตำแหน่ง <span class="mk-sample">ตัวอย่าง</span></p>'+
+    '<table class="cc-ag-depts"><caption class="cc-small" style="text-align:left">ต่อแผนก (กดแถวเพื่อกรองรายการด้านล่าง)</caption>'+
+    '<thead><tr><th colspan="4"><div class="cc-ag-grid"><span>แผนก</span><span>มี</span><span>ว่าง</span><span>สัดส่วน</span></div></th></tr></thead><tbody>'+rows+'</tbody></table>'+
+    '<p class="cc-src">ที่มา: นับจากข้อมูลตำแหน่งทั้งชุด (ไม่ขึ้นกับตัวกรอง) · "มี" = ใช้งาน + PK-auto + พัก · "ว่าง" = ยังไม่มี agent</p>';
+  el.querySelectorAll('.cc-ag-dept-btn').forEach(b=>b.onclick=()=>{state.dept=state.dept===b.dataset.dept?'':b.dataset.dept;sync();document.getElementById('listH').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});});
+}
+
+function renderTools(){
+  const depts=[...new Set(DATA.map(r=>r.department))].sort((a,b)=>deptOrder(a)-deptOrder(b)||a.localeCompare(b,'th'));
+  const sel=document.getElementById('dept');
+  sel.innerHTML='<option value="">ทุกแผนก ('+DATA.length+')</option>'+depts.map(d=>'<option value="'+esc(d)+'">'+esc(d)+' ('+DATA.filter(r=>r.department===d).length+')</option>').join('');
+  sel.value=state.dept;
+  const seg=document.getElementById('stSeg');
+  seg.querySelectorAll('button').forEach(b=>b.remove());
+  [['','ทั้งหมด']].concat(ST_ORDER.map(s=>[s,STATUS[s]])).forEach(([v,l])=>{
+    const n=v?DATA.filter(r=>r.status===v&&(!state.dept||r.department===state.dept)).length:DATA.filter(r=>!state.dept||r.department===state.dept).length;
+    const b=document.createElement('button');b.type='button';b.className='cc-ag-chip';b.dataset.st=v;b.setAttribute('aria-pressed',String(state.st===v));
+    b.innerHTML=l+' <small>'+n+'</small>';b.onclick=()=>{state.st=v;sync();};seg.appendChild(b);});
+}
+
+function renderList(){
+  const g=document.getElementById('groups');
+  const q=norm(state.q),words=q?q.split(' '):[];
+  const rows=DATA.filter(r=>(!state.dept||r.department===state.dept)&&(!state.st||r.status===state.st)&&(!words.length||words.every(w=>r._h.includes(w)))).sort((a,b)=>sortRows(a,b,state.st));
+  const filt=!!(state.q||state.dept||state.st);
+  document.getElementById('resCount').innerHTML=filt?'แสดง <b>'+rows.length+'</b> จาก '+DATA.length+' ตำแหน่ง':'ทั้งหมด <b>'+DATA.length+'</b> ตำแหน่ง';
+  document.getElementById('resReset').hidden=!filt;
+  document.getElementById('qClear').hidden=!state.q;
+  document.getElementById('toTop').hidden=rows.length<15;
+  if(!DATA.length){g.innerHTML='';return;}
+  if(!rows.length){
+    g.innerHTML=state.q
+      ?'<div class="cc-card"><div class="cc-empty"><b>ไม่พบตำแหน่งที่ตรงกับ "'+esc(state.q)+'"</b>'+(state.dept||state.st?'ในตัวกรองที่เลือกอยู่ ลองล้างตัวกรองหรือใช้คำอื่น':'ลองคำอื่น หรือค้นด้วยชื่อทีมหรือธุรกิจ')+'<br><button class="cc-ag-link" type="button" data-act="'+(state.dept||state.st?'all':'q')+'">'+(state.dept||state.st?'ล้างคำค้นและตัวกรอง':'ล้างคำค้น')+'</button></div></div>'
+      :'<div class="cc-card"><div class="cc-empty"><b>'+(state.dept?'แผนก '+esc(state.dept):'ทุกแผนก')+' ไม่มีตำแหน่งที่ "'+STATUS[state.st]+'"</b>ลองเลือกสถานะอื่น<br><button class="cc-ag-link" type="button" data-act="all">ล้างตัวกรอง</button></div></div>';
+    g.querySelector('[data-act]').onclick=e=>{if(e.target.dataset.act==='q')state.q='';else state={q:'',dept:'',st:''};document.getElementById('q').value=state.q;sync();document.getElementById('q').focus();};
+    return;
+  }
+  const by=new Map();rows.forEach(r=>{if(!by.has(r.department))by.set(r.department,[]);by.get(r.department).push(r);});
+  let h='';
+  by.forEach((rs,d)=>{const all=DATA.filter(r=>r.department===d),f=all.filter(filled).length;
+    h+='<section class="cc-ag-group" aria-label="'+esc(d)+'"><div class="cc-ag-gh"><h3>'+esc(d)+'</h3><span>มี '+f+' · ว่าง '+(all.length-f)+(rs.length!==all.length?' · แสดง '+rs.length:'')+'</span></div><ul class="cc-list">';
+    rs.forEach(r=>{
+      const who=r.status==='vacant'
+        ?(r.proposal?'ยังไม่มี agent · เสนอ: <b>'+esc(r.proposal.name)+'</b>'+(r.proposal.priority?' · ความคุ้มอันดับ '+r.proposal.priority:''):'ยังไม่มี agent · ยังไม่มีสเปกข้อเสนอ')
+        :'<b>'+esc(r.agent||'ยังไม่ระบุ agent')+'</b>'+(r.team?' · '+esc(r.team):'');
+      const tags=[propTag(r.proposal),srcTag(r),r.coverage?'<span class="cc-ag-cov">'+covTxt(r.coverage)+'</span>':''].filter(Boolean).join('');
+      h+='<li><button type="button" class="cc-ag-row'+(r.status==='vacant'?' cc-ag-vacant':'')+'" data-id="'+esc(r.id)+'" aria-haspopup="dialog">'+
+        '<span class="cc-ag-t"><span class="cc-ag-title">'+esc(r.title)+'</span><span class="cc-ag-who">'+who+'</span>'+(tags?'<span class="cc-ag-tags">'+tags+'</span>':'')+'</span>'+
+        '<span class="cc-ag-side">'+stChip(r.status)+'<svg class="cc-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></span></button></li>';});
+    h+='</ul></section>';});
+  g.innerHTML=h;
+}
+
+function list(arr){if(!arr||(Array.isArray(arr)&&!arr.length))return '<span class="cc-ag-none">ไม่ระบุ</span>';if(!Array.isArray(arr))return esc(arr);return '<ul>'+arr.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>';}
+function openDetail(id,push){
+  const r=DATA.find(x=>x.id===id);if(!r)return;
+  lastFocus=document.activeElement;
+  document.getElementById('dlgH').textContent=r.title;
+  document.getElementById('dlgSub').innerHTML=esc(r.department)+' · <span class="cc-jid">'+esc(r.id)+'</span>';
+  const p=r.proposal;
+  let b='<div class="cc-ag-tags" style="margin-bottom:14px">'+stChip(r.status)+propTag(p)+'<span class="cc-ag-srcl">แหล่ง: '+esc(r.source||'ไม่ระบุ')+'</span></div>'+
+    '<dl class="cc-ag-dl">'+
+    '<div><dt>agent ที่ทำอยู่</dt><dd>'+(r.agent?esc(r.agent):'<span class="cc-ag-none">'+(r.status==='vacant'?'ว่าง ยังไม่มี agent':'ยังไม่ระบุ')+'</span>')+'</dd></div>'+
+    '<div><dt>ทีม</dt><dd>'+(r.team?esc(r.team):'<span class="cc-ag-none">ไม่ระบุ</span>')+'</dd></div>'+
+    '<div><dt>สถานะ</dt><dd>'+STATUS[r.status]+(r.status==='pk-auto'?'<br><span class="cc-small">ทำงานอัตโนมัติในระบบของ PK Jeans ไม่ใช่ agent ในทีม</span>':'')+'</dd></div>'+
+    '<div><dt>ความครอบคลุม</dt><dd>'+(r.coverage?covTxt(r.coverage):'<span class="cc-ag-none">'+(r.status==='vacant'?'ยังไม่มี (ว่าง)':'ไม่ระบุ')+'</span>')+'</dd></div>'+
+    '<div><dt>ธุรกิจที่ใช้</dt><dd>'+(r.businesses&&r.businesses.length?'<span class="cc-ag-pills">'+r.businesses.map(x=>'<span class="cc-tag">'+esc(x)+'</span>').join('')+'</span>':'<span class="cc-ag-none">ไม่ระบุ</span>')+'</dd></div>'+
+    '<div><dt>หลักฐาน</dt><dd>'+(r.evidence?esc(r.evidence):'<span class="cc-ag-none">'+(r.status==='vacant'?'ไม่มี (ตำแหน่งว่าง)':'ยังไม่มีหลักฐาน')+'</span>')+'</dd></div></dl>';
+  if(r.status==='vacant'){
+    if(p){b+='<section class="cc-ag-propbox" aria-labelledby="propH"><h3 id="propH">สเปกข้อเสนอ '+propTag(p)+'</h3>'+
+      '<p class="cc-ag-warn">'+(p.approved?'เบ๊นอนุมัติสเปกนี้แล้ว แต่ยังไม่มี agent ทำงานจริง สถานะจะเปลี่ยนเมื่อทีมสร้างเสร็จ':'นี่คือสเปกที่ทีมร่างไว้ <b>ยังไม่ใช่ agent จริง</b> และยังไม่ได้สร้าง จะเริ่มทำเมื่อเบ๊นอนุมัติ (บอก Marcus ในแชท หน้านี้อ่านอย่างเดียว)')+'</p>'+
+      '<dl class="cc-ag-dl">'+
+      '<div><dt>ชื่อที่เสนอ</dt><dd>'+esc(p.name||'ไม่ระบุ')+'</dd></div>'+
+      '<div><dt>หน้าที่</dt><dd>'+esc(p.duty||'ไม่ระบุ')+'</dd></div>'+
+      '<div><dt>รับอะไรเข้า</dt><dd>'+list(p.inputs)+'</dd></div>'+
+      '<div><dt>ส่งอะไรออก</dt><dd>'+list(p.outputs)+'</dd></div>'+
+      '<div><dt>ขอบเขต</dt><dd>'+(p.scope&&p.scope.length?'<ul class="cc-ag-scope">'+[].concat(p.scope).map(s=>'<li>'+esc(SCOPE_TH[s]||s)+'</li>').join('')+'</ul>':'<span class="cc-ag-none">ไม่ระบุ</span>')+'</dd></div>'+
+      '<div><dt>ทีมที่จะดูแล</dt><dd>'+esc(p.team||'ไม่ระบุ')+'</dd></div>'+
+      '<div><dt>ความคุ้ม</dt><dd>'+(p.priority!=null?'อันดับ '+esc(p.priority)+' <span class="cc-small">(1 = ควรทำก่อน)</span>':'<span class="cc-ag-none">ยังไม่จัดอันดับ</span>')+'</dd></div></dl></section>';}
+    else b+='<div class="cc-card" style="margin-top:14px"><div class="cc-empty"><b>ยังไม่มีสเปกข้อเสนอ</b>ตำแหน่งนี้ว่าง และทีมยังไม่ได้ร่างว่าจะให้ agent ทำอะไร</div></div>';
+  }
+  b+='<p class="cc-src">ที่มา: ไฟล์ตำแหน่งของทีม แถว <span class="cc-jid">'+esc(r.id)+'</span> · ทีมบันทึกเอง ไม่ได้ดึงสถานะสดจากระบบ</p>';
+  document.getElementById('dlgBody').innerHTML=b;
+  const d=document.getElementById('dlg');
+  if(push)history.pushState({ag:id},'','#'+encodeURIComponent(id));
+  d.showModal();d.querySelector('.cc-ag-dlg-in').scrollTop=0;document.getElementById('dlgClose').focus();
+}
+function closeDetail(fromPop){const d=document.getElementById('dlg');if(!d.open)return;d.close();if(!fromPop&&history.state&&history.state.ag)history.back();if(lastFocus&&lastFocus.isConnected)lastFocus.focus();}
+document.getElementById('dlgClose').onclick=()=>closeDetail(false);
+document.getElementById('dlg').addEventListener('cancel',e=>{e.preventDefault();closeDetail(false);});
+window.addEventListener('popstate',()=>closeDetail(true));
+document.getElementById('groups').addEventListener('click',e=>{const b=e.target.closest('.cc-ag-row');if(b)openDetail(b.dataset.id,true);});
+
+function sync(){renderSummary();renderTools();renderList();}
+document.getElementById('q').addEventListener('input',e=>{state.q=e.target.value;renderList();});
+document.getElementById('qClear').onclick=()=>{state.q='';document.getElementById('q').value='';renderList();document.getElementById('q').focus();};
+document.getElementById('dept').onchange=e=>{state.dept=e.target.value;sync();};
+document.getElementById('resReset').onclick=()=>{state={q:'',dept:'',st:''};document.getElementById('q').value='';sync();};
+
+function load(mode){
+  const main=document.getElementById('main');
+  main.querySelectorAll('.cc-banner').forEach(x=>x.remove());
+  state={q:'',dept:'',st:''};document.getElementById('q').value='';
+  if(mode==='err'){DATA=[];sync();document.getElementById('sumCard').innerHTML='';document.getElementById('sumTotal').textContent='';
+    main.insertAdjacentHTML('afterbegin','<div class="cc-banner cc-err" role="alert" style="margin-top:14px"><div><b>โหลดรายการ agent ไม่ได้</b><br>เช็กอินเทอร์เน็ตแล้วกดลองใหม่</div><button class="cc-btn" type="button" onclick="location.reload()">ลองใหม่</button></div>');return;}
+  DATA=gen(+mode).map(r=>Object.assign(r,{_h:hay(r)}));sync();
+}
+document.querySelectorAll('input[name=mkn]').forEach(i=>i.onchange=()=>load(i.value));
+load('300');
+if(location.hash.length>1)openDetail(decodeURIComponent(location.hash.slice(1)),false);
+</script>
+</body>
+</html>
