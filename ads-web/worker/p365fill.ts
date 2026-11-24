@@ -180,6 +180,9 @@ export function chatTotal(messages: ChatMessage[], until?: string): number | nul
 
 /** "PK-9349 สมชาย ใจดี": the warehouse of the first item, the order number's last 4 digits, the recipient (team convention). */
 /** GoSell is no longer used (Moss, idea #36, 2026-11-20): every bill, 501/1–3 too, gets the warehouse prefix ("PK-1234 …"). */
+/** Only these models get the PP- bill name for now (Moss, idea #38 follow-up, 2026-11-24). */
+export const PIA_BILL_CODES = new Set(['009/1', '009/2']);
+
 /** `inPia`: the first item is in พี่เปีย's (BB) stock → "PP-1234" instead of "PK-1234" (Moss, idea #38); out of stock → the SKU's own prefix. */
 export function billName(no: number, firstSku: string | null, name: string, inPia = false): string {
   const wh = inPia ? 'PP' : (firstSku ?? '').split('-')[1]?.toUpperCase() ?? '';
@@ -347,7 +350,7 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
     warnings.push(opts.readAddress === false ? 'ยังไม่ได้อ่านที่อยู่จากแชท' : 'ร่างยังไม่มีที่อยู่ครบ และยังไม่ได้ตั้ง ANTHROPIC_API_KEY ให้ระบบอ่านที่อยู่จากแชท — แอดมินกรอกเอง');
   }
   // No recipient name in the chat: the customer's Facebook name (Page365's customer name) is used (Benz 15 Oct).
-  const pia = !!(env.DB && lines[0]?.sku && await piaHas(env.DB, lines[0].sku, lines[0].qty).catch(() => false));
+  const pia = !!(env.DB && lines[0]?.sku && PIA_BILL_CODES.has(lines[0].code.toUpperCase().replace(/-/g, '/')) && await piaHas(env.DB, lines[0].sku, lines[0].qty).catch(() => false));
   const bill_name = draft ? billName(draft.no, lines[0]?.sku ?? null, address?.name || draft.customer_name || '', pia) : null;
   return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, pia, payment: parsed.payment, shipping_id, shipping_option, subtotal, shipping, discount: Math.max(0, discount), total, chat_total, bill_name, address, problems, warnings, said, notes };
 }
