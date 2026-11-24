@@ -14,6 +14,7 @@ import { audit } from './db.ts';
 import { completeAddress } from './thaiAddress.ts';
 import { parseOrderNote, type NoteItem } from './orderNotes.ts';
 import { loadSubstitutes, subKey } from './substitutes.ts';
+import { piaHas } from './stock.ts';
 
 export interface P365Env { P365_COOKIE?: string; P365_PAGE_ID?: string }
 
@@ -179,8 +180,9 @@ export function chatTotal(messages: ChatMessage[], until?: string): number | nul
 
 /** "PK-9349 สมชาย ใจดี": the warehouse of the first item, the order number's last 4 digits, the recipient (team convention). */
 /** GoSell is no longer used (Moss, idea #36, 2026-11-20): every bill, 501/1–3 too, gets the warehouse prefix ("PK-1234 …"). */
-export function billName(no: number, firstSku: string | null, name: string): string {
-  const wh = (firstSku ?? '').split('-')[1]?.toUpperCase() ?? '';
+/** `inPia`: the first item is in พี่เปีย's (BB) stock → "PP-1234" instead of "PK-1234" (Moss, idea #38); out of stock → the SKU's own prefix. */
+export function billName(no: number, firstSku: string | null, name: string, inPia = false): string {
+  const wh = inPia ? 'PP' : (firstSku ?? '').split('-')[1]?.toUpperCase() ?? '';
   const prefix = wh ? `${wh === 'CN' ? 'C' : wh}-${String(no).slice(-4)} ` : '';
   return `${prefix}${name.replace(/^[A-Z]{1,3}-\d{4}\s+/, '').trim()}`;
 }
@@ -206,6 +208,8 @@ export interface FillPlan {
   chat_total: number | null;
   /** the bill's customer name as it will be ("PK-9349 …") */
   bill_name: string | null;
+  /** the first item is in พี่เปีย's stock right now (bill name starts PP-) */
+  pia?: boolean;
   /** the shipping address the bill will carry: Page365's own if complete, else read from the chat (text or photo) */
   address: PlanAddress | null;
   /** stop everything */
@@ -343,8 +347,9 @@ export async function planFill(env: FillEnv, note: { psid: string; at: string; t
     warnings.push(opts.readAddress === false ? 'ยังไม่ได้อ่านที่อยู่จากแชท' : 'ร่างยังไม่มีที่อยู่ครบ และยังไม่ได้ตั้ง ANTHROPIC_API_KEY ให้ระบบอ่านที่อยู่จากแชท — แอดมินกรอกเอง');
   }
   // No recipient name in the chat: the customer's Facebook name (Page365's customer name) is used (Benz 15 Oct).
-  const bill_name = draft ? billName(draft.no, lines[0]?.sku ?? null, address?.name || draft.customer_name || '') : null;
-  return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, payment: parsed.payment, shipping_id, shipping_option, subtotal, shipping, discount: Math.max(0, discount), total, chat_total, bill_name, address, problems, warnings, said, notes };
+  const pia = !!(env.DB && lines[0]?.sku && await piaHas(env.DB, lines[0].sku, lines[0].qty).catch(() => false));
+  const bill_name = draft ? billName(draft.no, lines[0]?.sku ?? null, address?.name || draft.customer_name || '', pia) : null;
+  return { order: draft ? { id: draft.id, no: draft.no, stage: draft.stage } : null, lines, pia, payment: parsed.payment, shipping_id, shipping_option, subtotal, shipping, discount: Math.max(0, discount), total, chat_total, bill_name, address, problems, warnings, said, notes };
 }
 
 /** A checked address from the screen (the admin may have corrected it), or null. */
@@ -402,7 +407,7 @@ export async function applyFill(env: FillEnv, note: { psid: string; at: string; 
     return { id: it.id, name: it.name, note: it.note, price: l.price ?? 0, quantity: l.qty, product_id: l.variant_id };
   });
   const a = plan.address ? { ...plan.address, street: cleanStreet(plan.address.street, [plan.address.name, added.customer_name ?? ''], plan.address.phone) } : null;
-  const name = billName(plan.order.no, plan.lines[0]?.sku ?? null, a?.name || added.customer_name || '');
+  const name = billName(plan.order.no, plan.lines[0]?.sku ?? null, a?.name || added.customer_name || '', plan.pia);
   const customer = a ? {
     customer_name: name,
     customer_phone: a.phone,
