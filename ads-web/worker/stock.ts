@@ -265,3 +265,12 @@ export async function lowStock(db: D1Database, low = 5): Promise<{ loc: Loc; cod
   ).bind(low).all<{ loc: Loc; code: string; size: string; qty: number }>();
   return results;
 }
+
+/** Does พี่เปีย's stock hold `qty` of this SKU now? (the SKU may be cut from another one: `stock_links`; no stock entered = no.) */
+export async function piaHas(db: D1Database, sku: string, qty: number): Promise<boolean> {
+  const r = await db.prepare(
+    `SELECT COALESCE(SUM(qty), 0) AS qty FROM stock_moves
+     WHERE loc = 'pia' AND upper(sku) = upper(COALESCE((SELECT stock_sku FROM stock_links WHERE loc = 'pia' AND upper(sku) = upper(?1)), ?1))`,
+  ).bind(sku).first<{ qty: number }>();
+  return (Number(r?.qty) || 0) >= Math.max(1, qty);
+}
