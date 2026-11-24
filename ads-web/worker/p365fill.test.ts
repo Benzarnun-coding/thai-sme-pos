@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { addRounds, applyFill, askedSizeNotMade, draftHoldsNote, sizeStop, billName, chatTotal, cleanStreet, pickColour, pickProduct, planFill, sizeLines, validAddress } from './p365fill.ts';
+import { addRounds, applyFill, askedSizeNotMade, draftHoldsNote, sizeStop, billName, isPiaBillSku, chatTotal, cleanStreet, pickColour, pickProduct, planFill, sizeLines, validAddress } from './p365fill.ts';
 
 // A fake Page365 with the shapes its web app sees (read 15 Oct 2026): one draft for customer "u1".
 function fakePage365() {
@@ -268,4 +268,9 @@ test('ตัวแทน: an admin-filled draft with the substitute counts as ho
   const draft = { total: 299, items: [{ id: 1, name: '501/1', note: null, price: 259, quantity: 1, variant: { id: 11, code: '5011-PK-MD-30', product_id: 1 } }] };
   assert.equal(draftHoldsNote('801/1 30\ncod 299', draft), false);
   assert.equal(draftHoldsNote('801/1 30\ncod 299', draft, new Map([['801/1', '501/1']])), true);
+});
+
+test('PP- bill name: only D01, D02, 009/1, 009/2 SKUs (idea #38)', () => {
+  for (const s of ['D01-PK-NV-32', 'd02-pk-md-30', '0091-PK-NV-34', '0092-PK-MD-28']) assert.equal(isPiaBillSku(s), true, s);
+  for (const s of ['5011-PK-MD-30', 'D01-PK-BK-32', '0093-PK-NV-30']) assert.equal(isPiaBillSku(s), false, s);
 });
