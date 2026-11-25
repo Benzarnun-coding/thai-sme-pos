@@ -180,8 +180,8 @@ export function chatTotal(messages: ChatMessage[], until?: string): number | nul
 
 /** "PK-9349 สมชาย ใจดี": the warehouse of the first item, the order number's last 4 digits, the recipient (team convention). */
 /** GoSell is no longer used (Moss, idea #36, 2026-11-20): every bill, 501/1–3 too, gets the warehouse prefix ("PK-1234 …"). */
-/** Only these four models (SKU without the size) get the PP- bill name for now (Moss, idea #38 follow-up, 2026-11-24). */
-export const PIA_BILL_SKUS = new Set(['D01-PK-NV', 'D02-PK-MD', '0091-PK-NV', '0092-PK-MD']);
+/** Only these seven models (SKU without the size) get the PP- bill name for now (Moss, idea #38 follow-up, 2026-11-24). */
+export const PIA_BILL_SKUS = new Set(['D01-PK-NV', 'D02-PK-MD', '0091-PK-NV', '0092-PK-MD', '5011-PK-MD', '5012-PK-NV', '5013-PK-BL']);
 export function isPiaBillSku(sku: string): boolean {
   return PIA_BILL_SKUS.has(sku.toUpperCase().replace(/-\d+$/, ''));
 }

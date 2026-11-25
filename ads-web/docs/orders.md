@@ -80,3 +80,6 @@ The bill's customer name starts `PP-1234` (only the SKUs D01-PK-NV, D02-PK-MD, 0
 
 ## PP- bills on the order sheets (idea #39, Moss)
 Facebook order lines of D01-PK-NV, D02-PK-MD, 0091-PK-NV, 0092-PK-MD (any size, `isPiaFbSku` in `web/src/purchase.ts`) go to the "พี่เปีย" sheet while พี่เปีย's balance lasts, and are cut from its stock when the round is saved (like Bigseller lines); out of stock → the usual PK sheet. Other Facebook orders unchanged (GoSell products → GoSell sheet).
+
+## PP- also for 501/1–3 (idea #40, Moss)
+`PIA_BILL_SKUS` (bill name) and `PIA_FB_MODELS` (order sheets + stock cut) now hold seven models: the four above plus 5011-PK-MD, 5012-PK-NV, 5013-PK-BL (501/1, 501/2, 501/3). Same rule: in พี่เปีย's stock → PP-1234 and the "พี่เปีย" sheet; out of stock → PK-1234 and the PK sheet.

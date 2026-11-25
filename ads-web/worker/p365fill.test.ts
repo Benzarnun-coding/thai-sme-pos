@@ -270,7 +270,7 @@ test('ตัวแทน: an admin-filled draft with the substitute counts as ho
   assert.equal(draftHoldsNote('801/1 30\ncod 299', draft, new Map([['801/1', '501/1']])), true);
 });
 
-test('PP- bill name: only D01, D02, 009/1, 009/2 SKUs (idea #38)', () => {
-  for (const s of ['D01-PK-NV-32', 'd02-pk-md-30', '0091-PK-NV-34', '0092-PK-MD-28']) assert.equal(isPiaBillSku(s), true, s);
-  for (const s of ['5011-PK-MD-30', 'D01-PK-BK-32', '0093-PK-NV-30']) assert.equal(isPiaBillSku(s), false, s);
+test('PP- bill name: only D01, D02, 009/1, 009/2, 501/1-3 SKUs (idea #38, #40)', () => {
+  for (const s of ['D01-PK-NV-32', 'd02-pk-md-30', '0091-PK-NV-34', '0092-PK-MD-28', '5011-PK-MD-30', '5012-PK-NV-32', '5013-PK-BL-34']) assert.equal(isPiaBillSku(s), true, s);
+  for (const s of ['5011-PK-BK-30', 'D01-PK-BK-32', '0093-PK-NV-30']) assert.equal(isPiaBillSku(s), false, s);
 });
