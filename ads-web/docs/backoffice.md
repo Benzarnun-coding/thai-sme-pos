@@ -157,7 +157,7 @@ are only reported (add them on งานค้าง). Baseline 13–26 Oct: 1,4
 - รับของเข้า at พี่เปีย (idea #16, มอส): the same SKUs are also cut from PK's stock (`out`, ref `pia-in:…`, once PK has a starting
   balance; SKUs PK doesn't keep are left alone); deleting the typed receipt deletes that cut too (`cutPkForPia`).
 - Shops ปรับยอด (idea #34, Moss): the count form is a grid like PK (model + colour down, sizes across, a box per cell; pieces already counted show as the placeholder); search still adds SKUs. รับของเข้า keeps the list.
-- Shops (idea #25, Moss): tabs AR / BB / BBW / BT / GG / Clima(CM) / CN, one place per catalog tab (`SHOP_LOCS`,
+- Shops (idea #25, Moss): tabs AR / BB / BBW / BLD (idea #41, Moss) / BT / GG / Clima(CM) / CN, one place per catalog tab (`SHOP_LOCS`,
   `web/src/stockLocs.ts`), BB = every BB supplier as one. Any SKU of the tab; no starting balance — "รับของเข้า" /
   "ปรับยอด" search the catalog tab and save moves. A saved round cuts a shop for its rows (`purchase_lines.tab`) that are
   not in พี่เปีย / GoSell / เก็บตกแทน, only for SKUs with stock entered on or before the round's day, less "ของไม่มี"

@@ -89,7 +89,7 @@ test('returns: parcel hash must be sha-256 hex, items positive, place known', ()
 test('shop places are one catalog tab each and accept typed stock', async () => {
   const { isShopLoc, shopTab, shopLocOfTab, SHOP_LOCS } = await import('../web/src/stockLocs.ts');
   const { validateMoves, LOCS } = await import('./stock.ts');
-  assert.deepEqual([...SHOP_LOCS], ['ar', 'bb', 'bbw', 'bt', 'gg', 'cm', 'cn']);
+  assert.deepEqual([...SHOP_LOCS], ['ar', 'bb', 'bbw', 'bld', 'bt', 'gg', 'cm', 'cn']);
   assert.ok(SHOP_LOCS.every((l) => LOCS.includes(l)));
   assert.equal(shopTab('cm'), 'CM');
   assert.equal(shopLocOfTab('BBW'), 'bbw');

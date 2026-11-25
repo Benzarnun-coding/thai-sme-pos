@@ -119,7 +119,7 @@ export function StockApp() {
           <HomeLogo text="สต็อก" />
           <div>
             <h1>สต็อก</h1>
-            <p className="muted small clip">{models.length} รุ่น · ไซส์ {sizes[0] ?? ''}–{sizes[sizes.length - 1] ?? ''} · พี่เปียและ PK ตัดตามใบสั่งของ (ใบ "พี่เปีย" / ใบ "PK") · GoSell ตัดเมื่อกดหลังทำไฟล์ GoSell · ร้าน AR/BB/BBW/BT/GG/CM/CN ใส่ของเข้าเอง แล้วตัดตามใบสั่งของ{links.size ? ` · ${loc === 'pia' ? '601/1–3 ตัดจาก 501/1–3' : ''}` : ''}</p>
+            <p className="muted small clip">{models.length} รุ่น · ไซส์ {sizes[0] ?? ''}–{sizes[sizes.length - 1] ?? ''} · พี่เปียและ PK ตัดตามใบสั่งของ (ใบ "พี่เปีย" / ใบ "PK") · GoSell ตัดเมื่อกดหลังทำไฟล์ GoSell · ร้าน AR/BB/BBW/BLD/BT/GG/CM/CN ใส่ของเข้าเอง แล้วตัดตามใบสั่งของ{links.size ? ` · ${loc === 'pia' ? '601/1–3 ตัดจาก 501/1–3' : ''}` : ''}</p>
           </div>
         </div>
       </header>

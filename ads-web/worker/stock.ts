@@ -4,7 +4,7 @@
 //           is there, or moved by hand), each order + SKU once (stock_orders), less pieces ticked "ของไม่มี".
 //           Only rounds after the day of the starting balance count (the sheet covered the days before).
 //   gosell: cut by a button after a GoSell file (the page sends order + SKU + qty; each order + SKU once).
-//   shops:  AR / BB / BBW / BT / GG / CM / CN (idea #25): one place per catalog tab, any SKU of the tab, no starting
+//   shops:  AR / BB / BBW / BLD / BT / GG / CM / CN (idea #25): one place per catalog tab, any SKU of the tab, no starting
 //           balance (typed received / counted); rows of the tab on a saved round cut it, only for SKUs that already
 //           have stock entered, and not rows moved to พี่เปีย / GoSell / เก็บตกแทน.
 //   pk:     our PK warehouse (2026-10-19): every size of our own codes, cut by the order sheets' "PK" sheet the same way.
