@@ -77,3 +77,6 @@ Page `/substitutes` (Benz 2026-11-19, `web/src/SubstitutesPage.tsx`, `worker/sub
 
 ## Bill name prefix PP- (idea #38, Moss)
 The bill's customer name starts `PP-1234` (only the SKUs D01-PK-NV, D02-PK-MD, 0091-PK-NV, 0092-PK-MD, any size, `PIA_BILL_SKUS`) when the first item is in พี่เปีย's (BB) stock (balance at `pia` ≥ the pieces, `piaHas` in `worker/stock.ts`, through `stock_links`); out of stock → the SKU's own prefix (`PK-1234`). `plan.pia` carries it to `applyFill` and the note correction.
+
+## PP- bills on the order sheets (idea #39, Moss)
+Facebook order lines of D01-PK-NV, D02-PK-MD, 0091-PK-NV, 0092-PK-MD (any size, `isPiaFbSku` in `web/src/purchase.ts`) go to the "พี่เปีย" sheet while พี่เปีย's balance lasts, and are cut from its stock when the round is saved (like Bigseller lines); out of stock → the usual PK sheet. Other Facebook orders unchanged (GoSell products → GoSell sheet).

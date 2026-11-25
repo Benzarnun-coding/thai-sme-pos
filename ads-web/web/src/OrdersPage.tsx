@@ -12,7 +12,7 @@ import { SHOP_STATUSES, skuKey, spuOf, thumb, webToRow, type CatalogRow } from '
 import { num } from './fmt.ts';
 import {
   applyMoves, moveKey, buildLines, dateFromFileName, optionParts, saleItems, orderColumns, orderText, paymentWorkbook, PRICE_SOURCE_LABEL, supplierTotals, withPrices, lineKey, MISSING_GROUP, missingGroup, dayMonth, groupLines, KIND_LABEL, makeLookup, groupOf, type Lookup, missingOrderColumns, orderWorkbook, readOrderItems,
-  FB_ROUND, roundFile, roundLabel, FACEBOOK_STORE, GOSELL_GROUP, isFacebookExport, MANUAL_STORE, readFacebookItems, suggestSkus, remapLines, STOCK_GROUP, stockPlacer, orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
+  FB_ROUND, roundFile, roundLabel, FACEBOOK_STORE, GOSELL_GROUP, isFacebookExport, isPiaFbSku, MANUAL_STORE, readFacebookItems, suggestSkus, remapLines, STOCK_GROUP, stockPlacer, orderBlocks, pictureBlocks, sheetRows, thaiShortDate, wantsPictures, type OrderBlock, type OrderItem, type ProductInfo, type PurchaseGroup, type PurchaseLine,
 } from './purchase.ts';
 import { orderPictureSheets, pictureSheets } from './pictureSheet.ts';
 import { Icon, Modal, useUi } from './ui.tsx';
@@ -151,7 +151,7 @@ export function OrdersApp() {
       const pia = stockPlacer({ skus, balance, cut, active, link });
       const gs = stockPlacer({ skus: gsSkus, balance: gsBalance, cut: new Set(), active: !!stock?.start.gosell, group: GOSELL_GROUP });
       return {
-        place: (it: OrderItem, r: CatalogRow) => (it.store === FACEBOOK_STORE ? gs.place(it, r) : it.store === MANUAL_STORE ? null : pia.place(it, r)),
+        place: (it: OrderItem, r: CatalogRow) => (it.store === FACEBOOK_STORE ? gs.place(it, r) ?? (isPiaFbSku(r.sku) ? pia.place(it, r) : null) : it.store === MANUAL_STORE ? null : pia.place(it, r)),
         short: pia.short, gsShort: gs.short,
       };
     };

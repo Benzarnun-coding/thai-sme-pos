@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { normaliseRow, type CatalogRow } from '../web/src/catalog.ts';
-import { buildLines, FB_ROUND, roundFile, roundLabel, FACEBOOK_STORE, GOSELL_GROUP, isFacebookExport, makeLookup, MANUAL_STORE, readFacebookItems, saleItems, STOCK_GROUP, stockPlacer, type OrderItem } from '../web/src/purchase.ts';
+import { buildLines, FB_ROUND, roundFile, roundLabel, FACEBOOK_STORE, GOSELL_GROUP, isFacebookExport, isPiaFbSku, makeLookup, MANUAL_STORE, readFacebookItems, saleItems, STOCK_GROUP, stockPlacer, type OrderItem } from '../web/src/purchase.ts';
 import { validateExtra } from './purchase.ts';
 
 const row = (o: Record<string, unknown>): CatalogRow => normaliseRow(o);
@@ -43,6 +43,17 @@ test('Facebook stock products go to GoSell (not พี่เปีย); Bigselle
   assert.deepEqual(by(GOSELL_GROUP), [['5012-PK-NV-30', 2]]);
   assert.deepEqual(by('PK').sort(), [['5012-PK-NV-30', 3], ['8011-PK-MD-34', 1]]);
   assert.ok(lines.filter((l) => l.group === GOSELL_GROUP).every((l) => l.kind === 'warehouse'));
+});
+
+test('Facebook orders of the PP- models go to พี่เปีย while its stock lasts (idea #39)', () => {
+  assert.ok(isPiaFbSku('D01-PK-NV-30') && isPiaFbSku('0092-PK-MD-34') && !isPiaFbSku('5012-PK-NV-30'));
+  const cat = [...CATALOG, { ...CATALOG[0], sku: 'D01-PK-NV-30', code: 'D01', size: '30' }];
+  const pia = stockPlacer({ skus: new Set(['D01-PK-NV-30']), balance: new Map([['D01-PK-NV-30', 1]]), cut: new Set(), active: true });
+  const place = (it: OrderItem, r: CatalogRow) => (isPiaFbSku(r.sku) ? pia.place(it, r) : null);
+  const fb = (order: string): OrderItem => ({ store: FACEBOOK_STORE, sku: 'D01-PK-NV-30', name: '', option: '', qty: 1, order, tracking: '', carrier: '' });
+  const lines = buildLines([fb('1'), fb('2')], makeLookup(cat, new Map()), place);
+  assert.deepEqual(lines.filter((l) => l.group === STOCK_GROUP).map((l) => [l.sku, l.qty, l.orders]), [['D01-PK-NV-30', 1, ['1']]]);
+  assert.equal(lines.filter((l) => l.group !== STOCK_GROUP).reduce((n, l) => n + l.qty, 0), 1);
 });
 
 test('saved extra items are cleaned; the units-sold rows stay Bigseller only (the page sends only those)', () => {
