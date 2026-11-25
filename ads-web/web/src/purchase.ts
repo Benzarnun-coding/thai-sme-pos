@@ -313,8 +313,8 @@ export function stockPlacer(stock: { skus: Set<string>; balance: Map<string, num
   return { place, short };
 }
 
-/** Facebook orders of these models (SKU without the size) are bills named PP-1234: they ship from พี่เปีย's stock (same four as `PIA_BILL_SKUS` in p365fill.ts; idea #39). */
-export const PIA_FB_MODELS = new Set(['D01-PK-NV', 'D02-PK-MD', '0091-PK-NV', '0092-PK-MD']);
+/** Facebook orders of these models (SKU without the size) are bills named PP-1234: they ship from พี่เปีย's stock (same seven as `PIA_BILL_SKUS` in p365fill.ts; idea #39). */
+export const PIA_FB_MODELS = new Set(['D01-PK-NV', 'D02-PK-MD', '0091-PK-NV', '0092-PK-MD', '5011-PK-MD', '5012-PK-NV', '5013-PK-BL']);
 export const isPiaFbSku = (sku: string) => PIA_FB_MODELS.has(cleanSku(sku).toUpperCase().replace(/-\d+$/, ''));
 
 export function buildLines(items: OrderItem[], lookup: Lookup, place?: (it: OrderItem, r: CatalogRow) => string | null): PurchaseLine[] {

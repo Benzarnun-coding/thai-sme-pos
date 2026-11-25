@@ -46,7 +46,7 @@ test('Facebook stock products go to GoSell (not พี่เปีย); Bigselle
 });
 
 test('Facebook orders of the PP- models go to พี่เปีย while its stock lasts (idea #39)', () => {
-  assert.ok(isPiaFbSku('D01-PK-NV-30') && isPiaFbSku('0092-PK-MD-34') && !isPiaFbSku('5012-PK-NV-30'));
+  assert.ok(isPiaFbSku('D01-PK-NV-30') && isPiaFbSku('0092-PK-MD-34') && isPiaFbSku('5012-PK-NV-30') && isPiaFbSku('5011-PK-MD-30') && isPiaFbSku('5013-PK-BL-30') && !isPiaFbSku('2003-PK-MR-32'));
   const cat = [...CATALOG, { ...CATALOG[0], sku: 'D01-PK-NV-30', code: 'D01', size: '30' }];
   const pia = stockPlacer({ skus: new Set(['D01-PK-NV-30']), balance: new Map([['D01-PK-NV-30', 1]]), cut: new Set(), active: true });
   const place = (it: OrderItem, r: CatalogRow) => (isPiaFbSku(r.sku) ? pia.place(it, r) : null);
