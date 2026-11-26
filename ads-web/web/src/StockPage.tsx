@@ -594,10 +594,10 @@ function ReturnsCard({ data, loc, canDecide, onDone }: { data: StockData; loc: S
     setBusy(true);
     const add = (text: string, ok: boolean) => setLog((l) => [{ track: shown, text, ok }, ...l].slice(0, 20));
     try {
-      const fb = /^\s*\d{3,8}(\s+\S+)?\s*$/.test(shown); // Facebook order number (+ SKU), not a parcel number
+      const fb = /^\s*\d{3,8}(\s+\S+){0,3}\s*$/.test(shown); // Facebook order number (+ SKU, + x pieces), not a parcel number
       const r = fb ? await api.scanFacebookReturn(shown) : await api.scanStockReturn(await trackHash(t), t.slice(-4));
       if (r.status === 'added') { add(r.items.map((i) => `${name(i.sku)} ×${i.qty} → ${LOC_LABEL[i.loc]}`).join(', ') + ' · เข้าสต็อกแล้ว', true); toast('เข้าสต็อกแล้ว', 'ok'); onDone(); }
-      else if (r.status === 'repeat') add('พัสดุนี้ยิงเข้าสต็อกไปแล้ว (ไม่เพิ่มซ้ำ)', false);
+      else if (r.status === 'repeat') add(Number((r as { left?: number }).left) > 0 ? `ยิงเข้าสต็อกไปแล้ว ถ้ายังมีตัวที่ตีกลับอีก พิมพ์จำนวนต่อท้าย เช่น ${shown.split(/\s+/).slice(0, 2).join(' ')} x1 (คืนได้อีกไม่เกิน ${(r as { left?: number }).left} ตัว)` : 'ยิงเข้าสต็อกไปแล้ว (ไม่เพิ่มซ้ำ)', false);
       else if (r.status === 'pick') add(`ออเดอร์นี้มีหลายรายการ พิมพ์เลขตามด้วย SKU ที่ตีกลับ เช่น ${shown.split(/\s+/)[0]} ${r.skus[0]} — มี: ${r.skus.join(', ')}`, false);
       else if (r.status === 'nostock') add(`ไม่มีสต็อกของสินค้านี้ในเว็บ: ${r.skus.join(', ')}`, false);
       else add('ไม่พบเลขนี้ในใบสั่งของที่บันทึกไว้ (พัสดุ: ต้องบันทึกรอบจากไฟล์ Bigseller · Facebook: ต้องอัปโหลดไฟล์ Page365 ในหน้าสั่งของ)', false);
@@ -611,9 +611,9 @@ function ReturnsCard({ data, loc, canDecide, onDone }: { data: StockData; loc: S
   return (
     <section className="card">
       <h2>พัสดุตีกลับ <span className="muted small">ยิงหรือพิมพ์เลขพัสดุ → เข้าสต็อกของสินค้านั้นเลย</span></h2>
-      <p className="muted small">ที่มา: เลขพัสดุ → SKU และจำนวน จากใบสั่งของที่บันทึกไว้ในหน้าสั่งของ (Bigseller) · สินค้า PK เข้า PK, AR เข้า AR, BB เข้า BB (ทุกร้าน) ฯลฯ ตาม SKU · Facebook: เลขคำสั่งซื้อ (ตัวเลขล้วน) → สินค้าจากไฟล์ Page365 ที่อัปโหลดในหน้าสั่งของ ถ้าออเดอร์มีหลายรายการให้พิมพ์ SKU ต่อท้าย · เก็บแค่รหัสย่อของเลขพัสดุและท้าย 4 ตัว</p>
+      <p className="muted small">ที่มา: เลขพัสดุ → SKU และจำนวน จากใบสั่งของที่บันทึกไว้ในหน้าสั่งของ (Bigseller) · สินค้า PK เข้า PK, AR เข้า AR, BB เข้า BB (ทุกร้าน) ฯลฯ ตาม SKU · Facebook: เลขคำสั่งซื้อ (ตัวเลขล้วน) → สินค้าจากไฟล์ Page365 ที่อัปโหลดในหน้าสั่งของ ถ้าออเดอร์มีหลายรายการให้พิมพ์ SKU ต่อท้าย ถ้าตีกลับไม่ครบทุกตัวให้พิมพ์จำนวน เช่น x1 · เก็บแค่รหัสย่อของเลขพัสดุและท้าย 4 ตัว</p>
       <form className="cat-price-actions" onSubmit={(e) => { e.preventDefault(); scan(); }}>
-        <input autoFocus value={code} onChange={(e) => setCode(e.target.value)} placeholder="ยิงเลขพัสดุ หรือพิมพ์เลขคำสั่งซื้อ Facebook (32594 หรือ 32594 1071-BB-CR-44)" />
+        <input autoFocus value={code} onChange={(e) => setCode(e.target.value)} placeholder="ยิงเลขพัสดุ หรือพิมพ์เลขคำสั่งซื้อ Facebook (32594 · 32594 1071-BB-CR-44 · 32594 1071-BB-CR-44 x1)" />
         <button type="submit" className="primary" disabled={busy}>เพิ่ม</button>
       </form>
       {log.length > 0 && (

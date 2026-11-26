@@ -133,14 +133,18 @@ async function addReturnsCheck(db: D1Database, loc: Loc, items: { sku: string; q
   if (bad.length) throw new BadRequest(`ไม่ใช่สินค้าในสต็อกที่นี่: ${bad.join(', ')}`);
 }
 
-/** "32594", "32594 1071-BB-CR-44" or "32594 SKU 1071-BB-CR-44" → Facebook order number (+ SKU when typed). Null if it is not one. */
-export function parseFacebookReturn(text: string): { order: string; sku: string } | null {
-  const m = /^\s*(\d{3,8})(?:\s+(?:sku\s*:?\s*)?(\S+))?\s*$/i.exec(text);
-  return m ? { order: m[1], sku: m[2] ? cleanSku(m[2]) : '' } : null;
+/**
+ * "32594", "32594 1071-BB-CR-44", "32594 SKU 1071-BB-CR-44", "32594 x1" or "32594 1071-BB-CR-44 x1" → Facebook order number
+ * (+ SKU, + pieces when typed; qty 0 = not typed). Null if it is not one.
+ */
+export function parseFacebookReturn(text: string): { order: string; sku: string; qty: number } | null {
+  const m = /^\s*(\d{3,8})(?:\s+(?:sku\s*:?\s*)?(?![x×*]\s*\d+\s*$)(\S+))?(?:\s+[x×*]\s*(\d{1,3}))?\s*$/i.exec(text);
+  if (!m) return null;
+  return { order: m[1], sku: m[2] ? cleanSku(m[2]) : '', qty: m[3] ? Number(m[3]) : 0 };
 }
 
 /** SKU + qty of a Facebook order from the saved rounds' `extra` JSON (newest round first); the newest round that has the order wins. */
-export function facebookOrderItems(extras: string[], order: string): { sku: string; qty: number }[] {
+export function facebookOrderItems(extras: string[], order: string): FbItem[] {
   for (const raw of extras) {
     let list: any[] = [];
     try { list = JSON.parse(raw || '[]'); } catch { /* ignore */ }
@@ -149,7 +153,7 @@ export function facebookOrderItems(extras: string[], order: string): { sku: stri
       if (x?.source !== 'facebook' || String(x?.order ?? '').trim() !== order || !x?.sku) continue;
       by.set(x.sku, (by.get(x.sku) ?? 0) + (Number(x.qty) || 0));
     }
-    if (by.size) return [...by].map(([sku, qty]) => ({ sku, qty }));
+    if (by.size) return [...by].map(([sku, qty]) => ({ sku, qty, max: qty }));
   }
   return [];
 }
@@ -157,28 +161,46 @@ export function facebookOrderItems(extras: string[], order: string): { sku: stri
 /**
  * Rounds saved before the Facebook lines were kept in `extra` only have the order in their sheet lines (`purchase_lines.orders`).
  * Newest round first; the newest round holding the order wins. A line with only this order gives its qty; a line shared by
- * several orders does not say how many pieces were this order's, so it counts 1 (the person can type the SKU to add more by hand).
+ * several orders does not say how many pieces were this order's, so it counts 1 by default and up to the line's qty when the
+ * person types the pieces ("32594 SKU x2").
  */
-export function facebookLineItems(rows: { upload_id: string; sku: string; qty: number; orders: string; store: string | null }[]): { sku: string; qty: number }[] {
+export function facebookLineItems(rows: { upload_id: string; sku: string; qty: number; orders: string; store: string | null }[]): FbItem[] {
   const fb = rows.filter((r) => String(r.store ?? '').startsWith('Facebook'));
   if (!fb.length) return [];
-  const by = new Map<string, number>();
+  const by = new Map<string, { qty: number; max: number }>();
   for (const r of fb.filter((x) => x.upload_id === fb[0].upload_id)) {
+    const q = Number(r.qty) || 1;
     let n = 1;
-    try { if (JSON.parse(r.orders || '[]').length === 1) n = Number(r.qty) || 1; } catch { /* ignore */ }
-    by.set(r.sku, (by.get(r.sku) ?? 0) + n);
+    try { if (JSON.parse(r.orders || '[]').length === 1) n = q; } catch { /* ignore */ }
+    const cur = by.get(r.sku) ?? { qty: 0, max: 0 };
+    by.set(r.sku, { qty: cur.qty + n, max: cur.max + q });
   }
-  return [...by].map(([sku, qty]) => ({ sku, qty }));
+  return [...by].map(([sku, v]) => ({ sku, ...v }));
 }
 
-export type FbScanResult = ScanResult | { status: 'pick'; skus: string[] };
+/** A Facebook order's SKU: `qty` = pieces returned when none are typed, `max` = most pieces this order can have had. */
+export type FbItem = { sku: string; qty: number; max: number };
+
+/**
+ * How many pieces to put back now. Typed pieces (`want` > 0) may go up to `max` minus what came back before; untyped, the
+ * order's own count minus what came back before. 0 left → 'repeat' (with `left` when typing pieces could still add some).
+ */
+export function fbReturnQty(it: FbItem, returned: number, want: number): { add: number } | { repeat: true; left: number } | { over: number } {
+  const left = Math.max(0, it.max - returned);
+  if (want > 0) return left <= 0 ? { repeat: true, left: 0 } : want > left ? { over: left } : { add: want };
+  const add = Math.min(left, it.qty - returned);
+  return add > 0 ? { add } : { repeat: true, left };
+}
+
+export type FbScanResult = ScanResult | { status: 'pick'; skus: string[] } | { status: 'repeat'; left: number };
 
 /**
  * Idea #30: a returned Facebook order is scanned by its order number (Page365 "No.") — there is no parcel number in that file.
- * Items come from the saved Facebook round (`purchase_items`, store Facebook · Page365). One SKU in the order, or a typed SKU →
- * 'in' move at once; several SKUs and none typed → 'pick' (nothing added). Same order + SKU is refused a second time.
+ * Items come from the saved Facebook rounds (see facebookOrderItems / facebookLineItems). One SKU in the order, or a typed SKU →
+ * 'in' move at once; several SKUs and none typed → 'pick' (nothing added). Pieces are counted per order + SKU, so a part
+ * return can be finished later with "32594 SKU x1", and the same pieces are never put back twice.
  */
-export async function scanFacebookReturn(db: D1Database, order: string, sku: string, user: string): Promise<FbScanResult> {
+export async function scanFacebookReturn(db: D1Database, order: string, sku: string, user: string, want = 0): Promise<FbScanResult> {
   // Facebook lines are kept in the round's `extra` JSON (migration 0049), not in purchase_items.
   const rounds = (await db.prepare("SELECT extra FROM purchase_uploads WHERE extra LIKE '%' || ?1 || '%' ORDER BY date DESC, round DESC").bind(order).all<{ extra: string }>()).results;
   let found = facebookOrderItems(rounds.map((r) => r.extra), order);
@@ -187,27 +209,20 @@ export async function scanFacebookReturn(db: D1Database, order: string, sku: str
      FROM purchase_lines l JOIN purchase_uploads u ON u.id = l.upload_id, json_each(l.orders) j
      WHERE j.value = ?1 AND l.sku != '' ORDER BY u.date DESC, u.round DESC`).bind(order).all<{ upload_id: string; sku: string; qty: number; orders: string; store: string | null }>()).results);
   if (!found.length) return { status: 'notfound' };
-  let pick = found;
-  if (sku) pick = found.filter((f) => cleanSku(f.sku) === sku);
-  else if (found.length > 1) return { status: 'pick', skus: found.map((f) => f.sku) };
-  if (!pick.length) return { status: 'pick', skus: found.map((f) => f.sku) };
-  const key = (f: { sku: string }) => `fb:${order}:${f.sku}`;
-  const done = new Set(((await db.prepare("SELECT track_hash FROM stock_returns WHERE track_hash IN (SELECT value FROM json_each(?1)) AND status != 'rejected'").bind(JSON.stringify(pick.map(key))).all<{ track_hash: string }>()).results).map((x) => x.track_hash));
-  pick = pick.filter((f) => !done.has(key(f)));
-  if (!pick.length) return { status: 'repeat' };
-  const items = pick.map((f) => ({ sku: f.sku, qty: f.qty, loc: locOfSku(f.sku) }));
-  const bad = items.filter((i) => !i.loc).map((i) => i.sku);
-  if (bad.length) return { status: 'nostock', skus: bad };
-  const byLoc = new Map<Loc, { sku: string; qty: number }[]>();
-  for (const i of items) byLoc.set(i.loc!, [...(byLoc.get(i.loc!) ?? []), { sku: i.sku, qty: i.qty }]);
-  for (const [loc, its] of byLoc) await addReturnsCheck(db, loc, its);
+  const it = sku ? found.find((f) => cleanSku(f.sku) === sku) : found.length === 1 ? found[0] : undefined;
+  if (!it) return { status: 'pick', skus: found.map((f) => f.sku) };
+  const key = `fb:${order}:${it.sku}`;
+  const returned = Number((await db.prepare("SELECT COALESCE(SUM(qty), 0) AS n FROM stock_returns WHERE track_hash = ?1 AND status != 'rejected'").bind(key).first<{ n: number }>())?.n ?? 0);
+  const q = fbReturnQty(it, returned, want);
+  if ('repeat' in q) return { status: 'repeat', left: q.left };
+  if ('over' in q) throw new BadRequest(`ออเดอร์นี้คืน ${it.sku} ได้อีกไม่เกิน ${q.over} ตัว`);
+  const loc = locOfSku(it.sku);
+  if (!loc) return { status: 'nostock', skus: [it.sku] };
+  const items = [{ sku: it.sku, qty: q.add }];
+  await addReturnsCheck(db, loc, items);
   const now = new Date().toISOString();
-  for (const [loc, its] of byLoc) {
-    await saveMoves(db, validateMoves({ loc, kind: 'in', date: today(), note: `ตีกลับ Facebook #${order}`, items: its }), user);
-  }
-  for (const i of items) {
-    await db.prepare("INSERT INTO stock_returns (loc, sku, qty, track_hash, track_tail, status, created_by, created_at, decided_by, decided_at) VALUES (?1, ?2, ?3, ?4, ?5, 'approved', ?6, ?7, ?6, ?7)")
-      .bind(i.loc, i.sku, i.qty, key(i), order.slice(-4), user, now).run();
-  }
-  return { status: 'added', items: items as { sku: string; qty: number; loc: Loc }[] };
+  await saveMoves(db, validateMoves({ loc, kind: 'in', date: today(), note: `ตีกลับ Facebook #${order}`, items }), user);
+  await db.prepare("INSERT INTO stock_returns (loc, sku, qty, track_hash, track_tail, status, created_by, created_at, decided_by, decided_at) VALUES (?1, ?2, ?3, ?4, ?5, 'approved', ?6, ?7, ?6, ?7)")
+    .bind(loc, it.sku, q.add, key, order.slice(-4), user, now).run();
+  return { status: 'added', items: [{ sku: it.sku, qty: q.add, loc }] };
 }

@@ -1538,8 +1538,8 @@ async function route(req: Request, env: Env, url: URL, user: string, role: Role,
   if (method === 'POST' && path === '/api/stock/returns/scan') {
     const b = await body();
     const fb = typeof b?.fb === 'string' ? parseFacebookReturn(b.fb) : null;
-    if (typeof b?.fb === 'string' && !fb) throw new BadRequest('พิมพ์เลขคำสั่งซื้อ เช่น 32594 หรือ 32594 1071-BB-CR-44');
-    const r = fb ? await scanFacebookReturn(env.DB, fb.order, fb.sku, user) : await scanReturn(env.DB, String(b?.hash ?? ''), String(b?.tail ?? ''), user);
+    if (typeof b?.fb === 'string' && !fb) throw new BadRequest('พิมพ์เลขคำสั่งซื้อ เช่น 32594, 32594 1071-BB-CR-44 หรือ 32594 1071-BB-CR-44 x1');
+    const r = fb ? await scanFacebookReturn(env.DB, fb.order, fb.sku, user, fb.qty) : await scanReturn(env.DB, String(b?.hash ?? ''), String(b?.tail ?? ''), user);
     if (r.status === 'added') await audit(env.DB, user, 'stock.return.scan', '', { added: r.items.length });
     return json(r);
   }
