@@ -285,7 +285,10 @@ export class MetaClient {
    * Copy of a campaign with its switched-on ad sets and ads, everything PAUSED so the caller can set the budget before
    * anything spends; returns the new campaign id and the ids of every copied ad set and ad (to switch on afterwards).
    * Copied one object at a time: Meta's one-call deep copy takes at most 3 objects and answers "Invalid parameter"
-   * above that (22 Oct 2026, the 801 campaign).
+   * above that (22 Oct 2026, the 801 campaign). Ad sets are built, not copied: Meta refuses `<adset>/copies` on ad
+   * sets that still carry targeting_optimization (subcode 1870197, 2026-11-26 "โพสผี 501/1"), the same wall the
+   * (Grok) launch hit; a retry could never pass. If anything fails after the campaign exists, the half-made paused
+   * copy is deleted so a retry starts clean instead of leaving another "(คัดลอก)" behind.
    */
   async copyCampaign(campaignId: string, suffix: string): Promise<{ id: string; children: string[] }> {
     const { adsets, ads } = await this.copyObjects(campaignId);
@@ -297,15 +300,23 @@ export class MetaClient {
     if (!c.copied_campaign_id) throw new Error('Meta ไม่ได้ส่ง id แคมเปญใหม่กลับมา');
     const id = String(c.copied_campaign_id);
     const children: string[] = [];
-    for (const adset of adsets) {
-      const s = await this.post(`${adset}/copies`, { campaign_id: id, deep_copy: 'false', status_option: 'PAUSED' });
-      if (!s.copied_adset_id) throw new Error(`Meta ไม่ได้ส่ง id ชุดโฆษณาใหม่กลับมา (แคมเปญใหม่ ${id})`);
-      children.push(String(s.copied_adset_id));
-      for (const ad of ads.filter((x) => x.adset_id === adset)) {
-        const n = await this.post(`${ad.id}/copies`, { adset_id: String(s.copied_adset_id), status_option: 'PAUSED' });
-        if (!n.copied_ad_id) throw new Error(`Meta ไม่ได้ส่ง id โฆษณาใหม่กลับมา (แคมเปญใหม่ ${id})`);
-        children.push(String(n.copied_ad_id));
+    try {
+      const cbo = await this.campaignHasBudget(id);
+      for (const adset of adsets) {
+        const t = await this.get(adset, { fields: 'name,daily_budget' });
+        // ABO: the ad set carries the budget, so the copy starts with the original's (the caller may change it).
+        const budget = cbo ? null : Number(t.daily_budget ?? 0) / 100 || null;
+        const newAdset = await this.createAdsetFrom(adset, id, String(t.name ?? 'ชุดโฆษณา'), budget);
+        children.push(newAdset);
+        for (const ad of ads.filter((x) => x.adset_id === adset)) {
+          const n = await this.post(`${ad.id}/copies`, { adset_id: newAdset, status_option: 'PAUSED' });
+          if (!n.copied_ad_id) throw new Error(`Meta ไม่ได้ส่ง id โฆษณาใหม่กลับมา (แคมเปญใหม่ ${id})`);
+          children.push(String(n.copied_ad_id));
+        }
       }
+    } catch (err) {
+      await this.post(id, { status: 'DELETED' }).catch(() => null);
+      throw err;
     }
     return { id, children };
   }
