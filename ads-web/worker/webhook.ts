@@ -23,6 +23,8 @@ export interface WebhookEnv {
   META_APP_SECRET?: string;
   META_WEBHOOK_VERIFY_TOKEN?: string;
   META_API_VERSION?: string;
+  /** The shop's page (PkJeans); the same id the Page365 fill and Meta purchases use. */
+  P365_PAGE_ID?: string;
 }
 
 // standby: when another app (e.g. the chat tool) owns the thread, Meta delivers the same events there instead.
@@ -325,16 +327,25 @@ export async function setupWebhook(env: WebhookEnv, callbackUrl: string): Promis
     include_values: 'true',
   }, 'POST');
   const pg = await pageOf(env);
-  if (!pg) throw new Error('โทเค็นนี้ไม่เห็นเพจไหนเลย (ต้องมีสิทธิ์ pages_show_list และ pages_messaging)');
+  if (!pg) throw new Error(`โทเค็นนี้ไม่เห็นเพจของร้าน (${env.P365_PAGE_ID ?? SHOP_PAGE_ID}) ต้องมีสิทธิ์ pages_show_list และ pages_messaging`);
   const page = await graph(env, `${pg.id}/subscribed_apps`, { access_token: pg.token, subscribed_fields: SUBSCRIBED_FIELDS }, 'POST');
   return { app, page };
 }
 
+/** The shop's page id; also the default in p365fill / metaPurchases / notePurchases / autoFill. */
+export const SHOP_PAGE_ID = '115748303500549';
+
+/** Only the shop's own page, never "the first page the token sees": once the token is given a second page,
+ *  Meta may list that one first, and name hashes, webhook status and connect would quietly move to it. */
+export function pickPage(pages: { id?: string; name?: string; access_token?: string }[], pageId: string): { id: string; name: string; token: string } | null {
+  const p = pages.find((x) => String(x.id) === pageId);
+  return p?.id && p.access_token ? { id: String(p.id), name: p.name ?? '', token: p.access_token } : null;
+}
+
 export async function pageOf(env: WebhookEnv): Promise<{ id: string; name: string; token: string } | null> {
   if (!env.META_ACCESS_TOKEN) return null;
-  const res: any = await graph(env, 'me/accounts', { access_token: env.META_ACCESS_TOKEN, fields: 'id,name,access_token' });
-  const p = res.data?.[0];
-  return p ? { id: p.id, name: p.name, token: p.access_token } : null;
+  const res: any = await graph(env, 'me/accounts', { access_token: env.META_ACCESS_TOKEN, fields: 'id,name,access_token', limit: '100' });
+  return pickPage(res.data ?? [], env.P365_PAGE_ID ?? SHOP_PAGE_ID);
 }
 
 /** A text message from the page to a customer (Messenger Send API, within the 24-hour reply window). */

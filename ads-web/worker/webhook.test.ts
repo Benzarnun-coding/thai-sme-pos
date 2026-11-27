@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { hashName } from './p365.ts';
-import { extractReferrals, nameHashes } from './webhook.ts';
+import { extractReferrals, nameHashes, pickPage, SHOP_PAGE_ID } from './webhook.ts';
 
 test('referrals are read from referral, postback and first-message events; echoes and plain messages are not', () => {
   const rows = extractReferrals([
@@ -32,11 +32,11 @@ test('name hashes fall back to the conversation when Meta refuses the profile, a
     const url = String(u);
     urls.push(url);
     const r = (b: unknown) => new Response(JSON.stringify(b), { status: 200 });
-    if (url.includes('me/accounts')) return r({ data: [{ id: 'pg', name: 'Page', access_token: 'PT' }] });
+    if (url.includes('me/accounts')) return r({ data: [{ id: SHOP_PAGE_ID, name: 'Page', access_token: 'PT' }] });
     // Real reply 2026-10-20: the profile lookup is refused for customers.
     if (url.includes('fields=name')) return r({ error: { message: '(#100) Missing permissions' } });
     const psid = new URL(url).searchParams.get('user_id');
-    if (url.includes('/pg/conversations')) return r({ data: [{ participants: { data: [{ id: 'pg', name: 'Page' }, { id: psid, name: ` Somchai  ${psid} ` }] } }] });
+    if (url.includes(`/${SHOP_PAGE_ID}/conversations`)) return r({ data: [{ participants: { data: [{ id: SHOP_PAGE_ID, name: 'Page' }, { id: psid, name: ` Somchai  ${psid} ` }] } }] });
     return r({});
   }) as typeof fetch;
   try {
@@ -50,4 +50,11 @@ test('name hashes fall back to the conversation when Meta refuses the profile, a
   } finally {
     globalThis.fetch = real;
   }
+});
+
+test('pickPage: the shop page even when the token sees another page first', () => {
+  const pages = [{ id: '999', name: 'เพจใหม่', access_token: 'new' }, { id: SHOP_PAGE_ID, name: 'PkJeans', access_token: 'shop' }];
+  assert.deepEqual(pickPage(pages, SHOP_PAGE_ID), { id: SHOP_PAGE_ID, name: 'PkJeans', token: 'shop' });
+  assert.equal(pickPage([{ id: '999', name: 'เพจใหม่', access_token: 'new' }], SHOP_PAGE_ID), null);
+  assert.equal(pickPage([], SHOP_PAGE_ID), null);
 });

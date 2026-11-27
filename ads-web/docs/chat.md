@@ -135,3 +135,8 @@ After answer-bank fix #13: a customer said they got a zip instead of buttons and
 - Switch: the secret `DISCORD_SERVICE_WEBHOOK_URL` (the channel's webhook). The bot posts in that webhook's channel so the button works. The bot must be able to see and send there; if it can't, the webhook posts without a button.
 - Dry run: `GET /api/service/preview?days=7` lists what would have been posted from the stored chats.
 - Test: `POST /api/service/test` posts one "[ทดสอบระบบ]" case through the real path (psid `TEST-…`, never sent to Meta), with the name of the latest real customer in the chat log so the name lookup is tested too.
+
+## Which page (2026-11-27)
+
+- `pageOf` (`worker/webhook.ts`) takes only the shop's page, `P365_PAGE_ID` (default `115748303500549`, the same id the Page365 fill and Meta purchases use), from the token's `me/accounts`. It used to take the first page listed. Once the System User is given a second page, Meta may list that one first, and name hashes, webhook status and the connect button would have moved to it quietly. If the shop page isn't in the list, they stop (connect says so) and don't switch to another page.
+- A second page or ad account is not supported yet: the ad account is one `META_AD_ACCOUNT_ID` (`metaFor` in index.ts) and the page-level code assumes one page.

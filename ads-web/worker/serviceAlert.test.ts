@@ -46,7 +46,7 @@ test('one open case per customer; the bot posts in the webhook channel; done clo
     const url = String(u);
     calls.push({ url, body: init?.body ? (typeof init.body === 'string' ? JSON.parse(init.body) : null) : undefined });
     const r = (b: unknown) => new Response(JSON.stringify(b), { status: 200 });
-    if (url.includes('me/accounts')) return r({ data: [{ id: 'pg', name: 'Page', access_token: 'PT' }] });
+    if (url.includes('me/accounts')) return r({ data: [{ id: '115748303500549', name: 'Page', access_token: 'PT' }] });
     if (url.includes('fields=name')) return r({ name: 'Somchai Jaidee' });
     if (url.startsWith('https://discord.com/api/webhooks/1/abc') && !init) return r({ channel_id: '555' });
     if (url.includes('/channels/555/messages')) return r({ id: 'm1' });
@@ -69,9 +69,9 @@ test('one open case per customer; the bot posts in the webhook channel; done clo
     globalThis.fetch = (async (u: any) => {
       const url = String(u);
       const r = (b: unknown) => new Response(JSON.stringify(b), { status: url.includes('fields=name') ? 400 : 200 });
-      if (url.includes('me/accounts')) return r({ data: [{ id: 'pg', name: 'Page', access_token: 'PT' }] });
+      if (url.includes('me/accounts')) return r({ data: [{ id: '115748303500549', name: 'Page', access_token: 'PT' }] });
       if (url.includes('fields=name')) return r({ error: { message: 'missing permissions' } });
-      if (url.includes('/pg/conversations') && url.includes('user_id=p2')) return r({ data: [{ participants: { data: [{ id: 'pg', name: 'Page' }, { id: 'p2', name: 'Malee Dee' }] } }] });
+      if (url.includes('/115748303500549/conversations') && url.includes('user_id=p2')) return r({ data: [{ participants: { data: [{ id: '115748303500549', name: 'Page' }, { id: 'p2', name: 'Malee Dee' }] } }] });
       return r({});
     }) as typeof fetch;
     assert.equal(await customerName(env, 'p2'), 'Malee Dee');
