@@ -25,3 +25,21 @@ test('explore runs out: winners take the remaining slots until their variables r
   const t = planTasks({ free: 9, winners: [{ code: '801/3', set_id: 4, roas: 15 }], tried: new Map(), explore: [], promos });
   assert.equal(t.length, VARIABLES.length);
 });
+
+import { rankVariables } from './grokTasks.ts';
+test('real results order the variables: winners first, ones that always lost are dropped', () => {
+  // 2026-11-26 production: offer3 won once; offer1 / single / back / front each lost once
+  assert.deepEqual(rankVariables([{ key: 'offer3', wins: 1, losses: 0 }, { key: 'back', wins: 0, losses: 1 }]).map((v) => v.key), ['offer3', 'offer1', 'front', 'single', 'back']);
+  assert.deepEqual(rankVariables([{ key: 'back', wins: 0, losses: 2 }, { key: 'front', wins: 0, losses: 3 }]).map((v) => v.key), ['offer3', 'offer1', 'single']);
+  assert.deepEqual(rankVariables().map((v) => v.key), VARIABLES.map((v) => v.key));
+});
+
+test('a new product starts in the format that really won; dead variables never become tasks', () => {
+  const results = [{ key: 'offer3', wins: 1, losses: 0 }, { key: 'back', wins: 0, losses: 2 }];
+  const t = planTasks({ free: 9, winners: [{ code: '801/3', set_id: 4, roas: 15 }], tried: new Map(), explore: [{ code: '444/1', promo: '' }], promos, results });
+  assert.ok(!t.some((x) => x.key === 'back'));
+  assert.equal(t[0].key, 'offer3');
+  assert.match(t.find((x) => x.key === 'new')!.text, /ชนะในแอดทดสอบจริงมากที่สุด \(แพ็ก 3 ตัวเด่น\)/);
+  // no win anywhere yet: the old default format
+  assert.match(planTasks({ free: 1, winners: [], tried: new Map(), explore: [{ code: '444/1', promo: '' }], promos, results: [{ key: 'back', wins: 0, losses: 1 }] })[0].text, /นายแบบหันหลัง 2–3 สี/);
+});

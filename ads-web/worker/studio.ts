@@ -6,6 +6,8 @@ import { allowedImageUrl, imageType } from './catalog.ts';
 import type { ActiveAdPost } from '../../ads-engine/src/meta.ts';
 import { nameHasFamily } from './postIdeas.ts';
 import { chatVoice } from './grokLoop.ts';
+import { loadLessons, lessonsPrompt } from './realLessons.ts';
+import { TASK_LABEL } from './grokTasks.ts';
 
 export interface StudioEnv {
   DB: D1Database;
@@ -246,14 +248,27 @@ export async function customerVoice(db: D1Database): Promise<string> {
   return chatVoice(results.map((r) => r.text ?? ''));
 }
 
+/** What the real "(Grok)" test ads taught per caption hook (realLessons.ts), as a prompt section; '' until a test ended. */
+export async function realCaptionLessons(db: D1Database): Promise<string> {
+  const l = await loadLessons(db, TASK_LABEL, HOOKS).catch(() => null);
+  return l ? lessonsPrompt(l.caption_lines, 'caption', l.decided) : '';
+}
+
+/** Same for the picture tasks (offer3 / back / …), for the image prompt writer. */
+export async function realImageLessons(db: D1Database): Promise<string> {
+  const l = await loadLessons(db, TASK_LABEL, HOOKS).catch(() => null);
+  return l ? lessonsPrompt(l.image_lines, 'image', l.decided) : '';
+}
+
 /** Everything the caption agent is told, so a judge can see why a caption came out the way it did. */
 export async function captionPrompt(db: D1Database, product: StudioProduct, n: number, use?: Playbook): Promise<{ system: string; user: string; playbook_id: number | null }> {
-  const [playbook, examples, gold, proven, voice] = await Promise.all([use ?? currentPlaybook(db), listExamples(db), goldCaptions(db), provenPosts(db).catch(() => []), customerVoice(db).catch(() => '')]);
+  const [playbook, examples, gold, proven, voice, real] = await Promise.all([use ?? currentPlaybook(db), listExamples(db), goldCaptions(db), provenPosts(db).catch(() => []), customerVoice(db).catch(() => ''), realCaptionLessons(db)]);
   const liked = examples.filter((e) => e.liked).slice(0, 10), disliked = examples.filter((e) => !e.liked).slice(0, 10);
   const system = [
     'คุณเขียนแคปชันโพสต์ขายยีนส์ให้ร้าน PK Jeans (ขายผ่านแชท Facebook ลูกค้าไทย) ตามคู่มือและตัวอย่างด้านล่างอย่างเคร่งครัด',
     '## คู่มือ', playbook.text,
     proven.length ? `## แคปชันที่ยิงแอดจริงอยู่ตอนนี้และขายได้ดี (ROAS จากยอดแท็ก Meta 14 วัน)\n${proven.map((p) => `- [ROAS ${p.roas.toFixed(1)}] ${p.message.replace(/\n/g, ' / ').slice(0, 600)}`).join('\n')}` : '',
+    real,
     voice ? `## สิ่งที่ลูกค้าถามและเหตุผลที่ยังไม่ซื้อ (จากแชทจริง 3 วันล่าสุด)\nถ้าตอบข้อกังวลเหล่านี้ได้ด้วยข้อมูลสินค้าที่ให้มา ให้ตอบในแคปชัน ห้ามแต่งข้อมูลสินค้าเพื่อตอบ\n${voice}` : '',
     gold.length ? `## แคปชันที่ทีมอนุมัติแล้ว (เลียนแบบน้ำเสียงนี้)\n${gold.map((g) => `- [${g.hook}] ${g.text.replace(/\n/g, ' / ')}`).join('\n')}` : '',
     liked.length ? `## ตัวอย่างที่ทีมชอบ\n${liked.map((e) => `- "${e.text.replace(/\n/g, ' / ')}" — ชอบเพราะ: ${e.reason}`).join('\n')}` : '',
@@ -985,18 +1000,20 @@ export async function releaseCandidate(db: D1Database, id: number): Promise<void
 export async function learnedImagePrompt(env: StudioEnv, code: string, styleId: number): Promise<{ prompt: string; learned: boolean; trying: string }> {
   const base = await imagePrompt(env.DB, code, styleId);
   if (!env.ANTHROPIC_API_KEY) return { prompt: base, learned: false, trying: '' };
-  const [tags, winners, reasons] = await Promise.all([
+  const [tags, winners, reasons, real] = await Promise.all([
     imageTagStats(env.DB),
     env.DB.prepare(
       `SELECT c.prompt, c.tags FROM creative_judgements j JOIN creative_candidates c ON c.id = j.winner_id
        WHERE j.kind = 'image' AND c.hook != 'real' AND c.prompt != '' GROUP BY c.id ORDER BY count(*) DESC LIMIT 3`,
     ).all<{ prompt: string; tags: string | null }>().then((r) => r.results),
     env.DB.prepare(`SELECT reason, count(*) AS n FROM creative_judgements WHERE kind = 'image' AND reason NOT IN ('', 'better') GROUP BY reason ORDER BY n DESC`).all<{ reason: string; n: number }>().then((r) => r.results),
+    realImageLessons(env.DB),
   ]);
   const tagLines = tags.map((t) => `- ${IMAGE_TAGS[t.dim]?.label ?? t.dim}: ${t.label} — โพสต์จริง ${t.posts} โพสต์${t.roas !== null ? ` ROAS ${t.roas.toFixed(2)} ค่าแอด ${Math.round(t.spend)}` : ''} · ในห้อง ชนะ ${t.wins} แพ้ ${t.losses}`).join('\n');
   const out = await askClaude(env, 'คุณเขียน prompt ให้ ChatGPT ทำภาพโฆษณายีนส์ของร้านไทย จากสิ่งที่ร้านเรียนรู้มา', [
     { type: 'text', text: `prompt ตั้งต้น (ต้องคงกฎเรื่องห้ามเปลี่ยนสินค้า และกฎภาพโฆษณานี้ไว้เสมอ:\n${AD_RULES}):\n${base}\n
-## ภาพแบบไหนขายได้ (ป้ายภาพ × ROAS ของโพสต์ที่ยิงอยู่ ยอดแท็ก Meta 14 วัน; คุ้มทุน ~2.9) และชนะในห้องฝึก
+${real ? `${real}
+` : ''}## ภาพแบบไหนขายได้ (ป้ายภาพ × ROAS ของโพสต์ที่ยิงอยู่ ยอดแท็ก Meta 14 วัน; คุ้มทุน ~2.9) และชนะในห้องฝึก
 ${tagLines || '(ยังไม่มีข้อมูล)'}
 ## prompt ของภาพที่ชนะในห้องฝึก
 ${winners.map((w, i) => `${i + 1}. ${w.prompt.slice(0, 800)}`).join('\n') || '(ยังไม่มี)'}

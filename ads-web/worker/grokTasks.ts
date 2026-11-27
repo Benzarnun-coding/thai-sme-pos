@@ -18,10 +18,27 @@ export const TASK_LABEL: Record<string, string> = { ...Object.fromEntries(VARIAB
 export interface Winner { code: string; set_id: number; roas: number }
 export interface Task { n: number; code: string; key: string; base_set: number | null; text: string }
 
-/** `tried`: per product code (lower case), the task keys already made. */
-export function planTasks(i: { free: number; winners: Winner[]; tried: Map<string, Set<string>>; explore: { code: string; promo: string }[]; promos: Map<string, string> }): Task[] {
+/** Real results per picture task (realLessons.summarize): wins / losses of the "(Grok)" ads that tested it. */
+export interface VarResult { key: string; wins: number; losses: number }
+
+/**
+ * The variables in the order to try them: most real wins first (realLessons.score), never one that lost every time
+ * (≥ 2 losses, no win). Without results: the list's own order.
+ */
+export function rankVariables(results: VarResult[] = []): typeof VARIABLES {
+  const r = new Map(results.map((x) => [x.key, x]));
+  const sc = (k: string) => { const x = r.get(k); return x ? (x.wins + 1) / (x.wins + x.losses + 2) : 0.5; };
+  const dead = (k: string) => { const x = r.get(k); return !!x && x.wins === 0 && x.losses >= 2; };
+  return VARIABLES.map((v, n) => ({ v, n })).filter(({ v }) => !dead(v.key)).sort((a, b) => sc(b.v.key) - sc(a.v.key) || a.n - b.n).map(({ v }) => v);
+}
+
+/** `tried`: per product code (lower case), the task keys already made. `results`: real results per variable. */
+export function planTasks(i: { free: number; winners: Winner[]; tried: Map<string, Set<string>>; explore: { code: string; promo: string }[]; promos: Map<string, string>; results?: VarResult[] }): Task[] {
   const out: Omit<Task, 'n'>[] = [];
   if (i.free <= 0) return [];
+  const vars = rankVariables(i.results);
+  // A new product starts in the format that really won most (≥ 1 win), else the format the shop's running ads use.
+  const top = vars.find((v) => (i.results ?? []).some((x) => x.key === v.key && x.wins > 0));
   const lc = (x: string) => x.toLowerCase();
   const promo = (code: string) => { const p = i.promos.get(lc(code)); return p ? ` · ราคาบนภาพ: ${p}` : ' · ราคา: ใช้ตามช่องโปรในเว็บ ถ้าว่างให้ถามแม็กซ์ก่อน'; };
   // one winner per product: its best set
@@ -30,12 +47,12 @@ export function planTasks(i: { free: number; winners: Winner[]; tried: Map<strin
   const winners = [...best.values()];
   const used = new Map([...i.tried].map(([k, v]) => [k, new Set(v)]));
   const exploit = (limit: number) => {
-    for (let round = 0; round < VARIABLES.length && out.length < limit; round++) {
+    for (let round = 0; round < vars.length && out.length < limit; round++) {
       let any = false;
       for (const w of winners) {
         if (out.length >= limit) break;
         const seen = used.get(lc(w.code)) ?? new Set<string>();
-        const v = VARIABLES.find((x) => !seen.has(x.key));
+        const v = vars.find((x) => !seen.has(x.key));
         if (!v) continue;
         seen.add(v.key); used.set(lc(w.code), seen); any = true;
         out.push({ code: w.code, key: v.key, base_set: w.set_id, text: `ตัวตั้ง: ชุด#${w.set_id} (ROAS จริง ${w.roas.toFixed(1)}) — เปลี่ยนอย่างเดียว: ${v.text}${promo(w.code)}` });
@@ -48,7 +65,8 @@ export function planTasks(i: { free: number; winners: Winner[]; tried: Map<strin
       if (out.length >= limit) break;
       if (best.has(lc(p.code)) || (used.get(lc(p.code))?.size ?? 0) > 0) continue;
       used.set(lc(p.code), new Set([NEW_KEY]));
-      out.push({ code: p.code, key: NEW_KEY, base_set: null, text: `สินค้าที่ห้องฝึกยังไม่เคยทำภาพ — ใช้รูปแบบที่ขายดี: นายแบบหันหลัง 2–3 สีเรียงกัน ราคาตามโปรตัวใหญ่ (ถ้าโปรมีแพ็ก 3 ตัว ให้แพ็ก 3 ตัวเด่น)${promo(p.code)}` });
+      const how = top ? `ใช้แบบที่ชนะในแอดทดสอบจริงมากที่สุด (${top.label}): ${top.text}` : 'ใช้รูปแบบที่ขายดี: นายแบบหันหลัง 2–3 สีเรียงกัน ราคาตามโปรตัวใหญ่ (ถ้าโปรมีแพ็ก 3 ตัว ให้แพ็ก 3 ตัวเด่น)';
+      out.push({ code: p.code, key: NEW_KEY, base_set: null, text: `สินค้าที่ห้องฝึกยังไม่เคยทำภาพ — ${how}${promo(p.code)}` });
     }
   };
   exploit(winners.length ? Math.ceil(i.free * 0.7) : 0);

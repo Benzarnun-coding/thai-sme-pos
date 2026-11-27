@@ -232,9 +232,22 @@ Still by hand in phase 1: making the pictures, Max's ✅ per ad, closing the sal
     variable not tried for that product (`VARIABLES`: offer3, offer1, back, front, single); the rest explore — a
     product running as ads the room has no picture for (`new`). The upload on `/studio/train` has "ภาพนี้ทดสอบอะไร"
     (`task`, stored in the image's `hook`; `?task=` presets it); the results card shows what each ad tested.
-    Not yet: an automatic per-variable win/loss summary.
+    Real results order the list (item 12): winning variables first, ones that always lost dropped.
 
-Not done yet: the AI judge still decides room pairs (real ROAS only reaches it through `provenPosts`); promos
+12. **Real results back into the room** (Benz 2026-11-26, full loop item 3; `worker/realLessons.ts`): every "(Grok)"
+    test ad is scored on Page365, not Meta and not the AI judge: **win** = graduated, or ≥ 3 real orders with real
+    ROAS ≥ the shop break-even (same as a task-list winner); **lose** = ended (stopped / done) without that; **open** =
+    still running. Summed per picture task (`creative_candidates.hook` of the set's image: offer3 / back / … / '' before
+    tasks / real) and per caption hook (price / promo_math / …), from `grok_ads.result`, else the latest `review`.
+    Used by: the task list (`rankVariables`: most wins first, (wins+1)/(decided+2); ≥ 2 losses and no win = never
+    again; a new product's picture uses the variable that won most), the caption writer (`captionPrompt`), the AI
+    judge of playbook trials and the image prompt writer (`learnedImagePrompt`) as a "ผลจากแอดทดสอบจริง" section
+    (empty until a test has ended), and the card "แอดทดสอบจริงสอนอะไร" in "งานวันนี้ของ Grok". First data
+    (2026-11-26, 14 tests): caption "price" 6 won / 3 lost, "promo_math" 1/2; pictures: offer3 1/0, offer1 / single /
+    back / front 0/1 each. One test each is little: nothing is dropped until a second loss.
+
+Not done yet: the AI judge still decides room pairs (real ROAS reaches it through `provenPosts` and, from
+2026-11-26, the per-hook real results); promos
 come from Max's "สินค้า: จุดขายและโปร", never invented; chat replies stay with the admins and Business AI.
 
 ## Materials (`/studio` วัตถุดิบ)

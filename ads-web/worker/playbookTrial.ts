@@ -11,7 +11,7 @@
 //      a note goes to Discord #studio-training. "ย้อนกลับฉบับก่อน" on /studio puts the previous version back.
 // Nothing here leaves the room: no Meta, no customers.
 
-import { DEFAULT_PLAYBOOK, REASONS, askClaude, currentPlaybook, generateCaptions, judge, listExamples, listProducts, provenPosts, recommendedProducts, stopTrials, type Candidate, type Playbook, type StudioEnv } from './studio.ts';
+import { DEFAULT_PLAYBOOK, REASONS, askClaude, realCaptionLessons, currentPlaybook, generateCaptions, judge, listExamples, listProducts, provenPosts, recommendedProducts, stopTrials, type Candidate, type Playbook, type StudioEnv } from './studio.ts';
 import { BadRequest } from './validate.ts';
 
 export const TRIAL_PAIRS = 20;
@@ -202,16 +202,18 @@ export async function aiJudgeStep(env: StudioEnv, t: Playbook): Promise<{ judged
   const pairs = trialPairs(cands, t.id, new Set(done.map((d) => `${Math.min(d.a_id, d.b_id)}:${Math.max(d.a_id, d.b_id)}`)), JUDGE_BATCH)
     .map(([x, y]) => (Math.random() < 0.5 ? [x, y] : [y, x]) as [C, C]);
   if (!pairs.length) return { judged: 0 };
-  const [products, proven, examples] = await Promise.all([
+  const [products, proven, examples, real] = await Promise.all([
     Promise.all([...new Set(pairs.map(([a]) => a.code))].map((c) => listProducts(env.DB, c, true).then((r) => r[0]))),
     provenPosts(env.DB).catch(() => []),
     listExamples(env.DB),
+    realCaptionLessons(env.DB),
   ]);
   const facts = products.filter(Boolean).map((p) => `- ${p.code} ${p.name} · ราคาต่อตัว ${p.price_min ?? 'ไม่ทราบ'}${p.price_max !== p.price_min ? `–${p.price_max}` : ''} · โปร: ${p.promo || 'ไม่มีข้อมูล'} · จุดขาย: ${p.selling_points || 'ไม่มีข้อมูล'}`).join('\n');
   const system = [
     'คุณเป็นกรรมการตัดสินแคปชันโฆษณา Facebook ของร้านยีนส์ไทย PK Jeans ที่ขายผ่านแชท เลือกแคปชันที่น่าจะทำให้ลูกค้าหยุดดูและทักแชทสั่งซื้อมากกว่า',
     'ตัดสินจากสิ่งที่ขายได้จริงด้านล่าง ไม่ใช่จากความสวยของภาษา แคปชันที่ใช้ราคา/โปร/ข้อมูลไม่ตรงกับข้อมูลสินค้าต้องแพ้ (reason: wrong_fact) อ้างเกินจริงแพ้ (claim)',
     proven.length ? `## โพสต์ที่ยิงแอดอยู่และขายดีจริง (ROAS จากยอดแท็ก Meta 14 วัน)\n${proven.map((p) => `- [ROAS ${p.roas.toFixed(1)}] ${p.message.replace(/\n/g, ' / ').slice(0, 500)}`).join('\n')}` : '',
+    real,
     examples.length ? `## ตัวอย่างที่ทีมชอบ/ไม่ชอบ\n${examples.slice(0, 20).map((e) => `- ${e.liked ? 'ชอบ' : 'ไม่ชอบ'}: "${e.text.replace(/\n/g, ' / ').slice(0, 300)}" — ${e.reason}`).join('\n')}` : '',
     `## ข้อมูลสินค้า\n${facts}`,
     `## รูปแบบคำตอบ\nJSON array เท่านั้น: [{"pair": <เลขคู่>, "winner": "A"|"B", "reason": "<เหตุผลที่อีกอันแพ้ หนึ่งใน ${LOSER_REASONS.join('|')}>", "why": "<1 ประโยคภาษาไทย ไม่เกิน 120 ตัวอักษร: อันที่ชนะทำอะไรที่อีกอันไม่ทำ เจาะจง เช่น บรรทัดแรกบอกราคาแพ็ก 3 ตัว / อีกอันยาวเกินและไม่บอกวิธีสั่ง ห้ามตอบแค่ว่าดีกว่า>"}] ครบทุกคู่ ห้ามเสมอ`,

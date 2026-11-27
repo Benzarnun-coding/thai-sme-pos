@@ -150,7 +150,8 @@ function PlaybookCard({ playbook, trial, busy, onSave, onTrial, onStop, onUndo }
   );
 }
 
-interface Brief { tasks?: { n: number; code: string; key: string; base_set: number | null; text: string }[]; task_labels?: Record<string, string>; lines: string[]; images_now: number; month: string | null; voice: string; products: { code: string; name: string; spend: number; promo: string; waiting: number; testing: number }[] }
+interface Lessons { breakeven: number; tests: number; decided: number; image_lines: string[]; caption_lines: string[] }
+interface Brief { lessons?: Lessons | null; tasks?: { n: number; code: string; key: string; base_set: number | null; text: string }[]; task_labels?: Record<string, string>; lines: string[]; images_now: number; month: string | null; voice: string; products: { code: string; name: string; spend: number; promo: string; waiting: number; testing: number }[] }
 
 /** What to make today, worked back from the month's goal (worker/grokLoop.ts brief). */
 function BriefCard({ b }: { b: Brief }) {
@@ -170,6 +171,14 @@ function BriefCard({ b }: { b: Brief }) {
         <ul className="small trial-rows">{b.products.slice(0, Math.max(3, b.images_now)).map((p) => (
           <li key={p.code}><b>{p.code}</b> {p.name} · ค่าแอด 14 วัน {p.spend.toLocaleString('th-TH')}{p.promo ? ` · โปร ${p.promo}` : ''} · <span className="muted">ภาพรอ {p.waiting} · กำลังทดสอบ {p.testing}</span></li>))}</ul>
       </>}
+      {b.lessons && b.lessons.tests > 0 && <details open={b.lessons.decided > 0}>
+        <summary className="small"><b>แอดทดสอบจริงสอนอะไร</b> — {b.lessons.decided} ตัวรู้ผลแล้ว จาก {b.lessons.tests} ตัว</summary>
+        <p className="muted small">ที่มา: แอด (Grok) ทุกตัว · ชนะ = ออเดอร์จริง Page365 ≥ 3 และ ROAS จริงถึงจุดคุ้มทุนร้าน ({b.lessons.breakeven.toFixed(2)}) หรือกฎย้ายขึ้นกลุ่มทดสอบแล้ว · แพ้ = หยุดหรือจบโดยไม่ถึงเกณฑ์นั้น · รายการงานข้างบนลองแบบที่ชนะก่อน และไม่ทำแบบที่แพ้ทุกครั้ง (แพ้ ≥ 2 ไม่เคยชนะ) · คนเขียนแคปชัน กรรมการ AI และ prompt ภาพได้รับตารางนี้ด้วย</p>
+        <b className="small">แบบภาพ</b>
+        <ul className="small trial-rows">{b.lessons.image_lines.map((l, i) => <li key={i}>{l.replace(/^- /, '')}</li>)}</ul>
+        <b className="small">แนวแคปชัน</b>
+        <ul className="small trial-rows">{b.lessons.caption_lines.map((l, i) => <li key={i}>{l.replace(/^- /, '')}</li>)}</ul>
+      </details>}
       {b.voice && <details><summary className="small">ลูกค้าถามอะไร / ทำไมยังไม่ซื้อ (จากแชท 3 วันล่าสุด — ใช้เป็นมุมภาพและแคปชัน ตัวเขียนแคปชันได้รับชุดเดียวกันนี้)</summary><pre className="trial-text small">{b.voice}</pre></details>}
     </section>
   );

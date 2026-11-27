@@ -43,6 +43,7 @@ import * as studio from './studio.ts';
 import * as trial from './playbookTrial.ts';
 import * as grokAds from './grokAds.ts';
 import { loadTaskInputs, planTasks, TASK_LABEL, VARIABLES } from './grokTasks.ts';
+import { loadLessons } from './realLessons.ts';
 import { brief } from './grokLoop.ts';
 import { aiEnabled, askAI, botErrors, botRateText, citeKey, INSIGHT_SYSTEM, insightPrompt, transcript, type Conversation } from './chatInsights.ts';
 import { editKb, fixedBefore, kbMessage, kbModal, rewriteKb, kbPasteText, listKb, markApplied, postBot, proposeItems, repeatsText, setKbStatus, speaker, type KbItem } from './botKb.ts';
@@ -231,9 +232,11 @@ async function loadBrief(env: Env) {
   // What each picture should test (worker/grokTasks.ts): the winner + one change, or a new product.
   const be = await loadSettings(env.DB).then((st) => shopBreakeven(env.DB, st, new Date())).catch(() => null);
   const ti = await loadTaskInputs(env.DB, be).catch(() => ({ winners: [], tried: new Map<string, Set<string>>() }));
+  // What the test ads really sold, per picture task and caption hook (worker/realLessons.ts): orders the task list too.
+  const lessons = await loadLessons(env.DB, TASK_LABEL, studio.HOOKS, be).catch(() => null);
   const want = Math.max(0, (b as any).images_now ?? 0);
-  const tasks = planTasks({ free: want, ...ti, explore: products.map((p) => ({ code: p.code, promo: p.promo ?? '' })), promos: new Map(products.map((p) => [lc(p.code), p.promo ?? ''] as [string, string]).filter(([, v]) => v)) });
-  return { ...b, month: goal?.month ?? null, products: rows, tasks, task_labels: TASK_LABEL, variables: VARIABLES.map((v) => ({ key: v.key, label: v.label })), voice: await studio.customerVoice(env.DB).catch(() => '') };
+  const tasks = planTasks({ free: want, ...ti, results: lessons?.images ?? [], explore: products.map((p) => ({ code: p.code, promo: p.promo ?? '' })), promos: new Map(products.map((p) => [lc(p.code), p.promo ?? ''] as [string, string]).filter(([, v]) => v)) });
+  return { ...b, month: goal?.month ?? null, products: rows, tasks, lessons, task_labels: TASK_LABEL, variables: VARIABLES.map((v) => ({ key: v.key, label: v.label })), voice: await studio.customerVoice(env.DB).catch(() => '') };
 }
 
 /** Every hour (STUDIO_CRON): judge new images, make post sets, propose them in #studio-training, stop "(Grok)" ads past 14 days. */
