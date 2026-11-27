@@ -309,9 +309,7 @@ export class MetaClient {
         const newAdset = await this.createAdsetFrom(adset, id, String(t.name ?? 'ชุดโฆษณา'), budget);
         children.push(newAdset);
         for (const ad of ads.filter((x) => x.adset_id === adset)) {
-          const n = await this.post(`${ad.id}/copies`, { adset_id: newAdset, status_option: 'PAUSED' });
-          if (!n.copied_ad_id) throw new Error(`Meta ไม่ได้ส่ง id โฆษณาใหม่กลับมา (แคมเปญใหม่ ${id})`);
-          children.push(String(n.copied_ad_id));
+          children.push(await this.copyAd(ad.id, newAdset));
         }
       }
     } catch (err) {
@@ -319,6 +317,32 @@ export class MetaClient {
       throw err;
     }
     return { id, children };
+  }
+
+  /**
+   * Copy of an ad into another ad set, PAUSED. Meta's `<ad>/copies` is tried first; when it refuses the creative
+   * (2026-11-27 "โพสผี 501/1": "Creative should not include standard enhancements", subcode 3858504, the old
+   * one-switch enhancements Meta deprecated), a new ad is made on the same page post (same likes and comments, what
+   * Ads Manager's duplicate does), or from the creative's spec when it has no post, leaving the enhancements to Meta.
+   */
+  async copyAd(adId: string, adsetId: string): Promise<string> {
+    try {
+      const n = await this.post(`${adId}/copies`, { adset_id: adsetId, status_option: 'PAUSED' });
+      if (n.copied_ad_id) return String(n.copied_ad_id);
+    } catch (err: any) {
+      if (!/standard enhancements|3858504/i.test(String(err?.message ?? err))) throw err;
+    }
+    const a = await this.get(adId, { fields: 'name,creative{name,object_story_id,effective_object_story_id,object_story_spec,url_tags}' });
+    const c = a.creative ?? {};
+    const story = c.effective_object_story_id ?? c.object_story_id;
+    const params: Record<string, string> = { name: String(c.name || a.name || 'ครีเอทีฟ') };
+    if (story) params.object_story_id = String(story);
+    else if (c.object_story_spec) params.object_story_spec = JSON.stringify(c.object_story_spec);
+    else throw new Error(`โฆษณา ${adId} ไม่มีโพสต์หรือสเปกครีเอทีฟให้สร้างใหม่ — รบกวนคัดลอกใน Ads Manager นะคะ`);
+    if (c.url_tags) params.url_tags = String(c.url_tags);
+    const r = await this.post(`${this.accountId}/adcreatives`, params);
+    if (!r.id) throw new Error('Meta ไม่ได้ส่ง id ครีเอทีฟกลับมา');
+    return this.createAd(adsetId, String(a.name || 'โฆษณา'), String(r.id), 'PAUSED');
   }
 
   // ---- new ads from the training room (ads-web/worker/grokAds.ts, Benz 2026-11-09) ----
