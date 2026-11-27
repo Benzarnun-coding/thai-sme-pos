@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { blockedByKillSwitch, expireOld, proposalMessage, verifyDiscord } from './discord.ts';
+import { blockedByKillSwitch, claimDup, expireOld, proposalMessage, verifyDiscord } from './discord.ts';
 import { sqliteD1 } from './sqliteD1.ts';
 
 test('Discord signatures are checked with the app key', async () => {
@@ -48,4 +48,21 @@ test('kill switch blocks presses that touch Meta or the spend cap, not moves or 
   assert.equal(blockedByKillSwitch('approve', 'move'), false);
   assert.equal(blockedByKillSwitch('reject', 'pause'), false);
   assert.equal(blockedByKillSwitch('totesting', 'pause'), false);
+});
+
+test('two old "คัดลอกเลย" questions about one campaign make one copy, not two (2026-11-27)', async () => {
+  const { raw, d1 } = sqliteD1(`CREATE TABLE proposals (id TEXT PRIMARY KEY, created_at TEXT, kind TEXT, entity_id TEXT, entity_name TEXT, rule_id TEXT, plan TEXT,
+    detail TEXT, status TEXT, decided_by TEXT, decided_at TEXT, message_id TEXT)`);
+  const add = (id: string, entity: string, status: string) => raw.prepare(`INSERT INTO proposals (id, created_at, kind, entity_id, entity_name, rule_id, plan, detail, status)
+    VALUES (?, '2026-11-26T00:00:00.000Z', 'dup', ?, 'C', 'dup', '', '{}', ?)`).run(id, entity, status);
+  add('a', 'c1', 'failed'); add('b', 'c1', 'failed'); add('x', 'c2', 'pending');
+  const status = (id: string) => (raw.prepare('SELECT status FROM proposals WHERE id = ?').get(id) as any).status;
+  assert.equal(await claimDup(d1, 'a', 'failed', 'Benz', '2026-11-27T05:55:43.000Z'), 'ok');
+  assert.match(await claimDup(d1, 'b', 'failed', 'Benz', '2026-11-27T05:56:25.000Z'), /กำลังคัดลอก/); // first still copying
+  assert.equal(status('b'), 'expired');
+  raw.prepare(`UPDATE proposals SET status = 'approved' WHERE id = 'a'`).run();
+  add('c', 'c1', 'pending');
+  assert.match(await claimDup(d1, 'c', 'pending', 'Max', '2026-11-28T01:00:00.000Z'), /คัดลอกไปแล้ว/); // copied within 7 days
+  assert.equal(await claimDup(d1, 'x', 'pending', 'Max', '2026-11-28T01:00:00.000Z'), 'ok'); // another campaign is unaffected
+  assert.match(await claimDup(d1, 'x', 'pending', 'Max', '2026-11-28T01:00:01.000Z'), /มีคนกดไปแล้ว/);
 });

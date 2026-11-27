@@ -50,7 +50,7 @@ import { checkDoc, docIdFrom, docLive, docText, loadDocSettings, saveDocSettings
 import { closeCase, customerName, serviceAlerts, servicePreview } from './serviceAlert.ts';
 import { familyStats, postIdeas, postIdeasText, spendForUploadedDays } from './postIdeas.ts';
 import { dayNet, goalLastDay, goalStatus, monthDates, nextCap, type DayNet, type GoalStatus } from './goal.ts';
-import { approvalsEnabled, blockedByKillSwitch, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
+import { approvalsEnabled, blockedByKillSwitch, claimDup, editMessage, expireOld, idList, postToDeciders, recentlyAsked, postProposal, postUploadReminder, saveProposals, uploadReminderMessage, verifyDiscord, type Proposal } from './discord.ts';
 import { hourCheck, hourCheckText } from './hourCheck.ts';
 import { syncP365Costs } from './p365Costs.ts';
 import { applyCardCorrections, CARD_REASON, cardCorrectionOn, cardCorrections } from './billCards.ts';
@@ -2514,6 +2514,15 @@ function parseView(w: string | null): Window {
   return 'last_7d';
 }
 
+/** After a copy: the campaign's other open "คัดลอกเลย" questions are closed and lose their buttons. */
+async function closeOtherDups(env: Env, p: Proposal, at: string): Promise<void> {
+  const rows = await env.DB.prepare(`SELECT id, message_id FROM proposals WHERE kind = 'dup' AND entity_id = ? AND id <> ? AND status IN ('pending', 'failed')`).bind(p.entity_id, p.id).all<{ id: string; message_id: string | null }>();
+  for (const r of rows.results ?? []) {
+    await env.DB.prepare(`UPDATE proposals SET status = 'expired', decided_at = ? WHERE id = ? AND status IN ('pending', 'failed')`).bind(at, r.id).run();
+    if (r.message_id) await editMessage(env, r.message_id, `~~คัดลอก "${p.entity_name}"~~ — คัดลอกไปแล้วจากข้อความล่าสุดค่ะ ข้อความนี้ไม่ใช้แล้ว`, []).catch(() => null);
+  }
+}
+
 /**
  * Copies a winning campaign: checks the shop-wide cap and the ad count first, copies everything paused, sets the
  * copy's budget, then switches it on and puts it in the "testing" stage. Reports back by editing the question.
@@ -2542,6 +2551,7 @@ async function copyWinner(env: Env, p: Proposal, who: string): Promise<void> {
     const at = new Date().toISOString();
     await applyMoves(env.DB, [{ campaign_id: copy.id, name: `${p.entity_name} (คัดลอก)`, from: null, to: 'testing' }], at);
     await audit(env.DB, `discord:${who}`, 'campaign.copy', p.entity_id, { copy: copy.id, budget, children: copy.children.length });
+    await closeOtherDups(env, p, at).catch((err) => console.error('close other dup questions', err));
     await done('approved', `🧬 **คัดลอกแล้วค่ะ** "${p.entity_name}" → แคมเปญใหม่ "${p.entity_name} (คัดลอก)" (ชุดโฆษณา ${objs.adsets.length} · โฆษณา ${objs.ads.length}) งบเริ่ม **${budget}/วัน** เปิดแล้ว อยู่กลุ่มทดสอบ จะไต่ +20% ทุกรอบถ้ายังคุ้มทุน จนถึง ${DUP_RAMP_TO.toLocaleString('th-TH')} — ${who} อนุมัติ ขอบคุณค่ะ 🙏`);
   } catch (err: any) {
     await done('failed', `❌ คัดลอก "${p.entity_name}" ไม่สำเร็จค่ะ: ${err?.message ?? err} — ถ้ามีแคมเปญ "(คัดลอก)" ค้างอยู่ใน Ads Manager (หยุดอยู่) ลบก่อนแล้วกดลองใหม่ได้ค่ะ`);
@@ -2649,8 +2659,8 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
   if (verb === 'dupretry' && p.kind === 'dup' && p.status === 'failed') {
     if ((await loadSettings(env.DB)).kill_switch) return json({ type: 4, data: { content: '⛔ ตอนนี้เปิด kill switch อยู่ (หน้าตั้งค่า) — น้องยังไม่ทำให้นะคะ', flags: 64 } });
     const at = new Date().toISOString();
-    const claimed = await env.DB.prepare(`UPDATE proposals SET status = 'working', decided_by = ?, decided_at = ? WHERE id = ? AND status = 'failed'`).bind(who, at, p.id).run();
-    if (!claimed.meta.changes) return reply('มีคนกดไปแล้วค่ะ');
+    const claim = await claimDup(env.DB, p.id, 'failed', who, at);
+    if (claim !== 'ok') return reply(claim);
     ctx.waitUntil(copyWinner(env, p, who).catch(() => null));
     return reply(`⏳ **น้องกำลังลองคัดลอกใหม่** "${p.entity_name}" ค่ะ — ${who} กด · เสร็จแล้วข้อความนี้จะเปลี่ยนนะคะ`);
   }
@@ -2666,8 +2676,8 @@ async function discordInteraction(req: Request, env: Env, ctx: ExecutionContext)
     if (verb === 'approve' && p.kind === 'dup') {
       // Copying takes longer than Discord's 3-second reply window: claim it, answer now, finish in the background
       // and edit the question with the result.
-      const claimed = await env.DB.prepare(`UPDATE proposals SET status = 'working', decided_by = ?, decided_at = ? WHERE id = ? AND status = 'pending'`).bind(who, at, p.id).run();
-      if (!claimed.meta.changes) return reply('มีคนกดไปแล้วค่ะ');
+      const claim = await claimDup(env.DB, p.id, 'pending', who, at);
+      if (claim !== 'ok') return reply(claim);
       ctx.waitUntil(copyWinner(env, p, who).catch(() => null));
       return reply(`⏳ **น้องกำลังคัดลอก** "${p.entity_name}" ค่ะ — ${who} อนุมัติ · เสร็จแล้วข้อความนี้จะเปลี่ยนนะคะ`);
     }

@@ -206,3 +206,27 @@ export async function expireOld(env: DiscordEnv, before: string, opts: { capOnly
 export function blockedByKillSwitch(verb: string, kind: string): boolean {
   return verb === 'approve' && (kind === 'pause' || kind === 'dup' || kind === 'cap');
 }
+
+/**
+ * Claims a "คัดลอกเลย" question for copying, in one statement so two presses can't both win. Refused while another
+ * question about the same campaign is copying or was copied in the last 7 days: every run used to ask again and a
+ * failed question keeps its retry button, so on 2026-11-27 two retries on two old messages made two live copies.
+ */
+export async function claimDup(db: D1Database, id: string, from: 'pending' | 'failed', who: string, at: string): Promise<'ok' | string> {
+  const since = new Date(Date.parse(at) - 7 * 86_400_000).toISOString();
+  const r = await db.prepare(
+    `UPDATE proposals SET status = 'working', decided_by = ?1, decided_at = ?2 WHERE id = ?3 AND status = ?4
+       AND NOT EXISTS (SELECT 1 FROM proposals q WHERE q.kind = 'dup' AND q.entity_id = proposals.entity_id AND q.id <> proposals.id
+         AND (q.status = 'working' OR (q.status = 'approved' AND q.decided_at > ?5)))`,
+  ).bind(who, at, id, from, since).run();
+  if (r.meta.changes) return 'ok';
+  const other = await db.prepare(
+    `SELECT q.status, q.decided_by FROM proposals q JOIN proposals p ON p.id = ?1 WHERE q.kind = 'dup' AND q.entity_id = p.entity_id AND q.id <> p.id
+       AND (q.status = 'working' OR (q.status = 'approved' AND q.decided_at > ?2)) LIMIT 1`,
+  ).bind(id, since).first<{ status: string; decided_by: string | null }>();
+  if (!other) return 'มีคนกดไปแล้วค่ะ';
+  await db.prepare(`UPDATE proposals SET status = 'expired', decided_at = ?2 WHERE id = ?1 AND status IN ('pending', 'failed')`).bind(id, at).run();
+  return other.status === 'working'
+    ? `แคมเปญนี้กำลังคัดลอกจากอีกข้อความอยู่ค่ะ (${other.decided_by ?? '-'} กด) — ข้อความนี้ไม่ใช้แล้วนะคะ`
+    : `แคมเปญนี้คัดลอกไปแล้วค่ะ (${other.decided_by ?? '-'} อนุมัติ ภายใน 7 วัน) — ข้อความนี้ไม่ใช้แล้ว ไม่คัดลอกซ้ำนะคะ`;
+}
